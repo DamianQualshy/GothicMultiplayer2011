@@ -659,7 +659,7 @@ void OnJoinGame(GameClient* client, Packet packet) {
   if (newhero->Type > CPlayer::NPC_DRACONIAN || newhero->Type == CPlayer::NPC_HUMAN)
     newhero->npc->ApplyOverlay(CPlayer::GetWalkStyleFromByte(joinGamePacket.walk_style));
   CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "%s%s", joinGamePacket.player_name.c_str(),
-                                     (*client->lang)[CLanguage::SOMEONE_JOIN_GAME].ToChar());
+                                    client->lang->GetString(CLanguage::SOMEONE_JOIN_GAME).ToChar());
   newhero->enable = FALSE;
   newhero->update_hp_packet = 0;
   // kod
@@ -693,7 +693,7 @@ void OnLeftGame(GameClient* client, Packet packet) {
   for (size_t i = 1; i < client->players.size(); i++) {
     if (client->players[i]->id == disconnectionInfoPacket.disconnected_id) {
       CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s%s", client->players[i]->GetName(),
-                                         (*client->lang)[CLanguage::SOMEONEDISCONNECT_FROM_SERVER].ToChar());
+                                        client->lang->GetString(CLanguage::SOMEONEDISCONNECT_FROM_SERVER).ToChar());
       client->players[i]->LeaveGame();
       delete client->players[i];
       client->players.erase(client->players.begin() + i);

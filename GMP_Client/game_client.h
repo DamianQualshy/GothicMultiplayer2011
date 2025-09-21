@@ -62,7 +62,7 @@ public:
   bool IsConnected(void);
   bool Connect(void);
   void JoinGame(BYTE selected_class);
-  zSTRING& GetLastError(void);
+  const zSTRING& GetLastError(void) const;
   void SendDropItem(short Instance, short amount);
   void SendTakeItem(short Instance);
   void SendCastSpell(oCNpc* Target, short SpellId);

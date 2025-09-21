@@ -122,7 +122,7 @@ void CInventory::RenderInventory() {
     if (!Owner->IsMovLock())
       Owner->SetMovLock(1);
     screen->SetFontColor(Normal);
-    screen->Print(2000, 2000, (*Lang)[CLanguage::INV_HOWMUCH]);
+    screen->Print(2000, 2000, Lang->GetString(CLanguage::INV_HOWMUCH));
     screen->Print(2000, 2200, GetSelectedItem()->GetDescription());
     q[0] = GInput::GetNumberCharacterFromKeyboard();
     if ((q[0] == 0x08) && (AmountNum.Length() > 0))

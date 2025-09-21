@@ -194,7 +194,8 @@ char bufferTemp[128];
 void __stdcall PrepareKillMessage()
 {
     if(player->GetFocusNpc()){
-        sprintf(bufferTemp, "%s %s", (*Lang)[CLanguage::KILLEDSOMEONE_MSG].ToChar(), player->GetFocusNpc()->GetName().ToChar());
+        sprintf(bufferTemp, "%s %s", Lang->GetString(CLanguage::KILLEDSOMEONE_MSG).ToChar(),
+                player->GetFocusNpc()->GetName().ToChar());
         TestPrint = bufferTemp;
     }
     else{
@@ -324,7 +325,8 @@ bool _stdcall CheckIfDistanceIsCorrect(oCMsgManipulate* Msg, oCNpc* Npc)
 				return true;
 			}
 			else if(oCItem* Item = zDYNAMIC_CAST<oCItem>(Msg->targetVob)){
-				sprintf(bufferTemp, "%s %s", Item->name.ToChar(), (*Lang)[CLanguage::ITEM_TOOFAR].ToChar());
+                            sprintf(bufferTemp, "%s %s", Item->name.ToChar(),
+                                    Lang->GetString(CLanguage::ITEM_TOOFAR).ToChar());
 				TakeTooFarMessage = bufferTemp;
 				ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimedCXY(TakeTooFarMessage, 4000.0f, 0);
 				return false;

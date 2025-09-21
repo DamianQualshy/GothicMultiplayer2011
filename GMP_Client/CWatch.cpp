@@ -51,9 +51,9 @@ void CWatch::PrintWatch() {
   tmp = TimePrint;
   screen->SetFont("FONT_DEFAULT.TGA");
   screen->SetFontColor({255, 255, 255});
-  screen->Print(Con->WatchPosX, Con->WatchPosY, (*Langs)[CLanguage::CWATCH_REALTIME]);
+  screen->Print(Con->WatchPosX, Con->WatchPosY, Langs->GetString(CLanguage::CWATCH_REALTIME));
   screen->Print(Con->WatchPosX, Con->WatchPosY + 200, tmp);
-  screen->Print(Con->WatchPosX, Con->WatchPosY + 400, (*Langs)[CLanguage::CWATCH_GAMETIME]);
+  screen->Print(Con->WatchPosX, Con->WatchPosY + 400, Langs->GetString(CLanguage::CWATCH_GAMETIME));
   ogame->GetWorldTimer()->GetTime(H, M);
   sprintf(TimePrint, "%d:%.2d", H, M);
   tmp = TimePrint;

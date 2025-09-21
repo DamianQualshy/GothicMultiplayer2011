@@ -191,8 +191,8 @@ void CIngame::Loop() {
     if (MuteCountdown) {
       long secs_to_unmute = (MuteTimer - clock()) / 1000;
       char tmp_char[32];
-      sprintf(tmp_char, "%s : %d", (*global_ingame->lang)[CLanguage::UNMUTE_TIME].ToChar(), secs_to_unmute);
-      const std::string mute_msg = std::format("{} : {}", (*global_ingame->lang)[CLanguage::UNMUTE_TIME].ToChar(), secs_to_unmute);
+      sprintf(tmp_char, "%s : %d", global_ingame->lang->GetString(CLanguage::UNMUTE_TIME).ToChar(), secs_to_unmute);
+      const std::string mute_msg = std::format("{} : {}", global_ingame->lang->GetString(CLanguage::UNMUTE_TIME).ToChar(), secs_to_unmute);
       screen->PrintCXY(mute_msg.c_str());
       if (secs_to_unmute < 0) {
         MuteCountdown = false;
@@ -335,7 +335,7 @@ void CIngame::HandleInput() {
         switch (chat_interface->PrintMsgType) {
           case NORMAL:
             if (!memcmp("passwd", chatbuffer.c_str(), 6) || !memcmp("login", chatbuffer.c_str(), 5))
-              CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0), (*lang)[CLanguage::CHAT_WRONGWINDOW].ToChar());
+              CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0), lang->GetString(CLanguage::CHAT_WRONGWINDOW).ToChar());
             else {
               if (MuteTimer < clock()) {
                 if (SpamMessages < 3) {
@@ -357,13 +357,13 @@ void CIngame::HandleInput() {
           case WHISPER:
             if (chatbuffer[0] == '/') {
               if (!memcmp(player->GetName().ToChar(), chatbuffer.c_str() + 1, strlen(chatbuffer.c_str() + 1)))
-                chat_interface->WriteMessage(WHISPER, false, zCOLOR(255, 0, 0), (*lang)[CLanguage::CHAT_CANTWHISPERTOYOURSELF].ToChar());
+                chat_interface->WriteMessage(WHISPER, false, zCOLOR(255, 0, 0), lang->GetString(CLanguage::CHAT_CANTWHISPERTOYOURSELF).ToChar());
               else {
                 if (PlayerExists(chatbuffer.c_str() + 1)) {
                   WhisperingTo = chatbuffer.c_str() + 1;
                   chat_interface->SetWhisperTo(WhisperingTo);
                 } else
-                  chat_interface->WriteMessage(WHISPER, false, zCOLOR(255, 0, 0), (*lang)[CLanguage::CHAT_PLAYER_DOES_NOT_EXIST].ToChar());
+                  chat_interface->WriteMessage(WHISPER, false, zCOLOR(255, 0, 0), lang->GetString(CLanguage::CHAT_PLAYER_DOES_NOT_EXIST).ToChar());
               }
             } else if (WhisperingTo.length() > 0) {
               client->SendWhisper(WhisperingTo.c_str(), chatbuffer.c_str());

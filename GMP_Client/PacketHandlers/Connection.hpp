@@ -40,6 +40,7 @@ void OnDisconnectOrLostConnection(GameClient* client, Packet packet) {
   client->network->connection_lost_ = true;
   client->IsInGame = false;
   client->IsReadyToJoin = false;
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s", (*client->lang)[CLanguage::DISCONNECTED].ToChar());
+  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s",
+                                     client->lang->GetString(CLanguage::DISCONNECTED).ToChar());
 }
 }  // namespace Connection

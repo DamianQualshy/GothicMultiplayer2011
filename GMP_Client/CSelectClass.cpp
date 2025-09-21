@@ -69,16 +69,25 @@ void CSelectClass::Loop() {
   if (selectmgr) {
     screen->SetFont(zfontman->GetFont(0));
     player->SetMovLock(1);
-    screen->Print(0, 0, (*selectmgr->lang)[CLanguage::SELECT_CONTROLS]);
-    screen->Print(0, 150, (*selectmgr->lang)[CLanguage::CLASS_NAME]);
-    screen->Print(0, 300, (*selectmgr->lang)[CLanguage::CLASS_DESCRIPTION]);
-    screen->Print(0, 450, (*selectmgr->lang)[CLanguage::TEAM_NAME]);
+    screen->Print(0, 0, selectmgr->lang->GetString(CLanguage::SELECT_CONTROLS));
+    screen->Print(0, 150, selectmgr->lang->GetString(CLanguage::CLASS_NAME));
+    screen->Print(0, 300, selectmgr->lang->GetString(CLanguage::CLASS_DESCRIPTION));
+    screen->Print(0, 450, selectmgr->lang->GetString(CLanguage::TEAM_NAME));
     CHeroClass *chc = selectmgr->client->classmgr;
-    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::CLASS_NAME].Length()) * fWRatio), 150,
+    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 *
+                                                           selectmgr->lang->GetString(CLanguage::CLASS_NAME).Length()) *
+                                                fWRatio),
+                  150,
                   (*chc)[selectmgr->GetSelected()]->class_name);
-    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::CLASS_DESCRIPTION].Length()) * fWRatio), 300,
+    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 *
+                                                           selectmgr->lang->GetString(CLanguage::CLASS_DESCRIPTION).Length()) *
+                                                fWRatio),
+                  300,
                   (*chc)[selectmgr->GetSelected()]->class_description);
-    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::TEAM_NAME].Length()) * fWRatio), 450,
+    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 *
+                                                           selectmgr->lang->GetString(CLanguage::TEAM_NAME).Length()) *
+                                                fWRatio),
+                  450,
                   (*chc)[selectmgr->GetSelected()]->team_name);
     selectmgr->HandleInput();  // wyrzucilem na koniec bo za szybko robil delete this;
   }

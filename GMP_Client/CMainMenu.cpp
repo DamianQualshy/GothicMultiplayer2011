@@ -35,6 +35,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 #include <urlmon.h>
 
+#include <filesystem>
 #include <fstream>
 
 #include "CLanguage.h"
@@ -229,9 +230,8 @@ void CMainMenu::LoadLangNames(void) {
   }
 
   for (const auto& lang : vec_lang_files) {
-    std::string langName;
-    std::ifstream langFile(LANG_DIR + lang, std::ifstream::in);
-    langFile >> langName;
+    const std::filesystem::path langPath = std::filesystem::path(LANG_DIR) / lang;
+    const std::string langName = CLanguage::ReadLanguageName(langPath);
     vec_choose_lang.push_back(zSTRING(langName.c_str()));
   }
 };
@@ -299,19 +299,19 @@ void CMainMenu::PrintMenu() {
       screen->SetFont("FONT_OLD_20_WHITE.TGA");
       FColor = (MenuPos == 0) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3200, (*LangSetting)[CLanguage::MMENU_CHSERVER]);
+      screen->Print(200, 3200, LangSetting->GetString(CLanguage::MMENU_CHSERVER));
       FColor = (MenuPos == 1) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3600, (*LangSetting)[CLanguage::MMENU_APPEARANCE]);
+      screen->Print(200, 3600, LangSetting->GetString(CLanguage::MMENU_APPEARANCE));
       FColor = (MenuPos == 2) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4000, (*LangSetting)[CLanguage::MMENU_OPTIONS]);
+      screen->Print(200, 4000, LangSetting->GetString(CLanguage::MMENU_OPTIONS));
       FColor = (MenuPos == 3) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4400, (*LangSetting)[CLanguage::MMENU_ONLINEOPTIONS]);
+      screen->Print(200, 4400, LangSetting->GetString(CLanguage::MMENU_ONLINEOPTIONS));
       FColor = (MenuPos == 4) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4800, (*LangSetting)[CLanguage::MMENU_LEAVEGAME]);
+      screen->Print(200, 4800, LangSetting->GetString(CLanguage::MMENU_LEAVEGAME));
       break;
     case SERVER_LIST: {
       esl->setLanguage(LangSetting);
@@ -325,7 +325,7 @@ void CMainMenu::PrintMenu() {
       if (WritingNickname)
         FColor = Red;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3200, (*LangSetting)[CLanguage::MMENU_NICKNAME]);
+      screen->Print(200, 3200, LangSetting->GetString(CLanguage::MMENU_NICKNAME));
       screen->SetFontColor(Normal);
       if (ScreenResolution.x < 1024)
         screen->Print(1800, 3200, user_config->Nickname);
@@ -333,23 +333,23 @@ void CMainMenu::PrintMenu() {
         screen->Print(1500, 3200, user_config->Nickname);
       FColor = (OptionPos == 1) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3600, (user_config->logchat) ? (*LangSetting)[CLanguage::MMENU_LOGCHATYES] : (*LangSetting)[CLanguage::MMENU_LOGCHATNO]);
+      screen->Print(200, 3600, (user_config->logchat) ? LangSetting->GetString(CLanguage::MMENU_LOGCHATYES) : LangSetting->GetString(CLanguage::MMENU_LOGCHATNO));
       FColor = (OptionPos == 2) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4000, (user_config->watch) ? (*LangSetting)[CLanguage::MMENU_WATCHON] : (*LangSetting)[CLanguage::MMENU_WATCHOFF]);
+      screen->Print(200, 4000, (user_config->watch) ? LangSetting->GetString(CLanguage::MMENU_WATCHON) : LangSetting->GetString(CLanguage::MMENU_WATCHOFF));
       FColor = (OptionPos == 3) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4400, (*LangSetting)[CLanguage::MMENU_SETWATCHPOS]);
+      screen->Print(200, 4400, LangSetting->GetString(CLanguage::MMENU_SETWATCHPOS));
       FColor = (OptionPos == 4) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
       screen->Print(200, 4800,
-                    (user_config->antialiasing) ? (*LangSetting)[CLanguage::MMENU_ANTIALIASINGYES] : (*LangSetting)[CLanguage::MMENU_ANTIAlIASINGNO]);
+                    (user_config->antialiasing) ? LangSetting->GetString(CLanguage::MMENU_ANTIALIASINGYES) : LangSetting->GetString(CLanguage::MMENU_ANTIAlIASINGNO));
       FColor = (OptionPos == 5) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 5200, (user_config->joystick) ? (*LangSetting)[CLanguage::MMENU_JOYSTICKYES] : (*LangSetting)[CLanguage::MMENU_JOYSTICKNO]);
+      screen->Print(200, 5200, (user_config->joystick) ? LangSetting->GetString(CLanguage::MMENU_JOYSTICKYES) : LangSetting->GetString(CLanguage::MMENU_JOYSTICKNO));
       FColor = (OptionPos == 6) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      sprintf(tmpbuff, "%s %d", (*LangSetting)[CLanguage::MMENU_CHATLINES].ToChar(), user_config->ChatLines);
+      sprintf(tmpbuff, "%s %d", LangSetting->GetString(CLanguage::MMENU_CHATLINES).ToChar(), user_config->ChatLines);
       ChatLinesTMP = tmpbuff;
       screen->Print(200, 5600, ChatLinesTMP);
       FColor = (OptionPos == 7) ? Highlighted : Normal;
@@ -358,33 +358,33 @@ void CMainMenu::PrintMenu() {
       int printy = 6000;
       switch (user_config->keyboardlayout) {
         case CConfig::KEYBOARD_POLISH:
-          screen->Print(printx, printy, (*LangSetting)[CLanguage::KEYBOARD_POLISH]);
+          screen->Print(printx, printy, LangSetting->GetString(CLanguage::KEYBOARD_POLISH));
           break;
         case CConfig::KEYBOARD_GERMAN:
-          screen->Print(printx, printy, (*LangSetting)[CLanguage::KEYBOARD_GERMAN]);
+          screen->Print(printx, printy, LangSetting->GetString(CLanguage::KEYBOARD_GERMAN));
           break;
         case CConfig::KEYBOARD_CYRYLLIC:
-          screen->Print(printx, printy, (*LangSetting)[CLanguage::KEYBOARD_RUSSIAN]);
+          screen->Print(printx, printy, LangSetting->GetString(CLanguage::KEYBOARD_RUSSIAN));
           break;
       };
       FColor = (OptionPos == 8) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 6400, (user_config->logovideos) ? (*LangSetting)[CLanguage::INTRO_YES] : (*LangSetting)[CLanguage::INTRO_NO]);
+      screen->Print(200, 6400, (user_config->logovideos) ? LangSetting->GetString(CLanguage::INTRO_YES) : LangSetting->GetString(CLanguage::INTRO_NO));
       FColor = (OptionPos == 9) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 6800, (*LangSetting)[CLanguage::MMENU_BACK]);
+      screen->Print(200, 6800, LangSetting->GetString(CLanguage::MMENU_BACK));
     } break;
     case WORLDBUILDER_MENU:
       screen->SetFont("FONT_OLD_20_WHITE.TGA");
       FColor = (WBMenuPos == 0) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3200, (*LangSetting)[CLanguage::WB_NEWMAP]);
+      screen->Print(200, 3200, LangSetting->GetString(CLanguage::WB_NEWMAP));
       FColor = (WBMenuPos == 1) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3600, (*LangSetting)[CLanguage::WB_LOADMAP]);
+      screen->Print(200, 3600, LangSetting->GetString(CLanguage::WB_LOADMAP));
       FColor = (WBMenuPos == 2) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4000, (*LangSetting)[CLanguage::MMENU_BACK]);
+      screen->Print(200, 4000, LangSetting->GetString(CLanguage::MMENU_BACK));
       break;
   }
 };
@@ -573,8 +573,8 @@ void CMainMenu::RenderMenu() {
       if (user_config->IsDefault() || user_config->Nickname.IsEmpty()) {
         if (!vec_choose_lang.empty())
           vec_choose_lang.clear();
-        screen->Print(200, 200, (*LangSetting)[CLanguage::WRITE_NICKNAME]);
-        screen->Print(200 + static_cast<zINT>(static_cast<float>((*LangSetting)[CLanguage::WRITE_NICKNAME].Length() * 70) * fWRatio), 200,
+        screen->Print(200, 200, LangSetting->GetString(CLanguage::WRITE_NICKNAME));
+        screen->Print(200 + static_cast<zINT>(static_cast<float>(LangSetting->GetString(CLanguage::WRITE_NICKNAME).Length() * 70) * fWRatio), 200,
                       user_config->Nickname);
         x[0] = GInput::GetCharacterFormKeyboard();
         if ((x[0] == 8) && (user_config->Nickname.Length() > 0))
@@ -731,7 +731,7 @@ void CMainMenu::RenderMenu() {
       break;
     case MENU_APPEARANCE:
       screen->SetFont(FDefault);
-      screen->Print(100, 200, (*LangSetting)[CLanguage::APP_INFO1]);
+      screen->Print(100, 200, LangSetting->GetString(CLanguage::APP_INFO1));
       if (!AppCamCreated) {
         string_tmp = "ItMw_1h_Mil_Sword";
         AppWeapon = zfactory->CreateItem(zCParser::GetParser()->GetIndex(string_tmp));
@@ -764,7 +764,7 @@ void CMainMenu::RenderMenu() {
       switch (ChoosingApperance) {
         default:
         case ApperancePart::HEAD:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::HEAD_MODEL]);
+          screen->Print(500, 2000, LangSetting->GetString(CLanguage::HEAD_MODEL));
           if ((zinput->KeyToggled(KEY_LEFT))) {
             if (user_config->headmodel > 0) {
               user_config->headmodel--;
@@ -787,7 +787,7 @@ void CMainMenu::RenderMenu() {
           }
           break;
         case ApperancePart::FACE:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::FACE_APPERANCE]);
+          screen->Print(500, 2000, LangSetting->GetString(CLanguage::FACE_APPERANCE));
           if ((zinput->KeyToggled(KEY_LEFT))) {
             if (user_config->facetexture > 0) {
               user_config->facetexture--;
@@ -808,7 +808,7 @@ void CMainMenu::RenderMenu() {
           }
           break;
         case ApperancePart::SKIN:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::SKIN_TEXTURE]);
+          screen->Print(500, 2000, LangSetting->GetString(CLanguage::SKIN_TEXTURE));
           if (player->GetModel()->IsAnimationActive(WalkAnim))
             player->GetModel()->StopAnimation(WalkAnim);
           if ((zinput->KeyToggled(KEY_LEFT))) {
@@ -827,7 +827,7 @@ void CMainMenu::RenderMenu() {
           }
           break;
         case ApperancePart::WALKSTYLE:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::WALK_STYLE]);
+          screen->Print(500, 2000, LangSetting->GetString(CLanguage::WALK_STYLE));
           if ((zinput->KeyPressed(KEY_LEFT))) {
             zinput->ClearKeyBuffer();
             if (user_config->walkstyle > 0) {

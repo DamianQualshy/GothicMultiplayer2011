@@ -166,7 +166,7 @@ void CAnimMenu::PrintMenu() {
 
   // PRINT
   screen->SetFontColor(Normal);
-  screen->Print(6500, 3200, (*Lang)[CLanguage::ANIMS_MENU]);
+  screen->Print(6500, 3200, Lang->GetString(CLanguage::ANIMS_MENU));
   if ((int)AnimVector.size() > 9)
     PrintTo = 10;
   else

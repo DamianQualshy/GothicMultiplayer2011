@@ -48,7 +48,7 @@ CChat::CChat() {
   tmpanimname = "NULL";
   tmpnickname = CConfig::GetInstance()->Nickname;
   ShowHow = false;
-  WriteMessage(WHISPER, false, zCOLOR(0, 255, 0), (*Lang)[CLanguage::CHAT_WHISPERTONOONE].ToChar());
+  WriteMessage(WHISPER, false, zCOLOR(0, 255, 0), Lang->GetString(CLanguage::CHAT_WHISPERTONOONE).ToChar());
 };
 
 CChat::~CChat() {
@@ -69,7 +69,7 @@ void CChat::StartChatAnimation(int anim) {
 }
 
 void CChat::SetWhisperTo(std::string& whisperto) {
-  sprintf(buffer, "%s : %s", (*Lang)[CLanguage::CHAT_WHISPERTO].ToChar(), whisperto.c_str());
+  sprintf(buffer, "%s : %s", Lang->GetString(CLanguage::CHAT_WHISPERTO).ToChar(), whisperto.c_str());
   WhisperMessages[0].Message = buffer;
 };
 
@@ -101,10 +101,10 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const zCOLOR& rgb, const
           tmpnickname = CConfig::GetInstance()->Nickname;
           if (tmp.Search(tmpnickname) < 2) {
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
-            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, (*Lang)[CLanguage::WHISPERSTOYOU], 3000.0f, 0);
+            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, Lang->GetString(CLanguage::WHISPERSTOYOU), 3000.0f, 0);
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3000, tmp, 3000.0f, 0);
             if (!ShowHow) {
-              ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3200, (*Lang)[CLanguage::PRESSFORWHISPER], 3000.0f, 0);
+              ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3200, Lang->GetString(CLanguage::PRESSFORWHISPER), 3000.0f, 0);
               ShowHow = true;
             }
           }
@@ -148,10 +148,10 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const char* format, ...)
           tmpnickname = CConfig::GetInstance()->Nickname;
           if (tmp.Search(tmpnickname) < 2) {
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
-            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, (*Lang)[CLanguage::WHISPERSTOYOU], 3000.0f, 0);
+            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, Lang->GetString(CLanguage::WHISPERSTOYOU), 3000.0f, 0);
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3000, tmp, 3000.0f, 0);
             if (!ShowHow) {
-              ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3200, (*Lang)[CLanguage::PRESSFORWHISPER], 3000.0f, 0);
+              ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3200, Lang->GetString(CLanguage::PRESSFORWHISPER), 3000.0f, 0);
               ShowHow = true;
             }
           }
@@ -172,7 +172,7 @@ void CChat::ClearChat() {
   ChatMessages.clear();
   WhisperMessages.clear();
   AdminMessages.clear();
-  WriteMessage(WHISPER, false, zCOLOR(0, 255, 0), (*Lang)[CLanguage::CHAT_WHISPERTONOONE].ToChar());
+  WriteMessage(WHISPER, false, zCOLOR(0, 255, 0), Lang->GetString(CLanguage::CHAT_WHISPERTONOONE).ToChar());
 };
 
 void CChat::PrintChat() {

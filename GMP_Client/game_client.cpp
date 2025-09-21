@@ -198,21 +198,21 @@ bool GameClient::IsConnected() {
   return network->IsConnected();
 }
 
-zSTRING &GameClient::GetLastError() {
+const zSTRING& GameClient::GetLastError() const {
   switch (network->error) {
     case ID_CONNECTION_ATTEMPT_FAILED:
-      return (*this->lang)[CLanguage::ERR_CONN_FAIL];
+      return this->lang->GetString(CLanguage::ERR_CONN_FAIL);
     case ID_ALREADY_CONNECTED:
-      return (*this->lang)[CLanguage::ERR_CONN_ALREADY_CONNECTED];
+      return this->lang->GetString(CLanguage::ERR_CONN_ALREADY_CONNECTED);
     case ID_NO_FREE_INCOMING_CONNECTIONS:
-      return (*this->lang)[CLanguage::ERR_CONN_SRV_FULL];
+      return this->lang->GetString(CLanguage::ERR_CONN_SRV_FULL);
     case ID_CONNECTION_BANNED:
-      return (*this->lang)[CLanguage::ERR_CONN_BANNED];
+      return this->lang->GetString(CLanguage::ERR_CONN_BANNED);
     case ID_INVALID_PASSWORD:
     case ID_INCOMPATIBLE_PROTOCOL_VERSION:
-      return (*this->lang)[CLanguage::ERR_CONN_INCOMP_TECHNIC];
+      return this->lang->GetString(CLanguage::ERR_CONN_INCOMP_TECHNIC);
     default:
-      return (*this->lang)[CLanguage::ERR_CONN_NO_ERROR];
+      return this->lang->GetString(CLanguage::ERR_CONN_NO_ERROR);
   }
 }
 
