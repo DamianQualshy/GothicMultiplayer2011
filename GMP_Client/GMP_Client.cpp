@@ -50,11 +50,25 @@ SDL_Window* g_pSdlWindow;
 #define VideoW *(int*)(0x008D2BE4)
 
 namespace {
-constexpr long long kDiscordClientId = 1012538600493170798LL;
+
+constexpr long long ResolveDiscordClientId() {
+#if defined(DISCORD_APPLICATION_ID)
+  return static_cast<long long>(DISCORD_APPLICATION_ID);
+#else
+  return 0LL;
+#endif
+}
+
+constexpr long long kDiscordClientId = ResolveDiscordClientId();
 bool g_discordPresenceInitialized = false;
 bool g_discordPresencePumpHookRegistered = false;
 
 void InitializeDiscordPresence() {
+  if (kDiscordClientId == 0) {
+    SPDLOG_INFO("Discord Rich Presence disabled - no client ID configured at build time");
+    return;
+  }
+
   if (!DiscordGMP::Initialize(kDiscordClientId)) {
     SPDLOG_WARN("Discord Rich Presence initialization failed");
     return;
