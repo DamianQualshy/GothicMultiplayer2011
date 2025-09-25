@@ -144,12 +144,6 @@ void CIngame::Loop() {
         client->SendVoice();
       }
     }
-    // OBSERVE MODE
-    if (LocalPlayer) {
-      if (LocalPlayer->IsInObserveMode()) {
-        LocalPlayer->GetObserve()->Loop();
-      }
-    }
     // SENDING MY ANIMATION
     zCModelAni* AniUnusual = player->GetModel()->aniChannels[1]->protoAni;  // TALK, TURNR ETC
     zCModelAni* Ani = player->GetModel()->aniChannels[0]->protoAni;         // ZWYKLE

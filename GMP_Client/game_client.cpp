@@ -90,7 +90,6 @@ GameClient::GameClient(const char *ip, CLanguage *langPtr)
       IgnoreFirstTimeMessage(true),
       DropItemsAllowed(false),
       IsInGame(false),
-      ObserveMode(CObservation::NO_OBSERVATION),
       clientPort(0xDEAD),
       clientHost(ip) {
   srand(static_cast<unsigned int>(time(NULL)));

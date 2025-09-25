@@ -28,7 +28,6 @@ SOFTWARE.
 
 #include "CHeroClass.h"
 #include "CLanguage.h"
-#include "CObservation.h"
 #include "CPlayer.h"
 #include "CSpawnPoint.h"
 #include "CSyncFuncs.h"
@@ -94,7 +93,6 @@ public:
   short mp_restore;
   int DropItemsAllowed;
   int ForceHideMap;
-  CObservation::ObseravtionMode ObserveMode;
   CLanguage* lang;
   Network* network;
   bool IsReadyToJoin;

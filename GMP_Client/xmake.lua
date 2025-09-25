@@ -34,7 +34,6 @@ target("ClientMain")
               "CMap.cpp",
               "CMenu.cpp",
               "CObjectMenu.cpp",
-              "CObservation.cpp",
               "CPlayer.cpp",
               "CPlayerList.cpp",
               "CSelectClass.cpp",
