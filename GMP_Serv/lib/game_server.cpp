@@ -28,6 +28,7 @@ SOFTWARE.
 #include <bitsery/traits/vector.h>
 #include <httplib.h>
 #include <spdlog/sinks/basic_file_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
 #include <dylib.hpp>
@@ -107,12 +108,19 @@ void LoadNetworkLibrary() {
 }
 
 void InitializeLogger(const Config& config) {
-  if (!config.Get<bool>("log_to_stdout")) {
-    spdlog::default_logger()->sinks().clear();
+  auto logger = spdlog::default_logger();
+  logger->sinks().clear();
+
+  if (config.Get<bool>("log_to_stdout")) {
+    auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
+    console_sink->set_pattern("[%^%l%$] %v");
+    logger->sinks().push_back(std::move(console_sink));
   }
 
   auto log_file = config.Get<std::string>("log_file");
-  spdlog::default_logger()->sinks().push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>(std::move(log_file), false));
+  auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(std::move(log_file), false);
+  file_sink->set_pattern("[%Y-%m-%d %H:%M:%S] [%l] %v");
+  logger->sinks().push_back(std::move(file_sink));
 
   auto log_level = config.Get<std::string>("log_level");
   spdlog::set_level(spdlog::level::from_str(log_level));
@@ -121,7 +129,6 @@ void InitializeLogger(const Config& config) {
 }  // namespace
 
 GameServer::GameServer() {
-  spdlog::set_pattern("[%T %^%l%$] %v");
   InitializeLogger(config_);
   SPDLOG_INFO("|-----------------------------------|");
   constexpr std::string_view git_tag_long = GIT_TAG_LONG;
