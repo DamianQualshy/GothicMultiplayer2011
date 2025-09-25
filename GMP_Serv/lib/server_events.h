@@ -31,7 +31,9 @@ SOFTWARE.
 
 #include <glm/glm.hpp>
 
-inline const std::string kEventOnClockUpdateName = "onClockUpdate";
+inline const std::string kEventOnInitName = "onInit";
+inline const std::string kEventOnExitName = "onExit";
+inline const std::string kEventOnGameTimeName = "onGameTime";
 inline const std::string kEventOnPlayerConnectName = "onPlayerConnect";
 inline const std::string kEventOnPlayerDisconnectName = "onPlayerDisconnect";
 inline const std::string kEventOnPlayerMessageName = "onPlayerMessage";
@@ -47,7 +49,7 @@ inline const std::string kEventOnPlayerSpawnName = "onPlayerSpawn";
 inline const std::string kEventOnPlayerRespawnName = "onPlayerRespawn";
 inline const std::string kEventOnPlayerHitName = "onPlayerHit";
 
-struct OnClockUpdateEvent {
+struct OnGameTimeEvent {
   std::uint16_t day;
   std::uint8_t hour;
   std::uint8_t min;

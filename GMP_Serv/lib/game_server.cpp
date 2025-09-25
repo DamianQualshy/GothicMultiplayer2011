@@ -38,6 +38,7 @@ SOFTWARE.
 #include <optional>
 #include <stack>
 #include <string>
+#include <string_view>
 
 #include <nlohmann/json.hpp>
 
@@ -74,6 +75,23 @@ using namespace Net;
 namespace {
 
 constexpr const char* kBanListFileName = "bans.json";
+constexpr std::string_view kFrame = "-========================================-";
+
+void LogServerBanner() {
+  SPDLOG_INFO(kFrame);
+  SPDLOG_INFO("-= Gothic Multiplayer Dedicated Server");
+  SPDLOG_INFO(kFrame);
+
+  constexpr std::string_view git_tag_long = GIT_TAG_LONG;
+  if (!git_tag_long.empty()) {
+    SPDLOG_INFO("-= Version: {}", git_tag_long);
+  } else {
+    SPDLOG_INFO("-= Version: Development build");
+  }
+
+  SPDLOG_INFO("-= Build date: {} {}", __DATE__, __TIME__);
+  SPDLOG_INFO("-= GMP Team 2011-2024");
+}
 
 template <typename Packet, typename TContainer = std::vector<std::uint8_t>>
 void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable, Net::PlayerId id,
@@ -130,19 +148,13 @@ void InitializeLogger(const Config& config) {
 
 GameServer::GameServer() {
   InitializeLogger(config_);
-  SPDLOG_INFO("|-----------------------------------|");
-  constexpr std::string_view git_tag_long = GIT_TAG_LONG;
-  if (!git_tag_long.empty()) {
-    SPDLOG_INFO("Gothic Multiplayer {}", git_tag_long);
-  } else {
-    SPDLOG_INFO("Gothic Multiplayer");
-  }
-  SPDLOG_INFO("|-----------------------------------|");
+  LogServerBanner();
   config_.LogConfigValues();
-  SPDLOG_INFO("|-----------------------------------|");
   g_server = this;
 
   // Register server-side events.
+  EventManager::Instance().RegisterEvent(kEventOnInitName);
+  EventManager::Instance().RegisterEvent(kEventOnExitName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerConnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDisconnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
@@ -166,6 +178,7 @@ GameServer::~GameServer() {
     main_thread.join();
   }
 
+  EventManager::Instance().TriggerEvent(kEventOnExitName);
   script.reset();
 
   if (g_net_server != nullptr) {
@@ -188,6 +201,7 @@ bool GameServer::Init() {
   auto character_definitions_file = config_.Get<std::string>("character_definitions_file");
   if (!character_definitions_file.empty()) {
     character_definition_manager_->Load(character_definitions_file);
+    SPDLOG_INFO("Loading character definitions from {}", character_definitions_file);
   } else {
     SPDLOG_WARN("Character definitions file not specified. No character definitions will be loaded.");
   }
@@ -200,6 +214,7 @@ bool GameServer::Init() {
   if (!g_net_server->Start(port, slots)) {
     return false;
   }
+  SPDLOG_INFO("Network server on port {} (max {} players) is now accepting connections.", port, slots);
 
   LoadBanList();
   g_is_server_running = true;
@@ -212,7 +227,8 @@ bool GameServer::Init() {
   http_server_->Start(port);
   this->last_stand_timer = 0;
 
-  SPDLOG_INFO("");
+  SPDLOG_INFO(kFrame);
+  SPDLOG_INFO("Loading Lua scripts...");
   script = std::make_unique<Script>(config_.Get<std::vector<std::string>>("scripts"));
   last_update_time_ = std::chrono::steady_clock::now();
   
@@ -223,8 +239,10 @@ bool GameServer::Init() {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
   });
-  SPDLOG_INFO("|-----------------------------------|");
-  SPDLOG_INFO("GMP Classic Server initialized successfully!");
+  SPDLOG_INFO(kFrame);
+  SPDLOG_INFO("Gothic Multiplayer Server initialized successfully!");
+  SPDLOG_INFO(kFrame);
+  EventManager::Instance().TriggerEvent(kEventOnInitName);
   return true;
 }
 
@@ -460,6 +478,8 @@ void GameServer::LoadBanList() {
 
   if (!json_data.is_array()) {
     SPDLOG_ERROR("{} is expected to contain a JSON array of ban entries", kBanListFileName);
+    return;
+  }
 
       for (const auto& node : json_data) {
         if (!node.is_object()) {
@@ -499,7 +519,6 @@ void GameServer::LoadBanList() {
       }
 
       SPDLOG_INFO("Active bans loaded.");
-  }
 }
 
 void GameServer::SaveBanList() {

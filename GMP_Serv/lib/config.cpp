@@ -26,6 +26,7 @@ SOFTWARE.
 #include "config.h"
 
 #include <spdlog/common.h>
+#include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
 #include <spdlog/fmt/ranges.h>
 #include <spdlog/spdlog.h>
@@ -121,21 +122,58 @@ void Config::ValidateAndFixValues() {
 }
 
 void Config::LogConfigValues() const {
-  const std::set<std::string> keys_to_ignore = {"admin_passwd"};
+  constexpr std::string_view kFrame = "-========================================-";
+  const auto bool_to_string = [](bool value) { return value ? "true" : "false"; };
 
-  for (auto& value : values_) {
-    std::visit(
-        [&value, &keys_to_ignore](auto&& arg) {
-          using T = std::decay_t<decltype(arg)>;
-          if (keys_to_ignore.find(value.first) == keys_to_ignore.end()) {
-            if constexpr (std::is_same_v<T, std::string>) {
-              if (arg.empty()) {
-                return;
-              }
-            }
-            SPDLOG_INFO("{}: {}", value.first, arg);
-          }
-        },
-        value.second);
-  }
+  const auto format_game_time = [](const GothicClock::Time& time) { return fmt::format("Day {}, {:02}:{:02}", time.day_, time.hour_, time.min_); };
+
+  SPDLOG_INFO(kFrame);
+
+  SPDLOG_INFO("-= Basic server information =-");
+  SPDLOG_INFO("* {:<18}: {}", "Hostname", Get<std::string>("name"));
+  SPDLOG_INFO("* {:<18}: {}", "Public", bool_to_string(Get<bool>("public")));
+  SPDLOG_INFO("* {:<18}: {}", "Port", Get<std::int32_t>("port"));
+  SPDLOG_INFO("* {:<18}: {}", "Max slots", Get<std::int32_t>("slots"));
+  SPDLOG_INFO("* {:<18}: {}", "Map", Get<std::string>("map"));
+  const auto& map_md5 = Get<std::string>("map_md5");
+  SPDLOG_INFO("* {:<18}: {}", "Map MD5", map_md5.empty() ? "<not set>" : map_md5);
+
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Gameplay settings =-");
+  SPDLOG_INFO("* {:<18}: {}", "Game mode", Get<std::int32_t>("game_mode"));
+  SPDLOG_INFO("* {:<18}: {}", "Respawn time", fmt::format("{}s", Get<std::int32_t>("respawn_time_seconds")));
+  SPDLOG_INFO("* {:<18}: {}", "Allow modification", bool_to_string(Get<bool>("allow_modification")));
+  SPDLOG_INFO("* {:<18}: {}", "Allow drop items", bool_to_string(Get<bool>("allow_dropitems")));
+  SPDLOG_INFO("* {:<18}: {}", "Quick pots", bool_to_string(Get<bool>("quick_pots")));
+  SPDLOG_INFO("* {:<18}: {}", "Hide map", bool_to_string(Get<bool>("hide_map")));
+  SPDLOG_INFO("* {:<18}: {}", "Unconscious before death", bool_to_string(Get<bool>("be_unconcious_before_dead")));
+  SPDLOG_INFO("* {:<18}: {}", "Observation", bool_to_string(Get<bool>("observation")));
+
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Game time =-");
+  SPDLOG_INFO("* {:<18}: {}", "Start time", format_game_time(Get<GothicClock::Time>("game_time")));
+
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Logging =-");
+  SPDLOG_INFO("* {:<18}: {}", "Log file", Get<std::string>("log_file"));
+  SPDLOG_INFO("* {:<18}: {}", "Log to stdout", bool_to_string(Get<bool>("log_to_stdout")));
+  SPDLOG_INFO("* {:<18}: {}", "Log level", Get<std::string>("log_level"));
+
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Scripts =-");
+  const auto& scripts = Get<std::vector<std::string>>("scripts");
+  SPDLOG_INFO("* {:<18}: {}", "Script count", scripts.size());
+
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Performance =-");
+  SPDLOG_INFO("* {:<18}: {} ms", "Tick rate", Get<std::int32_t>("tick_rate_ms"));
+
+#ifndef WIN32
+  const bool daemon = Get<bool>("daemon");
+  SPDLOG_INFO("");
+  SPDLOG_INFO("-= Process management =-");
+  SPDLOG_INFO("* {:<18}: {}", "Daemonize", bool_to_string(daemon));
+#endif
+
+  SPDLOG_INFO(kFrame);
 }

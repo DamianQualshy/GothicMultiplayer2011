@@ -33,16 +33,16 @@ SOFTWARE.
 #include "shared/event.h"
 
 namespace {
-constexpr std::chrono::seconds kClockUpdateInterval(4);
+constexpr std::chrono::seconds kGameTimeInterval(4);
 }
 
 GothicClock::GothicClock(Time initial_time) : time_(initial_time) {
-  EventManager::Instance().RegisterEvent(kEventOnClockUpdateName);
+  EventManager::Instance().RegisterEvent(kEventOnGameTimeName);
 }
 
 void GothicClock::RunClock() {
   auto now = std::chrono::steady_clock::now();
-  if ((now - last_update_time_) > kClockUpdateInterval) {
+  if ((now - last_update_time_) > kGameTimeInterval) {
     if (++time_.min_ > 59) {
       time_.min_ = 0;
       if (++time_.hour_ > 23) {
@@ -51,7 +51,7 @@ void GothicClock::RunClock() {
       }
     }
     last_update_time_ = now;
-    EventManager::Instance().TriggerEvent(kEventOnClockUpdateName, OnClockUpdateEvent{time_.day_, time_.hour_, time_.min_});
+    EventManager::Instance().TriggerEvent(kEventOnGameTimeName, OnGameTimeEvent{time_.day_, time_.hour_, time_.min_});
   }
 }
 
