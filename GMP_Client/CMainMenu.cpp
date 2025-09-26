@@ -35,6 +35,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 #include <urlmon.h>
 
+#include <ctime>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -94,11 +95,29 @@ void DeleteAllNpcsBesidesHero() {
 }
 }  // namespace
 
+bool CMainMenu::IsChristmasPeriod() {
+  std::time_t now = std::time(nullptr);
+  std::tm local_time{};
+#if defined(_WIN32)
+  if (localtime_s(&local_time, &now) != 0) {
+    return false;
+  }
+#else
+  if (const std::tm* time_info = std::localtime(&now)) {
+    local_time = *time_info;
+  } else {
+    return false;
+  }
+#endif
+  return local_time.tm_mon == 11 && local_time.tm_mday >= 24 && local_time.tm_mday <= 26;
+}
+
 CMainMenu::CMainMenu() {
   string_tmp = "ItMw_1h_Mil_Sword";
   player->SetMovLock(1);
   Patch::PlayerInterfaceEnabled(false);
   LoadConfig();
+  Christmas = IsChristmasPeriod();
   ScreenResolution.x = zoptions->ReadInt(zOPT_SEC_VIDEO, "zVidResFullscreenX", 320);
   ScreenResolution.y = zoptions->ReadInt(zOPT_SEC_VIDEO, "zVidResFullscreenY", 258);
   MenuItems = 4;

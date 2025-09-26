@@ -63,6 +63,7 @@ CIngame::CIngame(CLanguage* pLang) {
   this->NextTimeSync = time(NULL) + 1;
   this->Shrinker = new CShrinker();
   this->Inventory = new CInventory(&player->inventory2);
+  Christmas = CMainMenu::IsChristmasPeriod();
   WritingOnChat = false;
   IgnoreFirstSync = true;
   SwampLightsOn = false;

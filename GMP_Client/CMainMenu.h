@@ -122,4 +122,5 @@ public:
   void ClearNpcTalents(Gothic_II_Addon::oCNpc* Npc);
   void static __stdcall MainMenuLoop();
   void SetServerIP(int selected);
+  static bool IsChristmasPeriod();
 };
