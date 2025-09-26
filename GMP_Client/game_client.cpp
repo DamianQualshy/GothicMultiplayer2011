@@ -85,7 +85,6 @@ GameClient::GameClient(const char *ip, CLanguage *langPtr)
       IsReadyToJoin(false),
       lang(langPtr),
       classmgr(nullptr),
-      spawnpoint(nullptr),
       IsAdminOrModerator(false),
       IgnoreFirstTimeMessage(true),
       DropItemsAllowed(false),
@@ -107,9 +106,6 @@ GameClient::GameClient(const char *ip, CLanguage *langPtr)
 GameClient::~GameClient() {
   delete classmgr;
   classmgr = nullptr;
-
-  delete spawnpoint;
-  spawnpoint = nullptr;
 
   delete voiceCapture;
   voiceCapture = nullptr;
@@ -163,16 +159,6 @@ void GameClient::DownloadClassFile() {
   this->classmgr = new CHeroClass(content.c_str(), content.length());
 }
 
-void GameClient::DownloadSpawnpointsFile() {
-  string content = HTTPDownloader::GetSpawnpointsFile(GetServerAddresForHTTPDownloader());
-  if (content.compare("EMPTY") == 0) {
-    return;
-  }
-  this->spawnpoint = new CSpawnPoint(content.c_str());
-  size_t randomSpawnpoint = rand() % spawnpoint->GetSize();
-  oCNpc::player->trafoObjToWorld.SetTranslation(*(*spawnpoint)[randomSpawnpoint]);
-}
-
 void GameClient::RestoreHealth() {
   if (!mp_restore || !IsInGame) {
     return;
@@ -216,6 +202,7 @@ zSTRING &GameClient::GetLastError() {
 }
 
 void GameClient::JoinGame(BYTE selected_class) {
+  try{
   if (IsReadyToJoin) {
     HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)InterfaceLoop, false);
     HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)CSelectClass::Loop);
@@ -270,6 +257,10 @@ void GameClient::JoinGame(BYTE selected_class) {
     LocalPlayer->char_class = selected_class;
     this->players.push_back(LocalPlayer);
     this->HeroLastHp = player->attribute[NPC_ATR_HITPOINTS];
+    SPDLOG_INFO("JoinGame success");
+  }
+  } catch (const std::exception& ex){
+    SPDLOG_ERROR("JoinGame failed: {}", ex.what());
   }
 }
 
@@ -435,10 +426,6 @@ void GameClient::Disconnect() {
   if (this->classmgr) {
     delete this->classmgr;
     this->classmgr = NULL;
-  }
-  if (this->spawnpoint) {
-    delete this->spawnpoint;
-    this->spawnpoint = NULL;
   }
   if (this->voiceCapture) {
     delete this->voiceCapture;

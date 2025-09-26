@@ -38,7 +38,6 @@ public:
 	size_t GetSelected(void);
 	bool CameraPrepared;
 private:
-	void ChangeSpawnPointByClass();
 	void CleanUpBeforeNext();;
 	size_t selected;
 };

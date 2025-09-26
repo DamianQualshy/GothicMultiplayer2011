@@ -29,7 +29,6 @@ SOFTWARE.
 #include "CHeroClass.h"
 #include "CLanguage.h"
 #include "CPlayer.h"
-#include "CSpawnPoint.h"
 #include "CSyncFuncs.h"
 #include "HooksManager.h"
 #include "Network.h"
@@ -38,7 +37,7 @@ SOFTWARE.
 #include "WorldBuilder\load.h"
 #include "ZenGin/zGothicAPI.h"
 
-enum FILE_REQ { CLASS_FILE = 1, SPAWN_FILE = 2, WB_FILE = 3, NULL_SIZE = 255 };
+enum FILE_REQ { CLASS_FILE = 1, WB_FILE = 2, NULL_SIZE = 255 };
 
 struct MD5Sum {
   BYTE data[16];
@@ -75,11 +74,9 @@ public:
   void Disconnect(void);
   void DownloadWBFile(void);
   void DownloadClassFile(void);
-  void DownloadSpawnpointsFile(void);
   void RestoreHealth(void);
 
   CHeroClass* classmgr;
-  CSpawnPoint* spawnpoint;
   VoiceCapture* voiceCapture;
   VoicePlayback* voicePlayback;
   std::vector<CPlayer*> players;

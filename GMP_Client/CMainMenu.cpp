@@ -764,9 +764,9 @@ void CMainMenu::RenderMenu() {
           }
           DeleteAllNpcsBesidesHero();
           player->trafoObjToWorld.SetTranslation(SpawnpointPos);
-          string WordBuilderMapFileName = ".\\Multiplayer\\Data\\";
+          std::string WordBuilderMapFileName = ".\\Multiplayer\\Data\\";
           WordBuilderMapFileName += client->network->GetServerIp() + "_" + std::to_string(client->network->GetServerPort());
-          ifstream WbMap(WordBuilderMapFileName.c_str());
+          std::ifstream WbMap(WordBuilderMapFileName.c_str());
           if (WbMap.good()) {
             WbMap.close();
             LoadWorld::LoadWorld(WordBuilderMapFileName.c_str(), client->VobsWorldBuilderMap);
@@ -1098,7 +1098,7 @@ void CMainMenu::RenderMenu() {
           WBMapName += ".WBM";
         char buffer[64];
         sprintf(buffer, ".\\Multiplayer\\WorldBuilder\\Maps\\%s", WBMapName.ToChar());
-        string Map = LoadWorld::GetZenName(buffer);
+        std::string Map = LoadWorld::GetZenName(buffer);
         if (Map.size() > 0) {
           CleanUpMainMenu();
           HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)MainMenuLoop);

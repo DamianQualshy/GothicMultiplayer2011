@@ -39,7 +39,6 @@ target("ClientMain")
               "CSelectClass.cpp",
               "CServerList.cpp",
               "CShrinker.cpp",
-              "CSpawnPoint.cpp",
               "CSyncFuncs.cpp",
               "CWatch.cpp",
               "ExceptionHandler.cpp",

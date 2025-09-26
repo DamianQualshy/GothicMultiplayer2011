@@ -66,7 +66,7 @@ public:
     PL_UNCONCIOUS = 0x01,  // 00000001
     PL_BURN = 0x02,        // 00000010
   };
-  enum FILE_REQ { CLASS_FILE = 1, SPAWN_FILE = 2, WB_FILE = 3, NULL_SIZE = 255 };
+  enum FILE_REQ { CLASS_FILE = 1, WB_FILE = 2, NULL_SIZE = 255 };
   struct sPlayer {
     Net::PlayerId id;
     std::string name;

@@ -28,6 +28,7 @@ SOFTWARE.
 #include <time.h>
 
 #include <format>
+#include <spdlog/spdlog.h>
 
 #include "CActiveAniID.h"
 #include "CConfig.h"
@@ -57,6 +58,7 @@ int SpamMessages = 0;
 bool MuteCountdown = false;
 
 CIngame::CIngame(CLanguage* pLang) {
+  try{
   this->last_player_update = clock();
   this->lang = pLang;
   this->chat_interface = CChat::GetInstance();
@@ -86,6 +88,10 @@ CIngame::CIngame(CLanguage* pLang) {
   chat_interface->WriteMessage(NORMAL, false, "Gothic Multiplayer");
   global_ingame = this;
   HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)CIngame::Loop, false);
+    SPDLOG_INFO("Ingame succeeded");
+  } catch (const std::exception& ex){
+    SPDLOG_ERROR("Ingame failed: {}", ex.what());
+  }
 }
 
 CIngame::~CIngame() {

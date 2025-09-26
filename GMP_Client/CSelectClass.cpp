@@ -23,9 +23,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <spdlog/spdlog.h>
 #include "CSelectClass.h"
-
-#include <cstdlib>
 
 #include "CLocalPlayer.h"
 #include "Interface.h"
@@ -50,7 +49,7 @@ CSelectClass::CSelectClass(CLanguage *ptr, GameClient *cl) {
   Patch::SetLookingOnNpcCamera(true);
   Patch::DropVobEnabled(false);
   this->selected = 0;
-  ChangeSpawnPointByClass();
+  SPDLOG_INFO("SelectClass success");
 }
 
 CSelectClass::~CSelectClass() {
@@ -93,14 +92,6 @@ void CSelectClass::CleanUpBeforeNext() {
   }
 };
 
-void CSelectClass::ChangeSpawnPointByClass() {
-  if (!client->spawnpoint || !client->spawnpoint->GetSize())
-    return;
-
-  zVEC3 Pos = *(*client->spawnpoint)[rand() % client->spawnpoint->GetSize()];
-  player->trafoObjToWorld.SetTranslation(zVEC3(Pos[VX], Pos[VY], Pos[VZ]));
-};
-
 void CSelectClass::HandleInput() {
   if (!CameraPrepared) {
     zCAICamera::GetCurrent()->bestRotY = 180.0f;
@@ -115,19 +106,22 @@ void CSelectClass::HandleInput() {
   if ((this->selected > 0) && (zinput->KeyToggled(KEY_A))) {
     CleanUpBeforeNext();
     client->classmgr->EquipNPC(--this->selected, LocalPlayer, true);
-    ChangeSpawnPointByClass();
   }
   if ((this->selected < client->classmgr->GetSize() - 1) && (zinput->KeyToggled(KEY_D))) {
     CleanUpBeforeNext();
     client->classmgr->EquipNPC(++this->selected, LocalPlayer, true);
-    ChangeSpawnPointByClass();
   }
   if (zinput->KeyPressed(KEY_RETURN)) {
+    try{
     zinput->ClearKeyBuffer();
     auto pos = player->trafoObjToWorld.GetTranslation();
     player->ResetPos(pos);
     client->JoinGame(this->selected);
     // dodac przejscie do zarzadzania gameplayem
+    SPDLOG_INFO("HandleInput success");
     delete this;
+    } catch (const std::exception& ex){
+    SPDLOG_ERROR("HandleInput failed: {}", ex.what());
+  }
   }
 }

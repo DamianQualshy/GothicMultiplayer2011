@@ -270,12 +270,8 @@ void CPlayer::RespawnPlayer() {
     npc->SetWeaponMode(NPC_WEAPON_NONE);
     hp = static_cast<short>(npc->attribute[NPC_ATR_HITPOINTSMAX]);
     client->classmgr->EquipNPC(char_class, this, true);
-    if (!client->spawnpoint->GetSize()) {
-      auto pos = npc->GetPositionWorld();
-      npc->ResetPos(pos);
-    } else {
-      npc->ResetPos(*(*client->spawnpoint)[rand() % client->spawnpoint->GetSize()]);
-    }
+    auto pos = npc->GetPositionWorld();
+    npc->ResetPos(pos);
   }
 };
 
