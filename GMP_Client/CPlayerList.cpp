@@ -153,10 +153,7 @@ void CPlayerList::UpdatePlayerList() {
     // PRINT
     zCView* Screen = screen;
     Screen->SetFontColor(Normal);
-    if (client->game_mode == 0)
-      Screen->Print(x + 400, y, (*Lang)[CLanguage::DEATHMATCH]);
-    else
-      Screen->Print(x + 400, y, (*Lang)[CLanguage::TEAM_DEATHMATCH]);
+    Screen->Print(x + 400, y, (*Lang)[CLanguage::SRV_PLAYERS]);
     char buffer[128];
     sprintf(buffer, "%d", client->players.size());
     zSTRING NoOfPlayers = buffer;

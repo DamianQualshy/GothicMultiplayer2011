@@ -98,17 +98,6 @@ void OnActualStatistics(GameClient* client, Packet p) {
 
   SPDLOG_TRACE("PlayerStateUpdatePacket: {}", packet);
 
-  if (client->game_mode == 1) {
-    for (size_t i = 1; i < client->players.size(); i++) {
-      if (!memcmp((*client->classmgr)[client->players[i]->char_class]->team_name.ToChar(),
-                  (*client->classmgr)[client->players[0]->char_class]->team_name.ToChar(),
-                  (*client->classmgr)[client->players[0]->char_class]->team_name.Length())) {
-        client->players[i]->npc->variousFlags = 1 << 1;
-        client->players[i]->SameTeamAsLocalPlayer = true;
-      }
-    }
-  }
-
   CPlayer* player = nullptr;
   for (size_t i = 0; i < client->players.size(); i++) {
     if (client->players[i]->id == *packet.player_id) {
@@ -680,7 +669,6 @@ void OnGameInfo(GameClient* client, Packet packet) {
     CChat::GetInstance()->WriteMessage(NORMAL, false, "Time set to: %d:%.2d", t.hour, t.min);
   }
   client->IgnoreFirstTimeMessage = false;
-  client->game_mode = gameInfoPacket.game_mode;
   oCGame::s_bUsePotionKeys = gameInfoPacket.flags & 0x01;
   client->DropItemsAllowed = gameInfoPacket.flags & 0x02;
   client->ForceHideMap = gameInfoPacket.flags & 0x04;

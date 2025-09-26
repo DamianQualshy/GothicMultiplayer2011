@@ -939,7 +939,6 @@ void GameServer::SendGameInfo(Net::PlayerId who) {
   GothicClock::TimeUnion game_time = clock_->GetTime();
   packet.raw_game_time = game_time.raw;
 
-  packet.game_mode = config_.Get<std::int32_t>("game_mode");
   if (config_.Get<bool>("quick_pots")) {
     packet.flags |= QUICK_POTS;
   }

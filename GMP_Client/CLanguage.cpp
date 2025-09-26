@@ -59,13 +59,13 @@ const std::array<const char*, kStringCount> kStringKeys = {
     "DISCONNECTED",          "SOMEONE_JOIN_GAME",    "CHAT_PLAYER_DOES_NOT_EXIST",
     "ANIMS_MENU",            "HPLAYERLIST",          "HMAP",                 "HANIMSMENU",
     "SHOWHOW",               "WHISPERSTOYOU",        "PRESSFORWHISPER",      "CHAT_WRONGWINDOW",
-    "DEATHMATCH",            "TEAM_DEATHMATCH",      "WALK_STYLE",           "UNMUTE_TIME",
-    "PLIST_PM",              "KILLEDSOMEONE_MSG",    "WB_NEWMAP",            "WB_LOADMAP",
-    "WB_SAVEMAP",            "KILL_PLAYER",          "GOTO_PLAYER",          "ITEM_TOOFAR",
-    "KEYBOARD_POLISH",       "KEYBOARD_GERMAN",      "KEYBOARD_RUSSIAN",     "INTRO_YES",
-    "INTRO_NO",              "MERRY_CHRISTMAS",      "NEW_NEWS",             "INV_HOWMUCH",
-    "CLASS_DESCRIPTION",     "START_OBSERVATION",    "END_OBSERVATION",      "SRVLIST_ALL",
-    "SRVLIST_FAVOURITES",    "SRVLIST_NAME",         "SRVLIST_MAP",          "SRVLIST_PLAYERNUMBER"};
+    "WALK_STYLE",            "UNMUTE_TIME",          "PLIST_PM",             "KILLEDSOMEONE_MSG",
+    "WB_NEWMAP",             "WB_LOADMAP",           "WB_SAVEMAP",           "KILL_PLAYER",
+    "GOTO_PLAYER",           "ITEM_TOOFAR",          "KEYBOARD_POLISH",      "KEYBOARD_GERMAN",
+    "KEYBOARD_RUSSIAN",      "INTRO_YES",            "INTRO_NO",             "MERRY_CHRISTMAS",
+    "NEW_NEWS",              "INV_HOWMUCH",          "CLASS_DESCRIPTION",     "START_OBSERVATION",
+    "END_OBSERVATION",       "SRVLIST_ALL",          "SRVLIST_FAVOURITES",    "SRVLIST_NAME",
+    "SRVLIST_MAP",           "SRVLIST_PLAYERNUMBER"};
 }  // namespace
 
 CLanguage::CLanguage(const char* file) {

@@ -51,7 +51,6 @@ const std::unordered_map<std::string, std::variant<std::string, std::vector<std:
                               {"map", std::string("NEWWORLD\\NEWWORLD.ZEN")},
                               {"respawn_time_seconds", 5},
                               {"allow_modification", true},
-                              {"game_mode", 0},
                               {"allow_dropitems", true},
                               {"hide_map", false},
                               {"be_unconcious_before_dead", false},

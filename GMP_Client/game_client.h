@@ -89,7 +89,6 @@ public:
   bool IsAdminOrModerator;
   bool IgnoreFirstTimeMessage;
   bool IsInGame;
-  unsigned char game_mode;
   short mp_restore;
   int DropItemsAllowed;
   int ForceHideMap;

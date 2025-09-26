@@ -273,36 +273,11 @@ void CPlayer::RespawnPlayer() {
     npc->SetWeaponMode(NPC_WEAPON_NONE);
     hp = static_cast<short>(npc->attribute[NPC_ATR_HITPOINTSMAX]);
     client->classmgr->EquipNPC(char_class, this, true);
-    if ((client->game_mode == 1) && (client->spawnpoint->GetSize())) {
-      std::list<const char*> team_list;
-      team_list.push_back((*client->classmgr)[0]->team_name.ToChar());
-      for (size_t x = 1; x < client->classmgr->GetSize(); x++) {
-        bool found = false;
-        std::list<const char*>::iterator y;
-        for (y = team_list.begin(); y != team_list.end(); y++) {
-          if (!memcmp((*y), (*client->classmgr)[x]->team_name.ToChar(), strlen((*y)))) {
-            found = true;
-            break;
-          }
-        }
-        if (!found)
-          team_list.push_back((*client->classmgr)[x]->team_name.ToChar());
-      }
-      size_t who_am_i = 0;
-      std::list<const char*>::iterator z;
-      for (z = team_list.begin(); z != team_list.end(); z++) {
-        if (!memcmp((*z), (*client->classmgr)[char_class]->team_name.ToChar(), strlen((*z)) + 1)) {
-          npc->ResetPos(*(*client->spawnpoint)[(rand() % (client->spawnpoint->GetSize() / team_list.size())) * team_list.size() + who_am_i]);
-        } else
-          who_am_i++;
-      }
-      team_list.clear();
+    if (!client->spawnpoint->GetSize()) {
+      auto pos = npc->GetPositionWorld();
+      npc->ResetPos(pos);
     } else {
-      if (!client->spawnpoint->GetSize()) {
-        auto pos = npc->GetPositionWorld();
-        npc->ResetPos(pos);
-      } else
-        npc->ResetPos(*(*client->spawnpoint)[rand() % client->spawnpoint->GetSize()]);
+      npc->ResetPos(*(*client->spawnpoint)[rand() % client->spawnpoint->GetSize()]);
     }
   }
 };

@@ -21,7 +21,6 @@ observation = false
 quick_pots = false
 hide_map = false
 respawn_time_seconds = 5
-game_mode = 0
 
 # --- Game time ---------------------------------------------------------------
 game_time.day = 1
