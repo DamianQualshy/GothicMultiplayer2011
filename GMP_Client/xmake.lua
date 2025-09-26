@@ -33,6 +33,7 @@ target("ClientMain")
               "CMainMenu.cpp",
               "CMap.cpp",
               "CMenu.cpp",
+              "CMouse.cpp",
               "CObjectMenu.cpp",
               "CObservation.cpp",
               "CPlayer.cpp",

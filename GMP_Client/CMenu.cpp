@@ -32,6 +32,11 @@ SOFTWARE.
 
 #include "CMenu.h"
 
+#include <algorithm>
+
+#include "CMouse.h"
+
+
 using namespace Gothic_II_Addon;
 
 constexpr const char* GlobalFont = "FONT_OLD_20_WHITE.TGA";
@@ -66,6 +71,7 @@ CMenu::CMenu(zSTRING MenuTitle, zCOLOR TitleTextColor, int sizex, int sizey)  //
   player->GetAnictrl()->StopTurnAnis();
   ArrowsInit();
   MenuList.push_back(this);
+  CMouse::GetInstance().Show();
 };
 
 CMenu::~CMenu() {
@@ -79,6 +85,7 @@ CMenu::~CMenu() {
     if (MenuList[i] == this)
       MenuList.erase(MenuList.begin() + i);
   }
+  CMouse::GetInstance().Hide();
 };
 
 void CMenu::AddMenuItem(zSTRING Text, DWORD Function) {
@@ -121,6 +128,7 @@ void CMenu::Open() {
     MainWindow->Print(1500, multiplier * 600, item.Text);
   }
   Opened = true;
+  CMouse::GetInstance().Show();
 };
 
 void CMenu::Close() {
@@ -131,6 +139,7 @@ void CMenu::Close() {
     MainWindow->Close();
     screen->RemoveItem(TitleText);
     screen->RemoveItem(Arrows);
+    CMouse::GetInstance().Hide();
     Opened = false;
     WasClosed = true;
   }
@@ -219,6 +228,62 @@ void CMenu::RenderMenu() {
         Close();
         DWORD function = (DWORD)item.Function;
         __asm call function;
+      }
+    }
+
+    auto& mouse = CMouse::GetInstance();
+    if (mouse.IsVisible() && !MenuItems.empty()) {
+      const auto cursor = mouse.GetCursorPosition();
+      int viewX = 0;
+      int viewY = 0;
+      int viewW = 0;
+      int viewH = 0;
+      MainWindow->GetPos(viewX, viewY);
+      MainWindow->GetSize(viewW, viewH);
+
+      const bool inside = cursor.m_fX >= viewX && cursor.m_fX <= viewX + viewW && cursor.m_fY >= viewY && cursor.m_fY <= viewY + viewH;
+
+      if (inside) {
+        constexpr float itemHeight = 600.0f;
+        constexpr float offset = itemHeight / 2.0f;
+        const float relativeY = cursor.m_fY - static_cast<float>(viewY);
+        const int maxItems = static_cast<int>(MenuItems.size());
+        int hoveredIndex = -1;
+
+        if (relativeY >= offset) {
+          int candidate = static_cast<int>((relativeY - offset) / itemHeight) + 1;
+          candidate = std::clamp(candidate, 1, maxItems);
+          hoveredIndex = candidate;
+          if (mouse.HasMoved() && candidate != ArrowPos) {
+            ArrowPos = candidate;
+            RenderArrows();
+          }
+        }
+
+        const int selection = hoveredIndex != -1 ? hoveredIndex : ArrowPos;
+        if (selection >= 1 && selection <= maxItems) {
+          MenuItem item = MenuItems[selection - 1];
+          if (mouse.KeyClick(DIMOUSE_LEFTBUTTON)) {
+            if (selection != ArrowPos) {
+              ArrowPos = selection;
+              RenderArrows();
+            }
+            if (item.Function2 == NULL) {
+              Opened = false;
+              WasClosed = true;
+              Close();
+            }
+            DWORD function = (DWORD)item.Function;
+            __asm call function;
+          } else if (mouse.KeyClick(DIMOUSE_RIGHTBUTTON) && item.Function2 != NULL) {
+            if (selection != ArrowPos) {
+              ArrowPos = selection;
+              RenderArrows();
+            }
+            DWORD function = (DWORD)item.Function2;
+            __asm call function;
+          }
+        }
       }
     }
   } else {

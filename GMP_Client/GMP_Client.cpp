@@ -38,6 +38,7 @@ SOFTWARE.
 #include "ZenGin/zGothicAPI.h"
 #include "common.h"
 #include "CConfig.h"
+#include "CMouse.h"
 #include "external_console_window.hpp"
 #include "patch.h"
 #include "patch_install.hpp"
@@ -141,6 +142,7 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
       InstalloCGamePatches();
       HooksManager* hm = HooksManager::GetInstance();
       hm->AddHook(HT_AIMOVING, (DWORD)Initialize, false);
+      hm->AddHook(HT_RENDER, (DWORD)MouseLoop, false);
       Patch::ChangeDefaultIni();
       DiscordRichPresence::Instance().Init();
       SPDLOG_INFO("GMP.dll initialized successfully");

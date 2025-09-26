@@ -35,6 +35,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 #include <urlmon.h>
 
+#include <array>
 #include <fstream>
 
 #include <nlohmann/json.hpp>
@@ -43,6 +44,7 @@ SOFTWARE.
 #include "CLanguage.h"
 #include "CSyncFuncs.h"
 #include "CWatch.h"
+#include "CMouse.h"
 #include "ExtendedServerList.h"
 #include "WorldBuilder\CBuilder.h"
 #include "game_client.h"
@@ -142,6 +144,7 @@ CMainMenu::CMainMenu() {
     FXMusic = zsound->LoadSoundFX("K_KURKOWSKI_A_CERTAIN_PLACE.WAV");
   FXMusic->SetLooping(1);
   MusicId = zsound->PlaySound(FXMusic, 1);
+  CMouse::GetInstance().Show();
 };
 
 CMainMenu::~CMainMenu() {
@@ -312,6 +315,7 @@ void CMainMenu::CleanUpMainMenu() {
   ogame->GetWorldTimer()->SetDay(1);
   ogame->GetWorldTimer()->SetTime(12, 00);
   screen->SetFont(FDefault);
+  CMouse::GetInstance().Hide();
 };
 
 void CMainMenu::PrintMenu() {
@@ -724,6 +728,47 @@ void CMainMenu::RenderMenu() {
       if (zinput->KeyPressed(KEY_RETURN)) {
         zinput->ClearKeyBuffer();
         RunMenuItem();
+      }
+
+      auto& mouse = CMouse::GetInstance();
+      if (mouse.IsVisible() && LangSetting) {
+        const auto cursor = mouse.GetCursorPosition();
+        const int cursorX = static_cast<int>(cursor.m_fX);
+        const int cursorY = static_cast<int>(cursor.m_fY);
+        const int fontHeight = screen->FontY();
+        const int baseX = 200;
+
+        const std::array<std::pair<int, zSTRING>, 5> menuEntries = {{
+            {3200, (*LangSetting)[CLanguage::MMENU_CHSERVER]},
+            {3600, (*LangSetting)[CLanguage::MMENU_APPEARANCE]},
+            {4000, (*LangSetting)[CLanguage::MMENU_OPTIONS]},
+            {4400, (*LangSetting)[CLanguage::MMENU_ONLINEOPTIONS]},
+            {4800, (*LangSetting)[CLanguage::MMENU_LEAVEGAME]}}};
+
+        int hoveredIndex = -1;
+
+        for (size_t i = 0; i < menuEntries.size(); ++i) {
+          const auto& entry = menuEntries[i];
+          zSTRING entryText(entry.second);
+          const int width = screen->FontSize(entryText);
+          const int top = entry.first - fontHeight / 2;
+          const int bottom = entry.first + fontHeight;
+          const int right = baseX + width;
+          if (cursorX >= baseX && cursorX <= right && cursorY >= top && cursorY <= bottom) {
+            hoveredIndex = static_cast<int>(i);
+            break;
+          }
+        }
+
+        if (hoveredIndex != -1 && mouse.HasMoved() && hoveredIndex != MenuPos) {
+          MenuPos = hoveredIndex;
+        }
+
+        if (hoveredIndex != -1 && mouse.KeyClick(DIMOUSE_LEFTBUTTON)) {
+          MenuPos = hoveredIndex;
+          zinput->ClearKeyBuffer();
+          RunMenuItem();
+        }
       }
       PrintMenu();
     } break;
