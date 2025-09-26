@@ -34,8 +34,6 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
-#include <list>
-
 #include "CConfig.h"
 #include "CHeroClass.h"
 #include "CIngame.h"
@@ -86,7 +84,6 @@ CPlayer::CPlayer() {
   this->npc = NULL;
   this->id = NULL;
   this->enable = FALSE;
-  this->SameTeamAsLocalPlayer = false;
   this->hp = NULL;
   this->ScriptInstance = NULL;
   this->update_hp_packet = NULL;

@@ -28,14 +28,11 @@ SOFTWARE.
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/spdlog.h>
 
-#include <cstring>
 #include <pugixml.hpp>
 
 SHeroClass::~SHeroClass(void) {
   if (!this->class_name.IsEmpty())
     this->class_name.Clear();
-  if (!this->team_name.IsEmpty())
-    this->team_name.Clear();
   for (size_t i = 0; i < this->items.size(); i++) delete items[i];
 
   items.clear();
@@ -68,7 +65,6 @@ CHeroClass::CHeroClass(const char *szData, BYTE size) {
     for (short z = 0; z < SHeroClass::AB_MAX; z++) tmp->skill[z] = 0;
 
     tmp->class_name = classNode.child("name").text().as_string("");
-    tmp->team_name = classNode.child("team").text().as_string("");
     tmp->class_description = classNode.child("description").text().as_string("");
     tmp->Type = (CPlayer::NpcType)classNode.child("npctype").text().as_int();
     tmp->strength = classNode.child("strength").text().as_int();

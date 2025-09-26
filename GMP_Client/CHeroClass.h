@@ -40,7 +40,6 @@ struct SHeroClass {
   CPlayer::NpcType Type;
   Gothic_II_Addon::zSTRING class_name;
   Gothic_II_Addon::zSTRING class_description;
-  Gothic_II_Addon::zSTRING team_name;
   USHORT strength, dexterity, mp, hp;
   USHORT skill[AB_MAX];
   SItem armor;

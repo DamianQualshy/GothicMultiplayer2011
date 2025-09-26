@@ -35,7 +35,6 @@ struct CharacterDefinition {
   std::uint32_t id;
   std::string name;
   std::string description;
-  std::string team_name;
   std::string armor;
   std::string prim_wep;
   std::string sec_wep;

@@ -50,7 +50,6 @@ void CharacterDefinitionManager::CreateDefaultCharacterDefinitions() {
   CharacterDefinition new_def;
   new_def.id = id_counter_;
   new_def.name = "Player";
-  new_def.team_name = "Human";
   new_def.description = "Default player character.";
   new_def.abilities[STR] = 10;
   new_def.abilities[DEX] = 10;
@@ -100,7 +99,6 @@ void CharacterDefinitionManager::ParseXML(const std::string& path) {
     CharacterDefinition new_def;
     new_def.id = id_counter_;
     new_def.name = classNode.child("name").text().get();
-    new_def.team_name = classNode.child("team").text().get();
     new_def.description = classNode.child("description").text().get();
     new_def.armor = classNode.child("armor").text().get();
     new_def.prim_wep = classNode.child("prim_wep").text().get();
@@ -146,7 +144,6 @@ void CharacterDefinitionManager::ParseJSON(const std::string& path) {
       CharacterDefinition new_def;
       new_def.id = id_counter_;
       new_def.name = try_get(classNode, "name", std::string{});
-      new_def.team_name = try_get(classNode, "team", std::string{});
       new_def.armor = try_get(classNode, "armor", std::string{});
       new_def.prim_wep = try_get(classNode, "prim_wep", std::string{});
       new_def.sec_wep = try_get(classNode, "sec_wep", std::string{});

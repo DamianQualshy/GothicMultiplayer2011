@@ -25,7 +25,7 @@ SOFTWARE.
 
 #include "CSelectClass.h"
 
-#include <list>
+#include <cstdlib>
 
 #include "CLocalPlayer.h"
 #include "Interface.h"
@@ -72,14 +72,11 @@ void CSelectClass::Loop() {
     screen->Print(0, 0, (*selectmgr->lang)[CLanguage::SELECT_CONTROLS]);
     screen->Print(0, 150, (*selectmgr->lang)[CLanguage::CLASS_NAME]);
     screen->Print(0, 300, (*selectmgr->lang)[CLanguage::CLASS_DESCRIPTION]);
-    screen->Print(0, 450, (*selectmgr->lang)[CLanguage::TEAM_NAME]);
     CHeroClass *chc = selectmgr->client->classmgr;
     screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::CLASS_NAME].Length()) * fWRatio), 150,
                   (*chc)[selectmgr->GetSelected()]->class_name);
     screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::CLASS_DESCRIPTION].Length()) * fWRatio), 300,
                   (*chc)[selectmgr->GetSelected()]->class_description);
-    screen->Print(120 + static_cast<zINT>(static_cast<float>(60 * (*selectmgr->lang)[CLanguage::TEAM_NAME].Length()) * fWRatio), 450,
-                  (*chc)[selectmgr->GetSelected()]->team_name);
     selectmgr->HandleInput();  // wyrzucilem na koniec bo za szybko robil delete this;
   }
 }
@@ -97,30 +94,11 @@ void CSelectClass::CleanUpBeforeNext() {
 };
 
 void CSelectClass::ChangeSpawnPointByClass() {
-  std::list<const char *> team_list;
-  team_list.push_back((*client->classmgr)[0]->team_name.ToChar());
-  for (size_t x = 1; x < client->classmgr->GetSize(); x++) {
-    bool found = false;
-    std::list<const char *>::iterator y;
-    for (y = team_list.begin(); y != team_list.end(); y++) {
-      if (!memcmp((*y), (*client->classmgr)[x]->team_name.ToChar(), strlen((*y)))) {
-        found = true;
-        break;
-      }
-    }
-    if (!found)
-      team_list.push_back((*client->classmgr)[x]->team_name.ToChar());
-  }
-  size_t who_am_i = 0;
-  std::list<const char *>::iterator z;
-  for (z = team_list.begin(); z != team_list.end(); z++) {
-    if (!memcmp((*z), (*client->classmgr)[this->selected]->team_name.ToChar(), strlen((*z)) + 1)) {
-      zVEC3 Pos = (*(*client->spawnpoint)[(rand() % (client->spawnpoint->GetSize() / team_list.size())) * team_list.size() + who_am_i]);
-      player->trafoObjToWorld.SetTranslation(zVEC3(Pos[VX], Pos[VY], Pos[VZ]));
-    } else
-      who_am_i++;
-  }
-  team_list.clear();
+  if (!client->spawnpoint || !client->spawnpoint->GetSize())
+    return;
+
+  zVEC3 Pos = *(*client->spawnpoint)[rand() % client->spawnpoint->GetSize()];
+  player->trafoObjToWorld.SetTranslation(zVEC3(Pos[VX], Pos[VY], Pos[VZ]));
 };
 
 void CSelectClass::HandleInput() {

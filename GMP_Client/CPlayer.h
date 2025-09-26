@@ -68,7 +68,6 @@ public:
   short hp, enable, update_hp_packet;
   unsigned char char_class;
   NpcType Type;
-  bool SameTeamAsLocalPlayer;
 
 public:
   CPlayer();
