@@ -41,7 +41,6 @@ SOFTWARE.
 
 #include "Script.h"
 #include "ban_manager.h"
-#include "character_definition.h"
 #include "common_structs.h"
 #include "config.h"
 #include "znet_server.h"
@@ -52,7 +51,7 @@ class CLog;
 class GothicClock;
 class HTTPServer;
 
-enum CONFIG_FLAGS { QUICK_POTS = 0x01, DROP_ITEMS = 0x02, HIDE_MAP = 0x04 };
+enum CONFIG_FLAGS { HIDE_MAP = 0x04 };
 
 struct Packet {
   // Not owning.
@@ -67,11 +66,11 @@ public:
     PL_UNCONCIOUS = 0x01,  // 00000001
     PL_BURN = 0x02,        // 00000010
   };
-  enum FILE_REQ { CLASS_FILE = 1, SPAWN_FILE = 2, WB_FILE = 3, NULL_SIZE = 255 };
+  enum FILE_REQ { WB_FILE = 1, NULL_SIZE = 255 };
   struct sPlayer {
     Net::PlayerId id;
     std::string name;
-    unsigned char char_class, flags, head, skin, body, walkstyle, figth_pos, spellhand, headstate, is_ingame, passed_crc_test, mute;
+    unsigned char flags, head, skin, body, walkstyle, figth_pos, spellhand, headstate, is_ingame, passed_crc_test, mute;
     short health, mana;
     // miejce na obrót głowy
     time_t tod;  // time of death
@@ -130,7 +129,6 @@ private:
   void SendDiscordActivity(Net::PlayerId guid);
 
   std::unique_ptr<BanManager> ban_manager_;
-  std::unique_ptr<CharacterDefinitionManager> character_definition_manager_;
   std::unique_ptr<Script> script;
   time_t last_stand_timer;
   time_t regen_time;
