@@ -1097,7 +1097,7 @@ void CMainMenu::RenderMenu() {
           WBMapName += ".WBM";
         char buffer[64];
         sprintf(buffer, ".\\Multiplayer\\world-builder\\Maps\\%s", WBMapName.ToChar());
-        string Map = LoadWorld::GetZenName(buffer);
+        std::string Map = LoadWorld::GetZenName(buffer);
         if (Map.size() > 0) {
           CleanUpMainMenu();
           HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)MainMenuLoop);
