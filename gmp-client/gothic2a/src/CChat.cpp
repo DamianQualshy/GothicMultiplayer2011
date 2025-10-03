@@ -39,6 +39,7 @@ SOFTWARE.
 #include <algorithm>
 
 #include "CLanguage.h"
+#include "font_localization.h"
 #include "config.h"
 
 using namespace Gothic_II_Addon;
@@ -121,7 +122,7 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const zCOLOR& rgb, const
   switch (type) {
     case NORMAL:
       if (PrintTimed) {
-        ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
+        ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font_localization::GetFont(font_localization::kFontDefault));
         tmp = text;
         ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, tmp, 3000.0f, 0);
       }
@@ -134,7 +135,7 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const zCOLOR& rgb, const
           tmp = text;
           tmpnickname = Config::Instance().Nickname;
           if (tmp.Search(tmpnickname) < 2) {
-            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
+            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font_localization::GetFont(font_localization::kFontDefault));
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, (*Lang)[CLanguage::WHISPERSTOYOU], 3000.0f, 0);
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3000, tmp, 3000.0f, 0);
             if (!ShowHow) {
@@ -171,7 +172,7 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const char* format, ...)
   switch (type) {
     case NORMAL:
       if (PrintTimed) {
-        ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
+        ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font_localization::GetFont(font_localization::kFontDefault));
         tmp = text;
         ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, tmp, 3000.0f, 0);
       }
@@ -184,7 +185,7 @@ void CChat::WriteMessage(MsgType type, bool PrintTimed, const char* format, ...)
           tmp = text;
           tmpnickname = Config::Instance().Nickname;
           if (tmp.Search(tmpnickname) < 2) {
-            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont("FONT_DEFAULT.TGA");
+            ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font_localization::GetFont(font_localization::kFontDefault));
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, (*Lang)[CLanguage::WHISPERSTOYOU], 3000.0f, 0);
             ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 3000, tmp, 3000.0f, 0);
             if (!ShowHow) {
@@ -213,7 +214,7 @@ void CChat::ClearChat() {
 };
 
 void CChat::PrintChat() {
-  screen->SetFont("FONT_DEFAULT.TGA");
+  screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
   const auto now = std::chrono::steady_clock::now();
   if (zinput->KeyToggled(KEY_F5) && PrintMsgType != NORMAL)
     PrintMsgType = NORMAL;

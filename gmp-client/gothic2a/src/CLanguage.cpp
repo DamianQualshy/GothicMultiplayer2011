@@ -41,6 +41,7 @@ namespace {
 constexpr std::size_t kStringCount = static_cast<std::size_t>(CLanguage::SRVLIST_PLAYERNUMBER) + 1;
 
 const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
+                                                           "FONT_PREFIX",
                                                            "WRITE_NICKNAME",
                                                            "CHOOSE_APPERANCE",
                                                            "FACE_APPERANCE",
@@ -124,9 +125,6 @@ const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "INTRO_NO",
                                                            "MERRY_CHRISTMAS",
                                                            "INV_HOWMUCH",
-                                                           "CLASS_DESCRIPTION",
-                                                           "START_OBSERVATION",
-                                                           "END_OBSERVATION",
                                                            "SRVLIST_ALL",
                                                            "SRVLIST_FAVOURITES",
                                                            "SRVLIST_NAME",
@@ -151,6 +149,7 @@ CLanguage::CLanguage(const char* file) {
 
   const std::string language_field = json_data.value("LANGUAGE", std::string{});
   const auto encoding = localization::DetectLanguageEncoding(language_field, file);
+  font_prefix_ = json_data.value("FONT_PREFIX", std::string{});
 
   data.resize(kStringCount);
   for (std::size_t i = 0; i < kStringKeys.size(); ++i) {

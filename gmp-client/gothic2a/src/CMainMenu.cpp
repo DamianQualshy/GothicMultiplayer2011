@@ -36,6 +36,7 @@ SOFTWARE.
 #include <urlmon.h>
 
 #include <fstream>
+#include <string>
 #include <nlohmann/json.hpp>
 
 #include "CLanguage.h"
@@ -44,6 +45,7 @@ SOFTWARE.
 #include "ExtendedServerList.h"
 #include "world-builder\CBuilder.h"
 #include "config.h"
+#include "font_localization.h"
 #include "game_client.h"
 #include "interface.h"
 #include "keyboard.h"
@@ -62,10 +64,9 @@ extern const char* LANG_DIR;
 extern float fWRatio, fHRatio;
 zCOLOR Normal = zCOLOR(255, 255, 255);
 zCOLOR Highlighted = zCOLOR(128, 180, 128);
-zCOLOR Red = zCOLOR(0xFF, 0, 0);
+zCOLOR Red = zCOLOR(255, 0, 0);
 extern zCOLOR Green;
 zCOLOR FColor;
-constexpr const char* FDefault = "FONT_DEFAULT.TGA";
 constexpr const char* WalkAnim = "S_WALKL";
 CLanguage* Lang;
 CBuilder* Builder;
@@ -305,7 +306,7 @@ void CMainMenu::CleanUpMainMenu() {
     AppWeapon->RemoveVobFromWorld();
   ogame->GetWorldTimer()->SetDay(1);
   ogame->GetWorldTimer()->SetTime(12, 00);
-  screen->SetFont(FDefault);
+  screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
 };
 
 void CMainMenu::PrintMenu() {
@@ -315,7 +316,7 @@ void CMainMenu::PrintMenu() {
   switch (ps) {
     default:
     case MAIN_MENU:
-      screen->SetFont("FONT_OLD_20_WHITE.TGA");
+      screen->SetFont(font_localization::GetFont(font_localization::kFontOld20White));
       FColor = (MenuPos == 0) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
       screen->Print(200, 3200, (*LangSetting)[CLanguage::MMENU_CHSERVER]);
@@ -339,7 +340,7 @@ void CMainMenu::PrintMenu() {
       break;
     }
     case SETTINGS_MENU: {
-      screen->SetFont("FONT_OLD_20_WHITE.TGA");
+      screen->SetFont(font_localization::GetFont(font_localization::kFontOld20White));
       FColor = (OptionPos == 0) ? Highlighted : Normal;
       if (WritingNickname)
         FColor = Red;
@@ -411,7 +412,7 @@ void CMainMenu::PrintMenu() {
       screen->Print(200, 7200, (*LangSetting)[CLanguage::MMENU_BACK]);
     } break;
     case WORLDBUILDER_MENU:
-      screen->SetFont("FONT_OLD_20_WHITE.TGA");
+      screen->SetFont(font_localization::GetFont(font_localization::kFontOld20White));
       FColor = (WBMenuPos == 0) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
       screen->Print(200, 3200, (*LangSetting)[CLanguage::WB_NEWMAP]);
@@ -460,6 +461,10 @@ void CMainMenu::ApplyLanguage(int newLangIndex, bool persist) {
     delete LangSetting;
   LangSetting = newLanguage;
   Lang = LangSetting;
+
+  const std::string font_prefix = LangSetting ? LangSetting->GetFontPrefix() : std::string{};
+  font_localization::SetLanguagePrefix(font_prefix);
+  font_localization::ReloadFonts();
 
   if (esl) {
     delete esl;
@@ -686,7 +691,7 @@ void CMainMenu::RenderMenu() {
       }
       if (!Christmas)
         SpeedUpTime();
-      screen->SetFont(FDefault);
+      screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
       screen->SetFontColor(Normal);
       std::string version = GIT_TAG_LONG;
       VersionString = (!version.empty()) ? version.c_str() : "Unknown build";
@@ -818,7 +823,7 @@ void CMainMenu::RenderMenu() {
       }
       break;
     case MENU_APPEARANCE:
-      screen->SetFont(FDefault);
+      screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
       screen->Print(100, 200, (*LangSetting)[CLanguage::APP_INFO1]);
       if (!AppCamCreated) {
         string_tmp = "ItMw_1h_Mil_Sword";

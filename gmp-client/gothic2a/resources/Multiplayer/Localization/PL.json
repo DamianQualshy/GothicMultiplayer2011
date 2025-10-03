@@ -1,5 +1,6 @@
 {
-  "LANGUAGE": "polski (Polish)",
+  "LANGUAGE": "Polski (Polish)",
+  "FONT_PREFIX": "PL",
   "WRITE_NICKNAME": "Podaj swój nick w grze:",
   "CHOOSE_APPERANCE": "Ustaw swój wygląd",
   "FACE_APPERANCE": "Twarz",

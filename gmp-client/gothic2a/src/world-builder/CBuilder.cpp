@@ -36,6 +36,7 @@ SOFTWARE.
 
 #include "..\HooksManager.h"
 #include "..\patch.h"
+#include "..\font_localization.h"
 #include "math.h"
 //
 
@@ -108,7 +109,7 @@ void CBuilder::Render() {
   if (!this)
     return;
   Patch::PlayerInterfaceEnabled(false);
-  screen->SetFont("FONT_DEFAULT.TGA");
+  screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
   if ((int)BuildMessages.size() > 0)
     for (int v = 0; v < (int)BuildMessages.size(); v++) screen->Print(0, v * 200, BuildMessages[v]);
   switch (Mode) {

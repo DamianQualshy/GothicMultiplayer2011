@@ -35,6 +35,7 @@ SOFTWARE.
 #include <time.h>
 
 #include "config.h"
+#include "font_localization.h"
 
 using namespace Gothic_II_Addon;
 
@@ -44,7 +45,7 @@ void CWatch::PrintWatch() {
   time(&currtime);
   strftime(TimePrint, sizeof(TimePrint) - 1, "%H:%M:%S", localtime(&currtime));
   tmp = TimePrint;
-  screen->SetFont("FONT_DEFAULT.TGA");
+  screen->SetFont(font_localization::GetFont(font_localization::kFontDefault));
   screen->SetFontColor({255, 255, 255});
   screen->Print(Config::Instance().WatchPosX, Config::Instance().WatchPosY, (*Lang)[CLanguage::CWATCH_REALTIME]);
   screen->Print(Config::Instance().WatchPosX, Config::Instance().WatchPosY + 200, tmp);

@@ -34,6 +34,7 @@ class CLanguage {
 public:
   enum STRING_ID {
     LANGUAGE = 0,
+    FONT_PREFIX,
     WRITE_NICKNAME,
     CHOOSE_APPERANCE,
     FACE_APPERANCE,
@@ -117,9 +118,6 @@ public:
     INTRO_NO,
     MERRY_CHRISTMAS,
     INV_HOWMUCH,
-    CLASS_DESCRIPTION,
-    START_OBSERVATION,
-    END_OBSERVATION,
     SRVLIST_ALL,
     SRVLIST_FAVOURITES,
     SRVLIST_NAME,
@@ -130,7 +128,11 @@ public:
   ~CLanguage(void);
   Gothic_II_Addon::zSTRING& operator[](unsigned long);
   void RemovePolishCharactersFromWideString(std::wstring& txt);
+  const std::string& GetFontPrefix() const {
+    return font_prefix_;
+  }
 
 private:
   std::vector<Gothic_II_Addon::zSTRING> data;
+  std::string font_prefix_;
 };

@@ -37,6 +37,8 @@ SOFTWARE.
 
 #include "Table.h"
 
+#include "font_localization.h"
+
 #include <stdio.h>
 
 using namespace G2W;
@@ -90,11 +92,11 @@ void Table::render() {
     py += interline;
     px = 0;
     if (rows[i].highlight) {
-      surface->SetFont(Gothic_II_Addon::zSTRING(highlightFont->texture));
+      surface->SetFont(Gothic_II_Addon::zSTRING(font_localization::GetFont(highlightFont->texture)));
       surface->SetFontColor(Gothic_II_Addon::zCOLOR(highlightFont->r, highlightFont->g, highlightFont->b));
 
     } else {
-      surface->SetFont(Gothic_II_Addon::zSTRING(font->texture));
+      surface->SetFont(Gothic_II_Addon::zSTRING(font_localization::GetFont(font->texture)));
       surface->SetFontColor(Gothic_II_Addon::zCOLOR(font->r, font->g, font->b));
     }
 

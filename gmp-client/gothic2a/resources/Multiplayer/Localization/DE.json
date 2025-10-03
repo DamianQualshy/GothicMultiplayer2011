@@ -1,5 +1,6 @@
 {
   "LANGUAGE": "Deutsch (German)",
+  "FONT_PREFIX": "DE_",
   "WRITE_NICKNAME": "Gib deinen Nicknamen ein:",
   "CHOOSE_APPERANCE": "Bestimme dein Aussehen.",
   "FACE_APPERANCE": "Gesichtstextur.",

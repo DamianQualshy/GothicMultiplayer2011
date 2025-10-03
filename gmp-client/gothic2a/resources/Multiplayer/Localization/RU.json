@@ -1,5 +1,6 @@
 {
   "LANGUAGE": "Русский (Russian)",
+  "FONT_PREFIX": "RU_",
   "WRITE_NICKNAME": "Введите свой ник в игре:",
   "CHOOSE_APPERANCE": "Выберите ваш внешний вид.",
   "FACE_APPERANCE": "Лицо",
