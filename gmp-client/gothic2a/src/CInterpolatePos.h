@@ -34,22 +34,31 @@ SOFTWARE.
 *****************************************************************************/
 #pragma once
 
+#include <cstdint>
+
 #include "ZenGin/zGothicAPI.h"
 #include "CPlayer.h"
+
+#define PLAYER_SYNC_TIME 100
+#define PLAYER_SYNC_CONST 0.008f
 
 // U nas animacja służy za przewidywanie pozycji gracza, więc mamy tu takie gładkie przesuwanie gracza w kierunku prawdziwej pozycji(przesyłanej przez server). 
 // Ewentualnie inne smieci dodamy w przyszłości.
 class CInterpolatePos {
 private:
   CPlayer* InterpolatingPlayer;
-  zVEC3 InterpolatingTo;
-  int InterCount;
+  zVEC3 m_vecPosition;
+  zVEC3 m_LastDiff;
+  uint32_t m_uDeltaTime;
+  float m_fVelocity;
+  int m_uAnimation;
+  bool m_bPosUpdate;
 
 public:
   bool IsInterpolating;
 
 private:
-  void Interpolate(float x, float y, float z, float value, bool NoCollideMode = false);
+  void ResetInternal();
 
 public:
   CInterpolatePos(CPlayer* Player);
@@ -58,4 +67,6 @@ public:
   bool IsDistanceSmallerThanRadius(float radius, float bX, float bY, float bZ, float rX, float rY, float rZ);
   bool IsDistanceSmallerThanRadius(float radius, const zVEC3& Pos, const zVEC3& Pos1);
   void UpdateInterpolation(float x, float y, float z);
+  void UpdateAnimation(int animationId);
+  void Reset();
 };

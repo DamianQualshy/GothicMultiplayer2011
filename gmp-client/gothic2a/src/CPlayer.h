@@ -98,4 +98,5 @@ public:
   void SetNpcType(NpcType Type);
   void SetPosition(Gothic_II_Addon::zVEC3& pos);
   void SetPosition(float x, float y, float z);
+  void UpdateAnimationVelocity(int animationId);
 };

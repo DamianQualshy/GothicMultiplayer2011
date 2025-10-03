@@ -31,6 +31,10 @@ SOFTWARE.
 *****************************************************************************/
 #include "CInterpolatePos.h"
 
+#include <algorithm>
+#include <cmath>
+
+#include "ZenGin/zGothicAPI.h"
 #include "CIngame.h"
 
 // Externs
@@ -39,78 +43,138 @@ extern CIngame* global_ingame;
 CInterpolatePos::CInterpolatePos(CPlayer* Player) {
   InterpolatingPlayer = Player;
   IsInterpolating = false;
-  global_ingame->Interpolation.push_back(this);
-  InterCount = 0;
+  m_vecPosition = zVEC3();
+  m_LastDiff = zVEC3();
+  m_uDeltaTime = 0;
+  m_fVelocity = 0.0f;
+  m_uAnimation = -1;
+  m_bPosUpdate = false;
+  if (global_ingame)
+    global_ingame->Interpolation.push_back(this);
 };
 
 CInterpolatePos::~CInterpolatePos() {
-  IsInterpolating = false;
-  InterCount = 0;
+  ResetInternal();
   InterpolatingPlayer = NULL;
-  for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
+  if (!global_ingame)
+    return;
+  for (int i = 0; i < static_cast<int>(global_ingame->Interpolation.size()); i++) {
     if (global_ingame->Interpolation[i] == this) {
       global_ingame->Interpolation.erase(global_ingame->Interpolation.begin() + i);
+      break;
     }
   }
 };
 
 void CInterpolatePos::DoInterpolate() {
-  if (!IsInterpolating)
+  if (!IsInterpolating || !InterpolatingPlayer || !InterpolatingPlayer->npc)
     return;
-  // trzeba bedzie wymyslic jakis lepszy pomysl na szybkosc interpolacji
-  if (IsDistanceSmallerThanRadius(70.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 0.5f);
-  else if (IsDistanceSmallerThanRadius(100.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 1);
-  else if (IsDistanceSmallerThanRadius(200.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 2, true);
-  else if (IsDistanceSmallerThanRadius(300.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 3, true);
-  else if (IsDistanceSmallerThanRadius(400.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 4, true);
-};
 
-void CInterpolatePos::Interpolate(float x, float y, float z, float value, bool NoCollideMode) {
-  if (!IsInterpolating)
+  zVEC3 current = InterpolatingPlayer->npc->GetPositionWorld();
+  zVEC3 diff = m_vecPosition - current;
+  zVEC3 absDiff(std::fabs(diff[VX]), std::fabs(diff[VY]), std::fabs(diff[VZ]));
+  const float horizontalDiff = std::sqrt(diff[VX] * diff[VX] + diff[VZ] * diff[VZ]);
+  const float verticalDiff = absDiff[VY];
+  const float distance = std::sqrt(horizontalDiff * horizontalDiff + verticalDiff * verticalDiff);
+
+  if (distance > 200.0f || (horizontalDiff < 1.0f && verticalDiff < 1.0f)) {
+    InterpolatingPlayer->SetPosition(m_vecPosition);
+    ResetInternal();
     return;
-  zVEC3 Pos = InterpolatingPlayer->npc->GetPositionWorld();
-  float PosX = Pos[VX];
-  float PosY = Pos[VY];
-  float PosZ = Pos[VZ];
-  if (PosX != x) {
-    if (x > PosX)
-      PosX += value;
-    if (x < PosX)
-      PosX -= value;
   }
-  if (PosY != y) {
-    if (y > PosY)
-      PosY += value;
-    if (y < PosY)
-      PosY -= value;
+
+  if (m_bPosUpdate) {
+    m_LastDiff = absDiff;
+    m_bPosUpdate = false;
+    m_uDeltaTime = 0;
+  } else {
+    if (Gothic_II_Addon::ztimer)
+      m_uDeltaTime += Gothic_II_Addon::ztimer->frameTime;
+    else
+      m_uDeltaTime += PLAYER_SYNC_TIME;
   }
-  if (PosZ != z) {
-    if (z > PosZ)
-      PosZ += value;
-    if (z < PosZ)
-      PosZ -= value;
+
+  float deltaMs = PLAYER_SYNC_TIME;
+  float deltaSeconds = static_cast<float>(PLAYER_SYNC_TIME) / 1000.0f;
+  if (Gothic_II_Addon::ztimer) {
+    if (Gothic_II_Addon::ztimer->frameTime > 0)
+      deltaMs = static_cast<float>(Gothic_II_Addon::ztimer->frameTime);
+    if (Gothic_II_Addon::ztimer->frameTimeFloatSecs > 0.0f)
+      deltaSeconds = Gothic_II_Addon::ztimer->frameTimeFloatSecs;
   }
-  Pos[VX] = PosX;
-  Pos[VY] = PosY;
-  Pos[VZ] = PosZ;
-  if (!NoCollideMode)
-    InterpolatingPlayer->npc->SetPositionWorld(Pos);
-  else
-    InterpolatingPlayer->SetPosition(Pos);
-  if (IsDistanceSmallerThanRadius(50.0f, PosX, PosY, PosZ, x, y, z)) {
-    IsInterpolating = false;
-    InterCount = 0;
+
+  const float stepFraction = std::min(deltaMs * PLAYER_SYNC_CONST, 1.0f);
+  float horizontalStep = 0.0f;
+
+  if (horizontalDiff >= 1.0f && horizontalDiff <= 200.0f) {
+    if (m_fVelocity >= 0.1f)
+      horizontalStep = m_fVelocity * deltaSeconds;
+    else
+      horizontalStep = horizontalDiff * stepFraction;
+
+    const float previousHorizontal = std::sqrt(m_LastDiff[VX] * m_LastDiff[VX] + m_LastDiff[VZ] * m_LastDiff[VZ]);
+    if (horizontalDiff > previousHorizontal + 0.25f)
+      horizontalStep *= 1.5f;
+
+    if (m_uDeltaTime > PLAYER_SYNC_TIME)
+      horizontalStep *= 1.25f;
+
+    horizontalStep = std::min(horizontalStep, horizontalDiff);
   }
-  InterCount++;
-  if (InterCount > 3000) {
-    InterpolatingPlayer->SetPosition(x, y, z);
-    InterCount = 0;
-    IsInterpolating = false;
+
+  float verticalStep = 0.0f;
+  if (verticalDiff >= 1.0f && verticalDiff <= 200.0f) {
+    verticalStep = verticalDiff * stepFraction;
+
+    if (verticalDiff > m_LastDiff[VY] + 0.25f)
+      verticalStep *= 1.5f;
+
+    if (m_uDeltaTime > PLAYER_SYNC_TIME)
+      verticalStep *= 1.25f;
+
+    verticalStep = std::min(verticalStep, verticalDiff);
+  }
+
+  if (horizontalStep <= 0.0f && verticalStep <= 0.0f) {
+    InterpolatingPlayer->SetPosition(m_vecPosition);
+    ResetInternal();
+    return;
+  }
+
+  zVEC3 newPos = current;
+
+  if (horizontalStep > 0.0f) {
+    zVEC3 horizontalDir(diff[VX], 0.0f, diff[VZ]);
+    horizontalDir.Normalize();
+    newPos[VX] += horizontalDir[VX] * horizontalStep;
+    newPos[VZ] += horizontalDir[VZ] * horizontalStep;
+  } else {
+    newPos[VX] = m_vecPosition[VX];
+    newPos[VZ] = m_vecPosition[VZ];
+  }
+
+  if (verticalDiff < 1.0f || verticalDiff > 200.0f) {
+    newPos[VY] = m_vecPosition[VY];
+  } else if (verticalStep > 0.0f) {
+    newPos[VY] += (diff[VY] < 0.0f) ? -verticalStep : verticalStep;
+  }
+
+  for (int axis = 0; axis < 3; ++axis) {
+    if ((m_vecPosition[axis] - current[axis]) >= 0.0f)
+      newPos[axis] = std::min(newPos[axis], m_vecPosition[axis]);
+    else
+      newPos[axis] = std::max(newPos[axis], m_vecPosition[axis]);
+  }
+
+  InterpolatingPlayer->SetPosition(newPos);
+
+  zVEC3 remaining = m_vecPosition - newPos;
+  m_LastDiff = zVEC3(std::fabs(remaining[VX]), std::fabs(remaining[VY]), std::fabs(remaining[VZ]));
+
+  const float remainingHorizontal = std::sqrt(remaining[VX] * remaining[VX] + remaining[VZ] * remaining[VZ]);
+  if (remainingHorizontal < 1.0f && m_LastDiff[VY] < 1.0f) {
+    InterpolatingPlayer->SetPosition(m_vecPosition);
+    ResetInternal();
   }
 };
 
@@ -137,9 +201,39 @@ bool CInterpolatePos::IsDistanceSmallerThanRadius(float radius, const zVEC3& Pos
 };
 
 void CInterpolatePos::UpdateInterpolation(float x, float y, float z) {
-  if (!IsInterpolating)
-    IsInterpolating = true;
-  InterpolatingTo[VX] = x;
-  InterpolatingTo[VY] = y;
-  InterpolatingTo[VZ] = z;
+  m_vecPosition[VX] = x;
+  m_vecPosition[VY] = y;
+  m_vecPosition[VZ] = z;
+  IsInterpolating = true;
+  m_bPosUpdate = true;
 };
+
+void CInterpolatePos::UpdateAnimation(int animationId) {
+  m_uAnimation = animationId;
+  m_fVelocity = 0.0f;
+  if (!InterpolatingPlayer || !InterpolatingPlayer->npc || animationId <= 0)
+    return;
+
+  zCModel* model = InterpolatingPlayer->npc->GetModel();
+  if (!model)
+    return;
+
+  zCModelAni* ani = model->GetAniFromAniID(animationId);
+  if (!ani)
+    return;
+
+  float aniVelocity = ani->GetAniVelocity();
+  if (aniVelocity > 0.0f)
+    m_fVelocity = aniVelocity;
+};
+
+void CInterpolatePos::Reset() {
+  ResetInternal();
+}
+
+void CInterpolatePos::ResetInternal() {
+  IsInterpolating = false;
+  m_LastDiff = zVEC3();
+  m_uDeltaTime = 0;
+  m_bPosUpdate = false;
+}

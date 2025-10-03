@@ -34,6 +34,7 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
+#include <cmath>
 #include <list>
 
 #include "CIngame.h"
@@ -107,16 +108,30 @@ CPlayer::~CPlayer() {
 };
 
 void CPlayer::AnalyzePosition(zVEC3& Pos) {
-  if (!InterPos->IsDistanceSmallerThanRadius(400.0f, npc->GetPositionWorld(), Pos)) {
+  if (!InterPos) {
     npc->trafoObjToWorld.SetTranslation(Pos);
     return;
   }
-  if (!InterPos->IsDistanceSmallerThanRadius(50.0f, npc->GetPositionWorld(), Pos)) {
-    if (!IsFighting())
-      InterPos->UpdateInterpolation(Pos[VX], Pos[VY], Pos[VZ]);
-    else
-      npc->trafoObjToWorld.SetTranslation(Pos);
+
+  zVEC3 current = npc->GetPositionWorld();
+  zVEC3 diff = Pos - current;
+  const float horizontalDiff = std::sqrt(diff[VX] * diff[VX] + diff[VZ] * diff[VZ]);
+  const float verticalDiff = std::fabs(diff[VY]);
+  const float distance = diff.Length();
+
+  if (distance > 200.0f || IsFighting()) {
+    InterPos->Reset();
+    npc->trafoObjToWorld.SetTranslation(Pos);
+    return;
   }
+
+  if (horizontalDiff < 1.0f && verticalDiff < 1.0f) {
+    InterPos->Reset();
+    npc->trafoObjToWorld.SetTranslation(Pos);
+    return;
+  }
+
+  InterPos->UpdateInterpolation(Pos[VX], Pos[VY], Pos[VZ]);
 };
 
 void CPlayer::DeleteAllPlayers() {
@@ -431,4 +446,9 @@ void CPlayer::SetPosition(zVEC3& pos) {
 
 void CPlayer::SetPosition(float x, float y, float z) {
   this->npc->trafoObjToWorld.SetTranslation(zVEC3(x, y, z));
+};
+
+void CPlayer::UpdateAnimationVelocity(int animationId) {
+  if (InterPos)
+    InterPos->UpdateAnimation(animationId);
 };

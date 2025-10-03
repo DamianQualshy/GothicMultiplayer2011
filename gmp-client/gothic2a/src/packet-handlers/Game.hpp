@@ -192,6 +192,7 @@ void OnActualStatistics(GameClient* client, Packet p) {
         }
       }
     }
+    player->UpdateAnimationVelocity(static_cast<int>(packet.state.animation));
     if (player->npc && packet.state.animation > 0 && packet.state.animation < 1400) {
       zCModelAni* Ani = player->npc->GetModel()->GetAniFromAniID(static_cast<int>(packet.state.animation));
       if (Ani && !player->npc->IsDead()) {
