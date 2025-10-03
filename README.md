@@ -68,6 +68,15 @@ xmake build GMP_Serv
 xmake build GMP_Client
 ```
 
+### 4. Add Definitions to Build (Optional)
+```bash
+# Discord Application ID
+xmake f --discord_app_id=(appid)
+
+# Master Server Endpoint
+xmake f --master_server_endpoint=(ip):8080/servers
+```
+
 ## 🚀 Installation & Setup
 
 ### 1. Install to Gothic 2 Directory
