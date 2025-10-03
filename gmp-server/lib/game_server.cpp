@@ -321,7 +321,7 @@ bool GameServer::Init() {
 
   clock_ = std::make_unique<GothicClock>(GothicClock::Time{});
   if (IsPublic() && !kMasterServerEndpoint.empty()) {
-    public_list_http_thread_future_ = std::async(&GameServer::AddToPublicListHTTP, this);
+    public_list_http_thread_future_ = std::async(std::launch::async, &GameServer::AddToPublicListHTTP, this);
     SPDLOG_INFO("Master Server connection successful!");
   } else if (IsPublic()) {
     SPDLOG_WARN("Server marked as public, but no Master Server endpoint is configured. Skipping registration.");
