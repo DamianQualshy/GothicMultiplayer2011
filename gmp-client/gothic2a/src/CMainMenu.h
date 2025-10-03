@@ -41,7 +41,6 @@ enum MenuState {
   CHOOSE_NICKNAME,
   MENU_LOOP,
   MENU_CLEAN,
-  MENU_APPEARANCE,
   CHOOSE_SRV_LOOP,
   MENU_OPTIONS,
   MENU_OPTONLINE,
@@ -52,9 +51,6 @@ enum MenuState {
 };
 
 enum PrintState { MAIN_MENU = 0, SERVER_LIST, SETTINGS_MENU, WORLDBUILDER_MENU };
-namespace ApperancePart {
-enum { HEAD, FACE, SKIN, WALKSTYLE };
-};
 
 class CMainMenu : public TSingleton<CMainMenu> {
 private:
@@ -90,12 +86,7 @@ public:
   MenuState MState;
   bool TitleWeaponEnabled;
   bool WritingNickname;
-  Gothic_II_Addon::zSTRING headmodel_tmp;
-  Gothic_II_Addon::zSTRING Walkstyle_tmp;
   CLanguage* LangSetting;
-  bool AppCamCreated;
-  unsigned char ChoosingApperance;
-  unsigned char LastApperance;
   ExtendedServerList* esl;
 
 public:

@@ -101,7 +101,7 @@ CMainMenu::CMainMenu() {
   LoadConfig();
   ScreenResolution.x = zoptions->ReadInt(zOPT_SEC_VIDEO, "zVidResFullscreenX", 320);
   ScreenResolution.y = zoptions->ReadInt(zOPT_SEC_VIDEO, "zVidResFullscreenY", 258);
-  MenuItems = 4;
+  MenuItems = 3;
   hbX, hbY, ps = 0, MenuPos = 0, OptionPos = 0, WBMenuPos = 0;
   RECT wymiary;
   GetWindowRect(Patch::GetHWND(), &wymiary);
@@ -114,9 +114,7 @@ CMainMenu::CMainMenu() {
   screen->InsertItem(GMPLogo);
   GMPLogo->SetSize(5500, 2000);
   TitleWeaponEnabled = false;
-  AppCamCreated = false;
   WritingNickname = false;
-  AppWeapon = NULL;
   LangSetting = NULL;
   Options = NULL;
   esl = NULL;
@@ -180,7 +178,6 @@ static void ReLaunchPart2() {
   ReMenu->GMPLogo->SetSize(5500, 2000);
   HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)CMainMenu::MainMenuLoop, false);
   ReMenu->TitleWeaponEnabled = false;
-  ReMenu->AppCamCreated = false;
   ReMenu->WritingNickname = false;
   ReMenu->LaunchMenuScene();
 };
@@ -277,13 +274,6 @@ void CMainMenu::LaunchMenuScene() {
 void CMainMenu::LoadConfig() {
   LoadLangNames();
   Language = Config::Instance().lang;
-  if (!Config::Instance().IsDefault()) {
-    headmodel_tmp = CPlayer::GetHeadModelNameFromByte(Config::Instance().headmodel);
-    Walkstyle_tmp = CPlayer::GetWalkStyleFromByte(Config::Instance().walkstyle);
-    string_tmp = "HUM_BODY_NAKED0";
-    player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-    player->ApplyOverlay(Walkstyle_tmp);
-  }
 };
 
 void CMainMenu::CleanUpMainMenu() {
@@ -301,8 +291,6 @@ void CMainMenu::CleanUpMainMenu() {
   EnableHealthBar();
   screen->RemoveItem(GMPLogo);
   delete GMPLogo;
-  if (AppWeapon)
-    AppWeapon->RemoveVobFromWorld();
   ogame->GetWorldTimer()->SetDay(1);
   ogame->GetWorldTimer()->SetTime(12, 00);
   screen->SetFont(FDefault);
@@ -321,14 +309,11 @@ void CMainMenu::PrintMenu() {
       screen->Print(200, 3200, (*LangSetting)[CLanguage::MMENU_CHSERVER]);
       FColor = (MenuPos == 1) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 3600, (*LangSetting)[CLanguage::MMENU_APPEARANCE]);
+      screen->Print(200, 3600, (*LangSetting)[CLanguage::MMENU_OPTIONS]);
       FColor = (MenuPos == 2) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
-      screen->Print(200, 4000, (*LangSetting)[CLanguage::MMENU_OPTIONS]);
+      screen->Print(200, 4000, (*LangSetting)[CLanguage::MMENU_ONLINEOPTIONS]);
       FColor = (MenuPos == 3) ? Highlighted : Normal;
-      screen->SetFontColor(FColor);
-      screen->Print(200, 4400, (*LangSetting)[CLanguage::MMENU_ONLINEOPTIONS]);
-      FColor = (MenuPos == 4) ? Highlighted : Normal;
       screen->SetFontColor(FColor);
       screen->Print(200, 4800, (*LangSetting)[CLanguage::MMENU_LEAVEGAME]);
       break;
@@ -484,6 +469,7 @@ void CMainMenu::SpeedUpTime() {
   Minute++;
   ogame->GetWorldTimer()->SetTime(Hour, Minute);
 };
+
 void CMainMenu::ClearNpcTalents(oCNpc* Npc) {
   Npc->inventory2.ClearInventory();
   Npc->DestroySpellBook();
@@ -516,31 +502,18 @@ void CMainMenu::RunMenuItem() {
         ServerIP.Clear();
       break;
     case 1:
-      // WYBIERZ WYGLAD
-      if (AppCamCreated) {
-        ChoosingApperance = ApperancePart::FACE;
-        LastApperance = ApperancePart::FACE;
-        AppWeapon->ResetRotationsWorld();
-        AppWeapon->SetPositionWorld(
-            zVEC3(player->GetPositionWorld()[VX] - 78, player->GetPositionWorld()[VY] + 50, player->GetPositionWorld()[VZ] - 119));
-        AppWeapon->RotateWorldY(30);
-        ogame->CamInit(CMainMenu::GetInstance()->AppWeapon, zCCamera::activeCam);
-      }
-      MState = MENU_APPEARANCE;
-      break;
-    case 2:
       // OPCJE
       MState = MENU_OPTIONS;
       if (!Options)
         Options = zCMenu::Create(zSTRING("MENU_OPTIONS"));
       Options->Run();
       break;
-    case 3:
+    case 2:
       // OPCJE DODATKOWE
       MState = MENU_OPTONLINE;
       ps = SETTINGS_MENU;
       break;
-    case 4:
+    case 3:
       // WYJDZ Z GRY
       gameMan->Done();
       break;
@@ -815,131 +788,6 @@ void CMainMenu::RenderMenu() {
         screen->InsertItem(GMPLogo);
         ps = MAIN_MENU;
         MState = MENU_LOOP;
-      }
-      break;
-    case MENU_APPEARANCE:
-      screen->SetFont(FDefault);
-      screen->Print(100, 200, (*LangSetting)[CLanguage::APP_INFO1]);
-      if (!AppCamCreated) {
-        string_tmp = "ItMw_1h_Mil_Sword";
-        AppWeapon = zfactory->CreateItem(zCParser::GetParser()->GetIndex(string_tmp));
-        AppWeapon->SetPositionWorld(
-            zVEC3(player->GetPositionWorld()[VX] - 78, player->GetPositionWorld()[VY] + 50, player->GetPositionWorld()[VZ] - 119));
-        AppWeapon->RotateWorldY(30);
-        AppWeapon->name.Clear();
-        string_tmp = "HUM_BODY_NAKED0";
-        headmodel_tmp = CPlayer::GetHeadModelNameFromByte(Config::Instance().headmodel);
-        player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-        player->GetModel()->meshLibList[0]->texAniState.actAniFrames[0][0] = Config::Instance().skintexture;
-        ChoosingApperance = ApperancePart::FACE;
-        LastApperance = ApperancePart::FACE;
-        ogame->CamInit(AppWeapon, zCCamera::activeCam);
-        AppCamCreated = true;
-      }
-      if ((zinput->KeyToggled(KEY_UP)) && (ChoosingApperance > ApperancePart::HEAD))
-        --ChoosingApperance;
-      if ((zinput->KeyToggled(KEY_DOWN)) && (ChoosingApperance < ApperancePart::WALKSTYLE))
-        ++ChoosingApperance;
-      if ((zinput->KeyPressed(KEY_ESCAPE))) {
-        string_tmp.Clear();
-        zinput->ClearKeyBuffer();
-        MState = MENU_LOOP;
-        Config::Instance().SaveConfigToFile();
-        ogame->CamInit(CamWeapon, zCCamera::activeCam);
-      }
-      switch (ChoosingApperance) {
-        default:
-        case ApperancePart::HEAD:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::HEAD_MODEL]);
-          if ((zinput->KeyToggled(KEY_LEFT))) {
-            if (Config::Instance().headmodel > 0) {
-              Config::Instance().headmodel--;
-              headmodel_tmp = CPlayer::GetHeadModelNameFromByte(Config::Instance().headmodel);
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-            }
-          }
-          if ((zinput->KeyToggled(KEY_RIGHT))) {
-            if (Config::Instance().headmodel < 5) {
-              Config::Instance().headmodel++;
-              headmodel_tmp = CPlayer::GetHeadModelNameFromByte(Config::Instance().headmodel);
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-            }
-          }
-          if (LastApperance != ChoosingApperance) {
-            AppWeapon->SetPositionWorld(
-                zVEC3(player->GetPositionWorld()[VX] + 55, player->GetPositionWorld()[VY] + 70, player->GetPositionWorld()[VZ] - 37));
-            AppWeapon->RotateWorldY(-90);
-            LastApperance = ChoosingApperance;
-          }
-          break;
-        case ApperancePart::FACE:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::FACE_APPERANCE]);
-          if ((zinput->KeyToggled(KEY_LEFT))) {
-            if (Config::Instance().facetexture > 0) {
-              Config::Instance().facetexture--;
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-            }
-          }
-          if ((zinput->KeyToggled(KEY_RIGHT))) {
-            if (Config::Instance().facetexture < 162) {
-              Config::Instance().facetexture++;
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-            }
-          }
-          if (LastApperance != ChoosingApperance) {
-            AppWeapon->SetPositionWorld(
-                zVEC3(player->GetPositionWorld()[VX] - 78, player->GetPositionWorld()[VY] + 50, player->GetPositionWorld()[VZ] - 119));
-            AppWeapon->RotateWorldY(90);
-            LastApperance = ChoosingApperance;
-          }
-          break;
-        case ApperancePart::SKIN:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::SKIN_TEXTURE]);
-          if (player->GetModel()->IsAnimationActive(WalkAnim))
-            player->GetModel()->StopAnimation(WalkAnim);
-          if ((zinput->KeyToggled(KEY_LEFT))) {
-            if (Config::Instance().skintexture > 0) {
-              Config::Instance().skintexture--;
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-              player->GetModel()->meshLibList[0]->texAniState.actAniFrames[0][0] = Config::Instance().skintexture;
-            }
-          }
-          if ((zinput->KeyToggled(KEY_RIGHT))) {
-            if (Config::Instance().skintexture < 12) {
-              Config::Instance().skintexture++;
-              player->SetAdditionalVisuals(string_tmp, Config::Instance().skintexture, 0, headmodel_tmp, Config::Instance().facetexture, 0, -1);
-              player->GetModel()->meshLibList[0]->texAniState.actAniFrames[0][0] = Config::Instance().skintexture;
-            }
-          }
-          break;
-        case ApperancePart::WALKSTYLE:
-          screen->Print(500, 2000, (*LangSetting)[CLanguage::WALK_STYLE]);
-          if ((zinput->KeyPressed(KEY_LEFT))) {
-            zinput->ClearKeyBuffer();
-            if (Config::Instance().walkstyle > 0) {
-              if (player->GetModel()->IsAnimationActive(WalkAnim))
-                player->GetModel()->StopAnimation(WalkAnim);
-              player->RemoveOverlay(Walkstyle_tmp);
-              Config::Instance().walkstyle--;
-              Walkstyle_tmp = CPlayer::GetWalkStyleFromByte(Config::Instance().walkstyle);
-              player->ApplyOverlay(Walkstyle_tmp);
-            }
-          }
-          if ((zinput->KeyPressed(KEY_RIGHT))) {
-            zinput->ClearKeyBuffer();
-            if (Config::Instance().walkstyle < 6) {
-              if (player->GetModel()->IsAnimationActive(WalkAnim))
-                player->GetModel()->StopAnimation(WalkAnim);
-              player->RemoveOverlay(Walkstyle_tmp);
-              Config::Instance().walkstyle++;
-              Walkstyle_tmp = CPlayer::GetWalkStyleFromByte(Config::Instance().walkstyle);
-              player->ApplyOverlay(Walkstyle_tmp);
-            }
-          }
-          if (!player->GetModel()->IsAnimationActive(WalkAnim))
-            player->GetModel()->StartAnimation(WalkAnim);
-          player->trafoObjToWorld.SetTranslation(HeroPos);
-          break;
       }
       break;
     case MENU_OPTIONS:

@@ -607,12 +607,6 @@ void OnAllOthers(GameClient* client, Packet packet) {
     newhero->hp = static_cast<short>(newhero->GetHealth());
     auto pos = zVEC3(existing_player.position.x, existing_player.position.y, existing_player.position.z);
     newhero->SetPosition(pos);
-    if (newhero->Type == CPlayer::NPC_HUMAN) {
-      newhero->SetAppearance(existing_player.head_model, existing_player.skin_texture, existing_player.face_texture);
-    }
-    if (newhero->Type > CPlayer::NPC_DRACONIAN || newhero->Type == CPlayer::NPC_HUMAN) {
-      newhero->npc->ApplyOverlay(CPlayer::GetWalkStyleFromByte(existing_player.walk_style));
-    }
     newhero->SetName(existing_player.player_name.c_str());
     newhero->update_hp_packet = 0;
     client->players.push_back(newhero);
@@ -640,10 +634,6 @@ void OnJoinGame(GameClient* client, Packet packet) {
   newhero->hp = static_cast<short>(newhero->GetHealth());
   newhero->SetPosition(pos);
   newhero->SetName(joinGamePacket.player_name.c_str());
-  if (newhero->Type == CPlayer::NPC_HUMAN)
-    newhero->SetAppearance(joinGamePacket.head_model, joinGamePacket.skin_texture, joinGamePacket.face_texture);
-  if (newhero->Type > CPlayer::NPC_DRACONIAN || newhero->Type == CPlayer::NPC_HUMAN)
-    newhero->npc->ApplyOverlay(CPlayer::GetWalkStyleFromByte(joinGamePacket.walk_style));
   CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "%s%s", joinGamePacket.player_name.c_str(),
                                      (*client->lang)[CLanguage::SOMEONE_JOIN_GAME].ToChar());
   newhero->enable = FALSE;

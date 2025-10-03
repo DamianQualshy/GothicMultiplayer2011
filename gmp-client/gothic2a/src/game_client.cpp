@@ -206,10 +206,6 @@ void GameClient::JoinGame() {
       packet.equipped_armor_instance = itPtr->GetInstance();
     }
     packet.animation = 265;  // TODO: get current animation (or remove it?)
-    packet.head_model = Config::Instance().headmodel;
-    packet.skin_texture = Config::Instance().skintexture;
-    packet.face_texture = Config::Instance().facetexture;
-    packet.walk_style = Config::Instance().walkstyle;
     packet.player_name = player->GetName().ToChar();
 
     SerializeAndSend(network, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);

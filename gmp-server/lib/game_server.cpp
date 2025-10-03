@@ -632,10 +632,6 @@ void GameServer::SomeoneJoinGame(Packet p) {
   player.state.right_hand_item_instance = packet.right_hand_item_instance;
   player.state.equipped_armor_instance = packet.equipped_armor_instance;
   player.state.animation = packet.animation;
-  player.head = packet.head_model;
-  player.skin = packet.skin_texture;
-  player.body = packet.face_texture;
-  player.walkstyle = packet.walk_style;
   player.name = packet.player_name;
 
   // Update the packet we received with his ID, so we can send it to others.
@@ -657,10 +653,6 @@ void GameServer::SomeoneJoinGame(Packet p) {
       player_packet.left_hand_item_instance = existing_player.state.left_hand_item_instance;
       player_packet.right_hand_item_instance = existing_player.state.right_hand_item_instance;
       player_packet.equipped_armor_instance = existing_player.state.equipped_armor_instance;
-      player_packet.head_model = existing_player.head;
-      player_packet.skin_texture = existing_player.skin;
-      player_packet.face_texture = existing_player.body;
-      player_packet.walk_style = existing_player.walkstyle;
       player_packet.player_name = existing_player.name;
       existing_players.push_back(std::move(player_packet));
     }
