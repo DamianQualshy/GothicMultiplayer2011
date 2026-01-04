@@ -28,3 +28,5 @@ SOFTWARE.
 #include "common.h"
 
 void Initialize(void);
+void SetSuppressLocalEquipEvents(bool suppress);
+bool ShouldSuppressLocalEquipEvents();

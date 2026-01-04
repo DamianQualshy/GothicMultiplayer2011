@@ -27,6 +27,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include "gmp_core.h"
+#include "language.h"
 #include "world_utils.hpp"
 #include "Patch.h"
 #include "keyboard.h"
@@ -170,7 +171,8 @@ void ServerListState::RenderServerList() {
 
 void ServerListState::RenderCustomIPEntry() {
   // Display custom IP entry
-  context_.screen->SetFont("FONT_OLD_20_WHITE.TGA");
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+  context_.screen->SetFont(font.c_str());
   context_.screen->SetFontColor({255, 255, 255});
   context_.screen->PrintCXY(context_.selectedServerIP);
 }

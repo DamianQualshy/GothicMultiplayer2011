@@ -99,7 +99,8 @@ MenuState* MainMenuLoopState::CheckTransition() {
 }
 
 void MainMenuLoopState::RenderMenu() {
-  context_.screen->SetFont("FONT_OLD_20_WHITE.TGA");
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+  context_.screen->SetFont(font.c_str());
 
   // Render menu items
   zCOLOR fcolor;
@@ -126,7 +127,8 @@ void MainMenuLoopState::RenderMenu() {
 }
 
 void MainMenuLoopState::RenderVersionInfo() {
-  context_.screen->SetFont(FDefault);
+  const auto defaultFont = Language::Instance().ApplyFontPrefix(FDefault);
+  context_.screen->SetFont(defaultFont.c_str());
   context_.screen->SetFontColor(Normal);
 
   // D3D9/D3D11 experimental warning in top left

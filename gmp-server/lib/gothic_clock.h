@@ -51,10 +51,12 @@ public:
     std::uint32_t raw;
   };
 
-  GothicClock(Time initial_time, std::int32_t seconds_per_game_minute = 4);
+  GothicClock(Time initial_time, double seconds_per_game_minute = 4.0);
 
   void UpdateTime(Time new_time);
   Time GetTime() const;
+  bool SetDayLengthMs(double day_length_ms);
+  double GetDayLengthMs() const;
 
   // Should be called from the main loop.
   void RunClock();
@@ -62,7 +64,8 @@ public:
 private:
   Time time_;
   std::chrono::time_point<std::chrono::steady_clock> last_update_time_;
-  std::int32_t seconds_per_game_minute_;  // Real-world seconds per 1 game minute (0 = frozen time)
+  double day_length_ms_{0.0};
+  double seconds_per_game_minute_;  // Real-world seconds per 1 game minute (0 = frozen time)
 };
 
 std::ostream& operator<<(std::ostream& os, const GothicClock::Time& d);

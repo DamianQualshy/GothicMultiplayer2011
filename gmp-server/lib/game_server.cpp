@@ -55,12 +55,17 @@ SOFTWARE.
 #include <system_error>
 
 #include "gothic_clock.h"
+#include "Lua/event_bind.h"
 #include "net_enums.h"
 #include "packets.h"
+#include "shared/lua_runtime/lua_constants.h"
 #include "platform_depend.h"
 #include "server_events.h"
+#include "server_constants.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/lua_value_codec.h"
 #include "shared/math.h"
+#include "sol/sol.hpp"
 #include "znet_server.h"
 
 Net::NetServer* g_net_server = nullptr;
@@ -516,14 +521,19 @@ GameServer::GameServer() {
   g_server = this;
 
   // Register server-side events.
+  EventManager::Instance().RegisterEvent(kEventOnTickName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerConnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDisconnectName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerJoinName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCommandName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerKillName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDeathName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDropItemName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerTakeItemName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerChangeHealthName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerChangeManaName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerChangeWorldName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerWeaponModeChangeName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerAmuletChangeName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerArmorChangeName);
@@ -666,6 +676,8 @@ void GameServer::Run() {
 
   ProcessRespawns();
 
+  EventManager::Instance().TriggerEvent(kEventOnTickName, OnTickEvent{});
+
   // Send updates to all players.
   auto now = std::chrono::steady_clock::now();
   if (now - last_update_time_ > std::chrono::milliseconds(config_.Get<std::int32_t>("tick_rate_ms"))) {
@@ -768,10 +780,19 @@ void GameServer::ProcessRespawns() {
     if (respawn_time == 0 || player.tod + respawn_time <= now) {
       player.flags = 0;
       player.tod = 0;
+      const auto old_health = player.health;
+      const auto old_mana = player.mana;
       player.health = player.max_health;
       player.mana = player.max_mana;
       player.state.health_points = player.health;
       player.state.mana_points = player.mana;
+      if (old_health != player.health) {
+        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                              OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+      }
+      if (old_mana != player.mana) {
+        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
+      }
 
       SendRespawnInfo(player.player_id);
     }
@@ -789,13 +810,15 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if (player_opt.has_value()) {
         SendDisconnectionInfo(player_opt->get().player_id);
       }
-      HandlePlayerDisconnect(p.id);
+      HandlePlayerDisconnect(p.id, gmp::server::DISCONNECTED);
       SPDLOG_INFO("{} disconnected. Still connected {} users.", g_net_server->GetPlayerIp(p.id), player_manager_.GetPlayerCount());
       break;
     }
     case ID_NEW_INCOMING_CONNECTION: {
       // Add player to the manager
-      PlayerId new_player_id = player_manager_.AddPlayer(p.id, "");
+      auto max_slots = GetMaxSlots();
+      PlayerId new_player_id = player_manager_.AddPlayer(p.id, "", max_slots);
+
       if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
         new_player->get().world = server_world_;
         new_player->get().virtual_world = 0;
@@ -807,7 +830,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       packet.map_name = server_world_;
       packet.player_id = new_player_id;
       packet.server_name = GetHostname();
-      packet.max_slots = static_cast<std::uint16_t>(GetMaxSlots());
+      packet.max_slots = static_cast<std::uint16_t>(max_slots);
       packet.resource_token = resource_server_->IssueToken(p.id);
       packet.resource_base_path = "/public";
       packet.client_resources.reserve(client_resource_descriptors_.size());
@@ -835,7 +858,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if (player_opt.has_value()) {
         SendDisconnectionInfo(player_opt->get().player_id);
       }
-      HandlePlayerDisconnect(p.id);
+      HandlePlayerDisconnect(p.id, gmp::server::LOST_CONNECTION);
       SPDLOG_WARN("Connection lost from {}. Still connected {} users.", g_net_server->GetPlayerIp(p.id), player_manager_.GetPlayerCount());
       break;
     }
@@ -866,6 +889,9 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_GAME_INFO:  // na razie tylko czas
       HandleGameInfo(p);
       break;
+    case PT_LUA_EVENT:
+      HandleLuaEvent(p);
+      break;
     case PT_VOICE:
       HandleVoice(p);
       break;
@@ -892,14 +918,14 @@ void GameServer::DeleteFromPlayerList(PlayerId player_id) {
   player_manager_.RemovePlayer(player_id);
 }
 
-void GameServer::HandlePlayerDisconnect(Net::ConnectionHandle connection) {
+void GameServer::HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason) {
   resource_server_->RevokeToken(connection);
 
   auto player_opt = player_manager_.GetPlayerByConnection(connection);
   if (player_opt.has_value()) {
     auto& player = player_opt.value().get();
     if (player.is_ingame) {
-      EventManager::Instance().TriggerEvent(kEventOnPlayerDisconnectName, player.player_id);
+      EventManager::Instance().TriggerEvent(kEventOnPlayerDisconnectName, OnPlayerDisconnectEvent{player.player_id, reason});
     }
     DeleteFromPlayerList(player.player_id);
   }
@@ -910,9 +936,13 @@ void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> kille
     return;
   }
 
+  const auto old_health = victim.health;
   victim.health = 0;
   victim.state.health_points = 0;
   victim.tod = time(NULL);
+  if (old_health != victim.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
+  }
 
   if (killer_id.has_value() && killer_id.value() != victim.player_id) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerKillName, OnPlayerKillEvent{killer_id.value(), victim.player_id});
@@ -965,6 +995,7 @@ void GameServer::SomeoneJoinGame(Packet p) {
 
   // join
   EventManager::Instance().TriggerEvent(kEventOnPlayerConnectName, player.player_id);
+  EventManager::Instance().TriggerEvent(kEventOnPlayerJoinName, OnPlayerJoinEvent{player.player_id});
 }
 
 void GameServer::HandlePlayerUpdate(Packet p) {
@@ -1035,6 +1066,34 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   }
 }
 
+void GameServer::HandleLuaEvent(Packet p) {
+  LuaEventPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize LuaEventPacket, error code: {}", static_cast<int>(state.first));
+    return;
+  }
+
+  if (!lua_script_) {
+    SPDLOG_ERROR("Lua event '{}' received without active Lua script", packet.event_name);
+    return;
+  }
+
+  std::string payload(packet.payload.begin(), packet.payload.end());
+  std::vector<sol::object> args;
+  std::string error;
+  if (!gmp::lua::DecodeLuaArgs(lua_script_->GetLuaState(), payload, args, error)) {
+    SPDLOG_ERROR("Failed to decode Lua event '{}' payload: {}", packet.event_name, error);
+    return;
+  }
+
+  if (!lua::bindings::TriggerRemoteEvent(lua_script_->GetLuaState(), packet.event_name, packet.source_element, args)) {
+    SPDLOG_WARN("Lua event '{}' rejected or cancelled", packet.event_name);
+  }
+}
+
 void GameServer::HandleVoice(Packet p) {
   // TODO: no need to resend player id right now, it won't be needed until we add 3d chat
   if (p.length == 0) {
@@ -1053,7 +1112,7 @@ void GameServer::HandleVoice(Packet p) {
 
 void GameServer::HandleNormalMsg(Packet p) {
   auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame || player_opt.value().get().mute)
+  if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
     return;
 
   auto& player = player_opt.value().get();
@@ -1236,6 +1295,7 @@ void GameServer::AddToPublicListHTTP() {
 
 void GameServer::HandleGameInfo(Packet p) {
   SendGameInfo(p.id);
+  SendSkySettings(p.id);
 }
 
 // void GameServer::HandleGameInfo(Packet p){
@@ -1244,12 +1304,30 @@ void GameServer::SendGameInfo(Net::ConnectionHandle who) {
   packet.packet_type = PT_GAME_INFO;
   GothicClock::TimeUnion game_time = clock_->GetTime();
   packet.raw_game_time = game_time.raw;
+  packet.day_length_ms = static_cast<float>(clock_->GetDayLengthMs());
 
   if (config_.Get<bool>("hide_map")) {
     packet.flags |= HIDE_MAP;
   }
 
   SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, who, 9);
+}
+
+void GameServer::SendSkySettings(Net::ConnectionHandle connection) {
+  if (sky_settings_flags_ == 0) {
+    return;
+  }
+
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = sky_settings_flags_;
+  packet.weather_type = weather_type_;
+  packet.rain_start_hour = static_cast<std::int16_t>(rain_start_hour_);
+  packet.rain_start_min = static_cast<std::int16_t>(rain_start_min_);
+  packet.wind_scale = wind_scale_;
+  packet.dont_rain = dont_rain_ ? 1 : 0;
+
+  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, connection);
 }
 
 void GameServer::HandleMapNameReq(Packet p) {
@@ -1330,6 +1408,38 @@ void GameServer::SendPlayerMessageToPlayer(PlayerId sender_id, PlayerId receiver
 
   auto packet = CreateMessagePacket(sender_id, receiver_id, r, g, b, text);
   SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, receiver->get().connection);
+}
+
+bool GameServer::TriggerClientEvent(const std::vector<PlayerId>& targets, const std::string& event_name, PlayerId source_element,
+                                    const std::string& payload) {
+  if (!g_net_server) {
+    SPDLOG_WARN("Cannot trigger client event '{}' before network server is initialized", event_name);
+    return false;
+  }
+
+  if (payload.size() > kMaxLuaEventPayloadSize) {
+    SPDLOG_WARN("Lua event '{}' payload too large ({} bytes)", event_name, payload.size());
+    return false;
+  }
+
+  LuaEventPacket packet;
+  packet.packet_type = PT_LUA_EVENT;
+  packet.event_name = event_name;
+  packet.source_element = source_element;
+  packet.payload.assign(payload.begin(), payload.end());
+
+  bool sent = false;
+  for (auto player_id : targets) {
+    auto connection = player_manager_.GetConnectionHandle(player_id);
+    if (!connection.has_value()) {
+      SPDLOG_WARN("triggerClientEvent: player {} is not connected", player_id);
+      continue;
+    }
+    SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection.value());
+    sent = true;
+  }
+
+  return sent;
 }
 
 void GameServer::SendDeathInfo(PlayerId dead_player_id) {
@@ -1597,6 +1707,15 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   auto& player = player_opt->get();
   const auto sanitized_world = SanitizeWorldName(world);
   const bool world_changed = sanitized_world != player.world;
+  std::string start_point_name = SanitizeServerText(start_point.value_or(""));
+  if (start_point_name.size() > 64) {
+    start_point_name.resize(64);
+  }
+
+  if (world_changed) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeWorldName,
+                                          OnPlayerChangeWorldEvent{player.player_id, sanitized_world, start_point_name});
+  }
 
   if (player.is_ingame && world_changed) {
     DisconnectionInfoPacket left_packet;
@@ -1630,10 +1749,6 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   }
 
   player.world = sanitized_world;
-  std::string start_point_name = SanitizeServerText(start_point.value_or(""));
-  if (start_point_name.size() > 64) {
-    start_point_name.resize(64);
-  }
 
   PlayerWorldUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_WORLD_UPDATE;
@@ -1852,9 +1967,14 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
   }
 
   auto& player = player_opt->get();
+  const auto old_health = player.health;
   player.max_health = static_cast<std::int16_t>(std::max<std::int32_t>(0, max_health));
   if (player.health > player.max_health) {
     player.health = player.max_health;
+  }
+  if (old_health != player.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
   player.state.health_points = player.health;
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_HEALTH, player.max_health);
@@ -1871,7 +1991,12 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
 
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(health, 0, player.max_health);
+  const auto old_health = player.health;
   player.health = static_cast<std::int16_t>(clamped);
+  if (old_health != player.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+  }
   player.state.health_points = player.health;
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
   return true;
@@ -1885,9 +2010,13 @@ bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
   }
 
   auto& player = player_opt->get();
+  const auto old_mana = player.mana;
   player.max_mana = static_cast<std::int16_t>(std::max<std::int32_t>(0, max_mana));
   if (player.mana > player.max_mana) {
     player.mana = player.max_mana;
+  }
+  if (old_mana != player.mana) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
   }
   player.state.mana_points = player.mana;
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_MANA, player.max_mana);
@@ -1904,7 +2033,11 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
 
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(mana, 0, player.max_mana);
+  const auto old_mana = player.mana;
   player.mana = static_cast<std::int16_t>(clamped);
+  if (old_mana != player.mana) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
+  }
   player.state.mana_points = player.mana;
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MANA, player.mana);
   return true;
@@ -2095,6 +2228,15 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
   }
 
   auto& player = player_opt->get();
+  auto& inventory = player.inventory;
+  auto& stored_amount = inventory[item_instance];
+  if (stored_amount < 0) {
+    stored_amount = 0;
+  }
+  const std::int64_t next_amount = static_cast<std::int64_t>(stored_amount) + amount;
+  stored_amount = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+      next_amount, 0, std::numeric_limits<std::int32_t>::max()));
+
   GiveItemPacket packet{};
   packet.packet_type = PT_GIVEITEM;
   packet.player_id = player.player_id;
@@ -2152,6 +2294,67 @@ bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
   packet.packet_type = PT_UNEQUIPITEM;
   packet.player_id = player.player_id;
   packet.item_instance = std::move(item_instance);
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
+std::int32_t GameServer::HasItem(PlayerId player_id, const std::string& instance) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("hasItem called for unknown player id {}", player_id);
+    return 0;
+  }
+
+  auto item_instance = SanitizeServerText(instance);
+  if (item_instance.size() > 255) {
+    item_instance.resize(255);
+  }
+  if (item_instance.empty()) {
+    return 0;
+  }
+
+  const auto& player = player_opt->get();
+  const auto it = player.inventory.find(item_instance);
+  if (it == player.inventory.end()) {
+    return 0;
+  }
+
+  return std::max<std::int32_t>(0, it->second);
+}
+
+bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std::int32_t amount) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("removeItem called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto item_instance = SanitizeServerText(instance);
+  if (item_instance.size() > 255) {
+    item_instance.resize(255);
+  }
+  if (item_instance.empty() || amount <= 0) {
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  auto& inventory = player.inventory;
+  auto it = inventory.find(item_instance);
+  if (it != inventory.end()) {
+    const std::int32_t next_amount = it->second - amount;
+    if (next_amount <= 0) {
+      inventory.erase(it);
+    } else {
+      it->second = next_amount;
+    }
+  }
+
+  RemoveItemPacket packet{};
+  packet.packet_type = PT_REMOVEITEM;
+  packet.player_id = player.player_id;
+  packet.item_instance = std::move(item_instance);
+  packet.item_amount = std::max<std::int32_t>(0, amount);
 
   BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
   return true;
@@ -2258,7 +2461,7 @@ bool GameServer::SetTime(std::int32_t hour, std::int32_t min, std::int32_t day) 
                              static_cast<std::uint8_t>(min)};
   clock_->UpdateTime(new_time);
 
-  EventManager::Instance().TriggerEvent(kEventOnGameTimeName, OnGameTimeEvent{new_time.day_, new_time.hour_, new_time.min_});
+  EventManager::Instance().TriggerEvent(kEventOnClockUpdateName, OnClockUpdateEvent{new_time.day_, new_time.hour_, new_time.min_});
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) { SendGameInfo(player.connection); });
   return true;
@@ -2270,6 +2473,112 @@ GothicClock::Time GameServer::GetTime() const {
   }
 
   return clock_->GetTime();
+}
+
+bool GameServer::SetDayLength(float day_length_ms) {
+  if (!clock_) {
+    return false;
+  }
+
+  if (!clock_->SetDayLengthMs(day_length_ms)) {
+    return false;
+  }
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SendGameInfo(player.connection); });
+  return true;
+}
+
+float GameServer::GetDayLength() const {
+  if (!clock_) {
+    return 0.0f;
+  }
+
+  return static_cast<float>(clock_->GetDayLengthMs());
+}
+
+bool GameServer::SetWeatherType(std::int32_t weather_type) {
+  if (weather_type < 0 || weather_type > WEATHER_RAIN) {
+    SPDLOG_WARN("setWeatherType called with invalid weather type {}", weather_type);
+    return false;
+  }
+
+  sky_settings_flags_ |= SKY_SETTING_WEATHER;
+  weather_type_ = weather_type;
+
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = SKY_SETTING_WEATHER;
+  packet.weather_type = weather_type;
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  return true;
+}
+
+std::int32_t GameServer::GetWeatherType() const {
+  return weather_type_;
+}
+
+bool GameServer::SetRainStartTime(std::int32_t hour, std::int32_t min) {
+  if (hour < 0 || hour > 23 || min < 0 || min > 59) {
+    SPDLOG_WARN("setRainStartTime called with invalid parameters: hour={}, min={}", hour, min);
+    return false;
+  }
+
+  sky_settings_flags_ |= SKY_SETTING_RAIN_START;
+  rain_start_hour_ = hour;
+  rain_start_min_ = min;
+
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = SKY_SETTING_RAIN_START;
+  packet.rain_start_hour = static_cast<std::int16_t>(hour);
+  packet.rain_start_min = static_cast<std::int16_t>(min);
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  return true;
+}
+
+std::pair<std::int32_t, std::int32_t> GameServer::GetRainStartTime() const {
+  return {rain_start_hour_, rain_start_min_};
+}
+
+bool GameServer::SetWindScale(float wind_scale) {
+  if (!std::isfinite(wind_scale)) {
+    SPDLOG_WARN("setWindScale called with non-finite value {}", wind_scale);
+    return false;
+  }
+
+  sky_settings_flags_ |= SKY_SETTING_WIND_SCALE;
+  wind_scale_ = wind_scale;
+
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = SKY_SETTING_WIND_SCALE;
+  packet.wind_scale = wind_scale;
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  return true;
+}
+
+float GameServer::GetWindScale() const {
+  return wind_scale_;
+}
+
+bool GameServer::SetDontRain(bool toggle) {
+  sky_settings_flags_ |= SKY_SETTING_DONT_RAIN;
+  dont_rain_ = toggle;
+
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = SKY_SETTING_DONT_RAIN;
+  packet.dont_rain = toggle ? 1 : 0;
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  return true;
+}
+
+bool GameServer::GetDontRain() const {
+  return dont_rain_;
 }
 
 std::uint32_t GameServer::GetPort() const {

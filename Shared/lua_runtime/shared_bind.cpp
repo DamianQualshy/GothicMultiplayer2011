@@ -38,10 +38,11 @@ namespace {
 
 std::optional<ServerInfoProvider> g_server_info_provider;
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Get the hostname of the server.
 *
+* @version  0.3.0
 * @name     getHostname
 * @side     shared
 * @category Game
@@ -57,10 +58,11 @@ std::string Function_GetHostname() {
   return g_server_info_provider->get_hostname();
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Get the max number of slots available on the server.
 *
+* @version  0.3.0
 * @name     getMaxSlots
 * @side     shared
 * @category Game
@@ -76,10 +78,11 @@ int Function_GetMaxSlots() {
   return g_server_info_provider->get_max_slots();
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Get the array containing player ids that are currently online.
 *
+* @version  0.3.0
 * @name     getOnlinePlayers
 * @side     shared
 * @category Game
@@ -103,10 +106,11 @@ sol::object Function_GetOnlinePlayers(sol::this_state ts) {
   return players_table;
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Get the number of online players on the server.
 *
+* @version  0.3.0
 * @name     getPlayersCount
 * @side     shared
 * @category Game
@@ -210,6 +214,9 @@ void BindSharedConstants(sol::state& lua) {
   lua["WEAPONMODE_CBOW"] = WEAPONMODE_CBOW;
   lua["WEAPONMODE_MAG"] = WEAPONMODE_MAG;
   lua["WEAPONMODE_MAX"] = WEAPONMODE_MAX;
+
+  lua["WEATHER_SNOW"] = WEATHER_SNOW;
+  lua["WEATHER_RAIN"] = WEATHER_RAIN;
 }
 
 void BindSharedFunctions(sol::state& lua) {
@@ -226,7 +233,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 }  // namespace bindings
 }  // namespace lua
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Unknown talent.
 *
@@ -236,7 +243,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * One-handed weapon talent.
 *
@@ -246,7 +253,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Two-handed weapon talent.
 *
@@ -256,7 +263,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Bow talent.
 *
@@ -266,7 +273,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Crossbow talent.
 *
@@ -276,7 +283,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Lockpicking talent.
 *
@@ -286,7 +293,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Pickpocket talent.
 *
@@ -296,7 +303,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Mage talent.
 *
@@ -306,7 +313,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Sneak talent.
 *
@@ -316,7 +323,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Regeneration talent.
 *
@@ -326,7 +333,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Fire master talent.
 *
@@ -336,7 +343,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Acrobatics talent.
 *
@@ -346,7 +353,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Pickpocket (unused) talent.
 *
@@ -356,7 +363,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Smithing talent.
 *
@@ -366,7 +373,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Rune usage talent.
 *
@@ -376,7 +383,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Alchemy talent.
 *
@@ -386,7 +393,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Trophy hunting talent.
 *
@@ -396,7 +403,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Talent A (reserved).
 *
@@ -406,7 +413,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Talent B (reserved).
 *
@@ -416,7 +423,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Talent C (reserved).
 *
@@ -426,7 +433,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Talent D (reserved).
 *
@@ -436,7 +443,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Talent E (reserved).
 *
@@ -446,7 +453,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Maximum talent value / sentinel.
 *
@@ -457,7 +464,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 */
 
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * One-handed weapon type.
 *
@@ -467,7 +474,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Two-handed weapon type.
 *
@@ -477,7 +484,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Bow weapon type.
 *
@@ -487,7 +494,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Crossbow weapon type.
 *
@@ -498,7 +505,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 */
 
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Invalid damage type.
 *
@@ -508,7 +515,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Barrier damage type.
 *
@@ -518,7 +525,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Blunt damage type.
 *
@@ -528,7 +535,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Edge (slashing) damage type.
 *
@@ -538,7 +545,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Fire damage type.
 *
@@ -548,7 +555,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Fly / impact damage type.
 *
@@ -558,7 +565,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Magic damage type.
 *
@@ -568,7 +575,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Point (piercing) damage type.
 *
@@ -578,7 +585,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Fall damage type.
 *
@@ -589,7 +596,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 */
 
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * No item category.
 *
@@ -599,7 +606,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: NF.
 *
@@ -609,7 +616,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: FF.
 *
@@ -619,7 +626,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: ammunition.
 *
@@ -629,7 +636,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: armor.
 *
@@ -639,7 +646,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: food.
 *
@@ -649,7 +656,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: documents.
 *
@@ -659,7 +666,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: potion.
 *
@@ -669,7 +676,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: light.
 *
@@ -679,7 +686,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: rune.
 *
@@ -689,7 +696,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item category: magic.
 *
@@ -699,7 +706,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: dagger.
 *
@@ -709,7 +716,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: sword.
 *
@@ -719,7 +726,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: axe.
 *
@@ -729,7 +736,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: two-handed sword.
 *
@@ -739,7 +746,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: two-handed axe.
 *
@@ -749,7 +756,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: shield.
 *
@@ -759,7 +766,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: bow.
 *
@@ -769,7 +776,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: crossbow.
 *
@@ -779,7 +786,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: ring.
 *
@@ -789,7 +796,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: amulet.
 *
@@ -799,7 +806,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: belt.
 *
@@ -809,7 +816,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: dropped item.
 *
@@ -819,7 +826,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: mission item.
 *
@@ -829,7 +836,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: multi-item.
 *
@@ -839,7 +846,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: no focus.
 *
@@ -849,7 +856,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: creates ammo.
 *
@@ -859,7 +866,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: no split.
 *
@@ -869,7 +876,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: drinkable.
 *
@@ -879,7 +886,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: torch.
 *
@@ -889,7 +896,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: throwable.
 *
@@ -899,7 +906,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item flag: active item.
 *
@@ -909,7 +916,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item wear slot: none.
 *
@@ -919,7 +926,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item wear slot: torso.
 *
@@ -929,7 +936,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item wear slot: head.
 *
@@ -939,7 +946,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Item wear slot: light.
 *
@@ -950,7 +957,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 */
 
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * No weapon mode.
 *
@@ -960,7 +967,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Fist weapon mode.
 *
@@ -970,7 +977,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Dagger weapon mode.
 *
@@ -980,7 +987,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * One-handed sword weapon mode.
 *
@@ -990,7 +997,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Two-handed sword weapon mode.
 *
@@ -1000,7 +1007,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Bow weapon mode.
 *
@@ -1010,7 +1017,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Crossbow weapon mode.
 *
@@ -1020,7 +1027,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Magic weapon mode.
 *
@@ -1030,12 +1037,150 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 *
 */
 
-/* luadoc (const)
+/* luagmp (const)
 *
 * Maximum weapon mode value / sentinel.
 *
 * @category WeaponMode
 * @side     shared
 * @name     WEAPONMODE_MAX
+*
+*/
+
+/* *********************************************** */
+
+/* luagmp (func)
+*
+* This function will bind function to specified event.
+*
+* @version  0.3.0
+* @name     addEventHandler
+* @side     shared
+* @category Event
+* @param    (string) eventName   The name of the event.
+* @param    (function) func     The reference to a function, keep in mind that function must have the same amount of arguments as event.
+* @return   (boolean)            True on success, false on failure.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will register a new custom event with specified name.
+*
+* @version  0.3.0
+* @name     addEvent
+* @side     shared
+* @category Event
+* @param    (string) eventName            The name of the event.
+* @param    (bool)   allowRemoteTrigger   Whether the event can be triggered remotely. (Optional)
+* @return   (boolean)                     True on success, false if the event already exists.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will notify (call) every handler bound to specified custom event.
+*
+* @version  0.3.0
+* @name     callEvent
+* @side     shared
+* @category Event
+* @param    (string) eventName   The name of the event.
+* @param    (...) arguments      Variable number of arguments.
+* @return   (boolean)            True when event was dispatched and not cancelled, otherwise false.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will cancel the current event.
+*
+* @version  0.3.0
+* @name     cancelEvent
+* @side     shared
+* @category Event
+*
+*/
+
+/* luagmp (func)
+*
+* This function will set the event value.
+*
+* @version  0.3.0
+* @name     eventValue
+* @side     shared
+* @category Event
+* @param    (int) eventValue   The new event value.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will check if the event was cancelled.
+*
+* @version  0.3.0
+* @name     isEventCancelled
+* @side     shared
+* @category Event
+* @return   (boolean)            True if event was cancelled, otherwise false.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will unregister a custom event with specified name.
+*
+* @version  0.3.0
+* @name     removeEvent
+* @side     shared
+* @category Event
+* @param    (string) eventName   The name of the event.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will unbind function from specified event.
+*
+* @version  0.3.0
+* @name     removeEventHandler
+* @side     shared
+* @category Event
+* @param    (string) eventName   The name of the event.
+* @param    (function) func      The reference to a function.
+* @return   (boolean)            True on success, false otherwise.
+*
+*/
+
+/* luagmp (func)
+*
+* This function will toggle event (enable or disable it globally).
+*
+* @version  0.3.0
+* @name     toggleEvent
+* @side     shared
+* @category Event
+* @param    (string) eventName   The name of the event.
+* @param    (boolean) toggle     False to disable the event, true to enable.
+*
+*/
+
+/* luagmp (const)
+*
+* Represents snowing weather type.
+*
+* @category Weather
+* @side     shared
+* @name     WEATHER_SNOW
+*
+*/
+
+/* luagmp (const)
+*
+* Represents raining weather type.
+*
+* @category Weather
+* @side     shared
+* @name     WEATHER_RAIN
 *
 */

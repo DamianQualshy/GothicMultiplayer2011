@@ -27,33 +27,23 @@ SOFTWARE.
 
 #include <time.h>
 
-#include <format>
-
 #include "CActiveAniID.h"
 #include "CMenu.h"
 #include "CWatch.h"
 #include "HooksManager.h"
 #include "dev/dev_tools.h"
 #include "config.h"
-#include "keyboard.h"
 #include "main_menu.h"
 #include "net_game.h"
-#include "patch.h"
-#include "random_utils.h"
 
 CIngame* global_ingame = NULL;
 void InterfaceLoop(void);
-constexpr const char* arrow = "->";
 constexpr const char* DEADB = "S_DEADB";
 constexpr const char* DEAD2 = "S_DEAD";
 constexpr const char* TDEADB = "T_DEADB";
 constexpr const char* TURN = "TURN";
 extern zCOLOR Normal;
 zCOLOR COLOR_RED = zCOLOR(255, 0, 0, 255);
-clock_t MuteTimer = 0;
-clock_t MsgTimer = 0;
-int SpamMessages = 0;
-bool MuteCountdown = false;
 
 CIngame::CIngame() {
   this->last_player_update = clock();
@@ -61,10 +51,8 @@ CIngame::CIngame() {
   this->NextTimeSync = time(NULL) + 1;
   this->Shrinker = new CShrinker();
   this->Inventory = new CInventory(&player->inventory2);
-  WritingOnChat = false;
   IgnoreFirstSync = true;
   SwampLightsOn = false;
-  Movement = NULL;
   RecognizedMap = MAP_UNKNOWN;
   if (!memcmp("OLDVALLEY.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 13) ||
       !memcmp("COLONY.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 10))
@@ -73,7 +61,6 @@ CIngame::CIngame() {
     RecognizedMap = MAP_OLDWORLD;
   if (!memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21))
     RecognizedMap = MAP_KHORINIS;
-  BuffTimer = 0, SecTimer = 0, ChatTimer = 0;
   PList = CPlayerList::GetInstance();
   MMap = CMap::GetInstance();
   AMenu = CAnimMenu::GetInstance();
@@ -168,17 +155,6 @@ void CIngame::Loop() {
     // CHECK FOR SWAMP LIGHTS STATE
     if (global_ingame->RecognizedMap == MAP_COLONY)
       global_ingame->CheckSwampLights();
-    // MUTE
-    if (MuteCountdown) {
-      long secs_to_unmute = (MuteTimer - clock()) / 1000;
-      char tmp_char[32];
-      sprintf(tmp_char, "%s : %d", Language::Instance()[Language::UNMUTE_TIME].ToChar(), secs_to_unmute);
-      const std::string mute_msg = std::format("{} : {}", Language::Instance()[Language::UNMUTE_TIME].ToChar(), secs_to_unmute);
-      screen->PrintCXY(mute_msg.c_str());
-      if (secs_to_unmute < 0) {
-        MuteCountdown = false;
-      }
-    }
     // DEATH BUG WHEN AIMING FIX
     if (player->IsDead() && !player->GetAnictrl()->IsInWater()) {
       if (player->GetWeaponMode() == NPC_WEAPON_BOW || player->GetWeaponMode() == NPC_WEAPON_MAG || player->GetWeaponMode() == NPC_WEAPON_CBOW) {
@@ -212,17 +188,6 @@ void CIngame::Loop() {
   }
 }
 
-void CIngame::ClearAfterWrite() {
-  if (player->IsMovLock())
-    player->SetMovLock(0);
-  Patch::PlayerInterfaceEnabled(true);
-  if (WritingOnChat)
-    WritingOnChat = false;
-}
-void CIngame::PrepareForWrite() {
-  player->GetAnictrl()->StopTurnAnis();
-  Patch::PlayerInterfaceEnabled(false);
-}
 bool CIngame::PlayerExists(const char* PlayerName) {
   if (NetGame::Instance().players.size() > 1) {
     for (int i = 1; i < (int)NetGame::Instance().players.size(); i++) {
@@ -276,8 +241,8 @@ void CIngame::HandleInput() {
     else
       AMenu->Close();
   }
-  debug::DevTools::Instance().HandleInput(WritingOnChat);
-  if (zinput->KeyToggled(KEY_F5) && !WritingOnChat) {
+  debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
+  if (zinput->KeyToggled(KEY_F5) && !chat_interface->IsInputActive()) {
     zVEC3 basePos = player->GetPositionWorld();
     int spawnCount = 0;
     // Spawn a 10x10 grid of fire effects (100 total)
@@ -301,66 +266,8 @@ void CIngame::HandleInput() {
       AMenu->Close();
     AMenu->PrintMenu();
   }
-  // CHAT
-  if (zinput->KeyPressed(KEY_T) && !WritingOnChat && !PList->IsPlayerListOpen()) {
-    zinput->ClearKeyBuffer();
-    WritingOnChat = true;
-    PrepareForWrite();
-  }
-  if (WritingOnChat) {
-    // CHAT ANIM
-    if (!player->IsMovLock())
-      player->SetMovLock(1);
-    const int random_anim = gmp::client::random::Int(1, 10);
-    chat_interface->StartChatAnimation(random_anim);
-    // INPUT
-    if (zinput->KeyToggled(KEY_ESCAPE))
-      ClearAfterWrite();
-    if (zinput->KeyPressed(KEY_BACKSPACE)) {
-      if (ChatTimer < clock()) {
-        if (chatbuffer.length() > 0)
-          chatbuffer.erase(chatbuffer.end() - 1);
-        ChatTimer = clock() + 150;
-      }
-    }
-    char key = GInput::GetCharacterFormKeyboard();
-    screen->SetFontColor(Normal);
-    screen->Print(0, 200 * Config::Instance().ChatLines, arrow);
-    if (key == 0x0D) {
-      if (chatbuffer.length() != 0) {
-        if (MuteTimer < clock()) {
-          if (SpamMessages < 3) {
-            NetGame::Instance().SendMessage(chatbuffer.c_str());
-            if (ChatTimer > clock()) {
-              SpamMessages++;
-            } else {
-              SpamMessages = 0;
-            }
-            ChatTimer = clock() + 3000;
-          } else {
-            MuteTimer = clock() + 60000;
-            SpamMessages = 0;
-            MuteCountdown = true;
-          }
-        }
-        chatbuffer.clear();
-      }
-      ClearAfterWrite();
-    } else if ((key >= 0x20) || ((key & 0x80) && (Config::Instance().keyboardlayout == 1))) {
-      if (chatbuffer.length() < 84)
-        chatbuffer += (char)key;
-    }
-    if (clock() > BuffTimer && clock() > SecTimer) {
-      BuffTimer = clock() + 750;
-      SecTimer = clock() + 1500;
-    }
-    if (BuffTimer > clock()) {
-      sprintf(buffer, "%s_", chatbuffer.c_str());
-      ChatTmp = buffer;
-    } else
-      ChatTmp = chatbuffer.c_str();
-    screen->Print(200, 200 * Config::Instance().ChatLines, ChatTmp);
-  }
+  const bool allow_chat_open = !PList->IsPlayerListOpen();
+  chat_interface->HandleInput(allow_chat_open);
 }
 
 void CIngame::Draw() {

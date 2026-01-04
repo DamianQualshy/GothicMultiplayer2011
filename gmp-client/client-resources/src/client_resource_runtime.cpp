@@ -32,6 +32,7 @@ SOFTWARE.
 #include <memory>
 
 #include "shared/lua_runtime/shared_bind.h"
+#include "shared/event.h"
 
 ClientResourceRuntime::ClientResourceRuntime() = default;
 ClientResourceRuntime::~ClientResourceRuntime() = default;
@@ -44,6 +45,7 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
   }
 
   resources_.reserve(payloads.size());
+  bool triggered_init = false;
 
   for (auto& payload : payloads) {
     auto instance = std::make_unique<ResourceInstance>();
@@ -91,6 +93,11 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
     }
     stored_instance.started = true;
 
+    if (!triggered_init) {
+      EventManager::Instance().TriggerEvent("onInit", 0);
+      triggered_init = true;
+    }
+
     const auto entrypoint_count = stored_instance.pack->GetManifest().entrypoints.size();
     SPDLOG_INFO("Loaded client resource '{}' ({} entrypoint(s))", stored_instance.name, entrypoint_count);
   }
@@ -100,11 +107,16 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
 
 void ClientResourceRuntime::UnloadResources() {
   if (!resources_.empty()) {
+    bool triggered_exit = false;
     for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
       if ((*it)->started) {
         std::string error_message;
         if (!InvokeLifecycle(**it, "onResourceStop", error_message)) {
           SPDLOG_WARN(error_message);
+        }
+        if (!triggered_exit) {
+          EventManager::Instance().TriggerEvent("onExit", 0);
+          triggered_exit = true;
         }
       }
     }

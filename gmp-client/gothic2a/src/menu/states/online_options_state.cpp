@@ -72,7 +72,8 @@ MenuState* OnlineOptionsState::CheckTransition() {
 }
 
 void OnlineOptionsState::RenderOptionsMenu() {
-  context_.screen->SetFont("FONT_OLD_20_WHITE.TGA");
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+  context_.screen->SetFont(font.c_str());
   zCOLOR fcolor;
 
   // Nickname
@@ -123,21 +124,6 @@ void OnlineOptionsState::RenderOptionsMenu() {
   const auto chatlines_str = std::format("{} {}", Language::Instance()[Language::MMENU_CHATLINES].ToChar(), context_.config.ChatLines);
   context_.screen->Print(200, 5600, chatlines_str.c_str());
 
-  // Keyboard Layout
-  fcolor = (selectedOption_ == OptionItem::KEYBOARD_LAYOUT) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  switch (context_.config.keyboardlayout) {
-    case Config::KEYBOARD_POLISH:
-      context_.screen->Print(200, 6000, Language::Instance()[Language::KEYBOARD_POLISH]);
-      break;
-    case Config::KEYBOARD_GERMAN:
-      context_.screen->Print(200, 6000, Language::Instance()[Language::KEYBOARD_GERMAN]);
-      break;
-    case Config::KEYBOARD_CYRYLLIC:
-      context_.screen->Print(200, 6000, Language::Instance()[Language::KEYBOARD_RUSSIAN]);
-      break;
-  }
-
   // Language
   fcolor = (selectedOption_ == OptionItem::LANGUAGE) ? Highlighted : Normal;
   context_.screen->SetFontColor(fcolor);
@@ -148,19 +134,19 @@ void OnlineOptionsState::RenderOptionsMenu() {
   } else {
     languageText += Language::Instance()[Language::LANGUAGE];
   }
-  context_.screen->Print(200, 6400, languageText);
+  context_.screen->Print(200, 6000, languageText);
 
   // Intros
   fcolor = (selectedOption_ == OptionItem::INTRO_VIDEOS) ? Highlighted : Normal;
   context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 6800,
+  context_.screen->Print(200, 6400,
                          (zoptions->ReadBool(zOPT_SEC_GAME, "playLogoVideos", 1) == 1) ? Language::Instance()[Language::INTRO_YES]
                                                                                        : Language::Instance()[Language::INTRO_NO]);
 
   // Back
   fcolor = (selectedOption_ == OptionItem::BACK) ? Highlighted : Normal;
   context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 7200, Language::Instance()[Language::MMENU_BACK]);
+  context_.screen->Print(200, 6800, Language::Instance()[Language::MMENU_BACK]);
 }
 
 void OnlineOptionsState::HandleInput() {
@@ -288,20 +274,6 @@ void OnlineOptionsState::AdjustOption(OptionItem option, int direction) {
             context_.config.ChatLines = 5;
           else
             context_.config.ChatLines++;
-          context_.config.SaveConfigToFile();
-        }
-      }
-      break;
-
-    case OptionItem::KEYBOARD_LAYOUT:
-      if (direction < 0) {  // Left
-        if (context_.config.keyboardlayout > Config::KEYBOARD_POLISH) {
-          context_.config.keyboardlayout--;
-          context_.config.SaveConfigToFile();
-        }
-      } else {  // Right
-        if (context_.config.keyboardlayout < Config::KEYBOARD_CYRYLLIC) {
-          context_.config.keyboardlayout++;
           context_.config.SaveConfigToFile();
         }
       }

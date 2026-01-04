@@ -28,6 +28,7 @@ SOFTWARE.
 
 #include "CWatch.h"
 #include "keyboard.h"
+#include "language.h"
 #include "menu/states/online_options_state.hpp"
 
 namespace menu {
@@ -73,10 +74,11 @@ void SetWatchPositionState::RenderWatchAndInstructions() {
   }
 
   // Display instructions (use arrow keys to position, ESC to return)
-  context_.screen->SetFont("FONT_OLD_20_WHITE.TGA");
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+  context_.screen->SetFont(font.c_str());
   context_.screen->SetFontColor({255, 255, 255});
-  context_.screen->Print(200, 200, "Use arrow keys to position the watch");
-  context_.screen->Print(200, 400, "Press ESC to return");
+  context_.screen->Print(200, 200, Language::Instance()[Language::WATCHPOS_INSTRUCTIONS]);
+  context_.screen->Print(200, 400, Language::Instance()[Language::WATCHPOS_RETURN]);
 }
 
 void SetWatchPositionState::HandleInput() {

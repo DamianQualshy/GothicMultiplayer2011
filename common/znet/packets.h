@@ -32,6 +32,7 @@ SOFTWARE.
 #include <bitsery/traits/vector.h>
 #include <fmt/ostream.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <optional>
@@ -864,6 +865,28 @@ inline std::ostream& operator<<(std::ostream& os, const UnequipItemPacket& packe
   return os;
 }
 
+struct RemoveItemPacket {
+  std::uint8_t packet_type;
+  std::string item_instance;
+  std::int32_t item_amount;
+  std::uint32_t player_id;
+};
+
+template <typename S>
+void serialize(S& s, RemoveItemPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.text1b(packet.item_instance, 255);
+  s.value4b(packet.item_amount);
+  s.value4b(packet.player_id);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const RemoveItemPacket& packet) {
+  os << "RemoveItemPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_instance: " << packet.item_instance
+     << ", item_amount: " << packet.item_amount << ", player_id: " << packet.player_id << " }";
+  return os;
+}
+
 struct PlayerStateUpdatePacket {
   std::uint8_t packet_type;
   PlayerState state;
@@ -1045,6 +1068,7 @@ struct fmt::formatter<InitialInfoPacket> : ostream_formatter {};
 struct GameInfoPacket {
   std::uint8_t packet_type;
   std::uint32_t raw_game_time{0};
+  float day_length_ms{0.0f};
   std::uint8_t flags{0};
 };
 
@@ -1052,12 +1076,80 @@ template <typename S>
 void serialize(S& s, GameInfoPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.raw_game_time);
+  s.value4b(packet.day_length_ms);
   s.value1b(packet.flags);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const GameInfoPacket& packet) {
   os << "GameInfoPacket {"
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", game_time: " << packet.raw_game_time
-     << ", flags: " << static_cast<int>(packet.flags) << " }";
+     << ", day_length_ms: " << packet.day_length_ms << ", flags: " << static_cast<int>(packet.flags) << " }";
   return os;
 }
+
+enum SkySettingsFlags : std::uint8_t {
+  SKY_SETTING_WEATHER = 1 << 0,
+  SKY_SETTING_RAIN_START = 1 << 1,
+  SKY_SETTING_WIND_SCALE = 1 << 2,
+  SKY_SETTING_DONT_RAIN = 1 << 3,
+};
+
+struct SkySettingsPacket {
+  std::uint8_t packet_type{0};
+  std::uint8_t flags{0};
+  std::int32_t weather_type{0};
+  std::int16_t rain_start_hour{0};
+  std::int16_t rain_start_min{0};
+  float wind_scale{0.0f};
+  std::uint8_t dont_rain{0};
+};
+
+template <typename S>
+void serialize(S& s, SkySettingsPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value1b(packet.flags);
+  s.value4b(packet.weather_type);
+  s.value2b(packet.rain_start_hour);
+  s.value2b(packet.rain_start_min);
+  s.value4b(packet.wind_scale);
+  s.value1b(packet.dont_rain);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const SkySettingsPacket& packet) {
+  os << "SkySettingsPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", flags: " << static_cast<int>(packet.flags)
+     << ", weather_type: " << packet.weather_type
+     << ", rain_start_hour: " << packet.rain_start_hour << ", rain_start_min: " << packet.rain_start_min
+     << ", wind_scale: " << packet.wind_scale << ", dont_rain: " << static_cast<int>(packet.dont_rain) << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<SkySettingsPacket> : ostream_formatter {};
+
+constexpr std::size_t kMaxLuaEventPayloadSize = 8192;
+
+struct LuaEventPacket {
+  std::uint8_t packet_type{0};
+  std::string event_name;
+  std::uint32_t source_element{0};
+  std::vector<std::uint8_t> payload;
+};
+
+template <typename S>
+void serialize(S& s, LuaEventPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.text1b(packet.event_name, 255);
+  s.value4b(packet.source_element);
+  s.container1b(packet.payload, kMaxLuaEventPayloadSize);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const LuaEventPacket& packet) {
+  os << "LuaEventPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", event_name: " << packet.event_name
+     << ", source_element: " << packet.source_element << ", payload_size: " << packet.payload.size() << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<LuaEventPacket> : ostream_formatter {};

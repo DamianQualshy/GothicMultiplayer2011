@@ -54,8 +54,10 @@ public:
   
   // World/map events
   virtual void OnMapChange(const std::string& map_name) {}
-  virtual void OnGameInfoReceived(std::uint32_t raw_game_time, std::uint8_t flags) {}
-  
+  virtual void OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) {}
+  virtual void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
+                                     std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) {}
+
   // Player events
   virtual void OnLocalPlayerJoined(gmp::client::Player& player) {}
   virtual void OnLocalPlayerSpawned(gmp::client::Player& player) {}
@@ -85,6 +87,7 @@ public:
   virtual void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
   virtual void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {}
   virtual void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) {}
+  virtual void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
   
   // Spell/combat events
   virtual void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {}
@@ -93,6 +96,9 @@ public:
   // Chat/messaging events
   virtual void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b,
                                const std::string& message) {}
+
+  // Lua event relay
+  virtual void OnLuaEvent(const std::string& event_name, std::uint32_t source_element, const std::string& payload) {}
 };
 
 }  // namespace gmp::client

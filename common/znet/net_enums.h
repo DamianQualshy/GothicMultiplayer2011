@@ -72,9 +72,11 @@ enum PacketID {
   PT_EXISTING_PLAYERS,         // Packet contains information about all other players. Send to the new joining player.
   PT_MAP_ONLY,
   PT_EXTENDED_4_SCRIPTS,  // jak juz kiedys wdrozymy skrypty
+  PT_LUA_EVENT,
   PT_SRVMSG,
   PT_LEFT_GAME,
   PT_GAME_INFO,
+  PT_SKY_SETTINGS,
   PT_DODIE,
   PT_RESPAWN,
   PT_DROPITEM,
@@ -82,6 +84,7 @@ enum PacketID {
   PT_GIVEITEM,
   PT_EQUIPITEM,
   PT_UNEQUIPITEM,
+  PT_REMOVEITEM,
   PT_CASTSPELL,
   PT_CASTSPELLONTARGET,
   PT_VOICE,
@@ -159,12 +162,16 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_MAP_ONLY";
     case PT_EXTENDED_4_SCRIPTS:
       return "PT_EXTENDED_4_SCRIPTS";
+    case PT_LUA_EVENT:
+      return "PT_LUA_EVENT";
     case PT_SRVMSG:
       return "PT_SRVMSG";
     case PT_LEFT_GAME:
       return "PT_LEFT_GAME";
     case PT_GAME_INFO:
       return "PT_GAME_INFO";
+    case PT_SKY_SETTINGS:
+      return "PT_SKY_SETTINGS";
     case PT_DODIE:
       return "PT_DODIE";
     case PT_RESPAWN:
@@ -179,6 +186,8 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_EQUIPITEM";
     case PT_UNEQUIPITEM:
       return "PT_UNEQUIPITEM";
+    case PT_REMOVEITEM:
+      return "PT_REMOVEITEM";
     case PT_CASTSPELL:
       return "PT_CASTSPELL";
     case PT_CASTSPELLONTARGET:

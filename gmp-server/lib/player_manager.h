@@ -88,7 +88,6 @@ public:
     // Game state
     std::uint8_t is_ingame;
     std::uint8_t passed_crc_test;
-    std::uint8_t mute;
 
     std::int16_t health;
     std::int16_t max_health{100};
@@ -101,7 +100,9 @@ public:
     std::int32_t learn_points{0};
     std::int32_t strength{0};
     std::int32_t dexterity{0};
-    
+
+    std::unordered_map<std::string, std::int32_t> inventory;
+
     std::unordered_map<int, int> weapon_skills;
     std::unordered_map<int, int> talents;
 
@@ -122,7 +123,7 @@ public:
    * @param name The player's name
    * @return The assigned player ID
    */
-  PlayerId AddPlayer(Net::ConnectionHandle connection, const std::string& name);
+  PlayerId AddPlayer(Net::ConnectionHandle connection, const std::string& name, std::uint32_t max_slots);
 
   /**
    * @brief Removes a player by their player ID

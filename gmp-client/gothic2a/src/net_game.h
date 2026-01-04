@@ -64,6 +64,8 @@ public:
   void SyncGameTime();
   void Disconnect();
   void RestoreHealth();
+  void SetDayLengthMs(float day_length_ms);
+  float GetDayLengthMs() const;
 
   // Task scheduler hook - called from render hook
   static void __stdcall ProcessTaskScheduler();
@@ -98,7 +100,9 @@ public:
   void OnResourceDownloadFailed(const std::string& reason) override;
   void OnResourcesReady() override;
   void OnMapChange(const std::string& map_name) override;
-  void OnGameInfoReceived(std::uint32_t raw_game_time, std::uint8_t flags) override;
+  void OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) override;
+  void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
+                             std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) override;
   void OnLocalPlayerJoined(gmp::client::Player& player) override;
   void OnLocalPlayerSpawned(gmp::client::Player& player) override;
   void OnPlayerJoined(gmp::client::Player& player) override;
@@ -125,16 +129,29 @@ public:
   void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) override;
   void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) override;
+  void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
   void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) override;
   void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b,
                        const std::string& message) override;
+  void OnLuaEvent(const std::string& event_name, std::uint32_t source_element, const std::string& payload) override;
 
 private:
   NetGame();
   time_t last_mp_regen;
 
+  struct GameTimeSnapshot {
+    int day;
+    int hour;
+    int min;
+  };
+
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);
+  void UpdateClientEventState();
 
+  std::optional<GameTimeSnapshot> last_game_time_;
+  std::optional<int> last_ping_;
+  std::string last_world_name_;
+  float day_length_ms_{0.0f};
 };

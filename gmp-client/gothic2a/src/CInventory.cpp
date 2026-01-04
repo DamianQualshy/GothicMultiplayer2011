@@ -34,6 +34,8 @@ SOFTWARE.
 
 #include "keyboard.h"
 #include "language.h"
+#include "scripting/gothic_events.h"
+#include "shared/event.h"
 
 extern zCOLOR Normal;
 char q[2] = {0, 0};
@@ -43,6 +45,8 @@ CInventory::CInventory(oCNpcInventory* HeroInventory) {
   Inv = HeroInventory;
   Owner = HeroInventory->GetOwner();
   InvWindow = HeroInventory->viewItemInfo;
+  was_open_ = Inv ? Inv->IsOpen() : false;
+  last_selected_slot_ = Inv ? Inv->selectedItem : -1;
 };
 
 CInventory::~CInventory() {
@@ -99,9 +103,30 @@ bool CInventory::IsOpened() {
 };
 
 void CInventory::RenderInventory() {
-  if (!IsOpened()) {
+  const bool is_open = IsOpened();
+  if (is_open != was_open_) {
+    if (is_open) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnOpenInventoryName, 0);
+      last_selected_slot_ = Inv ? Inv->selectedItem : -1;
+    } else {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnCloseInventoryName, 0);
+      last_selected_slot_ = -1;
+    }
+    was_open_ = is_open;
+  }
+
+  if (!is_open) {
     DropInvoked = false;
     return;
+  }
+
+  if (Inv) {
+    const int current_slot = Inv->selectedItem;
+    if (last_selected_slot_ != -1 && current_slot != last_selected_slot_) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnInventorySlotChangeName,
+                                            gmp::gothic::OnInventorySlotChangeEvent{last_selected_slot_, current_slot});
+    }
+    last_selected_slot_ = current_slot;
   }
   // INPUT
   if (!DropInvoked) {

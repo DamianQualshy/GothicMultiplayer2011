@@ -73,6 +73,7 @@ public:
   void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id);
   void SendDropItem(std::uint16_t instance, std::uint16_t amount);
   void SendTakeItem(std::uint16_t instance);
+  bool SendLuaEventToServer(const std::string& event_name, std::uint32_t source_element, const std::string& payload);
   void UpdatePlayerStats(const PlayerState& state);
   void SyncGameTime();
 
@@ -124,6 +125,7 @@ private:
   void OnGiveItem(Packet packet);
   void OnEquipItem(Packet packet);
   void OnUnequipItem(Packet packet);
+  void OnRemoveItem(Packet packet);
   void OnMessage(Packet packet);
   void OnExistingPlayers(Packet packet);
   void OnPlayerSpawn(Packet packet);
@@ -141,7 +143,9 @@ private:
   void OnPlayerAttributeSnapshot(Packet packet);
   void OnPlayerWorldUpdate(Packet packet);
   void OnGameInfo(Packet packet);
+  void OnSkySettings(Packet packet);
   void OnLeftGame(Packet packet);
+  void OnLuaEvent(Packet packet);
   void OnDisconnectOrLostConnection(Packet packet);
 
   EventObserver& event_observer_;

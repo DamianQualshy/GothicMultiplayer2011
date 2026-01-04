@@ -36,13 +36,7 @@ private:
   zCView* PlayerListBackground;
   int x, y;
   bool Opened;
-  short PrintTo;
-  short PrintFrom;
-  short MenuPos;
-  zSTRING ChosenPlayer;
-  oCNpc* ChPlayerNpc;
-  bool PlayerOptions;
-  void RunPlayerListItem();
+  short BeginIndex;
 
 public:
   CPlayerList();

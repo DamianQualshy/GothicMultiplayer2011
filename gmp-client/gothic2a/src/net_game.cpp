@@ -32,11 +32,15 @@ SOFTWARE.
 #include <bitsery/traits/vector.h>
 #include <spdlog/spdlog.h>
 #include <wincrypt.h>
+#include "hooking/MemoryPatch.h"
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <ctime>
 #include <filesystem>
+#include "Mod.h"
+#include "shared/lua_runtime/lua_value_codec.h"
 #include <glm/glm.hpp>
 #include <list>
 #include <optional>
@@ -54,6 +58,7 @@ SOFTWARE.
 #include "packets.h"
 #include "patch.h"
 #include "player_name_utils.hpp"
+#include "sky_utils.h"
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
 #include "scripting/process_input.h"
@@ -76,6 +81,65 @@ oCMenu_Status* GetStatusMenu() {
 
   zSTRING fallback_name("STATUS");
   return dynamic_cast<oCMenu_Status*>(zCMenu::GetByName(fallback_name));
+}
+
+struct WorldTimerTickValues {
+  float ticks_per_hour;
+  float ticks_per_minute;
+  float ticks_per_day;
+};
+
+WorldTimerTickValues ReadWorldTimerTicks() {
+  constexpr DWORD kTicksPerHourAddr = 0x0083E168;
+  constexpr DWORD kTicksPerMinuteAddr = 0x00AB3764;
+  constexpr DWORD kTicksPerDayAddr = 0x00AB371C;
+  return { *reinterpret_cast<float*>(kTicksPerHourAddr),
+           *reinterpret_cast<float*>(kTicksPerMinuteAddr),
+           *reinterpret_cast<float*>(kTicksPerDayAddr) };
+}
+
+void WriteWorldTimerTicks(const WorldTimerTickValues& values) {
+  constexpr DWORD kTicksPerHourAddr = 0x0083E168;
+  constexpr DWORD kTicksPerMinuteAddr = 0x00AB3764;
+  constexpr DWORD kTicksPerDayAddr = 0x00AB371C;
+  MemoryPatch::WriteMemory(kTicksPerHourAddr, reinterpret_cast<PBYTE>(const_cast<float*>(&values.ticks_per_hour)), sizeof(float));
+  MemoryPatch::WriteMemory(kTicksPerMinuteAddr, reinterpret_cast<PBYTE>(const_cast<float*>(&values.ticks_per_minute)), sizeof(float));
+  MemoryPatch::WriteMemory(kTicksPerDayAddr, reinterpret_cast<PBYTE>(const_cast<float*>(&values.ticks_per_day)), sizeof(float));
+}
+
+void ApplyDayLengthToEngine(float day_length_ms) {
+  static std::optional<WorldTimerTickValues> original_ticks;
+
+  if (!original_ticks.has_value()) {
+    original_ticks = ReadWorldTimerTicks();
+  }
+
+  WorldTimerTickValues current_ticks = ReadWorldTimerTicks();
+  const float current_ticks_per_day = current_ticks.ticks_per_day <= 0.0f ? 1.0f : current_ticks.ticks_per_day;
+  float percent = 0.0f;
+  if (ogame && ogame->GetWorldTimer()) {
+    percent = ogame->GetWorldTimer()->worldTime / current_ticks_per_day;
+  }
+
+  if (day_length_ms <= 0.0f) {
+    if (original_ticks.has_value()) {
+      WriteWorldTimerTicks(*original_ticks);
+      if (ogame && ogame->GetWorldTimer()) {
+        ogame->GetWorldTimer()->worldTime = percent * original_ticks->ticks_per_day;
+      }
+    }
+    return;
+  }
+
+  WorldTimerTickValues new_ticks;
+  new_ticks.ticks_per_day = day_length_ms;
+  new_ticks.ticks_per_hour = day_length_ms / 24.0f;
+  new_ticks.ticks_per_minute = new_ticks.ticks_per_hour / 60.0f;
+  WriteWorldTimerTicks(new_ticks);
+
+  if (ogame && ogame->GetWorldTimer()) {
+    ogame->GetWorldTimer()->worldTime = percent * new_ticks.ticks_per_day;
+  }
 }
 }  // namespace
 
@@ -111,7 +175,57 @@ void __stdcall NetGame::ProcessTaskScheduler() {
   if (zinput) {
     gmp::gothic::ProcessInput(zinput);
   }
+  instance.UpdateClientEventState();
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnRenderName, 0);
+}
+
+void NetGame::SetDayLengthMs(float day_length_ms) {
+  constexpr float kMinDayLengthMs = 10000.0f;
+  const float clamped_day_length_ms = std::max(day_length_ms, kMinDayLengthMs);
+  if (std::fabs(clamped_day_length_ms - day_length_ms_) > 0.01f) {
+    ApplyDayLengthToEngine(clamped_day_length_ms);
+    day_length_ms_ = clamped_day_length_ms;
+  }
+}
+
+float NetGame::GetDayLengthMs() const {
+  return day_length_ms_;
+}
+
+void NetGame::UpdateClientEventState() {
+  if (ogame && ogame->GetWorldTimer()) {
+    int hour = 0;
+    int min = 0;
+    auto* timer = ogame->GetWorldTimer();
+    timer->GetTime(hour, min);
+    const int day = timer->GetDay();
+    GameTimeSnapshot snapshot{day, hour, min};
+    if (!last_game_time_.has_value() || snapshot.day != last_game_time_->day || snapshot.hour != last_game_time_->hour ||
+        snapshot.min != last_game_time_->min) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnTimeName, gmp::gothic::OnTimeEvent{day, hour, min});
+      last_game_time_ = snapshot;
+    }
+  }
+
+  if (ogame && ogame->GetGameWorld()) {
+    std::string world_name = ogame->GetGameWorld()->GetWorldFilename().ToChar();
+    if (!world_name.empty() && world_name != last_world_name_) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldEnterName, gmp::gothic::OnWorldEnterEvent{world_name});
+      last_world_name_ = world_name;
+    }
+  }
+
+  if (game_client && IsConnected()) {
+    int ping = game_client->GetPing();
+    if (!last_ping_.has_value() || ping != *last_ping_) {
+      if (game_client->player_manager().HasLocalPlayer()) {
+        const auto& local_player = game_client->player_manager().GetLocalPlayer();
+        EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName,
+                                              gmp::gothic::OnPlayerPingEvent{local_player.id(), ping});
+      }
+      last_ping_ = ping;
+    }
+  }
 }
 
 bool NetGame::Connect(std::string_view full_address) {
@@ -174,8 +288,6 @@ void NetGame::JoinGame() {
     // LocalPlayer->npc->SetMovLock(0);
     // this->players.push_back(LocalPlayer);
     // this->HeroLastHp = player->attribute[NPC_ATR_HITPOINTS];
-
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnInitName, 0);
   }
 }
 
@@ -262,7 +374,6 @@ void NetGame::Disconnect() {
   }
 
   if (resource_runtime) {
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnExitName, 0);
     gmp::gothic::CleanupGothicViews();
     resource_runtime->UnloadResources();
   }
@@ -290,7 +401,6 @@ void NetGame::OnDisconnected() {
   SPDLOG_INFO("Disconnected from server");
   IsReadyToJoin = false;
   if (resource_runtime) {
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnExitName, 0);
     gmp::gothic::CleanupGothicViews();
     resource_runtime->UnloadResources();
   }
@@ -373,14 +483,42 @@ void NetGame::OnMapChange(const std::string& map_name) {
   }
 }
 
-void NetGame::OnGameInfoReceived(std::uint32_t raw_game_time, std::uint8_t flags) {
+void NetGame::OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) {
   STime t;
   t.time = static_cast<int>(raw_game_time);
-  ogame->SetTime(static_cast<int>(t.day), static_cast<int>(t.hour), static_cast<int>(t.min));
+  if (ogame) {
+    if (auto* timer = ogame->GetWorldTimer()) {
+      const float full_time = (static_cast<float>(t.day) * 24.0f + static_cast<float>(t.hour)) * Gothic_II_Addon::WLD_TICKSPERHOUR +
+                              static_cast<float>(t.min) * Gothic_II_Addon::WLD_TICKSPERMIN;
+      timer->SetFullTime(full_time);
+    } else {
+      ogame->SetTime(static_cast<int>(t.day), static_cast<int>(t.hour), static_cast<int>(t.min));
+    }
+  }
+
+  if (day_length_ms > 0.0f) {
+    SetDayLengthMs(day_length_ms);
+  }
 
   oCGame::s_bUsePotionKeys = flags & 0x01;
   this->DropItemsAllowed = flags & 0x02;
   this->ForceHideMap = flags & 0x04;
+}
+
+void NetGame::OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
+                                    std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) {
+  if (flags & SKY_SETTING_WEATHER) {
+    gmp::gothic::ApplyWeatherType(weather_type);
+  }
+  if (flags & SKY_SETTING_RAIN_START) {
+    gmp::gothic::SetRainStartTime(rain_start_hour, rain_start_min);
+  }
+  if (flags & SKY_SETTING_WIND_SCALE) {
+    gmp::gothic::SetWindScale(wind_scale);
+  }
+  if (flags & SKY_SETTING_DONT_RAIN) {
+    gmp::gothic::SetDontRain(dont_rain);
+  }
 }
 
 void NetGame::OnLocalPlayerJoined(gmp::client::Player& player) {
@@ -398,6 +536,7 @@ void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   local_player->SetPosition(pos);
   players.insert(players.begin(), local_player);
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerCreateName, gmp::gothic::PlayerLifecycleEvent{player.id()});
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
 
 #ifndef NDEBUG
   // Spawn Quarhodron NPC near the player
@@ -423,6 +562,7 @@ void NetGame::OnPlayerJoined(gmp::client::Player& new_player) {
 
 void NetGame::OnPlayerSpawned(gmp::client::Player& new_player) {
   SpawnRemotePlayer(new_player);
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{new_player.id()});
 }
 
 void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
@@ -663,6 +803,9 @@ void NetGame::OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& wo
   if (!cplayer || !cplayer->IsLocalPlayer() || !ogame) {
     return;
   }
+
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldChangeName,
+                                        gmp::gothic::OnWorldChangeEvent{world_name, start_point});
 
   zSTRING z_world(world_name.c_str());
   zSTRING z_start_point(start_point.c_str());
@@ -1005,6 +1148,7 @@ void NetGame::OnPlayerDied(std::uint64_t player_id) {
     cplayer->base_player().set_update_health_packet_counter(0);
     cplayer->SetHealth(0);
   }
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
 }
 
 void NetGame::OnPlayerRespawned(std::uint64_t player_id) {
@@ -1012,6 +1156,7 @@ void NetGame::OnPlayerRespawned(std::uint64_t player_id) {
   if (cplayer) {
     cplayer->RespawnPlayer();
   }
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerRespawnName, gmp::gothic::PlayerLifecycleEvent{player_id});
 }
 
 void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {
@@ -1102,7 +1247,14 @@ void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_in
     cplayer->npc->inventory2.Insert(item);
   }
 
+  const bool suppress = cplayer->IsLocalPlayer();
+  if (suppress) {
+    SetSuppressLocalEquipEvents(true);
+  }
   cplayer->npc->EquipItem(item);
+  if (suppress) {
+    SetSuppressLocalEquipEvents(false);
+  }
 }
 
 void NetGame::OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) {
@@ -1122,7 +1274,43 @@ void NetGame::OnItemUnequipped(std::uint64_t player_id, const std::string& item_
     return;
   }
 
+  const bool suppress = cplayer->IsLocalPlayer();
+  if (suppress) {
+    SetSuppressLocalEquipEvents(true);
+  }
   cplayer->npc->UnequipItem(item);
+  if (suppress) {
+    SetSuppressLocalEquipEvents(false);
+  }
+}
+
+void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {
+  if (amount <= 0) {
+    return;
+  }
+
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer) {
+    return;
+  }
+
+  int index = zCParser::GetParser()->GetIndex(item_instance.c_str());
+  if (index < 0) {
+    SPDLOG_WARN("Could not find item instance {}", item_instance);
+    return;
+  }
+
+  oCItem* item = cplayer->npc->inventory2.IsIn(index, 1);
+  if (!item) {
+    return;
+  }
+
+  const int remove_amount = std::min(amount, item->amount);
+  if (remove_amount <= 0) {
+    return;
+  }
+
+  cplayer->npc->inventory2.Remove(index, remove_amount);
 }
 
 void NetGame::OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {
@@ -1165,4 +1353,23 @@ void NetGame::OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8
   }
 
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerMessageName, gmp::gothic::OnPlayerMessageEvent{sender_id, r, g, b, message});
+}
+
+void NetGame::OnLuaEvent(const std::string& event_name, std::uint32_t source_element, const std::string& payload) {
+  if (!resource_runtime) {
+    SPDLOG_WARN("Ignoring Lua event '{}' because client resources are not loaded", event_name);
+    return;
+  }
+
+  auto& lua = resource_runtime->GetLuaState();
+  std::vector<sol::object> args;
+  std::string error;
+  if (!gmp::lua::DecodeLuaArgs(lua, payload, args, error)) {
+    SPDLOG_ERROR("Failed to decode Lua event '{}' payload: {}", event_name, error);
+    return;
+  }
+
+  if (!gmp::gothic::TriggerRemoteEvent(event_name, source_element, args)) {
+    SPDLOG_WARN("Lua event '{}' rejected or cancelled", event_name);
+  }
 }

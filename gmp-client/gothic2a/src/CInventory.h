@@ -46,6 +46,8 @@ private:
   bool DropInvoked;
   std::string temp;
   zSTRING AmountNum;
+  bool was_open_{false};
+  int last_selected_slot_{-1};
 
 public:
   CInventory(oCNpcInventory* HeroInventory);

@@ -36,8 +36,9 @@ constexpr float kMinBalance = -1.0f;
 constexpr float kMaxBalance = 1.0f;
 }  // namespace
 
-/* luadoc (class)
+/* luagmp (class)
 *
+* @version  0.3.0
 * Sound playback helper.
 *
 * Provides basic control over a sound resource loaded from a file, including
@@ -45,10 +46,10 @@ constexpr float kMaxBalance = 1.0f;
 *
 * @name     Sound
 * @side     client
-* @category Sound
+* @category Game
 *
 */
-/* luadoc (constructor)
+/* luagmp (constructor)
 *
 * Creates a new Sound from a file.
 *
@@ -117,7 +118,7 @@ void LuaSound::StopIfNeeded() {
   handle_ = -1;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Starts sound playback.
 *
@@ -148,7 +149,7 @@ void LuaSound::play() {
   SPDLOG_INFO("PlaySound returned handle: {}", handle_);
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Stops sound playback.
 *
@@ -159,7 +160,7 @@ void LuaSound::stop() {
   StopIfNeeded();
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns whether the sound is currently playing.
 *
@@ -171,7 +172,7 @@ bool LuaSound::isPlaying() const {
   return handle_ >= 0 && zsound && zsound->IsSoundActive(handle_) != 0;
 }
 
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the sound file path.
 *
@@ -179,7 +180,7 @@ bool LuaSound::isPlaying() const {
 * @return   (string) Sound file path.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Returns the current playback time.
 *
@@ -188,7 +189,7 @@ bool LuaSound::isPlaying() const {
 * @return   (number) Playback time.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the playback volume.
 *
@@ -196,7 +197,7 @@ bool LuaSound::isPlaying() const {
 * @return   (number) Volume level.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets whether the sound should loop.
 *
@@ -204,7 +205,7 @@ bool LuaSound::isPlaying() const {
 * @return   (bool) True if looping is enabled.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the stereo balance (pan).
 *

@@ -25,23 +25,22 @@ SOFTWARE.
 
 #include "CPlayerList.h"
 
-#include "CChat.h"
+#include <algorithm>
+#include <vector>
+
 #include "CIngame.h"
 #include "net_game.h"
 
 extern zCOLOR Normal;
-extern zCOLOR Highlighted;
 extern CIngame* global_ingame;
-zCOLOR FColors1;
 
 CPlayerList::CPlayerList() {
   PlayerListBackground = new zCView(0, 0, 8192, 8192, VIEW_ITEM);
-  PlayerListBackground->SetPos(2500, 2000);
-  x = 2500, y = 2200;
-  MenuPos = 1, PrintTo = 0, PrintFrom = 1;
+  PlayerListBackground->SetPos(2500, 600);
+  x = 2700, y = 800;
   Opened = false;
-  PlayerOptions = false;
-  PlayerListBackground->SetSize(3500, 4000);
+  BeginIndex = 0;
+  PlayerListBackground->SetSize(3500, 6000);
   PlayerListBackground->InsertBack(zSTRING("MENU_INGAME.TGA"));
 };
 
@@ -57,8 +56,8 @@ bool CPlayerList::OpenPlayerList() {
   if (!Opened) {
     screen->InsertItem(PlayerListBackground);
     player->GetAnictrl()->StopTurnAnis();
-    MenuPos = 1, PrintTo = 0, PrintFrom = 1;
     Opened = true;
+    BeginIndex = 0;
     return true;
   }
   return false;
@@ -66,107 +65,96 @@ bool CPlayerList::OpenPlayerList() {
 
 bool CPlayerList::ClosePlayerList() {
   if (Opened) {
-    ChPlayerNpc = NULL;
     screen->RemoveItem(PlayerListBackground);
     player->SetMovLock(0);
-    PlayerOptions = false;
     Opened = false;
     return true;
   }
   return false;
 };
 
-void CPlayerList::RunPlayerListItem() {
-  switch (MenuPos) {
-    case 0:
-      MenuPos = 1;
-      PlayerOptions = false;
-      break;
-  }
-};
-
 void CPlayerList::UpdatePlayerList() {
   if (!player->IsMovLock())
     player->SetMovLock(1);
-  if (!PlayerOptions) {
-    // INIT
-    if (MenuPos > (int)NetGame::Instance().players.size() - 1)
-      MenuPos = (int)NetGame::Instance().players.size() - 1;
-    if (PrintFrom > (int)NetGame::Instance().players.size() - 1)
-      PrintFrom--;
-    // INPUT
-    if (NetGame::Instance().players.size() > 1) {
-      if (zinput->KeyToggled(KEY_UP)) {
-        if (MenuPos > 1)
-          MenuPos--;
-        if (PrintFrom > 1) {
-          if (MenuPos > PrintFrom)
-            PrintFrom--;
-        }
-      }
-      if (zinput->KeyToggled(KEY_DOWN)) {
-        if (MenuPos < (int)NetGame::Instance().players.size() - 1) {
-          MenuPos++;
-          if (MenuPos > 17)
-            PrintFrom++;
-        }
-      }
-      if (zinput->KeyPressed(KEY_RETURN)) {
-        zinput->ClearKeyBuffer();
-        ChosenPlayer = NetGame::Instance().players[MenuPos]->npc->GetName();
-        ChPlayerNpc = NetGame::Instance().players[MenuPos]->npc;
-        PlayerOptions = true;
-        MenuPos = 0;
-      }
+  std::vector<Gothic2APlayer*> connected_players;
+  connected_players.reserve(NetGame::Instance().players.size());
+  for (auto* net_player : NetGame::Instance().players) {
+    if (net_player && net_player->npc) {
+      connected_players.push_back(net_player);
     }
-    // PRINT
-    zCView* Screen = screen;
-    Screen->SetFontColor(Normal);
-    Screen->Print(x + 400, y, Language::Instance()[Language::SRV_PLAYERS]);
-    char buffer[128];
-    sprintf(buffer, "%d", NetGame::Instance().players.size());
-    zSTRING NoOfPlayers = buffer;
-    Screen->Print(x + 3000, y, NoOfPlayers);
-    int Size = 2400;
-    if (NetGame::Instance().players.size() > 1) {
-      if ((int)NetGame::Instance().players.size() > 17)
-        PrintTo = 17;
-      else
-        PrintTo = (int)NetGame::Instance().players.size() - 1;
-      for (int i = PrintFrom; i < PrintFrom + PrintTo; i++) {
-        if (i > (int)NetGame::Instance().players.size() - 1) {
-          MenuPos = (int)NetGame::Instance().players.size() - 1;
-          if (PrintFrom > (int)NetGame::Instance().players.size() - 1)
-            PrintFrom--;
-          break;
-        }
-        if (NetGame::Instance().players[i]->npc) {
-          FColors1 = (MenuPos == i) ? Highlighted : Normal;
-          Screen->SetFontColor(FColors1);
-          ZeroMemory(buffer, 128);
-          std::string display_name = NetGame::Instance().players[i]->GetName();
-          if (display_name.length() > 20)
-            display_name.resize(20);
-          sprintf(buffer, "%s", display_name.c_str());
-          NoOfPlayers = buffer;
-          Screen->Print(x + 400, Size, NoOfPlayers);
-          Size += 200;
-        }
-      }
-    } else
-      Screen->Print(x + 400, y + 200, Language::Instance()[Language::NOPLAYERS]);
-  } else {
-    // INPUT
-    if (zinput->KeyPressed(KEY_RETURN)) {
-      zinput->ClearKeyBuffer();
-      RunPlayerListItem();
+  };
+  std::stable_sort(connected_players.begin(), connected_players.end(),
+                   [](Gothic2APlayer* left, Gothic2APlayer* right) {
+                     return left->base_player().id() < right->base_player().id();
+                   });
+  const int connected_count = static_cast<int>(connected_players.size());
+  const int max_visible_rows = 30;
+  int max_scroll_idx = connected_count - max_visible_rows;
+  if (max_scroll_idx < 0)
+    max_scroll_idx = 0;
+  if (BeginIndex > max_scroll_idx)
+    BeginIndex = max_scroll_idx;
+  if (BeginIndex < 0)
+    BeginIndex = 0;
+  if (connected_count > max_visible_rows) {
+    if (zinput->KeyToggled(KEY_UP)) {
+      BeginIndex = std::max(0, BeginIndex - 1);
     }
-    // PRINT
-    zCView* Screen = screen;
-    Screen->SetFontColor(Normal);
-    Screen->Print(x + 400, y, ChosenPlayer);
-    FColors1 = (MenuPos == 0) ? Highlighted : Normal;
-    Screen->SetFontColor(FColors1);
-    Screen->Print(x + 400, y + 200, Language::Instance()[Language::MMENU_BACK]);
+    if (zinput->KeyToggled(KEY_DOWN)) {
+      BeginIndex = std::min(max_scroll_idx, BeginIndex + 1);
+    }
+    if (zinput->KeyToggled(KEY_PRIOR)) {
+      BeginIndex = 0;
+    }
+    if (zinput->KeyToggled(KEY_NEXT)) {
+      BeginIndex = max_scroll_idx;
+    }
   }
+  // PRINT
+  zCView* Screen = screen;
+  zSTRING old_font = Screen->GetFontName();
+  Screen->SetFont(zSTRING("Font_Old_10_White_Hi.TGA"));
+  Screen->SetFontColor(zCOLOR(243, 8, 188, 255));
+  Screen->Print(x, y, "ID");
+  Screen->Print(x + 300, y, "Players");
+  Screen->Print(x + 2800, y, "Ping");
+  char buffer[128];
+  zSTRING NoOfPlayers;
+  int row_y = y;
+  if (connected_count > 0) {
+    const int max_rows = std::min(connected_count - BeginIndex, max_visible_rows);
+    for (int row = 0; row < max_rows; row++) {
+      const int i = BeginIndex + row;
+      row_y += 200;
+      const zCOLOR& name_color = connected_players[i]->GetNameColor();
+      Screen->SetFontColor(name_color);
+      ZeroMemory(buffer, 128);
+      std::string display_name = connected_players[i]->GetName();
+      if (display_name.length() > 20)
+        display_name.resize(20);
+      if (connected_players[i]->IsLocalPlayer()) {
+        Screen->Print(x - 250, row_y, "->");
+      }
+      sprintf(buffer, "%llu", static_cast<unsigned long long>(connected_players[i]->base_player().id()));
+      NoOfPlayers = buffer;
+      Screen->Print(x, row_y, NoOfPlayers);
+      ZeroMemory(buffer, 128);
+      sprintf(buffer, "%s", display_name.c_str());
+      NoOfPlayers = buffer;
+      Screen->Print(x + 300, row_y, NoOfPlayers);
+      std::string ping_text = "-";
+      if (connected_players[i]->IsLocalPlayer() && NetGame::Instance().game_client) {
+        ping_text = std::to_string(NetGame::Instance().game_client->GetPing());
+      }
+      ZeroMemory(buffer, 128);
+      sprintf(buffer, "%s", ping_text.c_str());
+      NoOfPlayers = buffer;
+      Screen->Print(x + 2800, row_y, NoOfPlayers);
+    }
+  } else {
+    Screen->SetFontColor(zCOLOR(255, 250, 200, 255));
+    Screen->Print(x, y + 200, Language::Instance()[Language::NOPLAYERS]);
+  }
+  Screen->SetFontColor(Normal);
+  Screen->SetFont(old_font);
 };

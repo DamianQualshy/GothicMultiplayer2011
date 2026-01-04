@@ -26,6 +26,8 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
+#include "language.h"
+
 namespace menu {
 namespace states {
 
@@ -63,10 +65,12 @@ void ExitMenuState::CleanUpMenuResources() {
   // Remove weapons from world
   context_.HideTitleWeapon();
   if (context_.titleWeapon) {
+    context_.titleWeapon->Release();
     context_.titleWeapon = nullptr;
   }
   if (context_.cameraWeapon) {
     context_.cameraWeapon->RemoveVobFromWorld();
+    context_.cameraWeapon->Release();
     context_.cameraWeapon = nullptr;
   }
 
@@ -93,7 +97,8 @@ void ExitMenuState::CleanUpMenuResources() {
 
   // Reset font
   if (context_.screen) {
-    context_.screen->SetFont("FONT_DEFAULT.TGA");
+    const auto font = Language::Instance().ApplyFontPrefix("FONT_DEFAULT.TGA");
+    context_.screen->SetFont(font.c_str());
   }
 
   context_.game->CamInit();

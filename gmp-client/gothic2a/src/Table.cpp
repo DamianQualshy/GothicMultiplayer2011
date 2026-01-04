@@ -39,6 +39,8 @@ SOFTWARE.
 
 #include <stdio.h>
 
+#include "language.h"
+
 using namespace G2W;
 
 Table::Table(int x, int y, int width, int height, int interline, int visibleRows) {
@@ -90,11 +92,13 @@ void Table::render() {
     py += interline;
     px = 0;
     if (rows[i].highlight) {
-      surface->SetFont(Gothic_II_Addon::zSTRING(highlightFont->texture));
+      const auto fontName = Language::Instance().ApplyFontPrefix(highlightFont->texture);
+      surface->SetFont(Gothic_II_Addon::zSTRING(fontName.c_str()));
       surface->SetFontColor(Gothic_II_Addon::zCOLOR(highlightFont->r, highlightFont->g, highlightFont->b));
 
     } else {
-      surface->SetFont(Gothic_II_Addon::zSTRING(font->texture));
+      const auto fontName = Language::Instance().ApplyFontPrefix(font->texture);
+      surface->SetFont(Gothic_II_Addon::zSTRING(fontName.c_str()));
       surface->SetFontColor(Gothic_II_Addon::zCOLOR(font->r, font->g, font->b));
     }
 

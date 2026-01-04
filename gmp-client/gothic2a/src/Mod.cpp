@@ -27,6 +27,9 @@ SOFTWARE.
 
 #include <ctime>
 #include <memory>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 
 #include "CActiveAniID.h"
 #include "CIngame.h"
@@ -45,6 +48,8 @@ SOFTWARE.
 #include "main_menu.h"
 #include "net_game.h"
 #include "patch.h"
+#include "scripting/gothic_events.h"
+#include "shared/event.h"
 
 #pragma warning(disable : 4996)
 
@@ -62,8 +67,12 @@ bool MultiplayerLaunched = false;
 namespace {
 
 constexpr DWORD kCastSpellHookAddress = 0x00485360;
-constexpr DWORD kDropItemHookAddress = 0x00744DD0;
-constexpr DWORD kTakeItemHookAddress = 0x007449C0;
+constexpr DWORD kDropItemHookAddress = 0x007538C0;
+constexpr DWORD kTakeItemHookAddress = 0x007534E0;
+constexpr DWORD kUseItemHookAddress = 0x00755620;
+constexpr DWORD kUseItemToStateHookAddress = 0x007558F0;
+constexpr DWORD kEquipItemHookAddress = 0x007323C0;
+constexpr DWORD kUnequipItemHookAddress = 0x007326C0;
 constexpr DWORD kDoDieHookAddress = 0x00736760;
 constexpr DWORD kDropUnconsciousHookAddress = 0x00735EB0;
 constexpr DWORD kCallOnStateFuncHookAddress = 0x00720870;
@@ -72,8 +81,12 @@ constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
 constexpr DWORD kOnDamageHitHookAddress = 0x00666610;
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
-using DropItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
-using TakeItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
+using DropItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
+using TakeItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
+using UseItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
+using UseItemToStateOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
+using EquipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
+using UnequipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
 using DoDieOriginalFn = void(__thiscall*)(oCNpc*, oCNpc*);
 using DropUnconsciousOriginalFn = void(__thiscall*)(oCNpc*, float, oCNpc*);
 using CallOnStateFuncOriginalFn = void(__thiscall*)(oCMobInter*, oCNpc*, int);
@@ -84,6 +97,10 @@ using OnDamageHitOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescripto
 CastSpellOriginalFn g_originalCastSpell = nullptr;
 DropItemOriginalFn g_originalDropItem = nullptr;
 TakeItemOriginalFn g_originalTakeItem = nullptr;
+UseItemOriginalFn g_originalUseItem = nullptr;
+UseItemToStateOriginalFn g_originalUseItemToState = nullptr;
+EquipItemOriginalFn g_originalEquipItem = nullptr;
+UnequipItemOriginalFn g_originalUnequipItem = nullptr;
 DoDieOriginalFn g_originalDoDie = nullptr;
 DropUnconsciousOriginalFn g_originalDropUnconscious = nullptr;
 CallOnStateFuncOriginalFn g_originalCallOnStateFunc = nullptr;
@@ -104,6 +121,70 @@ void __fastcall OnAINormal(zCAICamera* thisCamera, void* /*edx*/) {
   if (g_originalAINormal) {
     g_originalAINormal(thisCamera);
   }
+}
+
+std::string GetItemInstanceNameByIndex(int index) {
+  if (index <= 0) {
+    return {};
+  }
+  zCParser* parser = zCParser::GetParser();
+  if (!parser) {
+    return {};
+  }
+  zCPar_Symbol* symbol = parser->GetSymbol(index);
+  if (!symbol) {
+    return {};
+  }
+  return symbol->name.ToChar();
+}
+
+std::string ResolveItemInstanceName(oCItem* item) {
+  if (!item) {
+    return {};
+  }
+  return GetItemInstanceNameByIndex(item->GetInstance());
+}
+
+std::string ResolveItemInstanceName(oCMsgManipulate* msg) {
+  if (!msg) {
+    return {};
+  }
+  if (auto* item = zDYNAMIC_CAST<oCItem>(msg->targetVob)) {
+    return ResolveItemInstanceName(item);
+  }
+  if (!msg->name.IsEmpty()) {
+    return msg->name.ToChar();
+  }
+  return {};
+}
+
+std::string ResolveItemSchemeName(oCMsgManipulate* msg) {
+  if (!msg || msg->name.IsEmpty()) {
+    return {};
+  }
+  return msg->name.ToChar();
+}
+
+std::unordered_set<std::string> s_local_equipped_items;
+std::unordered_map<oCNpc*, const oCMsgManipulate*> s_last_drop_msg;
+std::unordered_map<oCNpc*, const oCMsgManipulate*> s_last_take_msg;
+
+struct LastUseState {
+  const oCMsgManipulate* msg = nullptr;
+  std::string item;
+  std::string scheme;
+  DWORD tick = 0;
+};
+
+std::unordered_map<oCNpc*, LastUseState> s_last_use_state;
+bool s_suppress_local_equip_events = false;
+
+void SetSuppressLocalEquipEvents(bool suppress) {
+  s_suppress_local_equip_events = suppress;
+}
+
+bool ShouldSuppressLocalEquipEvents() {
+  return s_suppress_local_equip_events;
 }
 
 // Helper to clear items from NPC hands after death/unconscious
@@ -259,45 +340,168 @@ void InstallFloorSlidingCrashfix() {
   });
 }
 
+bool ShouldEmitMessageOnce(std::unordered_map<oCNpc*, const oCMsgManipulate*>& cache, oCNpc* npc, oCMsgManipulate* msg) {
+  if (!npc || !msg) {
+    return false;
+  }
+  auto it = cache.find(npc);
+  if (it != cache.end() && it->second == msg) {
+    return false;
+  }
+  cache[npc] = msg;
+  return true;
+}
+
 const int DROP_ITEM_TIMEOUT = 200;
 
 // DROP & TAKE
-int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, zCVob* vob) {
-  oCItem* item = vob ? zDYNAMIC_CAST<oCItem>(vob) : nullptr;
-  int result = g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
+int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
+  oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
+  int result = g_originalDropItem ? g_originalDropItem(thisNpc, msg) : 0;
 
   if (thisNpc != player || !item) {
     return result;
   }
 
   static int dropItemTimeout = 0;
-  if (global_ingame && dropItemTimeout < GetTickCount()) {
-    if (!NetGame::Instance().DropItemsAllowed) {
-      return result;
+  if (global_ingame && dropItemTimeout < GetTickCount() && ShouldEmitMessageOnce(s_last_drop_msg, thisNpc, msg)) {
+    const bool synchronized = NetGame::Instance().DropItemsAllowed != 0;
+    if (synchronized) {
+      NetGame::Instance().SendDropItem(item->GetInstance(), item->amount);
     }
-    NetGame::Instance().SendDropItem(item->GetInstance(), item->amount);
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnDropItemName, gmp::gothic::OnItemEvent{ResolveItemInstanceName(item)});
     dropItemTimeout = GetTickCount() + DROP_ITEM_TIMEOUT;
   }
 
   return result;
 }
 
-int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, zCVob* vob) {
-  int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, vob) : 0;
+int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
+  int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
 
   if (thisNpc != player) {
     return result;
   }
 
-  oCItem* item = vob ? zDYNAMIC_CAST<oCItem>(vob) : nullptr;
-  if (item && global_ingame) {
-    if (!NetGame::Instance().DropItemsAllowed) {
-      return result;
+  oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
+  if (item && global_ingame && ShouldEmitMessageOnce(s_last_take_msg, thisNpc, msg)) {
+    const bool synchronized = NetGame::Instance().DropItemsAllowed != 0;
+    if (synchronized) {
+      NetGame::Instance().SendTakeItem(item->GetInstance());
     }
-    NetGame::Instance().SendTakeItem(item->GetInstance());
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnTakeItemName,
+                                          gmp::gothic::OnTakeItemEvent{ResolveItemInstanceName(item), synchronized});
   }
 
   return result;
+}
+
+bool ShouldEmitUseItem(oCNpc* npc, oCMsgManipulate* msg) {
+  if (!npc || !msg) {
+    return false;
+  }
+  auto& state = s_last_use_state[npc];
+  if (state.msg == msg) {
+    return false;
+  }
+
+  const DWORD now = GetTickCount();
+  const std::string item = ResolveItemInstanceName(msg);
+  const std::string scheme = ResolveItemSchemeName(msg);
+  if ((!item.empty() && state.item == item && now - state.tick < 750) ||
+      (!scheme.empty() && state.scheme == scheme && now - state.tick < 750)) {
+    return false;
+  }
+
+  state.msg = msg;
+  state.item = item;
+  state.scheme = scheme;
+  state.tick = now;
+  return true;
+}
+
+int __fastcall OnUseItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
+  int from_state = 0;
+  int to_state = 0;
+  oCMobInter* mob = msg ? zDYNAMIC_CAST<oCMobInter>(msg->targetVob) : nullptr;
+  if (mob) {
+    from_state = mob->GetState();
+  }
+
+  int result = g_originalUseItem ? g_originalUseItem(thisNpc, msg) : 0;
+
+  if (mob) {
+    to_state = mob->GetState();
+  }
+
+  if (thisNpc == player && ShouldEmitUseItem(thisNpc, msg)) {
+    EventManager::Instance().TriggerEvent(
+        gmp::gothic::kEventOnUseItemName,
+        gmp::gothic::OnUseItemEvent{ResolveItemInstanceName(msg), ResolveItemSchemeName(msg), from_state, to_state});
+  }
+
+  return result;
+}
+
+int __fastcall OnUseItemToState(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
+  int from_state = 0;
+  int to_state = 0;
+  oCMobInter* mob = msg ? zDYNAMIC_CAST<oCMobInter>(msg->targetVob) : nullptr;
+  if (mob) {
+    from_state = mob->GetState();
+  }
+
+  int result = g_originalUseItemToState ? g_originalUseItemToState(thisNpc, msg) : 0;
+
+  if (mob) {
+    to_state = mob->GetState();
+  }
+
+  if (thisNpc == player && ShouldEmitUseItem(thisNpc, msg)) {
+    EventManager::Instance().TriggerEvent(
+        gmp::gothic::kEventOnUseItemName,
+        gmp::gothic::OnUseItemEvent{ResolveItemInstanceName(msg), ResolveItemSchemeName(msg), from_state, to_state});
+  }
+
+  return result;
+}
+
+void __fastcall OnEquipItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCItem* item) {
+  if (g_originalEquipItem) {
+    g_originalEquipItem(thisNpc, item);
+  }
+
+  if (thisNpc != player || ShouldSuppressLocalEquipEvents()) {
+    return;
+  }
+
+  const std::string instance = ResolveItemInstanceName(item);
+  if (instance.empty()) {
+    return;
+  }
+
+  if (s_local_equipped_items.insert(instance).second) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnEquipName, gmp::gothic::OnItemEvent{instance});
+  }
+}
+
+void __fastcall OnUnequipItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCItem* item) {
+  if (g_originalUnequipItem) {
+    g_originalUnequipItem(thisNpc, item);
+  }
+
+  if (thisNpc != player || ShouldSuppressLocalEquipEvents()) {
+    return;
+  }
+
+  const std::string instance = ResolveItemInstanceName(item);
+  if (instance.empty()) {
+    return;
+  }
+
+  if (s_local_equipped_items.erase(instance) > 0) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnUnequipName, gmp::gothic::OnItemEvent{instance});
+  }
 }
 
 int __fastcall OnCastSpell(oCSpell* thisSpell) {
@@ -394,6 +598,18 @@ void Initialize(void) {
     }
     if (auto original = CreateHook(kTakeItemHookAddress, (DWORD)OnTakeItem)) {
       g_originalTakeItem = reinterpret_cast<TakeItemOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kUseItemHookAddress, (DWORD)OnUseItem)) {
+      g_originalUseItem = reinterpret_cast<UseItemOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kUseItemToStateHookAddress, (DWORD)OnUseItemToState)) {
+      g_originalUseItemToState = reinterpret_cast<UseItemToStateOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kEquipItemHookAddress, (DWORD)OnEquipItem)) {
+      g_originalEquipItem = reinterpret_cast<EquipItemOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kUnequipItemHookAddress, (DWORD)OnUnequipItem)) {
+      g_originalUnequipItem = reinterpret_cast<UnequipItemOriginalFn>(*original);
     }
     // oCNpc::DoDie - clear hands after death
     if (auto original = CreateHook(kDoDieHookAddress, (DWORD)OnDoDie)) {

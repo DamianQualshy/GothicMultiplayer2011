@@ -28,14 +28,12 @@ SOFTWARE.
 #include <filesystem>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "ZenGin/zGothicAPI.h"
+#include "localization_utils.h"
 
-// Forward declarations
-namespace localization {
-enum class LanguageEncoding;
-}
+#include "ZenGin/zGothicAPI.h"
 
 // Manages available languages and their metadata
 class LanguageManager {
@@ -93,34 +91,18 @@ public:
   enum STRING_ID {
     LANGUAGE = 0,
     WRITE_NICKNAME,
-    CHOOSE_APPERANCE,
-    FACE_APPERANCE,
-    HEAD_MODEL,
-    SKIN_TEXTURE,
-    CHOOSE_SERVER,
-    WRITE_SERVER_ADDR,
-    CHOOSE_SERVER_TIP,
-    MANUAL_IP_TIP,
     MMENU_CHSERVER,
     MMENU_OPTIONS,
-    MMENU_APPEARANCE,
     MMENU_LEAVEGAME,
-    EMPTY_SERVER_LIST,
-    APP_INFO1,
-    ERR_CONN_NO_ERROR,
-    ERR_CONN_FAIL,
-    ERR_CONN_ALREADY_CONNECTED,
-    ERR_CONN_SRV_FULL,
-    ERR_CONN_BANNED,
-    ERR_CONN_INCOMP_TECHNIC,
     MMENU_ONLINEOPTIONS,
     MMENU_BACK,
-    SELECT_CONTROLS,
     MMENU_LOGCHATYES,
     MMENU_LOGCHATNO,
     MMENU_WATCHON,
     MMENU_WATCHOFF,
     MMENU_SETWATCHPOS,
+    WATCHPOS_INSTRUCTIONS,
+    WATCHPOS_RETURN,
     CWATCH_REALTIME,
     CWATCH_GAMETIME,
     MMENU_NICKNAME,
@@ -128,20 +110,14 @@ public:
     MMENU_ANTIAlIASINGNO,
     MMENU_JOYSTICKYES,
     MMENU_JOYSTICKNO,
-    MMENU_POTIONKEYSYES,
-    MMENU_POTIONKEYSNO,
     MMENU_CHATLINES,
     INGAMEM_HELP,
     INGAMEM_BACKTOGAME,
     HCONTROLS,
     HCHAT,
-    HCHATMAIN,
     SOMEONEDISCONNECT_FROM_SERVER,
     NOPLAYERS,
     EXITTOMAINMENU,
-    SRV_IP,
-    SRV_NAME,
-    SRV_MAP,
     SRV_PLAYERS,
     DISCONNECTED,
     SOMEONE_JOIN_GAME,
@@ -150,23 +126,13 @@ public:
     HMAP,
     HANIMSMENU,
     SHOWHOW,
-    WALK_STYLE,
-    UNMUTE_TIME,
-    KILLEDSOMEONE_MSG,
-    WB_NEWMAP,
-    WB_LOADMAP,
-    WB_SAVEMAP,
     ITEM_TOOFAR,
     KEYBOARD_POLISH,
     KEYBOARD_GERMAN,
     KEYBOARD_RUSSIAN,
     INTRO_YES,
     INTRO_NO,
-    MERRY_CHRISTMAS,
     INV_HOWMUCH,
-    CLASS_DESCRIPTION,
-    START_OBSERVATION,
-    END_OBSERVATION,
     SRVLIST_ALL,
     SRVLIST_FAVOURITES,
     SRVLIST_NAME,
@@ -179,9 +145,22 @@ public:
     return !data.empty();
   }
 
+  localization::LanguageEncoding GetEncoding() const {
+    return encoding_;
+  }
+
+  const std::string& GetFontPrefix() const {
+    return fontPrefix_;
+  }
+
+  std::string ApplyFontPrefix(std::string_view fontName) const;
+
+
   // Clear all loaded data to prevent zSTRING destructor issues during shutdown
   void Clear() {
     data.clear();
+    encoding_ = localization::LanguageEncoding::kNone;
+    fontPrefix_.clear();
   }
 
   const zSTRING& operator[](unsigned long) const;
@@ -196,4 +175,6 @@ private:
   Language() = default;
 
   std::vector<zSTRING> data;
+  localization::LanguageEncoding encoding_{localization::LanguageEncoding::kNone};
+  std::string fontPrefix_;
 };

@@ -49,6 +49,7 @@ zCMenu* Options;
 bool OrgOptionsOpened = false;
 extern zCOLOR Red;
 extern zCOLOR Normal;
+extern CIngame* global_ingame;
 constexpr const char* GothicMP = "Gothic Multiplayer";
 
 // MENU FUNCTIONS
@@ -66,6 +67,10 @@ void ExitToBigMainMenu() {
   player->RefreshNpc();
   MainMenu = NULL;
   NetGame::Instance().Disconnect();
+  if (global_ingame) {
+    delete global_ingame;
+    global_ingame = nullptr;
+  }
   CMainMenu::GetInstance()->ReLaunchMainMenu();
   HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)InterfaceLoop);
   HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)CIngame::Loop);
@@ -101,7 +106,6 @@ void InterfaceLoop(void) {
   if (HelpOpen) {
     screen->Print(2500, 2000, Language::Instance()[Language::HCONTROLS]);
     screen->Print(2500, 2200, Language::Instance()[Language::HCHAT]);
-    screen->Print(2500, 2400, Language::Instance()[Language::HCHATMAIN]);
     screen->Print(2500, 2800, Language::Instance()[Language::HPLAYERLIST]);
     screen->Print(2500, 3000, Language::Instance()[Language::HMAP]);
     screen->Print(2500, 3200, Language::Instance()[Language::HANIMSMENU]);

@@ -25,14 +25,20 @@ SOFTWARE.
 
 #include "keyboard.h"
 
-#include "config.h"
+#include "language.h"
 
-enum KeyboardLayout { KEYBOARD_LATIN, KEYBOARD_CYRYLLIC };
+bool UseCyrillicLayout(bool ignorekeyboardlayout) {
+  if (ignorekeyboardlayout)
+    return false;
+
+  return Language::Instance().GetEncoding() == localization::LanguageEncoding::kCp1251;
+}
 
 char GInput::GetCharacterFormKeyboard(bool ignorekeyboardlayout) {
   bool with_shift = false;
   if ((zinput->KeyPressed(KEY_RSHIFT)) || (zinput->KeyPressed(KEY_LSHIFT)))
     with_shift = true;
+  const bool use_cyrillic = UseCyrillicLayout(ignorekeyboardlayout);
   if (zinput->KeyPressed(KEY_RETURN)) {
     zinput->ClearKeyBuffer();
     return 0x0D;
@@ -43,21 +49,17 @@ char GInput::GetCharacterFormKeyboard(bool ignorekeyboardlayout) {
   }
   if (zinput->KeyPressed(KEY_X)) {
     zinput->ClearKeyBuffer();
-    if (Config::Instance().keyboardlayout == KEYBOARD_LATIN || ignorekeyboardlayout)
+    if (!use_cyrillic)
       return (with_shift) ? 'X' : 'x';
     return (with_shift) ? 0xD7 : 0xF7;
   } else if (zinput->KeyPressed(KEY_F)) {
     zinput->ClearKeyBuffer();
-    if (Config::Instance().keyboardlayout == KEYBOARD_LATIN || ignorekeyboardlayout)
+    if (!use_cyrillic)
       return (with_shift) ? 'F' : 'f';
     return (with_shift) ? 0xC0 : 0xE0;
   }
   zINT i_keyboard = KEY_1;
-  if (ignorekeyboardlayout)
-    goto IGNORETHISCRAP;
-  switch (Config::Instance().keyboardlayout) {
-    case KEYBOARD_LATIN:
-    IGNORETHISCRAP:
+   if (!use_cyrillic) {
       do {
         if (zinput->KeyToggled(i_keyboard)) {
           switch (i_keyboard) {
@@ -252,8 +254,7 @@ char GInput::GetCharacterFormKeyboard(bool ignorekeyboardlayout) {
           }
         }
       } while ((++i_keyboard) < 0x56);
-      break;
-    case KEYBOARD_CYRYLLIC:
+    } else {
       do {
         if (zinput->KeyToggled(i_keyboard)) {
           switch (i_keyboard) {
@@ -448,7 +449,6 @@ char GInput::GetCharacterFormKeyboard(bool ignorekeyboardlayout) {
           }
         }
       } while ((++i_keyboard) < 0x56);
-      break;
   }
   return 0;  // should rarely happen
 }

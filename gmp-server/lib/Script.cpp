@@ -5,6 +5,7 @@
 #include "sol/sol.hpp"
 // Binds
 #include "Lua/event_bind.h"
+#include "Lua/constants_bind.h"
 #include "Lua/function_bind.h"
 
 using namespace std;
@@ -15,5 +16,6 @@ LuaScript::LuaScript() {
 
 void LuaScript::BindDomainSpecific() {
   lua::bindings::BindEvents(lua_);
+  lua::bindings::BindServerConstants(lua_);
   lua::bindings::BindFunctions(lua_, timer_manager_);
 }

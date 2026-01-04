@@ -98,10 +98,11 @@ std::vector<sol::object> CopyArguments(sol::state_view lua, const sol::variadic_
   return values;
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Convert hex color to rgb representation.
 *
+* @version  0.3.0
 * @name     hexToRgb
 * @side     shared
 * @category Utility
@@ -127,10 +128,11 @@ sol::object Function_HexToRgb(const std::string& hex, sol::this_state ts) {
   return table;
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Convert rgb color to hex representation.
 *
+* @version  0.3.0
 * @name     rgbToHex
 * @side     shared
 * @category Utility
@@ -151,10 +153,11 @@ std::string Function_RgbToHex(int r, int g, int b) {
   return stream.str();
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Split the specified text, interprets it according to format and stores the results into array.
 *
+* @version  0.3.0
 * @name     sscanf
 * @side     shared
 * @category Utility
@@ -225,10 +228,11 @@ sol::object Function_Sscanf(const std::string& format, const std::string& text, 
   return result;
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * This function will get the amount of time that your system has been running in milliseconds. You can use this function to compare how long something would take to run.
 *
+* @version  0.3.0
 * @name     getTickCount
 * @side     shared
 * @category Utility
@@ -239,10 +243,11 @@ std::int64_t Function_GetTickCount() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - kStartTime).count();
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * This function will calculate the SHA-256 hash of the specified string and return it as hexadecimal text representation.
 *
+* @version  0.3.0
 * @name     sha256
 * @side     shared
 * @category Hash
@@ -255,10 +260,11 @@ std::string Function_HashSha256(const std::string& input) {
   return gmp::crypto::BytesToHex(digest, crypto_hash_sha256_BYTES);
 }
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * This function will calculate the SHA-512 hash of the specified string and return it as hexadecimal text representation.
 *
+* @version  0.3.0
 * @name     sha512
 * @side     shared
 * @category Hash
@@ -283,13 +289,14 @@ void BindUtilities(sol::state& lua) {
 }
 
 void BindTimers(sol::state& lua, TimerManager& timer_manager) {
-/* luadoc (func)
+/* luagmp (func)
 *
 * Creates a new timer that calls the given function at a fixed interval.
 *
 * The timer passes any additional arguments to the callback when it executes.
 * If execute_times is 0 or negative, the timer repeats indefinitely.
 *
+* @version  0.3.0
 * @name     setTimer
 * @side     shared
 * @category Timer
@@ -309,10 +316,11 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
                      return static_cast<int>(timer_manager.CreateTimer(std::move(func), timer_interval, times, std::move(copied_arguments)));
                    });
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Stops and removes an existing timer.
 *
+* @version  0.3.0
 * @name     killTimer
 * @side     shared
 * @category Timer
@@ -321,10 +329,11 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 */
   lua.set_function("killTimer", [&timer_manager](int timer_id) { timer_manager.KillTimer(static_cast<TimerManager::TimerId>(timer_id)); });
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Sets the interval (in milliseconds) of an existing timer.
 *
+* @version  0.3.0
 * @name     setTimerInterval
 * @side     shared
 * @category Timer
@@ -336,10 +345,11 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
     timer_manager.SetInterval(static_cast<TimerManager::TimerId>(timer_id), std::chrono::milliseconds(interval));
   });
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Returns the interval (in milliseconds) of a timer, or nil if the timer does not exist.
 *
+* @version  0.3.0
 * @name     getTimerInterval
 * @side     shared
 * @category Timer
@@ -356,12 +366,13 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
     return sol::make_object(lua, static_cast<int>(interval->count()));
   });
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Sets how many times the timer should execute.
 *
 * If execute_times is 0 or negative, the timer repeats indefinitely.
 *
+* @version  0.3.0
 * @name     setTimerExecuteTimes
 * @side     shared
 * @category Timer
@@ -374,12 +385,13 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
     timer_manager.SetExecuteTimes(static_cast<TimerManager::TimerId>(timer_id), times);
   });
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Returns how many times the timer will execute, or nil if the timer does not exist.
 *
 * A value of 0 means the timer repeats indefinitely.
 *
+* @version  0.3.0
 * @name     getTimerExecuteTimes
 * @side     shared
 * @category Timer

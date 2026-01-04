@@ -24,8 +24,18 @@ SOFTWARE.
 
 #include "player_manager.h"
 
-PlayerManager::PlayerId PlayerManager::AddPlayer(Net::ConnectionHandle connection, const std::string& name) {
-  PlayerId player_id = next_player_id_++;
+PlayerManager::PlayerId PlayerManager::AddPlayer(Net::ConnectionHandle connection, const std::string& name, std::uint32_t max_slots) {
+  PlayerId player_id = 0;
+  for (PlayerId candidate = 1; candidate <= max_slots; ++candidate) {
+    if (players_.find(candidate) == players_.end()) {
+      player_id = candidate;
+      break;
+    }
+  }
+
+  if (player_id >= next_player_id_) {
+    next_player_id_ = player_id + 1;
+  }
 
   Player player{};
   player.player_id = player_id;
@@ -42,7 +52,6 @@ PlayerManager::PlayerId PlayerManager::AddPlayer(Net::ConnectionHandle connectio
   player.headstate = 0;
   player.is_ingame = 0;
   player.passed_crc_test = 0;
-  player.mute = 0;
   player.health = 0;
   player.max_health = 100;
   player.mana = 0;

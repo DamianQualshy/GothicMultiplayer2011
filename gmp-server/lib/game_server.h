@@ -39,6 +39,7 @@ SOFTWARE.
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace httplib {
@@ -122,6 +123,8 @@ public:
   bool GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);
   bool EquipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id = -1);
   bool UnequipItem(PlayerId player_id, const std::string& instance);
+  std::int32_t HasItem(PlayerId player_id, const std::string& instance) const;
+  bool RemoveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);
   bool SetPlayerWorld(PlayerId player_id, const std::string& world, std::optional<std::string> start_point = std::nullopt);
   bool SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_world);
   std::optional<glm::vec3> GetPlayerPosition(PlayerId player_id) const;
@@ -135,6 +138,18 @@ public:
   std::vector<PlayerId> GetStreamedPlayersByPlayer(PlayerId player_id) const;
   bool SetTime(std::int32_t hour, std::int32_t min, std::int32_t day = 0);
   GothicClock::Time GetTime() const;
+  bool SetDayLength(float day_length_ms);
+  float GetDayLength() const;
+  bool SetWeatherType(std::int32_t weather_type);
+  std::int32_t GetWeatherType() const;
+  bool SetRainStartTime(std::int32_t hour, std::int32_t min);
+  std::pair<std::int32_t, std::int32_t> GetRainStartTime() const;
+  bool SetWindScale(float wind_scale);
+  float GetWindScale() const;
+  bool SetDontRain(bool toggle);
+  bool GetDontRain() const;
+  bool TriggerClientEvent(const std::vector<PlayerId>& targets, const std::string& event_name, PlayerId source_element,
+                          const std::string& payload);
 
   PlayerManager& GetPlayerManager() {
     return player_manager_;
@@ -150,10 +165,11 @@ private:
   void HandleCastSpell(Packet p, bool target);
   void HandleDropItem(Packet p);
   void HandleTakeItem(Packet p);
+  void HandleLuaEvent(Packet p);
   void HandleVoice(Packet p);
   void SomeoneJoinGame(Packet p);
   void HandlePlayerUpdate(Packet p);
-  void HandlePlayerDisconnect(Net::ConnectionHandle connection);
+  void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
   void HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id);
   void HandleNormalMsg(Packet p);
   void HandleGameInfo(Packet p);
@@ -163,6 +179,7 @@ private:
   void SendRespawnInfo(PlayerId player_id);
   void BroadcastPlayerJoined(const Player& joining_player);
   void SendGameInfo(Net::ConnectionHandle connection);
+  void SendSkySettings(Net::ConnectionHandle connection);
   void SendExistingPlayersPacket(Player& target_player);
 
   std::unique_ptr<BanManager> ban_manager_;
@@ -181,6 +198,12 @@ private:
   Config config_;
   std::unique_ptr<GothicClock> clock_;
   std::string server_world_;
+  std::uint8_t sky_settings_flags_{0};
+  std::int32_t weather_type_{0};
+  std::int32_t rain_start_hour_{0};
+  std::int32_t rain_start_min_{0};
+  float wind_scale_{0.0f};
+  bool dont_rain_{false};
   std::future<void> public_list_http_thread_future_;
   std::chrono::time_point<std::chrono::steady_clock> last_update_time_{};
   std::thread main_thread;

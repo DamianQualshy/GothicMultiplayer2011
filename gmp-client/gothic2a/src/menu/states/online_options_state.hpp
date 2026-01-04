@@ -40,7 +40,6 @@ namespace states {
  * - Anti-aliasing
  * - Joystick
  * - Chat lines
- * - Keyboard layout
  * - Language
  * - Intro videos
  */
@@ -56,11 +55,10 @@ private:
     ANTIALIASING = 4,
     JOYSTICK = 5,
     CHAT_LINES = 6,
-    KEYBOARD_LAYOUT = 7,
-    LANGUAGE = 8,
-    INTRO_VIDEOS = 9,
-    BACK = 10,
-    OPTION_COUNT = 11
+    LANGUAGE = 7,
+    INTRO_VIDEOS = 8,
+    BACK = 9,
+    OPTION_COUNT = 10
   };
 
   OptionItem selectedOption_;

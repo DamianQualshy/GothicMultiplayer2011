@@ -40,13 +40,14 @@ void Bind_spdlog(sol::state& lua) {
 }  // namespace lua
 
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with ERROR severity.
 *
 * Error messages indicate serious problems that prevent normal operation
 * or cause a feature to fail.
 *
+* @version  0.3.0
 * @name     LOG_ERROR
 * @side     shared
 * @category Log
@@ -54,13 +55,14 @@ void Bind_spdlog(sol::state& lua) {
 *
 */
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with INFO severity.
 *
 * Informational messages describe normal application behavior and
 * important runtime events.
 *
+* @version  0.3.0
 * @name     LOG_INFO
 * @side     shared
 * @category Log
@@ -68,13 +70,14 @@ void Bind_spdlog(sol::state& lua) {
 *
 */
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with DEBUG severity.
 *
 * Debug messages provide diagnostic information useful during development
 * and troubleshooting.
 *
+* @version  0.3.0
 * @name     LOG_DEBUG
 * @side     shared
 * @category Log
@@ -82,13 +85,14 @@ void Bind_spdlog(sol::state& lua) {
 *
 */
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with CRITICAL severity.
 *
 * Critical messages report very severe errors that may require immediate
 * attention or application shutdown.
 *
+* @version  0.3.0
 * @name     LOG_CRITICAL
 * @side     shared
 * @category Log
@@ -96,13 +100,14 @@ void Bind_spdlog(sol::state& lua) {
 *
 */
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with WARN severity.
 *
 * Warning messages indicate potential problems or unusual situations that
 * do not immediately stop execution.
 *
+* @version  0.3.0
 * @name     LOG_WARN
 * @side     shared
 * @category Log
@@ -110,13 +115,14 @@ void Bind_spdlog(sol::state& lua) {
 *
 */
 
-/* luadoc (func)
+/* luagmp (func)
 *
 * Logs a message with TRACE severity.
 *
 * Trace messages provide very detailed output, typically used for
 * low-level debugging and deep diagnostics.
 *
+* @version  0.3.0
 * @name     LOG_TRACE
 * @side     shared
 * @category Log

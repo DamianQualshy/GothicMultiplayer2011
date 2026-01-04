@@ -101,10 +101,6 @@ void Config::LoadConfigFromFile() {
     ChatLines = *chat_lines_opt;
   }
 
-  if (auto keyboard_opt = toml.GetValue<int>("keyboard_layout"); keyboard_opt) {
-    keyboardlayout = *keyboard_opt;
-  }
-
   if (std::optional<std::map<std::string, std::int32_t>> window_position = toml.GetValue<std::map<std::string, int>>("window_position")) {
     std::int32_t x = 0;
     std::int32_t y = 0;
@@ -180,7 +176,6 @@ void Config::DefaultSettings() {
   lang = 0;
   logchat = false;
   watch = false;
-  keyboardlayout = 0;
   WatchPosX = 7000;
   WatchPosY = 2500;
   ChatLines = 6;
@@ -207,7 +202,6 @@ void Config::SaveConfigToFile() {
   toml["watch_position"] = watch_position_map;
 
   toml["chat_lines"] = ChatLines;
-  toml["keyboard_layout"] = keyboardlayout;
 
   if (window_position_) {
     std::unordered_map<std::string, toml::value> window_position_map;

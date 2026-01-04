@@ -94,6 +94,7 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_GIVEITEM] = [this](Packet p) { OnGiveItem(p); };
   packet_handlers_[PT_EQUIPITEM] = [this](Packet p) { OnEquipItem(p); };
   packet_handlers_[PT_UNEQUIPITEM] = [this](Packet p) { OnUnequipItem(p); };
+  packet_handlers_[PT_REMOVEITEM] = [this](Packet p) { OnRemoveItem(p); };
   packet_handlers_[PT_MSG] = [this](Packet p) { OnMessage(p); };
   packet_handlers_[PT_EXISTING_PLAYERS] = [this](Packet p) { OnExistingPlayers(p); };
   packet_handlers_[PT_PLAYER_SPAWN] = [this](Packet p) { OnPlayerSpawn(p); };
@@ -111,7 +112,9 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_ATTRIBUTE_SNAPSHOT] = [this](Packet p) { OnPlayerAttributeSnapshot(p); };
   packet_handlers_[PT_PLAYER_WORLD_UPDATE] = [this](Packet p) { OnPlayerWorldUpdate(p); };
   packet_handlers_[PT_GAME_INFO] = [this](Packet p) { OnGameInfo(p); };
+  packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
+  packet_handlers_[PT_LUA_EVENT] = [this](Packet p) { OnLuaEvent(p); };
   packet_handlers_[Net::ID_DISCONNECTION_NOTIFICATION] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
   packet_handlers_[Net::ID_CONNECTION_LOST] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
 }
@@ -338,6 +341,26 @@ void GameClient::UpdatePlayerStats(const PlayerState& state) {
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
 }
 
+bool GameClient::SendLuaEventToServer(const std::string& event_name, std::uint32_t source_element, const std::string& payload) {
+  if (!IsConnected()) {
+    SPDLOG_WARN("Cannot trigger server event '{}' while disconnected", event_name);
+    return false;
+  }
+
+  if (payload.size() > kMaxLuaEventPayloadSize) {
+    SPDLOG_WARN("Lua event '{}' payload too large ({} bytes)", event_name, payload.size());
+    return false;
+  }
+
+  LuaEventPacket packet;
+  packet.packet_type = PT_LUA_EVENT;
+  packet.event_name = event_name;
+  packet.source_element = source_element;
+  packet.payload.assign(payload.begin(), payload.end());
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  return true;
+}
+
 void GameClient::SyncGameTime() {
   std::uint8_t data[2] = {PT_GAME_INFO, 0};
   g_netclient->SendPacket(data, 1, RELIABLE, IMMEDIATE_PRIORITY);
@@ -507,6 +530,14 @@ void GameClient::OnUnequipItem(Packet p) {
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
   event_observer_.OnItemUnequipped(packet.player_id, packet.item_instance);
+}
+
+void GameClient::OnRemoveItem(Packet p) {
+  RemoveItemPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  event_observer_.OnItemRemoved(packet.player_id, packet.item_instance, packet.item_amount);
 }
 
 void GameClient::OnMessage(Packet p) {
@@ -1073,7 +1104,16 @@ void GameClient::OnGameInfo(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
-  event_observer_.OnGameInfoReceived(packet.raw_game_time, packet.flags);
+  event_observer_.OnGameInfoReceived(packet.raw_game_time, packet.day_length_ms, packet.flags);
+}
+
+void GameClient::OnSkySettings(Packet p) {
+  SkySettingsPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  event_observer_.OnSkySettingsReceived(packet.flags, packet.weather_type, packet.rain_start_hour, packet.rain_start_min,
+                                        packet.wind_scale, packet.dont_rain != 0);
 }
 
 void GameClient::OnLeftGame(Packet p) {
@@ -1089,6 +1129,20 @@ void GameClient::OnLeftGame(Packet p) {
 
   // Remove from player manager
   player_manager_.RemovePlayer(packet.disconnected_id);
+}
+
+void GameClient::OnLuaEvent(Packet p) {
+  LuaEventPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize LuaEventPacket, error code: {}", static_cast<int>(state.first));
+    return;
+  }
+
+  std::string payload(packet.payload.begin(), packet.payload.end());
+  event_observer_.OnLuaEvent(packet.event_name, packet.source_element, payload);
 }
 
 void GameClient::OnDisconnectOrLostConnection(Packet p) {

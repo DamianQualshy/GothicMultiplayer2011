@@ -62,18 +62,8 @@ private:
   zSTRING szPing;
   bool SwampLightsOn;
   bool mapusable;
-  std::string chatbuffer;
-  char buffer[85];
-  time_t BuffTimer;
-  time_t SecTimer;
-  time_t ChatTimer;
-  zSTRING ChatTmp;
-  oCMsgMovement* Movement;
-  void ClearAfterWrite();
-  void PrepareForWrite();
   clock_t last_player_update;
   CPlayerList* PList;
   CChat* chat_interface;
   CAnimMenu* AMenu;
-  bool WritingOnChat;
 };

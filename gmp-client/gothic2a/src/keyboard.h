@@ -26,6 +26,6 @@ SOFTWARE.
 #pragma once
 
 namespace GInput {
-char GetCharacterFormKeyboard(bool ignorekeyboardlayout = false);  // false - cyrillic
+char GetCharacterFormKeyboard(bool ignorekeyboardlayout = false);
 char GetNumberCharacterFromKeyboard();
 }  // namespace GInput

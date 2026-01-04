@@ -41,7 +41,8 @@ void CWatch::PrintWatch() {
   time(&currtime);
   strftime(TimePrint, sizeof(TimePrint) - 1, "%H:%M:%S", localtime(&currtime));
   tmp = TimePrint;
-  screen->SetFont("FONT_DEFAULT.TGA");
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_DEFAULT.TGA");
+  screen->SetFont(font.c_str());
   screen->SetFontColor({255, 255, 255});
   screen->Print(Config::Instance().WatchPosX, Config::Instance().WatchPosY, Language::Instance()[Language::CWATCH_REALTIME]);
   screen->Print(Config::Instance().WatchPosX, Config::Instance().WatchPosY + 200, tmp);

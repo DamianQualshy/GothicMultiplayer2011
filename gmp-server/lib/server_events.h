@@ -31,9 +31,11 @@ SOFTWARE.
 
 #include <glm/glm.hpp>
 
-inline const std::string kEventOnGameTimeName = "onGameTime";
+inline const std::string kEventOnTickName = "onTick";
+inline const std::string kEventOnClockUpdateName = "onClockUpdate";
 inline const std::string kEventOnPlayerConnectName = "onPlayerConnect";
 inline const std::string kEventOnPlayerDisconnectName = "onPlayerDisconnect";
+inline const std::string kEventOnPlayerJoinName = "onPlayerJoin";
 inline const std::string kEventOnPlayerMessageName = "onPlayerMessage";
 inline const std::string kEventOnPlayerCommandName = "onPlayerCommand";
 inline const std::string kEventOnPlayerKillName = "onPlayerKill";
@@ -41,6 +43,9 @@ inline const std::string kEventOnPlayerDeathName = "onPlayerDeath";
 inline const std::string kEventOnPlayerDropItemName = "onPlayerDropItem";
 inline const std::string kEventOnPlayerTakeItemName = "onPlayerTakeItem";
 inline const std::string kEventOnPlayerCastSpellName = "onPlayerCastSpell";
+inline const std::string kEventOnPlayerChangeHealthName = "onPlayerChangeHealth";
+inline const std::string kEventOnPlayerChangeManaName = "onPlayerChangeMana";
+inline const std::string kEventOnPlayerChangeWorldName = "onPlayerChangeWorld";
 inline const std::string kEventOnPlayerWeaponModeChangeName = "onPlayerWeaponModeChange";
 inline const std::string kEventOnPlayerAmuletChangeName = "onPlayerAmuletChange";
 inline const std::string kEventOnPlayerArmorChangeName = "onPlayerArmorChange";
@@ -58,10 +63,21 @@ inline const std::string kEventOnPlayerSpawnForName = "onPlayerSpawnFor";
 inline const std::string kEventOnPlayerUnspawnForName = "onPlayerUnspawnFor";
 inline const std::string kEventOnPlayerHitName = "onPlayerHit";
 
-struct OnGameTimeEvent {
+struct OnTickEvent {};
+
+struct OnClockUpdateEvent {
   std::uint16_t day;
   std::uint8_t hour;
   std::uint8_t min;
+};
+
+struct OnPlayerJoinEvent {
+  std::uint64_t player_id;
+};
+
+struct OnPlayerDisconnectEvent {
+  std::uint64_t player_id;
+  std::int32_t reason;
 };
 
 struct OnPlayerMessageEvent {
@@ -100,6 +116,24 @@ struct OnPlayerCastSpellEvent {
   std::uint64_t caster_id;
   std::uint16_t spell_id;
   std::optional<std::uint64_t> target_id;
+};
+
+struct OnPlayerChangeHealthEvent {
+  std::uint64_t player_id;
+  std::int32_t old_hp;
+  std::int32_t new_hp;
+};
+
+struct OnPlayerChangeManaEvent {
+  std::uint64_t player_id;
+  std::int32_t previous;
+  std::int32_t current;
+};
+
+struct OnPlayerChangeWorldEvent {
+  std::uint64_t player_id;
+  std::string world;
+  std::string waypoint;
 };
 
 struct OnPlayerWeaponModeChangeEvent {

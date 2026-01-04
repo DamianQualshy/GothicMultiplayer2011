@@ -47,8 +47,9 @@ private:
 
 std::unordered_set<LuaDraw*> LuaDraw::active_draws_;
 
-/* luadoc (class)
+/* luagmp (class)
 *
+* @version  0.3.0
 * 2D text drawing helper for rendering overlay text on screen.
 *
 * The Draw class stores position, text, font, color, alpha and visibility.
@@ -56,11 +57,11 @@ std::unordered_set<LuaDraw*> LuaDraw::active_draws_;
 *
 * @name     Draw
 * @side     client
-* @category Draw
+* @category UI
 *
 */
 
-/* luadoc (constructor)
+/* luagmp (constructor)
 *
 * Creates a new Draw object with default settings.
 *
@@ -77,7 +78,7 @@ LuaDraw::LuaDraw()
   Initialize();
 }
 
-/* luadoc (constructor)
+/* luagmp (constructor)
 *
 * Creates a new Draw object with an initial position and text.
 *
@@ -110,7 +111,7 @@ LuaDraw::~LuaDraw() {
   active_draws_.erase(this);
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets the draw position in virtual screen units.
 *
@@ -127,7 +128,7 @@ void LuaDraw::setPosition(int x, int y) {
   }
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the draw position in virtual screen units.
 *
@@ -148,7 +149,7 @@ sol::table LuaDraw::getPosition(sol::this_state s) {
   return pos;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets the draw position in pixel coordinates.
 *
@@ -164,7 +165,7 @@ void LuaDraw::setPositionPx(int x, int y) {
   setPosition(screen->anx(x), screen->any(y));
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the draw position in pixel coordinates.
 *
@@ -185,7 +186,7 @@ sol::table LuaDraw::getPositionPx(sol::this_state s) {
   return pos;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets the text to render.
 *
@@ -197,7 +198,7 @@ void LuaDraw::setText(const std::string& text) {
   text_ = text;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the current text.
 *
@@ -209,7 +210,7 @@ std::string LuaDraw::getText() const {
   return text_;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets the font used for rendering.
 *
@@ -224,7 +225,7 @@ void LuaDraw::setFont(const std::string& fontName) {
   }
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the current font file name.
 *
@@ -236,7 +237,7 @@ std::string LuaDraw::getFont() const {
   return fontName_;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets the text color.
 *
@@ -253,7 +254,7 @@ void LuaDraw::setColor(int r, int g, int b) {
   }
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the current text color.
 *
@@ -270,7 +271,7 @@ sol::table LuaDraw::getColor(sol::this_state s) {
   return color;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets text alpha (opacity).
 *
@@ -285,7 +286,7 @@ void LuaDraw::setAlpha(int a) {
   }
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns the current alpha (opacity).
 *
@@ -297,7 +298,7 @@ int LuaDraw::getAlpha() const {
   return color_.alpha;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Sets whether the Draw object should render.
 *
@@ -309,7 +310,7 @@ void LuaDraw::setVisible(bool visible) {
   visible_ = visible;
 }
 
-/* luadoc (method)
+/* luagmp (method)
 *
 * Returns whether this Draw object is visible.
 *
@@ -321,7 +322,7 @@ bool LuaDraw::getVisible() const {
   return visible_;
 }
 
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the draw position in virtual screen units.
 *
@@ -329,7 +330,7 @@ bool LuaDraw::getVisible() const {
 * @return   ({x, y}) Table containing x and y (virtual units).
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the draw position in pixel coordinates.
 *
@@ -337,7 +338,7 @@ bool LuaDraw::getVisible() const {
 * @return   ({x, y}) Table containing x and y (pixels).
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the displayed text.
 *
@@ -345,7 +346,7 @@ bool LuaDraw::getVisible() const {
 * @return   (string) Current text.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the font identifier used for rendering.
 *
@@ -353,7 +354,7 @@ bool LuaDraw::getVisible() const {
 * @return   (string) Font identifier/name.
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Returns the current text color.
 *
@@ -362,7 +363,7 @@ bool LuaDraw::getVisible() const {
 * @return   ({r, g, b}) Table containing r,g,b (0-255).
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets the alpha (opacity).
 *
@@ -370,7 +371,7 @@ bool LuaDraw::getVisible() const {
 * @return   (int) Opacity value (0-255).
 *
 */
-/* luadoc (property)
+/* luagmp (property)
 *
 * Gets or sets whether the Draw object is rendered.
 *

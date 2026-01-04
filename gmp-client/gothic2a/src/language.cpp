@@ -30,6 +30,7 @@ SOFTWARE.
 #include <array>
 #include <fstream>
 #include <nlohmann/json.hpp>
+#include <string_view>
 
 #include "localization_utils.h"
 
@@ -55,7 +56,7 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
     LanguageInfo fallback;
     fallback.filename = "English.json";
     fallback.displayName = zSTRING("English");
-    fallback.encoding = localization::LanguageEncoding::kNone;
+    fallback.encoding = localization::LanguageEncoding::kCp1252;
     availableLanguages_.push_back(fallback);
     SPDLOG_INFO("LanguageManager: Added fallback English language");
 
@@ -171,37 +172,22 @@ const LanguageManager::LanguageInfo* LanguageManager::GetLanguage(int index) con
 
 namespace {
 constexpr std::size_t kStringCount = static_cast<std::size_t>(Language::SRVLIST_PLAYERNUMBER) + 1;
+constexpr std::array<std::string_view, 4> kKnownFontPrefixes = {"CP1250_", "CP1251_", "CP1252_", "CP1254_"};
 
 const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "WRITE_NICKNAME",
-                                                           "CHOOSE_APPERANCE",
-                                                           "FACE_APPERANCE",
-                                                           "HEAD_MODEL",
-                                                           "SKIN_TEXTURE",
-                                                           "CHOOSE_SERVER",
-                                                           "WRITE_SERVER_ADDR",
-                                                           "CHOOSE_SERVER_TIP",
-                                                           "MANUAL_IP_TIP",
                                                            "MMENU_CHSERVER",
                                                            "MMENU_OPTIONS",
-                                                           "MMENU_APPEARANCE",
                                                            "MMENU_LEAVEGAME",
-                                                           "EMPTY_SERVER_LIST",
-                                                           "APP_INFO1",
-                                                           "ERR_CONN_NO_ERROR",
-                                                           "ERR_CONN_FAIL",
-                                                           "ERR_CONN_ALREADY_CONNECTED",
-                                                           "ERR_CONN_SRV_FULL",
-                                                           "ERR_CONN_BANNED",
-                                                           "ERR_CONN_INCOMP_TECHNIC",
                                                            "MMENU_ONLINEOPTIONS",
                                                            "MMENU_BACK",
-                                                           "SELECT_CONTROLS",
                                                            "MMENU_LOGCHATYES",
                                                            "MMENU_LOGCHATNO",
                                                            "MMENU_WATCHON",
                                                            "MMENU_WATCHOFF",
                                                            "MMENU_SETWATCHPOS",
+                                                           "WATCHPOS_INSTRUCTIONS",
+                                                           "WATCHPOS_RETURN",
                                                            "CWATCH_REALTIME",
                                                            "CWATCH_GAMETIME",
                                                            "MMENU_NICKNAME",
@@ -209,20 +195,14 @@ const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "MMENU_ANTIAlIASINGNO",
                                                            "MMENU_JOYSTICKYES",
                                                            "MMENU_JOYSTICKNO",
-                                                           "MMENU_POTIONKEYSYES",
-                                                           "MMENU_POTIONKEYSNO",
                                                            "MMENU_CHATLINES",
                                                            "INGAMEM_HELP",
                                                            "INGAMEM_BACKTOGAME",
                                                            "HCONTROLS",
                                                            "HCHAT",
-                                                           "HCHATMAIN",
                                                            "SOMEONEDISCONNECT_FROM_SERVER",
                                                            "NOPLAYERS",
                                                            "EXITTOMAINMENU",
-                                                           "SRV_IP",
-                                                           "SRV_NAME",
-                                                           "SRV_MAP",
                                                            "SRV_PLAYERS",
                                                            "DISCONNECTED",
                                                            "SOMEONE_JOIN_GAME",
@@ -231,28 +211,43 @@ const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "HMAP",
                                                            "HANIMSMENU",
                                                            "SHOWHOW",
-                                                           "WALK_STYLE",
-                                                           "UNMUTE_TIME",
-                                                           "KILLEDSOMEONE_MSG",
-                                                           "WB_NEWMAP",
-                                                           "WB_LOADMAP",
-                                                           "WB_SAVEMAP",
                                                            "ITEM_TOOFAR",
                                                            "KEYBOARD_POLISH",
                                                            "KEYBOARD_GERMAN",
                                                            "KEYBOARD_RUSSIAN",
                                                            "INTRO_YES",
                                                            "INTRO_NO",
-                                                           "MERRY_CHRISTMAS",
                                                            "INV_HOWMUCH",
-                                                           "CLASS_DESCRIPTION",
-                                                           "START_OBSERVATION",
-                                                           "END_OBSERVATION",
                                                            "SRVLIST_ALL",
                                                            "SRVLIST_FAVOURITES",
                                                            "SRVLIST_NAME",
                                                            "SRVLIST_MAP",
                                                            "SRVLIST_PLAYERNUMBER"};
+
+std::string_view GetFontPrefixForEncoding(localization::LanguageEncoding encoding) {
+  switch (encoding) {
+    case localization::LanguageEncoding::kCp1250:
+      return "CP1250_";
+    case localization::LanguageEncoding::kCp1251:
+      return "CP1251_";
+    case localization::LanguageEncoding::kCp1252:
+      return "CP1252_";
+    case localization::LanguageEncoding::kCp1254:
+      return "CP1254_";
+    case localization::LanguageEncoding::kNone:
+    default:
+      return {};
+  }
+}
+
+bool HasKnownFontPrefix(std::string_view font_name) {
+  for (const auto prefix : kKnownFontPrefixes) {
+    if (!prefix.empty() && font_name.starts_with(prefix)) {
+      return true;
+    }
+  }
+  return false;
+}
 }  // namespace
 
 bool Language::LoadFromJsonFile(const std::filesystem::path& file) {
@@ -273,6 +268,8 @@ bool Language::LoadFromJsonFile(const std::filesystem::path& file) {
   data.clear();
   const std::string language_field = json_data.value("LANGUAGE", std::string{});
   const auto encoding = localization::DetectLanguageEncoding(language_field, file);
+  encoding_ = encoding;
+  fontPrefix_ = GetFontPrefixForEncoding(encoding);
 
   data.resize(kStringCount);
   for (std::size_t i = 0; i < kStringKeys.size(); ++i) {
@@ -291,6 +288,17 @@ bool Language::LoadFromJsonFile(const std::filesystem::path& file) {
   }
 
   return true;
+}
+
+std::string Language::ApplyFontPrefix(std::string_view fontName) const {
+  if (fontName.empty() || fontPrefix_.empty() || HasKnownFontPrefix(fontName)) {
+    return std::string(fontName);
+  }
+  std::string prefixed;
+  prefixed.reserve(fontPrefix_.size() + fontName.size());
+  prefixed.append(fontPrefix_);
+  prefixed.append(fontName);
+  return prefixed;
 }
 
 void Language::RemovePolishCharactersFromWideString(std::wstring& txt) {

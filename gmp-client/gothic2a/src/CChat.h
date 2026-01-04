@@ -36,6 +36,7 @@ SOFTWARE.
 #pragma once
 
 #include <chrono>
+#include <string>
 #include <vector>
 #include "singleton.h"
 #include "ZenGin/zGothicAPI.h"
@@ -54,13 +55,32 @@ class CChat : public TSingleton<CChat> {
 public:
   CChat();
   ~CChat();
+  bool IsInputActive() const;
+  void HandleInput(bool allow_open);
+
   void ClearChat();
   void StartChatAnimation(int anim);
   void WriteMessage(MsgType type, bool PrintTimed, const Gothic_II_Addon::zCOLOR& rgb, const char* format, ...);
   void WriteMessage(MsgType type, bool PrintTimed, const char* format, ...);
   void PrintChat();
 
+  static constexpr size_t kMaxInputLength = 84;
+
   std::vector<MsgStruct> ChatMessages;
   Gothic_II_Addon::zSTRING tmp;
   Gothic_II_Addon::zSTRING tmpanimname;
+
+private:
+  void OpenInput();
+  void CloseInput(bool clear_text);
+  void PrepareForInput();
+  void ClearAfterInput();
+  void SendCurrentMessage();
+  void UpdateCaretBlink(const std::chrono::steady_clock::time_point& now);
+
+  bool input_active_ = false;
+  bool caret_visible_ = true;
+  std::string current_text_;
+  std::chrono::steady_clock::time_point caret_toggle_time_;
+  std::chrono::steady_clock::time_point next_backspace_time_;
 };
