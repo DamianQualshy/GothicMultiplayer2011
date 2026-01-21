@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <ctime>
 #include <functional>
 #include <optional>
@@ -107,6 +108,7 @@ public:
     std::unordered_map<int, int> talents;
 
     std::time_t tod;  // time of death
+    std::optional<std::int32_t> respawn_time_ms;
     PlayerState state;
   };
 

@@ -55,6 +55,8 @@ public:
   virtual bool Send(const char* data, std::uint32_t size, PacketPriority packetPriority,
                     PacketReliability packetReliability, std::uint32_t channel, ConnectionHandle id) = 0;
 
+  virtual void CloseConnection(ConnectionHandle id, bool send_disconnection_notification) = 0;
+
   virtual void AddToBanList(const char* IP, std::uint32_t milliseconds) = 0;
   virtual void AddToBanList(ConnectionHandle id, std::uint32_t milliseconds) = 0;
   virtual void RemoveFromBanList(const char* IP) = 0;

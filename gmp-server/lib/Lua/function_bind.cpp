@@ -1471,6 +1471,221 @@ sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_st
 
 /* luagmp (func)
 *
+* This function will ban the player on the server.
+*
+* @version  0.3.0
+* @name     ban
+* @side     server
+* @category Player
+* @note     The reason string can't be longer than 255 characters.
+* @param    (int) player_id  Target player id.
+* @param    (string) reason  Optional reason why the player was banned.
+*
+*/
+void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot ban player before the server is initialized");
+    return;
+  }
+
+  auto reason_text = reason.value_or(std::string{});
+  auto clamped_reason = ClampLuaText(reason_text, 255);
+  if (clamped_reason.size() != reason_text.size()) {
+    SPDLOG_WARN("ban reason too long ({}), clamping to 255 characters", reason_text.size());
+  }
+
+  g_server->BanPlayer(player_id, clamped_reason);
+}
+
+/* luagmp (func)
+*
+* This function will kick the player from the server.
+*
+* @version  0.3.0
+* @name     kick
+* @side     server
+* @category Player
+* @note     The reason string can't be longer than 255 characters.
+* @param    (int) player_id  Target player id.
+* @param    (string) reason  Optional reason why the player was kicked.
+*
+*/
+void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot kick player before the server is initialized");
+    return;
+  }
+
+  auto reason_text = reason.value_or(std::string{});
+  auto clamped_reason = ClampLuaText(reason_text, 255);
+  if (clamped_reason.size() != reason_text.size()) {
+    SPDLOG_WARN("kick reason too long ({}), clamping to 255 characters", reason_text.size());
+  }
+
+  g_server->KickPlayer(player_id, clamped_reason);
+}
+
+/* luagmp (func)
+*
+* The function is used to check whether player is connected to the server.
+*
+* @version  0.3.0
+* @name     isPlayerConnected
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+* @return   (bool)           True when player is connected, otherwise false.
+*
+*/
+bool Function_IsPlayerConnected(std::uint32_t player_id) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot check player connection before the server is initialized");
+    return false;
+  }
+
+  return g_server->IsPlayerConnected(player_id);
+}
+
+/* luagmp (func)
+*
+* The function is used to check whether player is dead.
+*
+* @version  0.3.0
+* @name     isPlayerDead
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+* @return   (bool)           True when player is dead, otherwise false.
+*
+*/
+bool Function_IsPlayerDead(std::uint32_t player_id) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot check player death before the server is initialized");
+    return false;
+  }
+
+  return g_server->IsPlayerDead(player_id);
+}
+
+/* luagmp (func)
+*
+* The function is used to check whether player is spawned.
+*
+* @version  0.3.0
+* @name     isPlayerSpawned
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+* @return   (bool)           True when player is spawned, otherwise false.
+*
+*/
+bool Function_IsPlayerSpawned(std::uint32_t player_id) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot check player spawn before the server is initialized");
+    return false;
+  }
+
+  return g_server->IsPlayerSpawned(player_id);
+}
+
+/* luagmp (func)
+*
+* The function is used to check whether player is in unconscious state. The player will be unconscious, when it gets beaten up, but not killed.
+*
+* @version  0.3.0
+* @name     isPlayerUnconscious
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+* @return   (bool)           True when player is unconscious, otherwise false.
+*
+*/
+bool Function_IsPlayerUnconscious(std::uint32_t player_id) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot check player unconscious state before the server is initialized");
+    return false;
+  }
+
+  return g_server->IsPlayerUnconscious(player_id);
+}
+
+/* luagmp (func)
+*
+* This function will immediately respawn the player if it is dead.
+*
+* @version  0.3.0
+* @name     respawnPlayer
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+*
+*/
+void Function_RespawnPlayer(std::uint32_t player_id) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot respawn player before the server is initialized");
+    return;
+  }
+
+  g_server->RespawnPlayer(player_id);
+}
+
+/* luagmp (func)
+*
+* This function will set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
+*
+* @version  0.3.0
+* @name     setPlayerRespawnTime
+* @side     server
+* @category Player
+* @note     The respawnTime can't be smaller than 1001 miliseconds.
+* @param    (int) player_id     Target player id.
+* @param    (int) respawn_time  New respawn time in milliseconds.
+*
+*/
+void Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn_time_ms) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot set player respawn time before the server is initialized");
+    return;
+  }
+
+  constexpr std::int32_t kMinRespawnTimeMs = 1001;
+  if (respawn_time_ms != 0 && respawn_time_ms < kMinRespawnTimeMs) {
+    SPDLOG_WARN("setPlayerRespawnTime called with invalid value {} ms, clamping to {} ms", respawn_time_ms, kMinRespawnTimeMs);
+    respawn_time_ms = kMinRespawnTimeMs;
+  }
+
+  g_server->SetPlayerRespawnTime(player_id, respawn_time_ms);
+}
+
+/* luagmp (func)
+*
+* This function will get the player time to respawn after death.
+*
+* @version  0.3.0
+* @name     getPlayerRespawnTime
+* @side     server
+* @category Player
+* @param    (int) player_id  Target player id.
+* @return   (int|nil)        The player respawn time or nil if player isn't created.
+*
+*/
+sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_state ts) {
+  if (!g_server) {
+    SPDLOG_WARN("Cannot get player respawn time before the server is initialized");
+    return sol::nil;
+  }
+
+  auto respawn_time = g_server->GetPlayerRespawnTime(player_id);
+  if (!respawn_time.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return sol::make_object(lua, respawn_time.value());
+}
+
+/* luagmp (func)
+*
 * Give an item to a player or NPC.
 *
 * @version  0.3.0
@@ -2021,6 +2236,16 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerWorld"] = Function_GetPlayerWorld;
   lua["setPlayerVirtualWorld"] = Function_SetPlayerVirtualWorld;
   lua["getPlayerVirtualWorld"] = Function_GetPlayerVirtualWorld;
+
+  lua["ban"] = Function_Ban;
+  lua["kick"] = Function_Kick;
+  lua["isPlayerConnected"] = Function_IsPlayerConnected;
+  lua["isPlayerDead"] = Function_IsPlayerDead;
+  lua["isPlayerSpawned"] = Function_IsPlayerSpawned;
+  lua["isPlayerUnconscious"] = Function_IsPlayerUnconscious;
+  lua["respawnPlayer"] = Function_RespawnPlayer;
+  lua["setPlayerRespawnTime"] = Function_SetPlayerRespawnTime;
+  lua["getPlayerRespawnTime"] = Function_GetPlayerRespawnTime;
 
   lua["giveItem"] = Function_GiveItem;
   lua["equipItem"] = Function_EquipItem;

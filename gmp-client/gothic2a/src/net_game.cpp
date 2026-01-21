@@ -39,6 +39,7 @@ SOFTWARE.
 #include <cmath>
 #include <ctime>
 #include <filesystem>
+#include <iomanip>
 #include "Mod.h"
 #include "shared/lua_runtime/lua_value_codec.h"
 #include <glm/glm.hpp>
@@ -141,7 +142,30 @@ void ApplyDayLengthToEngine(float day_length_ms) {
     ogame->GetWorldTimer()->worldTime = percent * new_ticks.ticks_per_day;
   }
 }
-}  // namespace
+
+zCOLOR kResourceInfoColor(0, 200, 255, 255);
+zCOLOR kResourceErrorColor(255, 0, 0, 255);
+zCOLOR kResourceSuccessColor(0, 255, 0, 255);
+
+void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR& color) {
+  if (!ogame) {
+    return;
+  }
+  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
+  if (!view) {
+    return;
+  }
+  constexpr int kBaseY = 2800;
+  constexpr int kLineHeight = 200;
+  constexpr int kMaxLines = 5;
+  static int line_index = 0;
+
+  const int y = kBaseY + (line_index * kLineHeight);
+  view->PrintTimedCX(y, message, duration_ms, &color);
+  line_index = (line_index + 1) % kMaxLines;
+}
+
+}// namespace
 
 NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_runtime(nullptr) {
   task_scheduler = std::make_unique<gmp::GothicTaskScheduler>();
@@ -423,7 +447,10 @@ bool NetGame::RequestResourceDownloadConsent(std::size_t resource_count, std::ui
 
   const double total_mb = static_cast<double>(total_bytes) / (1024.0 * 1024.0);
   SPDLOG_INFO("Server requires downloading {} resource pack(s) ({:.2f} MiB)", resource_count, total_mb);
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 200, 255, 255), "Server requires downloading %.2f MiB of client resources", total_mb);
+  std::ostringstream message;
+  message << "Server requires downloading " << std::fixed << std::setprecision(2) << total_mb << " MiB of client resources";
+  PrintResourceStatusTimed(message.str().c_str(), 10000.0f, kResourceInfoColor);
+
   return true;
 }
 
@@ -438,7 +465,8 @@ void NetGame::OnResourceDownloadProgress(const std::string& resource_name, std::
 void NetGame::OnResourceDownloadFailed(const std::string& reason) {
   SPDLOG_ERROR("Resource download failed: {}", reason);
   IsReadyToJoin = false;
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "Resource download failed: %s", reason.c_str());
+  std::string message = "Resource download failed: " + reason;
+  PrintResourceStatusTimed(message.c_str(), 10000.0f, kResourceErrorColor);
   Disconnect();
 }
 
@@ -470,7 +498,7 @@ void NetGame::OnResourcesReady() {
   SPDLOG_INFO("Client resources ready; player may join");
   SPDLOG_INFO("All required client resources downloaded and loaded");
   IsReadyToJoin = true;
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "Client resources ready. You may join the server.");
+  PrintResourceStatusTimed("Client resources ready. You may join the server.", 10000.0f, kResourceSuccessColor);
 }
 
 void NetGame::OnMapChange(const std::string& map_name) {

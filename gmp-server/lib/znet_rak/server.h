@@ -50,6 +50,8 @@ public:
   bool Send(const char* data, std::uint32_t size, PacketPriority packetPriority, PacketReliability packetReliability,
             std::uint32_t channel, ConnectionHandle id) override;
 
+  void CloseConnection(ConnectionHandle id, bool send_disconnection_notification) override;
+
   void AddToBanList(const char* IP, std::uint32_t milliseconds) override;
   void AddToBanList(ConnectionHandle id, std::uint32_t milliseconds) override;
   void RemoveFromBanList(const char* IP) override;

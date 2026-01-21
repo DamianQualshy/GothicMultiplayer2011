@@ -167,6 +167,19 @@ std::optional<MasterServerEndpointInfo> ParseMasterServerEndpoint(std::string_vi
   return info;
 }
 
+std::string FormatCurrentDateTime() {
+  auto now = std::time(nullptr);
+  std::tm local_tm{};
+#ifdef _WIN32
+  localtime_s(&local_tm, &now);
+#else
+  localtime_r(&now, &local_tm);
+#endif
+  std::ostringstream oss;
+  oss << std::put_time(&local_tm, "%H:%M:%S %d/%m/%Y");
+  return oss.str();
+}
+
 void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager::Player& player) {
   packet.instance = player.instance;
   packet.name_color_r = player.name_color_r;
@@ -765,38 +778,56 @@ void GameServer::Run() {
 }
 
 void GameServer::ProcessRespawns() {
-  auto respawn_time = config_.Get<std::int32_t>("respawn_time_seconds");
-  if (respawn_time < 0) {
+  auto respawn_time_seconds = config_.Get<std::int32_t>("respawn_time_seconds");
+  if (respawn_time_seconds < 0) {
     return;
   }
 
-  auto now = std::time(nullptr);
+  const auto now = std::time(nullptr);
 
   player_manager_.ForEachPlayer([&](Player& player) {
     if (!player.is_ingame || player.tod == 0) {
       return;
     }
 
-    if (respawn_time == 0 || player.tod + respawn_time <= now) {
-      player.flags = 0;
-      player.tod = 0;
-      const auto old_health = player.health;
-      const auto old_mana = player.mana;
-      player.health = player.max_health;
-      player.mana = player.max_mana;
-      player.state.health_points = player.health;
-      player.state.mana_points = player.mana;
-      if (old_health != player.health) {
-        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                              OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+    if (player.respawn_time_ms.has_value()) {
+      const auto respawn_ms = player.respawn_time_ms.value();
+      if (respawn_ms == 0) {
+        return;
       }
-      if (old_mana != player.mana) {
-        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
+      const auto respawn_seconds = static_cast<std::int64_t>(respawn_ms + 999) / 1000;
+      if (player.tod + respawn_seconds > now) {
+        return;
       }
-
-      SendRespawnInfo(player.player_id);
+    } else if (respawn_time_seconds != 0) {
+      if (player.tod + respawn_time_seconds > now) {
+        return;
+      }
     }
+
+    RespawnPlayerInternal(player);
   });
+}
+
+bool GameServer::RespawnPlayerInternal(Player& player) {
+  player.flags = 0;
+  player.tod = 0;
+  const auto old_health = player.health;
+  const auto old_mana = player.mana;
+  player.health = player.max_health;
+  player.mana = player.max_mana;
+  player.state.health_points = player.health;
+  player.state.mana_points = player.mana;
+  if (old_health != player.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+  }
+  if (old_mana != player.mana) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
+  }
+
+  SendRespawnInfo(player.player_id);
+  return true;
 }
 
 bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned char* data, std::uint32_t size) {
@@ -2579,6 +2610,150 @@ bool GameServer::SetDontRain(bool toggle) {
 
 bool GameServer::GetDontRain() const {
   return dont_rain_;
+}
+
+bool GameServer::KickPlayer(PlayerId player_id, const std::string& reason) {
+  if (!g_net_server) {
+    SPDLOG_WARN("kickPlayer called before the server is initialized");
+    return false;
+  }
+
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("kickPlayer called for unknown player id {}", player_id);
+    return false;
+  }
+
+  const auto& player = player_opt->get();
+  if (!reason.empty()) {
+    SPDLOG_INFO("Kicking player {} ({}) for reason '{}'", player.player_id, player.name, reason);
+  } else {
+    SPDLOG_INFO("Kicking player {} ({})", player.player_id, player.name);
+  }
+
+  g_net_server->CloseConnection(player.connection, true);
+  return true;
+}
+
+bool GameServer::BanPlayer(PlayerId player_id, const std::string& reason) {
+  if (!g_net_server) {
+    SPDLOG_WARN("banPlayer called before the server is initialized");
+    return false;
+  }
+
+  if (!ban_manager_) {
+    SPDLOG_WARN("banPlayer called before ban manager is initialized");
+    return false;
+  }
+
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("banPlayer called for unknown player id {}", player_id);
+    return false;
+  }
+
+  const auto& player = player_opt->get();
+  const char* ip = g_net_server->GetPlayerIp(player.connection);
+  if (!ip || std::string_view(ip).empty()) {
+    SPDLOG_WARN("banPlayer could not resolve IP for player id {}", player_id);
+    return false;
+  }
+
+  auto& ban_list = ban_manager_->GetBanList();
+  auto ban_it = std::find_if(ban_list.begin(), ban_list.end(), [&](const BanEntry& entry) { return entry.ip == ip; });
+
+  if (ban_it == ban_list.end()) {
+    BanEntry entry{};
+    entry.nickname = player.name;
+    entry.ip = ip;
+    entry.date = FormatCurrentDateTime();
+    entry.reason = reason;
+    ban_list.emplace_back(std::move(entry));
+  } else {
+    ban_it->nickname = player.name;
+    ban_it->date = FormatCurrentDateTime();
+    ban_it->reason = reason;
+  }
+
+  g_net_server->AddToBanList(ip, 0);
+  ban_manager_->Save();
+  g_net_server->CloseConnection(player.connection, true);
+  return true;
+}
+
+bool GameServer::IsPlayerConnected(PlayerId player_id) const {
+  return player_manager_.HasPlayer(player_id);
+}
+
+bool GameServer::IsPlayerDead(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  return player_opt->get().tod != 0;
+}
+
+bool GameServer::IsPlayerSpawned(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  return player_opt->get().is_ingame != 0;
+}
+
+bool GameServer::IsPlayerUnconscious(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  return (player_opt->get().flags & PlayerManager::PL_UNCONCIOUS) != 0;
+}
+
+bool GameServer::RespawnPlayer(PlayerId player_id) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("respawnPlayer called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  if (!player.is_ingame || player.tod == 0) {
+    return false;
+  }
+
+  return RespawnPlayerInternal(player);
+}
+
+bool GameServer::SetPlayerRespawnTime(PlayerId player_id, std::int32_t respawn_time_ms) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("setPlayerRespawnTime called for unknown player id {}", player_id);
+    return false;
+  }
+
+  player_opt->get().respawn_time_ms = respawn_time_ms;
+  return true;
+}
+
+std::optional<std::int32_t> GameServer::GetPlayerRespawnTime(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return std::nullopt;
+  }
+
+  if (player_opt->get().respawn_time_ms.has_value()) {
+    return player_opt->get().respawn_time_ms.value();
+  }
+
+  auto default_respawn_seconds = config_.Get<std::int32_t>("respawn_time_seconds");
+  if (default_respawn_seconds < 0) {
+    return 0;
+  }
+
+  return default_respawn_seconds * 1000;
 }
 
 std::uint32_t GameServer::GetPort() const {

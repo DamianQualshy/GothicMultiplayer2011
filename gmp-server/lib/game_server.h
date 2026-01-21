@@ -150,6 +150,15 @@ public:
   bool GetDontRain() const;
   bool TriggerClientEvent(const std::vector<PlayerId>& targets, const std::string& event_name, PlayerId source_element,
                           const std::string& payload);
+  bool KickPlayer(PlayerId player_id, const std::string& reason);
+  bool BanPlayer(PlayerId player_id, const std::string& reason);
+  bool IsPlayerConnected(PlayerId player_id) const;
+  bool IsPlayerDead(PlayerId player_id) const;
+  bool IsPlayerSpawned(PlayerId player_id) const;
+  bool IsPlayerUnconscious(PlayerId player_id) const;
+  bool RespawnPlayer(PlayerId player_id);
+  bool SetPlayerRespawnTime(PlayerId player_id, std::int32_t respawn_time_ms);
+  std::optional<std::int32_t> GetPlayerRespawnTime(PlayerId player_id) const;
 
   PlayerManager& GetPlayerManager() {
     return player_manager_;
@@ -181,6 +190,7 @@ private:
   void SendGameInfo(Net::ConnectionHandle connection);
   void SendSkySettings(Net::ConnectionHandle connection);
   void SendExistingPlayersPacket(Player& target_player);
+  bool RespawnPlayerInternal(Player& player);
 
   std::unique_ptr<BanManager> ban_manager_;
   std::unique_ptr<LuaScript> lua_script_;

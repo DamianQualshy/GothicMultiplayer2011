@@ -58,8 +58,6 @@ struct ClientNpc {
 
 std::unordered_map<int, ClientNpc> g_client_npcs;
 int g_next_npc_id = -1;
-constexpr int kPlanetSun = 0;
-constexpr int kPlanetMoon = 1;
 
 oCSpawnManager* GetSpawnManager() {
   return ogame ? ogame->GetSpawnManager() : nullptr;
@@ -1743,6 +1741,94 @@ void BindVob(sol::state& lua) {
 }
 
 
+void BindInterface(sol::state& lua) {
+/* luagmp (method)
+*
+* This function will convert pixels to virtuals screen X dimension and return it as a result.
+* Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
+*
+* @version  0.3.0
+* @name     anx
+* @side     client
+* @category Interface
+* @note     Use this function only when you want to convert x position or width on the screen.
+* @note     Virtual screen coordinates are similar to percentage values, where 0 is 0% and 8192 is 100%.
+* @param    (int) pixels  The pixels to convert.
+* @return   (int)         The virtuals after conversion.
+*
+*/
+  lua["anx"] = [](int pixels) {
+    if (!screen) {
+      return 0;
+    }
+    return screen->anx(pixels);
+  };
+
+/* luagmp (method)
+*
+* This function will convert pixels to virtuals on screen Y dimension and return it as a result.
+* Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
+*
+* @version  0.3.0
+* @name     any
+* @side     client
+* @category Interface
+* @note     Use this function only when you want to convert y position or width on the screen.
+* @note     Virtual screen coordinates are similar to percentage values, where 0 is 0% and 8192 is 100%.
+* @param    (int) pixels  The pixels to convert.
+* @return   (int)         The virtuals after conversion.
+*
+*/
+  lua["any"] = [](int pixels) {
+    if (!screen) {
+      return 0;
+    }
+    return screen->any(pixels);
+  };
+
+
+/* luagmp (method)
+*
+* This function will convert virtuals to pixels on screen X dimension and return it as a result.
+*
+* @version  0.3.0
+* @name     nax
+* @side     client
+* @category Interface
+* @note     Use this function only when you want to convert x position or width on the screen.
+* @param    (int) virtuals  The virtuals to convert.
+* @return   (int)           The pixels after conversion.
+*
+*/
+  lua["nax"] = [](int virtuals) {
+    if (!screen) {
+      return 0;
+    }
+    return screen->nax(virtuals);
+  };
+
+
+/* luagmp (method)
+*
+* This function will convert virtuals to pixels on screen Y dimension and return it as a result.
+*
+* @version  0.3.0
+* @name     nay
+* @side     client
+* @category Interface
+* @note     Use this function only when you want to convert y position or width on the screen.
+* @param    (int) virtuals  The virtuals to convert.
+* @return   (int)           The pixels after conversion.
+*
+*/
+  lua["nay"] = [](int virtuals) {
+    if (!screen) {
+      return 0;
+    }
+    return screen->nay(virtuals);
+  };
+}
+
 
 /* luagmp (func)
 *
@@ -2123,6 +2209,7 @@ void BindGothicSpecific(sol::state& lua) {
   BindTexture(lua);
   BindSound(lua);
   BindVob(lua);
+  BindInterface(lua);
 
   lua["setTime"] = Function_SetTime;
   lua["getTime"] = Function_GetTime;
@@ -2144,8 +2231,8 @@ void BindGothicSpecific(sol::state& lua) {
   lua["setLightingColor"] = Function_SetLightingColor;
 
   // Constants
-  lua["PLANET_SUN"] = kPlanetSun;
-  lua["PLANET_MOON"] = kPlanetMoon;
+  lua["PLANET_SUN"] = 0;
+  lua["PLANET_MOON"] = 1;
 }
 
 void CleanupGothicViews() {

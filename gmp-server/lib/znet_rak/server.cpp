@@ -102,6 +102,10 @@ bool RakNetServer::Send(const char* data, std::uint32_t size, PacketPriority pac
   return true;
 }
 
+void RakNetServer::CloseConnection(ConnectionHandle id, bool send_disconnection_notification) {
+  peer_->CloseConnection(RakNet::RakNetGUID(id), send_disconnection_notification);
+}
+
 void RakNetServer::AddPacketHandler(PacketHandler& packetHandler) {
   packetHandlers_.insert(&packetHandler);
 }
