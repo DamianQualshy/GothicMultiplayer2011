@@ -26,28 +26,53 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
-#include <format>
+#include <string>
 
 #include "keyboard.h"
 #include "language.h"
-#include "main_menu.h"
 #include "menu/states/main_menu_loop_state.hpp"
 #include "menu/states/set_watch_position_state.hpp"
+#include "StandardFonts.h"
 
-// External declarations
-extern zCOLOR Normal;
-extern zCOLOR Highlighted;
-extern zCOLOR Red;
+namespace {
+const G2W::Font kFontRed20(255, 0, 0, "FONT_OLD_20_WHITE.TGA");
+constexpr int kOptionsTableX = 2200;
+constexpr int kOptionsTableY = 3000;
+constexpr int kOptionsTableWidth = 3800;
+constexpr int kOptionsTableHeight = 3600;
+constexpr int kOptionsTableInterline = 700;
+constexpr int kOptionsTableVisibleRows = 12;
+constexpr int kOptionsTablePaddingWidth = 400;
+constexpr int kOptionsTableLabelWidth = 4000;
+constexpr int kOptionsTableValueWidth = 3200;
+constexpr int kBackButtonX = 3000;
+constexpr int kBackButtonY = 7000;
+constexpr int kBackButtonWidth = 2200;
+constexpr int kBackButtonHeight = 400;
+constexpr char kOptionsBackgroundTexture[] = "MENU_INGAME.TGA";
+constexpr char kOptionsHighlightTexture[] = "MENU_INGAME.TGA";
+}  // namespace
 
 namespace menu {
 namespace states {
 
 OnlineOptionsState::OnlineOptionsState(MenuContext& context)
-    : context_(context), selectedOption_(OptionItem::NICKNAME), shouldReturnToMainMenu_(false), shouldEnterWatchPositioning_(false) {
+    : context_(context),
+      selectedOption_(OptionItem::NICKNAME),
+      shouldReturnToMainMenu_(false),
+      shouldEnterWatchPositioning_(false),
+      optionsTable_(nullptr),
+      backButton_(nullptr) {
+}
+
+OnlineOptionsState::~OnlineOptionsState() {
+  delete optionsTable_;
+  delete backButton_;
 }
 
 void OnlineOptionsState::OnEnter() {
   SPDLOG_INFO("Entering online options state");
+  InitializeControls();
 }
 
 void OnlineOptionsState::OnExit() {
@@ -55,7 +80,7 @@ void OnlineOptionsState::OnExit() {
 }
 
 StateResult OnlineOptionsState::Update() {
-  context_.scene.Update();
+  context_.sceneManager.Update();
   RenderOptionsMenu();
   HandleInput();
   return StateResult::Continue;
@@ -71,82 +96,72 @@ MenuState* OnlineOptionsState::CheckTransition() {
   return nullptr;
 }
 
+void OnlineOptionsState::InitializeControls() {
+  if (!optionsTable_) {
+    optionsTable_ =
+        new G2W::Table(kOptionsTableX, kOptionsTableY, kOptionsTableWidth, kOptionsTableHeight, kOptionsTableInterline, kOptionsTableVisibleRows);
+    optionsTable_->addColumn("", kOptionsTablePaddingWidth);
+    optionsTable_->addColumn("", kOptionsTableLabelWidth);
+    optionsTable_->addColumn("", kOptionsTableValueWidth);
+    optionsTable_->setBackground(kOptionsBackgroundTexture);
+    optionsTable_->setFont(FNT_WHITE_20);
+    optionsTable_->setHighlightFont(FNT_GREEN_20);
+  }
+
+  if (!backButton_) {
+    backButton_ = new G2W::Button(kBackButtonX, kBackButtonY, kBackButtonWidth, kBackButtonHeight);
+    backButton_->setTexture(kOptionsBackgroundTexture);
+    backButton_->setHighlightTexture(kOptionsHighlightTexture);
+    backButton_->setFont(FNT_WHITE_20);
+    backButton_->setHighlightFont(FNT_GREEN_20);
+  }
+}
+
 void OnlineOptionsState::RenderOptionsMenu() {
-  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
-  context_.screen->SetFont(font.c_str());
-  zCOLOR fcolor;
+  InitializeControls();
+  optionsTable_->clear();
+  optionsTable_->setHighlightFont(context_.writingNickname ? kFontRed20 : FNT_GREEN_20);
 
-  // Nickname
-  fcolor = (selectedOption_ == OptionItem::NICKNAME) ? Highlighted : Normal;
-  if (context_.writingNickname)
-    fcolor = Red;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 3200, Language::Instance()[Language::MMENU_NICKNAME]);
-  context_.screen->SetFontColor(Normal);
-  int screenResX = zoptions->ReadInt(zOPT_SEC_VIDEO, "zVidResFullscreenX", 320);
-  int nicknameX = (screenResX < 1024) ? 1800 : 1500;
-  context_.screen->Print(nicknameX, 3200, context_.config.Nickname);
+  auto addRow = [&](OptionItem option, std::string label, std::string value = {}) {
+    optionsTable_->addRow(G2W::TableRow{{"", std::move(label), std::move(value)}, option == selectedOption_});
+  };
+  addRow(OptionItem::NICKNAME, Language::Instance()[Language::MMENU_NICKNAME].ToChar(), context_.config.Nickname.ToChar());
+  addRow(OptionItem::LOG_CHAT,
+         Language::Instance()[Language::MMENU_LOGCHAT].ToChar(),
+         (context_.config.logchat) ? Language::Instance()[Language::MMENU_ON].ToChar() : Language::Instance()[Language::MMENU_OFF].ToChar());
+  addRow(OptionItem::CHAT_LINES, Language::Instance()[Language::MMENU_CHATLINES].ToChar(), std::to_string(context_.config.ChatLines));
+  addRow(OptionItem::WATCH_TOGGLE,
+         Language::Instance()[Language::MMENU_WATCH].ToChar(),
+         (context_.config.watch) ? Language::Instance()[Language::MMENU_ON].ToChar() : Language::Instance()[Language::MMENU_OFF].ToChar());
+  addRow(OptionItem::WATCH_POSITION, Language::Instance()[Language::MMENU_SETWATCHPOS].ToChar());
 
-  // Log Chat
-  fcolor = (selectedOption_ == OptionItem::LOG_CHAT) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(
-      200, 3600, (context_.config.logchat) ? Language::Instance()[Language::MMENU_LOGCHATYES] : Language::Instance()[Language::MMENU_LOGCHATNO]);
-
-  // Watch
-  fcolor = (selectedOption_ == OptionItem::WATCH_TOGGLE) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 4000,
-                         (context_.config.watch) ? Language::Instance()[Language::MMENU_WATCHON] : Language::Instance()[Language::MMENU_WATCHOFF]);
-
-  // Set Watch Position
-  fcolor = (selectedOption_ == OptionItem::WATCH_POSITION) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 4400, Language::Instance()[Language::MMENU_SETWATCHPOS]);
-
-  // Anti-aliasing
-  fcolor = (selectedOption_ == OptionItem::ANTIALIASING) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 4800,
-                         (zoptions->ReadInt("ENGINE", "zVidEnableAntiAliasing", 0) == 1) ? Language::Instance()[Language::MMENU_ANTIALIASINGYES]
-                                                                                         : Language::Instance()[Language::MMENU_ANTIAlIASINGNO]);
-
-  // Joystick
-  fcolor = (selectedOption_ == OptionItem::JOYSTICK) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 5200,
-                         (zoptions->ReadBool(zOPT_SEC_GAME, "joystick", 0) == 1) ? Language::Instance()[Language::MMENU_JOYSTICKYES]
-                                                                                 : Language::Instance()[Language::MMENU_JOYSTICKNO]);
-
-  // Chat Lines
-  fcolor = (selectedOption_ == OptionItem::CHAT_LINES) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  const auto chatlines_str = std::format("{} {}", Language::Instance()[Language::MMENU_CHATLINES].ToChar(), context_.config.ChatLines);
-  context_.screen->Print(200, 5600, chatlines_str.c_str());
-
-  // Language
-  fcolor = (selectedOption_ == OptionItem::LANGUAGE) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  zSTRING languageText = "Language: ";
+  std::string languageValue;
   const auto& languages = LanguageManager::Instance().GetAvailableLanguages();
   if (context_.config.lang >= 0 && context_.config.lang < static_cast<int>(languages.size())) {
-    languageText += languages[context_.config.lang].displayName;
+    languageValue = languages[context_.config.lang].displayName;
   } else {
-    languageText += Language::Instance()[Language::LANGUAGE];
+    languageValue = Language::Instance()[Language::LANGUAGE].ToChar();
   }
-  context_.screen->Print(200, 6000, languageText);
+  addRow(OptionItem::LANGUAGE, Language::Instance()[Language::MMENU_LANGUAGE].ToChar(), languageValue);
 
-  // Intros
-  fcolor = (selectedOption_ == OptionItem::INTRO_VIDEOS) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 6400,
-                         (zoptions->ReadBool(zOPT_SEC_GAME, "playLogoVideos", 1) == 1) ? Language::Instance()[Language::INTRO_YES]
-                                                                                       : Language::Instance()[Language::INTRO_NO]);
+  addRow(OptionItem::ANTIALIASING,
+         Language::Instance()[Language::MMENU_ANTIALIASING].ToChar(),
+         (zoptions->ReadInt("ENGINE", "zVidEnableAntiAliasing", 0) == 1) ? Language::Instance()[Language::MMENU_YES].ToChar()
+                                                                         : Language::Instance()[Language::MMENU_NO].ToChar());
+  addRow(OptionItem::JOYSTICK,
+         Language::Instance()[Language::MMENU_JOYSTICK].ToChar(),
+         (zoptions->ReadBool(zOPT_SEC_GAME, "joystick", 0) == 1) ? Language::Instance()[Language::MMENU_YES].ToChar()
+                                                                 : Language::Instance()[Language::MMENU_NO].ToChar());
+  addRow(OptionItem::INTRO_VIDEOS,
+         Language::Instance()[Language::MMENU_INTROVIDEOS].ToChar(),
+         (zoptions->ReadBool(zOPT_SEC_GAME, "playLogoVideos", 1) == 1) ? Language::Instance()[Language::MMENU_YES].ToChar()
+                                                                       : Language::Instance()[Language::MMENU_NO].ToChar());
 
-  // Back
-  fcolor = (selectedOption_ == OptionItem::BACK) ? Highlighted : Normal;
-  context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 6800, Language::Instance()[Language::MMENU_BACK]);
+  optionsTable_->render();
+
+  backButton_->setText(Language::Instance()[Language::MMENU_BACK].ToChar());
+  backButton_->highlight = (selectedOption_ == OptionItem::BACK);
+  backButton_->render();
 }
 
 void OnlineOptionsState::HandleInput() {

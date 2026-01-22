@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 skejt23
+Copyright (c) 2025 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,40 +24,15 @@ SOFTWARE.
 
 #pragma once
 
-#include <ctime>
+namespace menu {
+class SceneManager;
 
-#include "ZenGin/zGothicAPI.h"
+constexpr const char* kDefaultSceneName = "default";
+constexpr const char* kShowcaseSceneName = "showcase";
+}  // namespace menu
 
-namespace debug {
+namespace menu::scenes {
 
-class DevTools {
-public:
-  static DevTools& Instance();
+void RegisterMenuScenes(SceneManager& manager);
 
-  void HandleInput(bool writingOnChat);
-  void Render();
-
-private:
-  DevTools();
-  ~DevTools() = default;
-
-  DevTools(const DevTools&) = delete;
-  DevTools& operator=(const DevTools&) = delete;
-
-  void HandleNoclip(bool writingOnChat);
-  void RenderNoclipOverlay();
-
-  void HandleWeatherMenu(bool writingOnChat);
-  void RenderWeatherMenu();
-
-  // Noclip state
-  bool noclip_enabled_;
-  float noclip_speed_;
-  clock_t last_noclip_update_;
-
-  // Weather menu state
-  bool weather_menu_open_;
-  int weather_selection_;
-};
-
-}  // namespace debug
+}  // namespace menu::scenes

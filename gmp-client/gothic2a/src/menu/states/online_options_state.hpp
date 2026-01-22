@@ -24,6 +24,8 @@ SOFTWARE.
 
 #pragma once
 
+#include "Button.h"
+#include "Table.h"
 #include "menu/menu_context.hpp"
 #include "menu/states/menu_state.hpp"
 
@@ -50,12 +52,12 @@ private:
   enum class OptionItem {
     NICKNAME = 0,
     LOG_CHAT = 1,
-    WATCH_TOGGLE = 2,
-    WATCH_POSITION = 3,
-    ANTIALIASING = 4,
-    JOYSTICK = 5,
-    CHAT_LINES = 6,
-    LANGUAGE = 7,
+    CHAT_LINES = 2,
+    WATCH_TOGGLE = 3,
+    WATCH_POSITION = 4,
+    LANGUAGE = 5,
+    ANTIALIASING = 6,
+    JOYSTICK = 7,
     INTRO_VIDEOS = 8,
     BACK = 9,
     OPTION_COUNT = 10
@@ -67,7 +69,7 @@ private:
 
 public:
   explicit OnlineOptionsState(MenuContext& context);
-  ~OnlineOptionsState() override = default;
+  ~OnlineOptionsState() override;
 
   // MenuState interface
   void OnEnter() override;
@@ -79,10 +81,15 @@ public:
   }
 
 private:
+  void InitializeControls();
   void RenderOptionsMenu();
   void HandleInput();
   void ExecuteOption(OptionItem option);
   void AdjustOption(OptionItem option, int direction);
+
+  G2W::Table* optionsTable_;
+  G2W::Button* backButton_;
+
 };
 
 }  // namespace states

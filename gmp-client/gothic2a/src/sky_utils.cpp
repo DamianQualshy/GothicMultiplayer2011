@@ -97,7 +97,24 @@ constexpr DWORD kSetRainFXWeightAddress = 0x005EB230;
 using SetRainFXWeightFn = void(__thiscall*)(zCSkyControler_Outdoor*, float, float);
 SetRainFXWeightFn g_setRainFXWeightOriginal = nullptr;
 
+// ???????????????????????????????????????????????????????????????????????????????
 // Weather Override System State
+// ???????????????????????????????????????????????????????????????????????????????
+// These globals control the sky utils weather override feature, which allows
+// forcing specific weather conditions (rain/snow) at fixed intensities.
+//
+// g_weatherOverrideActive: Master enable flag for weather override
+// g_overrideWeather:       Type of weather to display (zTWEATHER_RAIN/SNOW)
+// g_overrideRainWeight:    Intensity (0.0-1.0), controls particle density
+// g_overrideInitialized:   Tracks whether particle system was initialized
+//                          for current override session (reset on deactivation)
+//
+// When active, Hook_ProcessRainFX bypasses Gothic's time-based weather system
+// and manually drives the particle system with fixed parameters. This requires
+// special initialization (see detailed comment in Hook_ProcessRainFX) to ensure
+// particles have staggered lifetimes, matching how Gothic normally manages them
+// during gameplay.
+// ???????????????????????????????????????????????????????????????????????????????
 bool g_weatherOverrideActive = false;
 zTWeather g_overrideWeather = zTWEATHER_RAIN;
 float g_overrideRainWeight = 0.0f;
@@ -201,9 +218,65 @@ void __fastcall Hook_ProcessRainFX(zCSkyControler_Outdoor* sky, void* /*edx*/) {
     renderContext.cam->Activate();
   }
 
+  // ???????????????????????????????????????????????????????????????????????????????
   // Weather Override Particle Initialization
+  // ???????????????????????????????????????????????????????????????????????????????
+  // Gothic 2's rain/snow particle system (zCOutdoorRainFX) manages particle lifetimes
+  // to create natural weather patterns. Understanding this behavior is essential to
+  // reliably control weather.
+  //
+  // HOW GOTHIC'S PARTICLE SYSTEM WORKS:
+  // ------------------------------------
+  // 1. SetEffectWeight() @ 005e18e0 allocates particles and rebuilds m_freeFlyParticleList array
+  //    - Calculates m_numDestFlyParticle (param1 * 1024.0) and stores @ +0xe018
+  //    - Updates m_effectWeight field @ +0xe014
+  //    - Populates m_freeFlyParticleList (zCArray @ +0xe008) with available particles
+  // 2. CreateParticles() @ 005e1c70 pops zSParticle entries from m_freeFlyParticleList
+  //    - Each zSParticle is 0x1c bytes (28 bytes)
+  //    - Assigns m_destPosition and m_destNormal for each particle
+  //    - Sets m_killTotalTime = 1.0 for each new particle (full lifetime)
+  // 3. UpdateParticles() @ 005e2400 decrements each particle's m_killTotalTime each frame
+  //    - Decrement amount: (frameTime / m_timeLen)
+  // 4. When m_killTotalTime < 0, particle "dies" and returns to m_freeFlyParticleList
+  // 5. Dead particles respawn via CreateParticles() with m_killTotalTime = 1.0
+  //
+  // CAMERA BEAM DETECTION:
+  // ----------------------
+  // zCOutdoorRainFX::CheckCameraBeam() @ 005e1a70 detects camera teleportation by
+  // measuring distance between current camera position and m_camPosLastFrame (+0xe01c).
+  // When the distance exceeds threshold (3750.0 units, hex 0x456a6000), CreateParticles()
+  // randomizes m_killTotalTime for new particles instead of using 1.0. This prevents
+  // synchronized particle death after teleports. CheckCameraBeam returns 1 if beam
+  // detected, 0 otherwise, and resets affected particles to m_killTotalTime = 100.0.
+  //
+  // REQUIREMENTS FOR RELIABLE WEATHER OVERRIDE:
+  // --------------------------------------------
+  // 1. Ideally call SetEffectWeight() only ONCE during initialization (not every frame)
+  //    - Calling repeatedly rebuilds m_freeFlyParticleList, resetting particle count
+  //    - ApplyWeatherOverride currently re-calls SetEffectWeight as a hard clamp; keep
+  //      that in mind if you refactor to a one-shot initialization path.
+  // 2. Set m_camPosLastFrame far from current position before first CreateParticles()
+  //    - Triggers CheckCameraBeam() detection
+  //    - Causes CreateParticles() to randomize m_killTotalTime values
+  //    - Without this, all particles start with m_killTotalTime=1.0 and die together
+  // 3. On subsequent frames, directly update m_effectWeight field
+  //    - Avoids rebuilding particle system while maintaining desired intensity
+  //
+  // This approach ensures particles have staggered lifetimes, producing smooth,
+  // non-pulsing rain/snow that matches Gothic's natural behavior.
+  // ???????????????????????????????????????????????????????????????????????????????
   if (!g_overrideInitialized) {
+    // Initialize particle system (allocates particles, sets up free list)
     sky->rainFX.outdoorRainFX->SetEffectWeight(targetWeight, targetWeight);
+
+    // Trigger camera beam detection by simulating large camera movement
+    // This causes CreateParticles() to randomize particle lifetimes
+    if (zCCamera::activeCam && zCCamera::activeCam->connectedVob) {
+      zVEC3 farAwayPos = zCCamera::activeCam->connectedVob->GetPositionWorld();
+      farAwayPos[0] += 100000.0f;  // Delta >> 3750.0 threshold triggers CheckCameraBeam() @ 005e1a70
+      sky->rainFX.outdoorRainFX->m_camPosLastFrame = farAwayPos;
+    }
+
     g_overrideInitialized = true;
   } else {
     // Subsequent frames: directly update weight without rebuilding particle system
@@ -406,6 +479,12 @@ bool SetDontRain(bool toggle) {
   auto* sky = GetOutdoorSky();
   if (!sky) {
     return false;
+  }
+
+  if (toggle) {
+    g_weatherOverrideActive = false;
+    g_overrideInitialized = false;
+    g_overrideRainWeight = 0.0f;
   }
 
   sky->m_bDontRain = toggle ? TRUE : FALSE;

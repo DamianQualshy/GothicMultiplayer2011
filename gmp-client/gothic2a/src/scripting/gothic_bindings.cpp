@@ -1742,7 +1742,7 @@ void BindVob(sol::state& lua) {
 
 
 void BindInterface(sol::state& lua) {
-/* luagmp (method)
+/* luagmp (func)
 *
 * This function will convert pixels to virtuals screen X dimension and return it as a result.
 * Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
@@ -1764,7 +1764,7 @@ void BindInterface(sol::state& lua) {
     return screen->anx(pixels);
   };
 
-/* luagmp (method)
+/* luagmp (func)
 *
 * This function will convert pixels to virtuals on screen Y dimension and return it as a result.
 * Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
@@ -1787,7 +1787,7 @@ void BindInterface(sol::state& lua) {
   };
 
 
-/* luagmp (method)
+/* luagmp (func)
 *
 * This function will convert virtuals to pixels on screen X dimension and return it as a result.
 *
@@ -1808,7 +1808,7 @@ void BindInterface(sol::state& lua) {
   };
 
 
-/* luagmp (method)
+/* luagmp (func)
 *
 * This function will convert virtuals to pixels on screen Y dimension and return it as a result.
 *

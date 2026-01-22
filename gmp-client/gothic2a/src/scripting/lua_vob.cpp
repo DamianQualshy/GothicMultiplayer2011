@@ -64,6 +64,7 @@ LuaVob::VobInstance::~VobInstance() {
   if (owned && vob) {
     if (vob->GetHomeWorld()) {
       vob->RemoveVobFromWorld();
+      vob->Release();
     }
     delete vob;
   }

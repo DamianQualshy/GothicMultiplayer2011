@@ -25,92 +25,42 @@ SOFTWARE.
 #pragma once
 
 #include "ZenGin/zGothicAPI.h"
-#include "frame_rate_limiter.h"
 
 namespace menu {
 
-/**
- * @brief Manages menu scene animations (weapon rotation, time advancement)
- *
- * This class provides FPS-independent animations for the menu background scene.
- * It uses a single frame rate limiter to ensure consistent behavior at any framerate.
- */
+struct MenuWeaponBaseline {
+  zVEC3 camera_position;
+  float camera_pitch = 0.0f;
+  float camera_yaw = 0.0f;
+  zVEC3 weapon_position;
+  float weapon_yaw = 0.0f;
+};
+
+struct MenuSceneSettings {
+  zVEC3 camera_position;
+  float camera_pitch = 0.0f;
+  float camera_yaw = 0.0f;
+  const char* weapon_visual_name = nullptr;
+  bool show_weapon = true;
+  bool enable_timelapse = false;
+  bool freeze_time = false;
+  const MenuWeaponBaseline* weapon_baseline = nullptr;
+};
+
 class MenuScene {
 public:
-  /**
-   * @brief Construct a new Menu Scene
-   *
-   * @param game Pointer to the game instance
-   * @param weapon Pointer to the title weapon item (can be nullptr)
-   * @param targetFps Target frame rate for animations (default: 60 FPS)
-   */
-  MenuScene(oCGame* game, oCItem* weapon, int targetFps = 60) : game_(game), weapon_(weapon), frame_limiter_(targetFps) {
+  virtual ~MenuScene() = default;
+
+  virtual MenuSceneSettings GetSettings() const = 0;
+  virtual void OnEnter() {
   }
-
-  /**
-   * @brief Update the menu scene (weapon rotation and time)
-   *
-   * Call this every frame from the menu state's Update() method.
-   * The actual updates will only happen at the target FPS rate.
-   */
-  void Update() {
-    if (frame_limiter_.ShouldUpdate()) {
-      UpdateWeaponRotation();
-      UpdateGameTime();
-    }
+  virtual void OnExit() {
   }
-
-  /**
-   * @brief Set the weapon to animate
-   *
-   * @param weapon Pointer to the weapon item (can be nullptr to disable rotation)
-   */
-  void SetWeapon(oCItem* weapon) {
-    weapon_ = weapon;
+  virtual void Update() = 0;
+  virtual void SetWeapon(zCVob* /*weapon*/) {
   }
-
-  /**
-   * @brief Get the current weapon
-   *
-   * @return Pointer to the weapon item (may be nullptr)
-   */
-  oCItem* GetWeapon() const {
-    return weapon_;
+  virtual void Reset() {
   }
-
-  /**
-   * @brief Reset the frame limiter
-   *
-   * Useful when entering/exiting states to avoid sudden jumps
-   */
-  void Reset() {
-    frame_limiter_.Reset();
-  }
-
-private:
-  void UpdateWeaponRotation() {
-    if (weapon_) {
-      weapon_->RotateWorldX(0.6f);
-    }
-  }
-
-  void UpdateGameTime() {
-    if (game_ && game_->GetWorldTimer()) {
-      int hour, minute;
-      game_->GetWorldTimer()->GetTime(hour, minute);
-
-      if (minute >= 59) {
-        hour++;
-      }
-      minute++;
-
-      game_->GetWorldTimer()->SetTime(hour, minute);
-    }
-  }
-
-  oCGame* game_;
-  oCItem* weapon_;
-  FrameRateLimiter frame_limiter_;
 };
 
 }  // namespace menu

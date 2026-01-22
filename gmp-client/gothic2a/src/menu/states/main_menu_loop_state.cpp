@@ -87,7 +87,7 @@ void MainMenuLoopState::OnExit() {
 }
 
 StateResult MainMenuLoopState::Update() {
-  context_.scene.Update();
+  context_.sceneManager.Update();
   RenderMenu();
   RenderVersionInfo();
   HandleInput();
@@ -180,6 +180,12 @@ void MainMenuLoopState::HandleInput() {
     context_.selectedServerIndex = -1;
     context_.selectedServerIP = "127.0.0.1";
     nextState_ = new ServerListState(context_);
+  }
+
+  // Cycle menu scenes
+  if (context_.input->KeyToggled(KEY_TAB)) {
+    context_.sceneManager.ActivateNextScene();
+    context_.input->ClearKeyBuffer();
   }
 }
 

@@ -32,7 +32,8 @@ SOFTWARE.
 #include "audio/music_player.h"
 #include "config.h"
 #include "language.h"
-#include "menu/menu_scene.h"
+#include "menu/menu_scene_manager.h"
+#include "menu/scenes/scene_registry.h"
 
 namespace menu {
 
@@ -56,8 +57,6 @@ struct MenuContext {
 
   // ===== Menu Visual Elements =====
   zCView* logoView = nullptr;
-  oCItem* titleWeapon = nullptr;
-  oCItem* cameraWeapon = nullptr;
 
   // ===== Configuration & Data =====
   Config& config;
@@ -67,14 +66,13 @@ struct MenuContext {
   // ===== Menu State =====
   zSTRING selectedServerIP;
   int selectedServerIndex = -1;
-  bool titleWeaponEnabled = false;
   bool writingNickname = false;
 
   // ===== Extended Server List =====
   ExtendedServerList* extendedServerList = nullptr;
 
-  // ===== Menu Scene (for FPS-independent animations) =====
-  MenuScene scene;
+  // ===== Menu Scene Manager =====
+  SceneManager sceneManager;
 
   // ===== Menu Music Player =====
   std::unique_ptr<gmp::audio::MusicPlayer> menuMusicPlayer;
@@ -88,13 +86,18 @@ struct MenuContext {
 
   // ===== Constructor =====
   MenuContext(Config& cfg, Language& lang, CServerList& servers)
-      : config(cfg), language(lang), serverList(servers), scene(ogame, nullptr) {
+      : config(cfg), language(lang), serverList(servers), sceneManager(ogame) {
     // Initialize Gothic engine references
     game = ogame;
     player = Gothic_II_Addon::player;
     input = zinput;
     screen = Gothic_II_Addon::screen;
     options = zoptions;
+
+    scenes::RegisterMenuScenes(sceneManager);
+    if (!sceneManager.ActivateRandomScene()) {
+      sceneManager.ActivateScene(kDefaultSceneName);
+    }
   }
 
   // ===== Helper Methods =====
@@ -128,26 +131,14 @@ struct MenuContext {
    * @brief Insert the title weapon into the world if it is available
    */
   void ShowTitleWeapon() {
-    if (!titleWeaponEnabled && titleWeapon) {
-      titleWeaponEnabled = true;
-      if (game && game->GetWorld()) {
-        game->GetWorld()->AddVob(titleWeapon);
-      }
-      // Update scene to use this weapon
-      scene.SetWeapon(titleWeapon);
-    }
+    sceneManager.ShowWeapon();
   }
 
   /**
    * @brief Remove the title weapon from the world if it is currently shown
    */
   void HideTitleWeapon() {
-    if (titleWeaponEnabled && titleWeapon) {
-      titleWeapon->RemoveVobFromWorld();
-    }
-    titleWeaponEnabled = false;
-    // Clear weapon from scene
-    scene.SetWeapon(nullptr);
+    sceneManager.HideWeapon();
   }
 
   // Destructor to clean up owned resources

@@ -102,9 +102,6 @@ void CMainMenu::InitializeStateMachine() {
 
   // Menu visual elements - logo will be created by EnterMenuState
   menuContext_->logoView = nullptr;
-  menuContext_->titleWeapon = nullptr;
-  menuContext_->cameraWeapon = nullptr;
-  menuContext_->titleWeaponEnabled = false;
 
   // Player state backup
   menuContext_->savedPlayerPosition = HeroPos;

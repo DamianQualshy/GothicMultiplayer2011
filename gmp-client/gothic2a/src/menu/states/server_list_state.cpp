@@ -109,7 +109,7 @@ StateResult ServerListState::Update() {
 
     if (connState == gmp::client::GameClient::ConnectionState::Connecting) {
       // Still connecting - show progress UI
-      context_.scene.Update();
+      context_.sceneManager.Update();
       RenderConnectionProgress();
       return StateResult::Continue;
     } else if (connState == gmp::client::GameClient::ConnectionState::Connected) {
@@ -130,7 +130,7 @@ StateResult ServerListState::Update() {
     }
   }
 
-  context_.scene.Update();
+  context_.sceneManager.Update();
 
   // Handle common input first (Enter to connect, ESC to exit)
   HandleCommonInput();
