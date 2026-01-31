@@ -35,6 +35,8 @@ namespace {
 
 constexpr int kMaxDepth = 32;
 
+using Json = NLOHMANN_JSON_NAMESPACE::json;
+
 std::string LuaTypeToString(sol::type type) {
   switch (type) {
     case sol::type::none:
@@ -71,7 +73,7 @@ const void* GetLuaIdentity(const sol::object& obj) {
   return identity;
 }
 
-bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, nlohmann::json& out, std::string& error, int depth,
+bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, Json& out, std::string& error, int depth,
                      std::unordered_set<const void*>& visited) {
   if (depth > kMaxDepth) {
     error = "Lua value exceeded maximum serialization depth";
@@ -100,10 +102,10 @@ bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, nlohmann::json
       }
 
       sol::table table = obj.as<sol::table>();
-      nlohmann::json entries = nlohmann::json::array();
+      Json entries = Json::array();
       for (const auto& kv : table) {
-        nlohmann::json key_json;
-        nlohmann::json value_json;
+        Json key_json;
+        Json value_json;
         sol::object key = kv.first;
         sol::object value = kv.second;
         if (!EncodeLuaObject(lua, key, key_json, error, depth + 1, visited)) {
@@ -126,7 +128,7 @@ bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, nlohmann::json
   }
 }
 
-bool DecodeLuaObject(sol::state_view lua, const nlohmann::json& input, sol::object& out, std::string& error, int depth) {
+bool DecodeLuaObject(sol::state_view lua, const Json& input, sol::object& out, std::string& error, int depth) {
   if (depth > kMaxDepth) {
     error = "Lua value exceeded maximum deserialization depth";
     return false;
@@ -206,11 +208,11 @@ bool DecodeLuaObject(sol::state_view lua, const nlohmann::json& input, sol::obje
 }
 
 bool EncodeLuaArgsImpl(sol::state_view lua, const std::vector<sol::object>& args, std::string& payload, std::string& error) {
-  nlohmann::json root;
-  nlohmann::json values = nlohmann::json::array();
+  Json root;
+  Json values = Json::array();
   std::unordered_set<const void*> visited;
   for (const auto& arg : args) {
-    nlohmann::json encoded;
+    Json encoded;
     if (!EncodeLuaObject(lua, arg, encoded, error, 0, visited)) {
       return false;
     }
@@ -237,10 +239,10 @@ bool EncodeLuaArgs(sol::state_view lua, const std::vector<sol::object>& args, st
 }
 
 bool DecodeLuaArgs(sol::state_view lua, std::string_view payload, std::vector<sol::object>& args, std::string& error) {
-  nlohmann::json root;
+  Json root;
   try {
-    root = nlohmann::json::parse(payload.begin(), payload.end());
-  } catch (const nlohmann::json::parse_error& ex) {
+    root = Json::parse(payload.begin(), payload.end());
+  } catch (const Json::parse_error& ex) {
     error = ex.what();
     return false;
   }
@@ -259,6 +261,15 @@ bool DecodeLuaArgs(sol::state_view lua, std::string_view payload, std::vector<so
     args.push_back(decoded);
   }
   return true;
+}
+
+bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, Json& out, std::string& error) {
+  std::unordered_set<const void*> visited;
+  return EncodeLuaObject(lua, obj, out, error, 0, visited);
+}
+
+bool DecodeLuaObject(sol::state_view lua, const Json& input, sol::object& out, std::string& error) {
+  return DecodeLuaObject(lua, input, out, error, 0);
 }
 
 }  // namespace gmp::lua

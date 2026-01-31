@@ -38,6 +38,7 @@ SOFTWARE.
 #include "process_input.h"
 #include "net_game.h"
 #include "patch.h"
+#include "gmp_core.h"
 
 #include "lua_draw.h"
 #include "lua_texture.h"
@@ -58,6 +59,25 @@ struct ClientNpc {
 
 std::unordered_map<int, ClientNpc> g_client_npcs;
 int g_next_npc_id = -1;
+
+struct DiscordActivityState {
+  std::string state;
+  std::string details;
+  std::string large_image_key;
+  std::string large_image_text;
+  std::string small_image_key;
+  std::string small_image_text;
+};
+
+DiscordActivityState& GetDiscordActivityState() {
+  static DiscordActivityState state;
+  return state;
+}
+
+void ApplyDiscordActivityState(const DiscordActivityState& state) {
+  DiscordRichPresence::Instance().UpdateActivity(state.state, state.details, 0, 0, state.large_image_key, state.large_image_text,
+                                                 state.small_image_key, state.small_image_text);
+}
 
 oCSpawnManager* GetSpawnManager() {
   return ogame ? ogame->GetSpawnManager() : nullptr;
@@ -116,7 +136,7 @@ oCMenu_Status* GetStatusMenu() {
 * 
 * @side		client
 * @name		heroId
-* @return   (int)
+* @return   (number)
 *
 */
 
@@ -128,9 +148,9 @@ oCMenu_Status* GetStatusMenu() {
 * @name     setPlayerInstance
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) instance       Instance name.
-* @return   (bool)               True on success, false otherwise.
+* @return   (boolean)               True on success, false otherwise.
 *
 */
 bool Function_SetPlayerInstance(std::uint64_t id, const std::string& instance) {
@@ -156,7 +176,7 @@ bool Function_SetPlayerInstance(std::uint64_t id, const std::string& instance) {
 * @name     getPlayerInstance
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   (string|nil)         Instance name or nil.
 *
 */
@@ -179,9 +199,9 @@ sol::object Function_GetPlayerInstance(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerName
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) name       New player name.
-* @return   (bool)           True on success.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerName(std::uint64_t id, const std::string& name) {
@@ -214,7 +234,7 @@ bool Function_SetPlayerName(std::uint64_t id, const std::string& name) {
 * @name     getPlayerName
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   (string|nil)        Player name or nil.
 *
 */
@@ -237,10 +257,10 @@ sol::object Function_GetPlayerName(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerColor
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) r          Red (0-255).
-* @param    (int) g          Green (0-255).
-* @param    (int) b          Blue (0-255).
+* @param    (number) player_id  Target player id.
+* @param    (number) r          Red (0-255).
+* @param    (number) g          Green (0-255).
+* @param    (number) b          Blue (0-255).
 *
 */
 bool Function_SetPlayerColor(std::uint64_t id, int r, int g, int b) {
@@ -264,7 +284,7 @@ bool Function_SetPlayerColor(std::uint64_t id, int r, int g, int b) {
 * @name     getPlayerColor
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   ({r, g, b}|nil)  RGB color (0-255) or nil.
 *
 */
@@ -293,8 +313,8 @@ sol::object Function_GetPlayerColor(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerHealth
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) health     New health value.
+* @param    (number) player_id  Target player id.
+* @param    (number) health     New health value.
 *
 */
 bool Function_SetPlayerHealth(std::uint64_t id, int health) {
@@ -322,8 +342,8 @@ bool Function_SetPlayerHealth(std::uint64_t id, int health) {
 * @name     getPlayerHealth
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Current health or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Current health or nil.
 *
 */
 sol::object Function_GetPlayerHealth(std::uint64_t id, sol::this_state ts) {
@@ -344,8 +364,8 @@ sol::object Function_GetPlayerHealth(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerMaxHealth
 * @side     client
 * @category Player
-* @param    (int) player_id   Target player id.
-* @param    (int) max_health  New maximum health.
+* @param    (number) player_id   Target player id.
+* @param    (number) max_health  New maximum health.
 *
 */
 bool Function_SetPlayerMaxHealth(std::uint64_t id, int max_health) {
@@ -374,8 +394,8 @@ bool Function_SetPlayerMaxHealth(std::uint64_t id, int max_health) {
 * @name     getPlayerMaxHealth
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Max health or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Max health or nil.
 *
 */
 sol::object Function_GetPlayerMaxHealth(std::uint64_t id, sol::this_state ts) {
@@ -396,8 +416,8 @@ sol::object Function_GetPlayerMaxHealth(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerMana
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) mana       Mana value.
+* @param    (number) player_id  Target player id.
+* @param    (number) mana       Mana value.
 *
 */
 bool Function_SetPlayerMana(std::uint64_t id, int mana) {
@@ -422,8 +442,8 @@ bool Function_SetPlayerMana(std::uint64_t id, int mana) {
 * @name     getPlayerMana
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Current mana or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Current mana or nil.
 *
 */
 sol::object Function_GetPlayerMana(std::uint64_t id, sol::this_state ts) {
@@ -444,8 +464,8 @@ sol::object Function_GetPlayerMana(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerMaxMana
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) max_mana   New maximum mana.
+* @param    (number) player_id  Target player id.
+* @param    (number) max_mana   New maximum mana.
 *
 */
 bool Function_SetPlayerMaxMana(std::uint64_t id, int max_mana) {
@@ -472,8 +492,8 @@ bool Function_SetPlayerMaxMana(std::uint64_t id, int max_mana) {
 * @name     getPlayerMaxMana
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Max mana or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Max mana or nil.
 *
 */
 sol::object Function_GetPlayerMaxMana(std::uint64_t id, sol::this_state ts) {
@@ -494,8 +514,8 @@ sol::object Function_GetPlayerMaxMana(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerStrength
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) strength   Strength value.
+* @param    (number) player_id  Target player id.
+* @param    (number) strength   Strength value.
 *
 */
 bool Function_SetPlayerStrength(std::uint64_t id, int strength) {
@@ -518,8 +538,8 @@ bool Function_SetPlayerStrength(std::uint64_t id, int strength) {
 * @name     getPlayerStrength
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Strength value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Strength value or nil.
 *
 */
 sol::object Function_GetPlayerStrength(std::uint64_t id, sol::this_state ts) {
@@ -540,8 +560,8 @@ sol::object Function_GetPlayerStrength(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerDexterity
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) dexterity  Dexterity value.
+* @param    (number) player_id  Target player id.
+* @param    (number) dexterity  Dexterity value.
 *
 */
 bool Function_SetPlayerDexterity(std::uint64_t id, int dexterity) {
@@ -564,8 +584,8 @@ bool Function_SetPlayerDexterity(std::uint64_t id, int dexterity) {
 * @name     getPlayerDexterity
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)              Dexterity value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)              Dexterity value or nil.
 *
 */
 sol::object Function_GetPlayerDexterity(std::uint64_t id, sol::this_state ts) {
@@ -586,9 +606,9 @@ sol::object Function_GetPlayerDexterity(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerSkillWeapon
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) skill_id   Skill identifier.
-* @param    (int) percentage Hit chance (0-100).
+* @param    (number) player_id  Target player id.
+* @param    (number) skill_id   Skill identifier.
+* @param    (number) percentage Hit chance (0-100).
 *
 */
 bool Function_SetPlayerSkillWeapon(std::uint64_t id, int skill_id, int percentage) {
@@ -609,9 +629,9 @@ bool Function_SetPlayerSkillWeapon(std::uint64_t id, int skill_id, int percentag
 * @name     getPlayerSkillWeapon
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) skill_id   Skill identifier.
-* @return   (int|nil)              Hit chance (0-100) or nil.
+* @param    (number) player_id  Target player id.
+* @param    (number) skill_id   Skill identifier.
+* @return   (number|nil)              Hit chance (0-100) or nil.
 *
 */
 sol::object Function_GetPlayerSkillWeapon(std::uint64_t id, int skill_id, sol::this_state ts) {
@@ -632,9 +652,9 @@ sol::object Function_GetPlayerSkillWeapon(std::uint64_t id, int skill_id, sol::t
 * @name     setPlayerTalent
 * @side     client
 * @category Player
-* @param    (int) player_id   Target player id.
-* @param    (int) talent_id   Talent identifier.
-* @param    (int) talent_value Talent value.
+* @param    (number) player_id   Target player id.
+* @param    (number) talent_id   Talent identifier.
+* @param    (number) talent_value Talent value.
 *
 */
 bool Function_SetPlayerTalent(std::uint64_t id, int talent_id, int talent_value) {
@@ -653,9 +673,9 @@ bool Function_SetPlayerTalent(std::uint64_t id, int talent_id, int talent_value)
 * @name     getPlayerTalent
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) talent_id  Talent identifier.
-* @return   (int|nil)              Talent value or nil.
+* @param    (number) player_id  Target player id.
+* @param    (number) talent_id  Talent identifier.
+* @return   (number|nil)              Talent value or nil.
 *
 */
 sol::object Function_GetPlayerTalent(std::uint64_t id, int talent_id, sol::this_state ts) {
@@ -676,8 +696,8 @@ sol::object Function_GetPlayerTalent(std::uint64_t id, int talent_id, sol::this_
 * @name     setPlayerLevel
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) level         New level.
+* @param    (number) player_id  Target player id.
+* @param    (number) level         New level.
 *
 */
 bool Function_SetPlayerLevel(std::uint64_t id, int level) {
@@ -696,8 +716,8 @@ bool Function_SetPlayerLevel(std::uint64_t id, int level) {
 * @name     getPlayerLevel
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Level or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Level or nil.
 *
 */
 sol::object Function_GetPlayerLevel(std::uint64_t id, sol::this_state ts) {
@@ -718,8 +738,8 @@ sol::object Function_GetPlayerLevel(std::uint64_t id, sol::this_state ts) {
 * @name     setExp
 * @side     client
 * @category Hero
-* @param    (int) exp           New exp value.
-* @return   (bool)          True on success.
+* @param    (number) exp           New exp value.
+* @return   (boolean)          True on success.
 *
 */
 bool Function_SetExp(int exp) {
@@ -746,7 +766,7 @@ bool Function_SetExp(int exp) {
 * @name     getExp
 * @side     client
 * @category Hero
-* @return   (int|nil)        Exp value or nil.
+* @return   (number|nil)        Exp value or nil.
 *
 */
 sol::object Function_GetExp(sol::this_state ts) {
@@ -769,8 +789,8 @@ sol::object Function_GetExp(sol::this_state ts) {
 * @name     setNextLevelExp
 * @side     client
 * @category Hero
-* @param    (int) next_level_exp    Required exp for next level.
-* @return   (bool)              True on success.
+* @param    (number) next_level_exp    Required exp for next level.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetNextLevelExp(int next_level_exp) {
@@ -796,7 +816,7 @@ bool Function_SetNextLevelExp(int next_level_exp) {
 * @name     getNextLevelExp
 * @side     client
 * @category Hero
-* @return   (int|nil)        Next level exp or nil.
+* @return   (number|nil)        Next level exp or nil.
 *
 */
 sol::object Function_GetNextLevelExp(sol::this_state ts) {
@@ -819,8 +839,8 @@ sol::object Function_GetNextLevelExp(sol::this_state ts) {
 * @name     setLearnPoints
 * @side     client
 * @category Hero
-* @param    (int) learn_points   New learn points value.
-* @return   (bool)           True on success.
+* @param    (number) learn_points   New learn points value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetLearnPoints(int learn_points) {
@@ -846,7 +866,7 @@ bool Function_SetLearnPoints(int learn_points) {
 * @name     getLearnPoints
 * @side     client
 * @category Hero
-* @return   (int|nil)        Learn points or nil.
+* @return   (number|nil)        Learn points or nil.
 *
 */
 sol::object Function_GetLearnPoints(sol::this_state ts) {
@@ -869,11 +889,11 @@ sol::object Function_GetLearnPoints(sol::this_state ts) {
 * @name     setPlayerVisual
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
+* @param    (number) player_id    Target player id.
 * @param    (string) body_model   Body model name.
-* @param    (int) body_texture    Body texture index.
+* @param    (number) body_texture    Body texture index.
 * @param    (string) head_model   Head model name.
-* @param    (int) head_texture    Head texture index.
+* @param    (number) head_texture    Head texture index.
 *
 */
 bool Function_SetPlayerVisual(std::uint64_t id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
@@ -912,8 +932,8 @@ sol::object Function_GetPlayerVisual(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerFatness
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
-* @param    (float) fatness   Fatness value.
+* @param    (number) player_id    Target player id.
+* @param    (number) fatness   Fatness value.
 *
 */
 bool Function_SetPlayerFatness(std::uint64_t id, float fatness) {
@@ -942,10 +962,10 @@ sol::object Function_GetPlayerFatness(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerScale
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
-* @param    (float) x   Scale factor on x axis.
-* @param    (float) y   Scale factor on y axis.
-* @param    (float) z   Scale factor on z axis.
+* @param    (number) player_id    Target player id.
+* @param    (number) x   Scale factor on x axis.
+* @param    (number) y   Scale factor on y axis.
+* @param    (number) z   Scale factor on z axis.
 *
 */
 bool Function_SetPlayerScale(std::uint64_t id, float x, float y, float z) {
@@ -964,7 +984,7 @@ bool Function_SetPlayerScale(std::uint64_t id, float x, float y, float z) {
 * @name     getPlayerScale
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
+* @param    (number) player_id    Target player id.
 * @return    ({x, y, z}|nil)   Player scale or nil.
 *
 */
@@ -991,7 +1011,7 @@ sol::object Function_GetPlayerScale(std::uint64_t id, sol::this_state ts){
 * @name     applyPlayerOverlay
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
+* @param    (number) player_id    Target player id.
 * @param    (string) overlay   The name of overlay.
 *
 */
@@ -1011,7 +1031,7 @@ bool Function_ApplyPlayerOverlay(std::uint64_t id, const std::string& overlay) {
 * @name     getPlayerOverlays
 * @side     client
 * @category Player
-* @param    (int) player_id
+* @param    (number) player_id
 * @return   ({...}|nil)   Array of overlay names or nil.
 *
 */
@@ -1045,7 +1065,7 @@ sol::object Function_GetPlayerOverlays(std::uint64_t id, sol::this_state ts) {
 * @name     removePlayerOverlay
 * @side     client
 * @category Player
-* @param    (int) player_id    Target player id.
+* @param    (number) player_id    Target player id.
 * @param    (string) overlay   The name of overlay.
 *
 */
@@ -1069,10 +1089,10 @@ bool Function_RemovePlayerOverlay(std::uint64_t id, const std::string& overlay) 
 * @name     setPlayerPosition
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (float) x       X coordinate.
-* @param    (float) y       Y coordinate.
-* @param    (float) z       Z coordinate.
+* @param    (number) player_id  Target player id.
+* @param    (number) x       X coordinate.
+* @param    (number) y       Y coordinate.
+* @param    (number) z       Z coordinate.
 *
 */
 bool Function_SetPlayerPosition(std::uint64_t id, float x, float y, float z) {
@@ -1096,7 +1116,7 @@ bool Function_SetPlayerPosition(std::uint64_t id, float x, float y, float z) {
 * @name     getPlayerPosition
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   ({x,y,z}|nil)  Table with keys `x`,`y`,`z` or nil.
 *
 */
@@ -1123,8 +1143,8 @@ sol::object Function_GetPlayerPosition(std::uint64_t id, sol::this_state ts) {
 * @name     setPlayerAngle
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (float) angle    Angle in radians.
+* @param    (number) player_id  Target player id.
+* @param    (number) angle    Angle in radians.
 * @param    (bool|nil) interpolate Optional interpolation flag.
 *
 */
@@ -1146,7 +1166,7 @@ bool Function_SetPlayerAngle(std::uint64_t id, float angle, sol::optional<bool> 
 * @name     getPlayerAngle
 * @side     client
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   (number|nil)           Angle in radians or nil.
 *
 */
@@ -1168,10 +1188,10 @@ sol::object Function_GetPlayerAngle(std::uint64_t id, sol::this_state ts) {
 * @name     giveItem
 * @side     client
 * @category Inventory
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) instance       Item instance name.
-* @param    (int) amount            Amount to give.
-* @return   (bool)               True on success.
+* @param    (number) amount            Amount to give.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_GiveItem(std::uint64_t id, const std::string& instance, std::int32_t amount) {
@@ -1201,10 +1221,10 @@ bool Function_GiveItem(std::uint64_t id, const std::string& instance, std::int32
 * @name     equipItem
 * @side     client
 * @category Inventory
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) instance       Item instance name.
-* @param    (int) slot_id           Optional slot id, ignored on client.
-* @return   (bool)               True on success.
+* @param    (number) slot_id           Optional slot id, ignored on client.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_EquipItem(std::uint64_t id, const std::string& instance, sol::optional<int> slot_id) {
@@ -1235,9 +1255,9 @@ bool Function_EquipItem(std::uint64_t id, const std::string& instance, sol::opti
 * @name     unequipItem
 * @side     client
 * @category Inventory
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) instance       Item instance name.
-* @return   (bool)               True on success.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_UnequipItem(std::uint64_t id, const std::string& instance) {
@@ -1265,9 +1285,9 @@ bool Function_UnequipItem(std::uint64_t id, const std::string& instance) {
 * @name     hasItem
 * @side     client
 * @category Inventory
-* @param    (int) player_id      Target player id.
+* @param    (number) player_id      Target player id.
 * @param    (string) instance    Item instance name.
-* @return   (int)                Item amount or 0 if missing.
+* @return   (number)                Item amount or 0 if missing.
 *
 */
 int Function_HasItem(std::uint64_t id, const std::string& instance) {
@@ -1294,10 +1314,10 @@ int Function_HasItem(std::uint64_t id, const std::string& instance) {
 * @name     removeItem
 * @side     client
 * @category Inventory
-* @param    (int) player_id      Target player id.
+* @param    (number) player_id      Target player id.
 * @param    (string) instance    Item instance name.
-* @param    (int) amount         Amount to remove.
-* @return   (bool)               True on success.
+* @param    (number) amount         Amount to remove.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_RemoveItem(std::uint64_t id, const std::string& instance, std::int32_t amount) {
@@ -1319,6 +1339,40 @@ bool Function_RemoveItem(std::uint64_t id, const std::string& instance, std::int
       }
     }
   }
+}
+
+/* luagmp (func)
+*
+* Remove all items from the local hero's inventory.
+*
+* @version  0.3.0
+* @name     clearInventory
+* @side     client
+* @category Inventory
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_ClearInventory() {
+  if (!player) {
+    return false;
+  }
+
+  player->inventory2.ClearInventory();
+  return true;
+}
+
+/* luagmp (func)
+*
+* Close the game immediately.
+*
+* @version  0.3.0
+* @name     exitGame
+* @side     client
+* @category Game
+*
+*/
+void Function_ExitGame() {
+  GMPCore::ExitGame(0);
 }
 
 /* luagmp (func)
@@ -1366,7 +1420,7 @@ sol::object Function_GetWorld(sol::this_state ts) {
 * @side     client
 * @category NPC
 * @param    (string) name  Name for the created NPC.
-* @return   (int)            Internal npc id (negative) or 0 on failure.
+* @return   (number)            Internal npc id (negative) or 0 on failure.
 *
 */
 int Function_CreateNpc(const std::string& name) {
@@ -1403,8 +1457,8 @@ int Function_CreateNpc(const std::string& name) {
 * @name     destroyNpc
 * @side     client
 * @category NPC
-* @param    (int) npc_id  Internal npc id returned by `createNpc`.
-* @return   (bool)       True on success.
+* @param    (number) npc_id  Internal npc id returned by `createNpc`.
+* @return   (boolean)       True on success.
 *
 */
 bool Function_DestroyNpc(int npc_id) {
@@ -1435,9 +1489,9 @@ bool Function_DestroyNpc(int npc_id) {
 * @name     spawnNpc
 * @side     client
 * @category NPC
-* @param    (int) npc_id             Internal npc id.
+* @param    (number) npc_id             Internal npc id.
 * @param    (string|nil) instance_name Optional instance name (e.g., "PC_HERO").
-* @return   (bool)                   True if spawn attached to world.
+* @return   (boolean)                   True if spawn attached to world.
 *
 */
 bool Function_SpawnNpc(int npc_id, sol::optional<std::string> instance_name) {
@@ -1494,8 +1548,8 @@ bool Function_SpawnNpc(int npc_id, sol::optional<std::string> instance_name) {
 * @name     unspawnNpc
 * @side     client
 * @category NPC
-* @param    (int) npc_id  Internal npc id.
-* @return   (bool)       True on success.
+* @param    (number) npc_id  Internal npc id.
+* @return   (boolean)       True on success.
 *
 */
 bool Function_UnspawnNpc(int npc_id) {
@@ -1534,74 +1588,124 @@ void BindDiscord(sol::state& lua) {
 
 /* luagmp (method)
 *
-* Updates the Discord Rich Presence activity. 
-* 
-* All parameters are optional and should be passed via a table. Missing fields default to empty values.
+* Update the Discord Rich Presence activity. Missing fields keep their last-set values.
 *
 * @version  0.3.0
-* @name     SetActivity
+* @name     setActivity
 * @static
 * @param    (table) Activity configuration table.
 *
 */
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     state
-* @return   (string) Text shown as the activity state.
-*
-*/
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     details
-* @return   (string) Text shown as activity details.
-*
-*/
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     largeImageKey
-* @return   (string) Key of the large image asset.
-*
-*/
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     largeImageText
-* @return   (string) Tooltip text for the large image.
-*
-*/
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     smallImageKey
-* @return   (string) Key of the small image asset.
-*
-*/
-/* luagmp (property)
-*
-* Gets or sets the draw position in pixel coordinates.
-*
-* @name     smallImageText
-* @return   (string) Tooltip text for the small image.
-*
-*/
-  discord.set_function("SetActivity", [](const sol::table& params) {
-    auto state = GetOptionalString(params, "state", "State").value_or("");
-    auto details = GetOptionalString(params, "details", "Details").value_or("");
-    auto large_image_key = GetOptionalString(params, "largeImageKey", "LargeImageKey").value_or("");
-    auto large_image_text = GetOptionalString(params, "largeImageText", "LargeImageText").value_or("");
-    auto small_image_key = GetOptionalString(params, "smallImageKey", "SmallImageKey").value_or("");
-    auto small_image_text = GetOptionalString(params, "smallImageText", "SmallImageText").value_or("");
+  discord.set_function("setActivity", [](const sol::table& params) {
+    auto& activity = GetDiscordActivityState();
 
-    DiscordRichPresence::Instance().UpdateActivity(state, details, 0, 0, large_image_key, large_image_text, 
-                                                    small_image_key, small_image_text);
+    if (auto value = GetOptionalString(params, "state", "State"); value) {
+      activity.state = *value;
+    }
+    if (auto value = GetOptionalString(params, "details", "Details"); value) {
+      activity.details = *value;
+    }
+    if (auto value = GetOptionalString(params, "largeImageKey", "LargeImageKey"); value) {
+      activity.large_image_key = *value;
+    }
+    if (auto value = GetOptionalString(params, "largeImageText", "LargeImageText"); value) {
+      activity.large_image_text = *value;
+    }
+    if (auto value = GetOptionalString(params, "smallImageKey", "SmallImageKey"); value) {
+      activity.small_image_key = *value;
+    }
+    if (auto value = GetOptionalString(params, "smallImageText", "SmallImageText"); value) {
+      activity.small_image_text = *value;
+    }
+
+    ApplyDiscordActivityState(activity);
+  });
+
+/* luagmp (method)
+*
+* Update the activity state text.
+*
+* @version  0.3.0
+* @name     setState
+* @static
+* @param    (string) state New activity state text.
+*
+*/
+  discord.set_function("setState", [](const std::string& state) {
+    auto& activity = GetDiscordActivityState();
+    activity.state = state;
+    ApplyDiscordActivityState(activity);
+  });
+
+/* luagmp (method)
+*
+* Update the activity details text.
+*
+* @version  0.3.0
+* @name     setDetails
+* @static
+* @param    (string) details New activity details text.
+*
+*/
+  discord.set_function("setDetails", [](const std::string& details) {
+    auto& activity = GetDiscordActivityState();
+    activity.details = details;
+    ApplyDiscordActivityState(activity);
+  });
+
+/* luagmp (method)
+*
+* Update the large image entry for the activity.
+*
+* @version  0.3.0
+* @name     setLargeImage
+* @static
+* @param    (string) key Asset key for the large image.
+* @param    (string) text Optional tooltip text for the large image.
+*
+*/
+  discord.set_function("setLargeImage", [](const std::string& key, const sol::optional<std::string>& text) {
+    auto& activity = GetDiscordActivityState();
+    activity.large_image_key = key;
+    if (text) {
+      activity.large_image_text = *text;
+    }
+    ApplyDiscordActivityState(activity);
+  });
+
+/* luagmp (method)
+*
+* Update the small image entry for the activity.
+*
+* @version  0.3.0
+* @name     setSmallImage
+* @static
+* @param    (string) key Asset key for the small image.
+* @param    (string) text Optional tooltip text for the small image.
+*
+*/
+  discord.set_function("setSmallImage", [](const std::string& key, const sol::optional<std::string>& text) {
+    auto& activity = GetDiscordActivityState();
+    activity.small_image_key = key;
+    if (text) {
+      activity.small_image_text = *text;
+    }
+    ApplyDiscordActivityState(activity);
+  });
+
+/* luagmp (method)
+*
+* Clear the current activity and stored values.
+*
+* @version  0.3.0
+* @name     clearActivity
+* @static
+*
+*/
+  discord.set_function("clearActivity", []() {
+    auto& activity = GetDiscordActivityState();
+    activity = DiscordActivityState{};
+    DiscordRichPresence::Instance().ClearActivity();
   });
 }
 
@@ -1744,7 +1848,7 @@ void BindVob(sol::state& lua) {
 void BindInterface(sol::state& lua) {
 /* luagmp (func)
 *
-* This function will convert pixels to virtuals screen X dimension and return it as a result.
+* Convert pixels to virtuals screen X dimension and return it as a result.
 * Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
 *
 * @version  0.3.0
@@ -1753,8 +1857,8 @@ void BindInterface(sol::state& lua) {
 * @category Interface
 * @note     Use this function only when you want to convert x position or width on the screen.
 * @note     Virtual screen coordinates are similar to percentage values, where 0 is 0% and 8192 is 100%.
-* @param    (int) pixels  The pixels to convert.
-* @return   (int)         The virtuals after conversion.
+* @param    (number) pixels  The pixels to convert.
+* @return   (number)         The virtuals after conversion.
 *
 */
   lua["anx"] = [](int pixels) {
@@ -1766,7 +1870,7 @@ void BindInterface(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will convert pixels to virtuals on screen Y dimension and return it as a result.
+* Convert pixels to virtuals on screen Y dimension and return it as a result.
 * Virtuals are special type of unit used by the game to position UI elements independent from game resolution.
 *
 * @version  0.3.0
@@ -1775,8 +1879,8 @@ void BindInterface(sol::state& lua) {
 * @category Interface
 * @note     Use this function only when you want to convert y position or width on the screen.
 * @note     Virtual screen coordinates are similar to percentage values, where 0 is 0% and 8192 is 100%.
-* @param    (int) pixels  The pixels to convert.
-* @return   (int)         The virtuals after conversion.
+* @param    (number) pixels  The pixels to convert.
+* @return   (number)         The virtuals after conversion.
 *
 */
   lua["any"] = [](int pixels) {
@@ -1789,15 +1893,15 @@ void BindInterface(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will convert virtuals to pixels on screen X dimension and return it as a result.
+* Convert virtuals to pixels on screen X dimension and return it as a result.
 *
 * @version  0.3.0
 * @name     nax
 * @side     client
 * @category Interface
 * @note     Use this function only when you want to convert x position or width on the screen.
-* @param    (int) virtuals  The virtuals to convert.
-* @return   (int)           The pixels after conversion.
+* @param    (number) virtuals  The virtuals to convert.
+* @return   (number)           The pixels after conversion.
 *
 */
   lua["nax"] = [](int virtuals) {
@@ -1810,15 +1914,15 @@ void BindInterface(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will convert virtuals to pixels on screen Y dimension and return it as a result.
+* Convert virtuals to pixels on screen Y dimension and return it as a result.
 *
 * @version  0.3.0
 * @name     nay
 * @side     client
 * @category Interface
 * @note     Use this function only when you want to convert y position or width on the screen.
-* @param    (int) virtuals  The virtuals to convert.
-* @return   (int)           The pixels after conversion.
+* @param    (number) virtuals  The virtuals to convert.
+* @return   (number)           The pixels after conversion.
 *
 */
   lua["nay"] = [](int virtuals) {
@@ -1838,9 +1942,9 @@ void BindInterface(sol::state& lua) {
 * @name     setTime
 * @side     client
 * @category Game
-* @param    (int) hour    Hour component.
-* @param    (int) minute  Minute component.
-* @return   (bool)     True on success.
+* @param    (number) hour    Hour component.
+* @param    (number) minute  Minute component.
+* @return   (boolean)     True on success.
 *
 */
 bool Function_SetTime(int hour, int minute) {
@@ -1888,8 +1992,8 @@ sol::object Function_GetTime(sol::this_state ts) {
 * @name     setDayLength
 * @side     client
 * @category Game
-* @param    (float) miliseconds  Day length in milliseconds (min 10000 ms).
-* @return   (bool)            True on success.
+* @param    (number) miliseconds  Day length in milliseconds (min 10000 ms).
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetDayLength(float day_length_ms) {
@@ -1915,7 +2019,7 @@ bool Function_SetDayLength(float day_length_ms) {
 * @name     getDayLength
 * @side     client
 * @category Game
-* @return   (float)  Day length in milliseconds.
+* @return   (number)  Day length in milliseconds.
 *
 */
 sol::object Function_GetDayLength(sol::this_state ts) {
@@ -1925,13 +2029,13 @@ sol::object Function_GetDayLength(sol::this_state ts) {
 
 /* luagmp (func)
 *
-* This method will set the desired weather type immediately.
+* Set the desired weather type immediately.
 *
 * @version  0.3.0
 * @name     setWeatherType
 * @side     client
 * @category Weather
-* @param    (int) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
+* @param    (number) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
 *
 */
 void Function_SetWeatherType(int weather_type) {
@@ -1940,13 +2044,13 @@ void Function_SetWeatherType(int weather_type) {
 
 /* luagmp (func)
 *
-* This method will return the current weather type.
+* Return the current weather type.
 *
 * @version  0.3.0
 * @name     getWeatherType
 * @side     client
 * @category Weather
-* @return   (int)   Current weather type.
+* @return   (number)   Current weather type.
 *
 */
 int Function_GetWeatherType() {
@@ -1955,14 +2059,14 @@ int Function_GetWeatherType() {
 
 /* luagmp (func)
 *
-* This method will set the sky weather time when it starts raining/snowing.
+* Set the sky weather time when it starts raining/snowing.
 *
 * @version  0.3.0
 * @name     setRainStartTime
 * @side     client
 * @category Weather
-* @param    (int) hour   The sky weather raining start hour.
-* @param    (int) min    The sky weather raining start min.
+* @param    (number) hour   The sky weather raining start hour.
+* @param    (number) min    The sky weather raining start min.
 *
 */
 void Function_SetRainStartTime(int hour, int min) {
@@ -1971,7 +2075,7 @@ void Function_SetRainStartTime(int hour, int min) {
 
 /* luagmp (func)
 *
-* This method will get the sky weather time when it starts raining/snowing.
+* Get the sky weather time when it starts raining/snowing.
 *
 * @version  0.3.0
 * @name     getRainStartTime
@@ -1996,13 +2100,13 @@ sol::object Function_GetRainStartTime(sol::this_state ts) {
 
 /* luagmp (func)
 *
-* This method will change the wind scale used during raining/snowing.
+* Change the wind scale used during raining/snowing.
 *
 * @version  0.3.0
 * @name     setWindScale
 * @side     client
 * @category Weather
-* @param    (float) wind_scale    Wind scale value.
+* @param    (number) wind_scale    Wind scale value.
 *
 */
 void Function_SetWindScale(float wind_scale) {
@@ -2011,13 +2115,13 @@ void Function_SetWindScale(float wind_scale) {
 
 /* luagmp (func)
 *
-* This method returns the current wind scale.
+* Return the current wind scale.
 *
 * @version  0.3.0
 * @name     getWindScale
 * @side     client
 * @category Weather
-* @return   (float)   Current wind scale.
+* @return   (number)   Current wind scale.
 *
 */
 float Function_GetWindScale() {
@@ -2026,14 +2130,14 @@ float Function_GetWindScale() {
 
 /* luagmp (func)
 *
-* This method will enable/disable weather completely.
+* Enable/disable weather completely.
 *
 * @version  0.3.0
 * @name     setDontRain
 * @side     client
 * @category Weather
-* @param    (bool) toggle   True to disable weather, false to enable it.
-* @return   (bool)       True on success.
+* @param    (boolean) toggle   True to disable weather, false to enable it.
+* @return   (boolean)       True on success.
 *
 */
 bool Function_SetDontRain(bool toggle) {
@@ -2042,16 +2146,16 @@ bool Function_SetDontRain(bool toggle) {
 
 /* luagmp (func)
 *
-* This method will set the sky fog color day variation.
+* Set the sky fog color day variation.
 *
 * @version  0.3.0
 * @name     setFogColor
 * @side     client
 * @category Sky
-* @param    (int) id   The id of fog color day variation.
-* @param    (int) r    The red color component in RGB model.
-* @param    (int) g    The green color component in RGB model.
-* @param    (int) b    The blue color component in RGB model.
+* @param    (number) id   The id of fog color day variation.
+* @param    (number) r    The red color component in RGB model.
+* @param    (number) g    The green color component in RGB model.
+* @param    (number) b    The blue color component in RGB model.
 *
 */
 void Function_SetFogColor(int id, int r, int g, int b) {
@@ -2060,15 +2164,15 @@ void Function_SetFogColor(int id, int r, int g, int b) {
 
 /* luagmp (func)
 *
-* This method will set the sky clouds color.
+* Set the sky clouds color.
 *
 * @version  0.3.0
 * @name     setCloudsColor
 * @side     client
 * @category Sky
-* @param    (int) r    The red color component in RGB model.
-* @param    (int) g    The green color component in RGB model.
-* @param    (int) b    The blue color component in RGB model.
+* @param    (number) r    The red color component in RGB model.
+* @param    (number) g    The green color component in RGB model.
+* @param    (number) b    The blue color component in RGB model.
 *
 */
 void Function_SetCloudsColor(int r, int g, int b) {
@@ -2077,14 +2181,14 @@ void Function_SetCloudsColor(int r, int g, int b) {
 
 /* luagmp (func)
 *
-* This method will set the planet size ratio.
+* Set the planet size ratio.
 *
 * @version  0.3.0
 * @name     setPlanetSize
 * @side     client
 * @category Sky
-* @param    (int) planetId    The planet id, for more information see Planet constants.
-* @param    (float) size      The size ratio.
+* @param    (number) planetId    The planet id, for more information see Planet constants.
+* @param    (number) size      The size ratio.
 *
 */
 void Function_SetPlanetSize(int planet_id, float size) {
@@ -2093,17 +2197,17 @@ void Function_SetPlanetSize(int planet_id, float size) {
 
 /* luagmp (func)
 *
-* This method will set the planet color.
+* Set the planet color.
 *
 * @version  0.3.0
 * @name     setPlanetColor
 * @side     client
 * @category Sky
-* @param    (int) planetId  The planet id, for more information see Planet constants.
-* @param    (int) r         The red color component in RGBA model.
-* @param    (int) g         The green color component in RGBA model.
-* @param    (int) b         The blue color component in RGBA model.
-* @param    (int) a         The alpha color component in RGBA model.
+* @param    (number) planetId  The planet id, for more information see Planet constants.
+* @param    (number) r         The red color component in RGBA model.
+* @param    (number) g         The green color component in RGBA model.
+* @param    (number) b         The blue color component in RGBA model.
+* @param    (number) a         The alpha color component in RGBA model.
 *
 */
 void Function_SetPlanetColor(int planet_id, int r, int g, int b, int a) {
@@ -2112,13 +2216,13 @@ void Function_SetPlanetColor(int planet_id, int r, int g, int b, int a) {
 
 /* luagmp (func)
 *
-* This method will set the planet texture.
+* Set the planet texture.
 *
 * @version  0.3.0
 * @name     setPlanetTxt
 * @side     client
 * @category Sky
-* @param    (int) planetId   The planet id, for more information see Planet constants.
+* @param    (number) planetId   The planet id, for more information see Planet constants.
 * @param    (string) texture Name of the texture.
 *
 */
@@ -2128,15 +2232,15 @@ void Function_SetPlanetTxt(int planet_id, const std::string& texture) {
 
 /* luagmp (func)
 *
-* This method will set the sky lighting color.
+* Set the sky lighting color.
 *
 * @version  0.3.0
 * @name     setLightingColor
 * @side     client
 * @category Sky
-* @param    (int) r    The red color component in RGB model.
-* @param    (int) g    The green color component in RGB model.
-* @param    (int) b    The blue color component in RGB model.
+* @param    (number) r    The red color component in RGB model.
+* @param    (number) g    The green color component in RGB model.
+* @param    (number) b    The blue color component in RGB model.
 *
 */
 void Function_SetLightingColor(int r, int g, int b) {
@@ -2193,6 +2297,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["unequipItem"] = Function_UnequipItem;
   lua["hasItem"] = Function_HasItem;
   lua["removeItem"] = Function_RemoveItem;
+  lua["clearInventory"] = Function_ClearInventory;
 
   lua["changeWorld"] = Function_ChangeWorld;
   lua["getWorld"] = Function_GetWorld;
@@ -2201,6 +2306,8 @@ void BindGothicSpecific(sol::state& lua) {
   lua["destroyNpc"] = Function_DestroyNpc;
   lua["spawnNpc"] = Function_SpawnNpc;
   lua["unspawnNpc"] = Function_UnspawnNpc;
+
+  lua["exitGame"] = Function_ExitGame;
 
   BindInputConstants(lua);
   BindCursor(lua);

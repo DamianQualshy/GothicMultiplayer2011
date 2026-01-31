@@ -93,9 +93,9 @@ void RegisterProxies() {
 * @name     onClockUpdate
 * @side     server
 * @category Game
-* @param    (int) day               The current ingame day.
-* @param    (int) hour              The current ingame hour.
-* @param    (int) min               The current ingame minute.
+* @param    (number) day               The current ingame day.
+* @param    (number) hour              The current ingame hour.
+* @param    (number) min               The current ingame minute.
 *
 */
   kLuaEventProxies[kEventOnClockUpdateName] = {[](LuaProxyArgs args) {
@@ -111,7 +111,7 @@ void RegisterProxies() {
 * @name     onPlayerConnect
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player that connected.
+* @param    (number) player_id    The id of the player that connected.
 *
 */
   kLuaEventProxies[kEventOnPlayerConnectName] = {[](LuaProxyArgs args) {
@@ -127,29 +127,13 @@ void RegisterProxies() {
 * @name     onPlayerDisconnect
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player that disconnected.
-* @param    (int) reason       The reason why player got disconnected. See Network constants.
+* @param    (number) player_id    The id of the player that disconnected.
+* @param    (number) reason       The reason why player got disconnected. See Network constants.
 *
 */
   kLuaEventProxies[kEventOnPlayerDisconnectName] = {[](LuaProxyArgs args) {
     OnPlayerDisconnectEvent player_disconnect_event = std::any_cast<OnPlayerDisconnectEvent>(args.event);
     args.callback(player_disconnect_event.player_id, player_disconnect_event.reason);
-  }};
-
-/* luagmp (event)
-*
-* Triggered when a player successfully joined the server.
-*
-* @version  0.3.0
-* @name     onPlayerJoin
-* @side     server
-* @category Player
-* @param    (int) player_id    The id of the player who joined the server.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerJoinName] = {[](LuaProxyArgs args) {
-    OnPlayerJoinEvent player_join_event = std::any_cast<OnPlayerJoinEvent>(args.event);
-    args.callback(player_join_event.player_id);
   }};
 
 /* luagmp (event)
@@ -160,7 +144,7 @@ void RegisterProxies() {
 * @name     onPlayerMessage
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player who sent the message.
+* @param    (number) player_id    The id of the player who sent the message.
 * @param    (string) text      The message text.
 *
 */
@@ -177,7 +161,7 @@ void RegisterProxies() {
 * @name     onPlayerCommand
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player issuing the command.
+* @param    (number) player_id    The id of the player issuing the command.
 * @param    (string) command   The command name.
 * @param    ({...}) params     Command parameters.
 *
@@ -195,8 +179,8 @@ void RegisterProxies() {
 * @name     onPlayerKill
 * @side     server
 * @category Player
-* @param    (int) killer_id    The id of the killer.
-* @param    (int) victim_id    The id of the victim.
+* @param    (number) killer_id    The id of the killer.
+* @param    (number) victim_id    The id of the victim.
 *
 */
   kLuaEventProxies[kEventOnPlayerKillName] = {[](LuaProxyArgs args) {
@@ -212,8 +196,8 @@ void RegisterProxies() {
 * @name     onPlayerDeath
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player who died.
-* @param    (int) killer_id   Optional id of the killer (nil if none).
+* @param    (number) player_id    The id of the player who died.
+* @param    (number) killer_id   Optional id of the killer (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerDeathName] = {[](LuaProxyArgs args) {
@@ -231,9 +215,9 @@ void RegisterProxies() {
 * @name     onPlayerDropItem
 * @side     server
 * @category Player
-* @param    (int) player_id        Player id who dropped the item.
-* @param    (int) item_instance    Item instance id.
-* @param    (int) amount           Amount dropped.
+* @param    (number) player_id        Player id who dropped the item.
+* @param    (number) item_instance    Item instance id.
+* @param    (number) amount           Amount dropped.
 *
 */
   kLuaEventProxies[kEventOnPlayerDropItemName] = {[](LuaProxyArgs args) {
@@ -249,8 +233,8 @@ void RegisterProxies() {
 * @name     onPlayerTakeItem
 * @side     server
 * @category Player
-* @param    (int) player_id        Player id who took the item.
-* @param    (int) item_instance    Item instance id.
+* @param    (number) player_id        Player id who took the item.
+* @param    (number) item_instance    Item instance id.
 *
 */
   kLuaEventProxies[kEventOnPlayerTakeItemName] = {[](LuaProxyArgs args) {
@@ -266,9 +250,9 @@ void RegisterProxies() {
 * @name     onPlayerCastSpell
 * @side     server
 * @category Player
-* @param    (int) caster_id    Caster player id.
-* @param    (int) spell_id     Spell identifier.
-* @param    (int) target_id   Optional target player id (nil if none).
+* @param    (number) caster_id    Caster player id.
+* @param    (number) spell_id     Spell identifier.
+* @param    (number) target_id   Optional target player id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerCastSpellName] = {[](LuaProxyArgs args) {
@@ -286,9 +270,9 @@ void RegisterProxies() {
 * @name     onPlayerChangeHealth
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player whose health points got changed.
-* @param    (int) oldHP        The previous health points of the player.
-* @param    (int) newHP        The new health points of the player.
+* @param    (number) player_id    The id of the player whose health points got changed.
+* @param    (number) oldHP        The previous health points of the player.
+* @param    (number) newHP        The new health points of the player.
 *
 */
   kLuaEventProxies[kEventOnPlayerChangeHealthName] = {[](LuaProxyArgs args) {
@@ -304,9 +288,9 @@ void RegisterProxies() {
 * @name     onPlayerChangeMana
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player whose mana points got changed.
-* @param    (int) previous     The previous mana points of the player.
-* @param    (int) current      The current mana points of the player.
+* @param    (number) player_id    The id of the player whose mana points got changed.
+* @param    (number) previous     The previous mana points of the player.
+* @param    (number) current      The current mana points of the player.
 *
 */
   kLuaEventProxies[kEventOnPlayerChangeManaName] = {[](LuaProxyArgs args) {
@@ -322,7 +306,7 @@ void RegisterProxies() {
 * @name     onPlayerChangeWorld
 * @side     server
 * @category Player
-* @param    (int) player_id    The id of the player who tries to change the played world.
+* @param    (number) player_id    The id of the player who tries to change the played world.
 * @param    (string) world     The filename of the world.
 * @param    (string) waypoint  The name of the waypoint that the player will be teleported to.
 *
@@ -340,9 +324,9 @@ void RegisterProxies() {
 * @name     onPlayerWeaponModeChange
 * @side     server
 * @category Player
-* @param    (int) player_id  Player id.
-* @param    (int) old_mode   Previous weapon mode.
-* @param    (int) new_mode   New weapon mode.
+* @param    (number) player_id  Player id.
+* @param    (number) old_mode   Previous weapon mode.
+* @param    (number) new_mode   New weapon mode.
 *
 */
   kLuaEventProxies[kEventOnPlayerWeaponModeChangeName] = {[](LuaProxyArgs args) {
@@ -358,8 +342,8 @@ void RegisterProxies() {
 * @name     onPlayerAmuletChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New amulet instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New amulet instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerAmuletChangeName] = {[](LuaProxyArgs args) {
@@ -377,8 +361,8 @@ void RegisterProxies() {
 * @name     onPlayerArmorChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New armor instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New armor instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerArmorChangeName] = {[](LuaProxyArgs args) {
@@ -396,8 +380,8 @@ void RegisterProxies() {
 * @name     onPlayerBeltChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New belt instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New belt instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerBeltChangeName] = {[](LuaProxyArgs args) {
@@ -415,9 +399,9 @@ void RegisterProxies() {
 * @name     onPlayerHandItemChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int) hand           Hand id (0 = left, 1 = right).
-* @param    (int|nil) instance   New hand item instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number) hand           Hand id (0 = left, 1 = right).
+* @param    (number|nil) instance   New hand item instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerHandItemChangeName] = {[](LuaProxyArgs args) {
@@ -435,8 +419,8 @@ void RegisterProxies() {
 * @name     onPlayerHelmetChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New helmet instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New helmet instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerHelmetChangeName] = {[](LuaProxyArgs args) {
@@ -454,8 +438,8 @@ void RegisterProxies() {
 * @name     onPlayerMeleeWeaponChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New melee weapon instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New melee weapon instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerMeleeWeaponChangeName] = {[](LuaProxyArgs args) {
@@ -473,8 +457,8 @@ void RegisterProxies() {
 * @name     onPlayerRangedWeaponChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New ranged weapon instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New ranged weapon instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerRangedWeaponChangeName] = {[](LuaProxyArgs args) {
@@ -492,9 +476,9 @@ void RegisterProxies() {
 * @name     onPlayerRingChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int) hand_id        Hand id (0 = left, 1 = right).
-* @param    (int|nil) instance   New ring instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number) hand_id        Hand id (0 = left, 1 = right).
+* @param    (number|nil) instance   New ring instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerRingChangeName] = {[](LuaProxyArgs args) {
@@ -512,8 +496,8 @@ void RegisterProxies() {
 * @name     onPlayerShieldChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int|nil) instance   New shield instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number|nil) instance   New shield instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerShieldChangeName] = {[](LuaProxyArgs args) {
@@ -531,9 +515,9 @@ void RegisterProxies() {
 * @name     onPlayerSpellSlotChange
 * @side     server
 * @category Player
-* @param    (int) player_id      Player id.
-* @param    (int) slot_id        Active spell slot id.
-* @param    (int|nil) instance   Spell instance id (nil if none).
+* @param    (number) player_id      Player id.
+* @param    (number) slot_id        Active spell slot id.
+* @param    (number|nil) instance   Spell instance id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerSpellSlotChangeName] = {[](LuaProxyArgs args) {
@@ -551,10 +535,10 @@ void RegisterProxies() {
 * @name     onPlayerSpawn
 * @side     server
 * @category Player
-* @param    (int) player_id    Player id spawned.
-* @param    (int) x         X coordinate of spawn.
-* @param    (int) y         Y coordinate of spawn.
-* @param    (int) z         Z coordinate of spawn.
+* @param    (number) player_id    Player id spawned.
+* @param    (number) x         X coordinate of spawn.
+* @param    (number) y         Y coordinate of spawn.
+* @param    (number) z         Z coordinate of spawn.
 *
 */
   kLuaEventProxies[kEventOnPlayerSpawnName] = {[](LuaProxyArgs args) {
@@ -570,10 +554,10 @@ void RegisterProxies() {
 * @name     onPlayerRespawn
 * @side     server
 * @category Player
-* @param    (int) player_id    Player id respawned.
-* @param    (int) x         X coordinate of respawn.
-* @param    (int) y         Y coordinate of respawn.
-* @param    (int) z         Z coordinate of respawn.
+* @param    (number) player_id    Player id respawned.
+* @param    (number) x         X coordinate of respawn.
+* @param    (number) y         Y coordinate of respawn.
+* @param    (number) z         Z coordinate of respawn.
 *
 */
   kLuaEventProxies[kEventOnPlayerRespawnName] = {[](LuaProxyArgs args) {
@@ -589,8 +573,8 @@ void RegisterProxies() {
 * @name     onPlayerSpawnFor
 * @side     server
 * @category Player
-* @param    (int) player_id    Player id receiving the spawn.
-* @param    (int) spawn_id     Player id spawned for the receiver.
+* @param    (number) player_id    Player id receiving the spawn.
+* @param    (number) spawn_id     Player id spawned for the receiver.
 *
 */
   kLuaEventProxies[kEventOnPlayerSpawnForName] = {[](LuaProxyArgs args) {
@@ -606,8 +590,8 @@ void RegisterProxies() {
 * @name     onPlayerUnspawnFor
 * @side     server
 * @category Player
-* @param    (int) player_id    Player id losing the spawn.
-* @param    (int) spawn_id     Player id removed for the receiver.
+* @param    (number) player_id    Player id losing the spawn.
+* @param    (number) spawn_id     Player id removed for the receiver.
 *
 */
   kLuaEventProxies[kEventOnPlayerUnspawnForName] = {[](LuaProxyArgs args) {
@@ -623,9 +607,9 @@ void RegisterProxies() {
 * @name     onPlayerHit
 * @side     server
 * @category Player
-* @param    (int) attacker_id  Optional attacker id (nil if none).
-* @param    (int) victim_id     Victim player id.
-* @param    (int) damage        Damage dealt.
+* @param    (number) attacker_id  Optional attacker id (nil if none).
+* @param    (number) victim_id     Victim player id.
+* @param    (number) damage        Damage dealt.
 *
 */
   kLuaEventProxies[kEventOnPlayerHitName] = {[](LuaProxyArgs args) {
@@ -745,19 +729,15 @@ void BindEvents(sol::state& lua) {
 * @category Network
 * @note     If sendTo is omitted or `nil`, the event is sent to all connected players. If sendTo is a number, it is treated as a single player id. If sendTo is a table, it must contain player ids.
 * @note     You may optionally provide a numeric source element id after the event name, followed by any number of additional arguments to send with the event. 
-* @param    (int|{...}|nil) sendTo Target player id, table of player ids, or nil to send to all players.
+* @param    (number|{...}|nil) sendTo Target player id, table of player ids, or nil to send to all players.
 * @param    (string) eventName Name of the client-side event to trigger.
-* @param    (int|nil) sourceElement Optional source element id. If omitted or nil, defaults to 0.
+* @param    (number|nil) sourceElement Optional source element id. If omitted or nil, defaults to 0.
 * @param    (...) ... Optional arguments passed to the client event handler.
-* @return   (bool) True if the event was sent successfully, otherwise false.
+* @return   (boolean) True if the event was sent successfully, otherwise false.
 *
 */
   lua["triggerClientEvent"] = [&lua](sol::variadic_args args) -> bool {
     SPDLOG_TRACE("triggerClientEvent");
-    if (!g_server) {
-      SPDLOG_WARN("triggerClientEvent called before server initialization");
-      return false;
-    }
 
     std::optional<sol::object> send_to;
     std::size_t index = 0;

@@ -248,7 +248,7 @@ bool LuaVob::getCdStatic() const {
 * Represents the max distance at which the vob will still be rendered.
 *
 * @name     farClipZScale
-* @return   (float)
+* @return   (number)
 *
 */
 void LuaVob::setFarClipZScale(float scale) {
@@ -293,7 +293,7 @@ std::string LuaVob::getVisual() const {
 * Represents the transparency of the vob visual.
 *
 * @name     visualAlpha
-* @return   (float) Alpha in range [0.0, 1.0].
+* @return   (number) Alpha in range [0.0, 1.0].
 *
 */
 void LuaVob::setVisualAlpha(float alpha) {
@@ -316,9 +316,9 @@ float LuaVob::getVisualAlpha() const {
 * Set the position of the vob in the world.
 *
 * @name     setPosition
-* @param    (float) x Position on X axis.
-* @param    (float) y Position on Y axis.
-* @param    (float) z Position on Z axis.
+* @param    (number) x Position on X axis.
+* @param    (number) y Position on Y axis.
+* @param    (number) z Position on Z axis.
 *
 */
 void LuaVob::setPosition(float x, float y, float z) {
@@ -357,9 +357,9 @@ sol::table LuaVob::getPosition(sol::this_state s) const {
 * Set the euler rotation of the vob in the world.
 *
 * @name     setRotation
-* @param    (float) x Rotation on X axis.
-* @param    (float) y Rotation on Y axis.
-* @param    (float) z Rotation on Z axis.
+* @param    (number) x Rotation on X axis.
+* @param    (number) y Rotation on Y axis.
+* @param    (number) z Rotation on Z axis.
 *
 */
 void LuaVob::setRotation(float x, float y, float z) {

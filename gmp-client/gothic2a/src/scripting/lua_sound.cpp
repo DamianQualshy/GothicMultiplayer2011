@@ -120,7 +120,7 @@ void LuaSound::StopIfNeeded() {
 
 /* luagmp (method)
 *
-* Starts sound playback.
+* Start sound playback.
 *
 * @name     play
 *
@@ -151,7 +151,7 @@ void LuaSound::play() {
 
 /* luagmp (method)
 *
-* Stops sound playback.
+* Stop sound playback.
 *
 * @name     stop
 *
@@ -162,10 +162,10 @@ void LuaSound::stop() {
 
 /* luagmp (method)
 *
-* Returns whether the sound is currently playing.
+* Return whether the sound is currently playing.
 *
 * @name     isPlaying
-* @return   (bool) True if the sound is playing.
+* @return   (boolean) True if the sound is playing.
 *
 */
 bool LuaSound::isPlaying() const {
@@ -174,7 +174,7 @@ bool LuaSound::isPlaying() const {
 
 /* luagmp (property)
 *
-* Gets or sets the sound file path.
+* Get or set the sound file path.
 *
 * @name     file
 * @return   (string) Sound file path.
@@ -182,7 +182,7 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Returns the current playback time.
+* Return the current playback time.
 *
 * @name     playingTime
 * @readonly
@@ -191,26 +191,26 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Gets or sets the playback volume.
+* Get or set the playback volume.
 *
 * @name     volume
-* @return   (number) Volume level.
+* @return   (number) Volume level (0.0 - 1.0).
 *
 */
 /* luagmp (property)
 *
-* Gets or sets whether the sound should loop.
+* Get or set whether the sound should loop.
 *
 * @name     looping
-* @return   (bool) True if looping is enabled.
+* @return   (boolean) True if looping is enabled.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the stereo balance (pan).
+* Get or set the stereo balance (pan).
 *
 * @name     balance
-* @return   (number) Stereo balance value.
+* @return   (number) Stereo balance value (-1.0 - 1.0).
 *
 */
 

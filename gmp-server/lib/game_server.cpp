@@ -537,7 +537,6 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnTickName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerConnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDisconnectName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerJoinName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCommandName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerKillName);
@@ -1026,7 +1025,6 @@ void GameServer::SomeoneJoinGame(Packet p) {
 
   // join
   EventManager::Instance().TriggerEvent(kEventOnPlayerConnectName, player.player_id);
-  EventManager::Instance().TriggerEvent(kEventOnPlayerJoinName, OnPlayerJoinEvent{player.player_id});
 }
 
 void GameServer::HandlePlayerUpdate(Packet p) {

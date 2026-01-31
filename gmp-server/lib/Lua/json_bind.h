@@ -24,20 +24,10 @@ SOFTWARE.
 
 #pragma once
 
-#include <string>
-#include <string_view>
-#include <vector>
-
-#include <nlohmann/json_fwd.hpp>
-
 #include "sol/sol.hpp"
 
-namespace gmp::lua {
+namespace lua::bindings {
 
-bool EncodeLuaArgs(sol::state_view lua, const sol::variadic_args& args, std::string& payload, std::string& error);
-bool EncodeLuaArgs(sol::state_view lua, const std::vector<sol::object>& args, std::string& payload, std::string& error);
-bool DecodeLuaArgs(sol::state_view lua, std::string_view payload, std::vector<sol::object>& args, std::string& error);
-bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, NLOHMANN_JSON_NAMESPACE::json& out, std::string& error);
-bool DecodeLuaObject(sol::state_view lua, const NLOHMANN_JSON_NAMESPACE::json& input, sol::object& out, std::string& error);
+void BindJson(sol::state& lua);
 
-}  // namespace gmp::lua
+}  // namespace lua::bindings

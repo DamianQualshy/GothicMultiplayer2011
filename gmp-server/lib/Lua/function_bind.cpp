@@ -109,30 +109,16 @@ std::string ClampLuaText(const std::string& text, std::size_t max_len) {
   return text.substr(0, max_len);
 }
 
-}  // namespace
-
-
-/* luagmp (func)
-*
-* This function will store the given text into a log file with the specified name.
-*
-* @version  0.3.0
-* @name     Log
-* @side     server
-* @category Utility
-* @param    (string) name   The name of the log file.
-* @param    (string) text   The text to log.
-*
-*/
-int Function_Log(std::string name, std::string text) {
-  std::ofstream logfile;
-  logfile.open(name, std::ios_base::app);
-  if (logfile.is_open()) {
-    logfile << text << "\n";
-    logfile.close();
+std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std::uint32_t player_id,
+                                                                             const char* action) {
+  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("{} called for missing player id {}", action, player_id);
   }
-  return 0;
+  return player_opt;
 }
+
+}  // namespace
 
 
 /* luagmp (func)
@@ -143,19 +129,14 @@ int Function_Log(std::string name, std::string text) {
 * @name     sendMessageToAll
 * @side     server
 * @category Chat
-* @param    (int) r      Red component (0-255).
-* @param    (int) g      Green component (0-255).
-* @param    (int) b      Blue component (0-255).
-* @param    (string) text Message text to send.
-* @return   (bool)    True on success.
+* @param    (number) r        Red component (0-255).
+* @param    (number) g        Green component (0-255).
+* @param    (number) b        Blue component (0-255).
+* @param    (string) text  Message text to send.
+* @return   (boolean)         True on success.
 *
 */
 bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot send message before the server is initialized");
-    return false;
-  }
-
   g_server->SendMessageToAll(ClampColorComponent(r), ClampColorComponent(g), ClampColorComponent(b), text);
   return true;
 }
@@ -168,17 +149,16 @@ bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
 * @name     sendMessageToPlayer
 * @side     server
 * @category Chat
-* @param    (int) player_id  Target player id.
-* @param    (int) r            Red component (0-255).
-* @param    (int) g            Green component (0-255).
-* @param    (int) b            Blue component (0-255).
-* @param    (string) text      Message text to send.
-* @return   (bool)          True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) r          Red component (0-255).
+* @param    (number) g          Green component (0-255).
+* @param    (number) b          Blue component (0-255).
+* @param    (string) text    Message text to send.
+* @return   (boolean)           True on success, false if the player is missing.
 *
 */
 bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, const std::string& text) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot send message before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "sendMessageToPlayer")) {
     return false;
   }
 
@@ -194,17 +174,16 @@ bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, 
 * @name     sendPlayerMessageToAll
 * @side     server
 * @category Chat
-* @param    (int) sender_id  Sender player id.
-* @param    (int) r             Red component (0-255).
-* @param    (int) g             Green component (0-255).
-* @param    (int) b             Blue component (0-255).
-* @param    (string) text       Message text.
-* @return   (bool)           True on success.
+* @param    (number) sender_id  Sender player id.
+* @param    (number) r          Red component (0-255).
+* @param    (number) g          Green component (0-255).
+* @param    (number) b          Blue component (0-255).
+* @param    (string) text    Message text.
+* @return   (boolean)           True on success, false if the sender is missing.
 *
 */
 bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int b, const std::string& text) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot send player message before the server is initialized");
+  if (!GetPlayerOrWarn(sender_id, "sendPlayerMessageToAll")) {
     return false;
   }
 
@@ -220,19 +199,21 @@ bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int 
 * @name     sendPlayerMessageToPlayer
 * @side     server
 * @category Chat
-* @param    (int) sender_id    Sender player id.
-* @param    (int) receiver_id  Receiver player id.
-* @param    (int) r               Red component (0-255).
-* @param    (int) g               Green component (0-255).
-* @param    (int) b               Blue component (0-255).
-* @param    (string) text         Message text.
-* @return   (bool)             True on success.
+* @param    (number) sender_id    Sender player id.
+* @param    (number) receiver_id  Receiver player id.
+* @param    (number) r            Red component (0-255).
+* @param    (number) g            Green component (0-255).
+* @param    (number) b            Blue component (0-255).
+* @param    (string) text      Message text.
+* @return   (boolean)             True on success, false if sender or receiver is missing.
 *
 */
 bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t receiver_id, int r, int g, int b,
                                         const std::string& text) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot send player message before the server is initialized");
+  if (!GetPlayerOrWarn(sender_id, "sendPlayerMessageToPlayer (sender)")) {
+    return false;
+  }
+  if (!GetPlayerOrWarn(receiver_id, "sendPlayerMessageToPlayer (receiver)")) {
     return false;
   }
 
@@ -243,21 +224,20 @@ bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t r
 
 /* luagmp (func)
 *
-* Spawn a player, optionally overriding the spawn position. 
+* Spawn a player, optionally overriding the spawn position.
 *
 * @version  0.3.0
 * @name     spawnPlayer
 * @side     server
 * @category Player
 * @note     If the player is not spawned, server doesn't recognize his presence at all.
-* @param    (int) player_id    Player id to spawn.
-* @param    ({x, y, z})   Optional position table or three numeric coords.
-* @return   (bool)             True on success.
+* @param    (number) player_id   Player id to spawn.
+* @param    ({x, y, z})       Optional position table or three numeric coords.
+* @return   (boolean)            True on success, false if the player is missing.
 *
 */
 bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot spawn player before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "spawnPlayer")) {
     return false;
   }
 
@@ -273,14 +253,13 @@ bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
 * @name     setPlayerInstance
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (string) instance  Instance name.
-* @return   (bool)           True on success.
+* @param    (number) player_id     Target player id.
+* @param    (string) instance   Instance name.
+* @return   (boolean)              True on success, false if the player is missing.
 *
 */
 bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& instance) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player instance before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerInstance")) {
     return false;
   }
 
@@ -295,17 +274,12 @@ bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& inst
 * @name     getPlayerInstance
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (string|nil)        Instance name or nil.
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)     Instance name or nil.
 *
 */
 sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player instance before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerInstance");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -322,14 +296,13 @@ sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state 
 * @name     setPlayerName
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (string) name       New player name.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (string) name    New player name.
+* @return   (boolean)           True on success, false if the player is missing.
 *
 */
 bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player name before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerName")) {
     return false;
   }
 
@@ -344,17 +317,12 @@ bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
 * @name     getPlayerName
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (string|nil)        Player name or nil.
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)     Player name or nil.
 *
 */
 sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player name before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerName");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -371,16 +339,15 @@ sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) 
 * @name     setPlayerColor
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) r          Red (0-255).
-* @param    (int) g          Green (0-255).
-* @param    (int) b          Blue (0-255).
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) r          Red (0-255).
+* @param    (number) g          Green (0-255).
+* @param    (number) b          Blue (0-255).
+* @return   (boolean)           True on success, false if the player is missing.
 *
 */
 bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player color before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerColor")) {
     return false;
   }
 
@@ -395,17 +362,12 @@ bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
 * @name     getPlayerColor
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   ({r, g, b}|nil)        RGB color or nil.
+* @param    (number) player_id   Target player id.
+* @return   ({r, g, b}|nil)   RGB color or nil.
 *
 */
 sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player color before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerColor");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -427,14 +389,13 @@ sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts)
 * @name     setPlayerHealth
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) health        New health value.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) health     New health value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player health before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerHealth")) {
     return false;
   }
 
@@ -449,17 +410,12 @@ bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
 * @name     getPlayerHealth
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Health value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Health value or nil.
 *
 */
 sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player health before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerHealth");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -476,14 +432,13 @@ sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts
 * @name     setPlayerMaxHealth
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) max_health    New maximum health.
-* @return   (bool)           True on success.
+* @param    (number) player_id   Target player id.
+* @param    (number) max_health  New maximum health.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player max health before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerMaxHealth")) {
     return false;
   }
 
@@ -498,17 +453,12 @@ bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
 * @name     getPlayerMaxHealth
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Max health or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Max health or nil.
 *
 */
 sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player max health before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMaxHealth");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -525,14 +475,13 @@ sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state
 * @name     setPlayerMana
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) mana          New mana value.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) mana       New mana value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player mana before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerMana")) {
     return false;
   }
 
@@ -547,17 +496,12 @@ bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
 * @name     getPlayerMana
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Mana value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Mana value or nil.
 *
 */
 sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player mana before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMana");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -574,14 +518,13 @@ sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) 
 * @name     setPlayerMaxMana
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) max_mana      New maximum mana.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) max_mana   New maximum mana.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player max mana before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerMaxMana")) {
     return false;
   }
 
@@ -596,17 +539,12 @@ bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
 * @name     getPlayerMaxMana
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Max mana or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Max mana or nil.
 *
 */
 sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player max mana before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMaxMana");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -623,14 +561,13 @@ sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state t
 * @name     setPlayerStrength
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) strength      New strength value.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) strength   New strength value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player strength before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerStrength")) {
     return false;
   }
 
@@ -645,17 +582,12 @@ bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
 * @name     getPlayerStrength
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Strength value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Strength value or nil.
 *
 */
 sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player strength before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerStrength");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -672,14 +604,13 @@ sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state 
 * @name     setPlayerDexterity
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) dexterity     New dexterity value.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) dexterity  New dexterity value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player dexterity before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerDexterity")) {
     return false;
   }
 
@@ -694,17 +625,12 @@ bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
 * @name     getPlayerDexterity
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Dexterity value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Dexterity value or nil.
 *
 */
 sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player dexterity before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerDexterity");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -721,15 +647,14 @@ sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state
 * @name     setPlayerSkillWeapon
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) skill_id   Skill identifier.
-* @param    (int) percentage Hit chance (0-100).
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) skill_id   Skill identifier.
+* @param    (number) percentage Hit chance (0-100).
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int percentage) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player weapon skill before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerSkillWeapon")) {
     return false;
   }
 
@@ -744,18 +669,13 @@ bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int pe
 * @name     getPlayerSkillWeapon
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) skill_id   Skill identifier.
-* @return   (int|nil)        Hit chance (0-100) or nil.
+* @param    (number) player_id  Target player id.
+* @param    (number) skill_id   Skill identifier.
+* @return   (number|nil)        Hit chance (0-100) or nil.
 *
 */
 sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player weapon skill before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerSkillWeapon");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -775,15 +695,14 @@ sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id,
 * @name     setPlayerTalent
 * @side     server
 * @category Player
-* @param    (int) player_id    Target player id.
-* @param    (int) talent_id    Talent identifier.
-* @param    (int) talent_value Talent value.
-* @return   (bool)           True on success.
+* @param    (number) player_id     Target player id.
+* @param    (number) talent_id     Talent identifier.
+* @param    (number) talent_value  Talent value.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent_value) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player talent before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerTalent")) {
     return false;
   }
 
@@ -798,18 +717,13 @@ bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent
 * @name     getPlayerTalent
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) talent_id  Talent identifier.
-* @return   (int|nil)        Talent value or nil.
+* @param    (number) player_id  Target player id.
+* @param    (number) talent_id  Talent identifier.
+* @return   (number|nil)        Talent value or nil.
 *
 */
 sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player talent before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerTalent");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -829,14 +743,13 @@ sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol
 * @name     setPlayerLevel
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) level         New level.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) level      New level.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player level before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerLevel")) {
     return false;
   }
 
@@ -851,17 +764,12 @@ bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
 * @name     getPlayerLevel
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Level or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Level or nil.
 *
 */
 sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player level before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerLevel");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -878,14 +786,13 @@ sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts)
 * @name     setPlayerExp
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) exp           New exp value.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) exp        New exp value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player exp before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerExp")) {
     return false;
   }
 
@@ -900,17 +807,12 @@ bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
 * @name     getPlayerExp
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Exp value or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Exp value or nil.
 *
 */
 sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player exp before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerExp");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -927,14 +829,13 @@ sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
 * @name     setPlayerNextLevelExp
 * @side     server
 * @category Player
-* @param    (int) player_id      Target player id.
-* @param    (int) next_level_exp    Required exp for next level.
-* @return   (bool)               True on success.
+* @param    (number) player_id      Target player id.
+* @param    (number) next_level_exp Required exp for next level.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player next level exp before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerNextLevelExp")) {
     return false;
   }
 
@@ -949,17 +850,12 @@ bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp)
 * @name     getPlayerNextLevelExp
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Next level exp or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Next level exp or nil.
 *
 */
 sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player next level exp before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerNextLevelExp");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -976,14 +872,13 @@ sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_st
 * @name     setPlayerLearnPoints
 * @side     server
 * @category Player
-* @param    (int) player_id   Target player id.
-* @param    (int) learn_points   New learn points value.
-* @return   (bool)            True on success.
+* @param    (number) player_id     Target player id.
+* @param    (number) learn_points  New learn points value.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player learn points before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerLearnPoints")) {
     return false;
   }
 
@@ -998,17 +893,12 @@ bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
 * @name     getPlayerLearnPoints
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Learn points or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Learn points or nil.
 *
 */
 sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player learn points before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerLearnPoints");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1025,18 +915,17 @@ sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_sta
 * @name     setPlayerVisual
 * @side     server
 * @category Player
-* @param    (int) player_id    Target player id.
+* @param    (number) player_id       Target player id.
 * @param    (string) body_model   Body model name.
-* @param    (int) body_texture    Body texture index.
+* @param    (number) body_texture    Body texture index.
 * @param    (string) head_model   Head model name.
-* @param    (int) head_texture    Head texture index.
-* @return   (bool)             True on success.
+* @param    (number) head_texture    Head texture index.
+* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model,
                               int head_texture) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player visual before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerVisual")) {
     return false;
   }
 
@@ -1052,17 +941,12 @@ bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_m
 * @name     getPlayerVisual
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id       Target player id.
 * @return   ({bodyModel, bodyTexture, headModel, headTexture}|nil)         Table with bodyModel, bodyTexture, headModel, headTexture or nil.
 *
 */
 sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player visual before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerVisual");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1085,14 +969,13 @@ sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts
 * @name     setPlayerFatness
 * @side     server
 * @category Player
-* @param    (int) player_id   Target player id.
-* @param    (float) fatness   Fatness value.
-* @return   (bool)           True on success.
+* @param    (number) player_id   Target player id.
+* @param    (number) fatness   Fatness value.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player fatness before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerFatness")) {
     return false;
   }
 
@@ -1107,17 +990,12 @@ bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
 * @name     getPlayerFatness
 * @side     server
 * @category Player
-* @param    (int) player_id   Target player id.
+* @param    (number) player_id   Target player id.
 * @return   (float|nil)       Fatness value or nil.
 *
 */
 sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player fatness before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerFatness");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1134,16 +1012,15 @@ sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state t
 * @name     setPlayerScale
 * @side     server
 * @category Player
-* @param    (int) player_id   Target player id.
-* @param    (float) x         Scale factor on x axis.
-* @param    (float) y         Scale factor on y axis.
-* @param    (float) z         Scale factor on z axis.
-* @return   (bool)           True on success.
+* @param    (number) player_id   Target player id.
+* @param    (number) x         Scale factor on x axis.
+* @param    (number) y         Scale factor on y axis.
+* @param    (number) z         Scale factor on z axis.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player scale before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerScale")) {
     return false;
   }
 
@@ -1158,17 +1035,12 @@ bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z)
 * @name     getPlayerScale
 * @side     server
 * @category Player
-* @param    (int) player_id   Target player id.
+* @param    (number) player_id   Target player id.
 * @return   ({x, y, z}|nil)   Scale table or nil.
 *
 */
 sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player scale before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerScale");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1190,14 +1062,13 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 * @name     applyPlayerOverlay
 * @side     server
 * @category Player
-* @param    (int) player_id    Target player id.
-* @param    (string) overlay   Overlay name.
-* @return   (bool)           True on success.
+* @param    (number) player_id     Target player id.
+* @param    (string) overlay    Overlay name.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot apply player overlay before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "applyPlayerOverlay")) {
     return false;
   }
 
@@ -1212,17 +1083,12 @@ bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& ove
 * @name     getPlayerOverlays
 * @side     server
 * @category Player
-* @param    (int) player_id
+* @param    (number) player_id
 * @return   ({...}|nil)         Array of overlay names or nil.
 *
 */
 sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player overlays before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerOverlays");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1248,14 +1114,13 @@ sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state 
 * @name     removePlayerOverlay
 * @side     server
 * @category Player
-* @param    (int) player_id    Target player id.
-* @param    (string) overlay   Overlay name.
-* @return   (bool)           True on success.
+* @param    (number) player_id     Target player id.
+* @param    (string) overlay    Overlay name.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot remove player overlay before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "removePlayerOverlay")) {
     return false;
   }
 
@@ -1270,16 +1135,15 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 * @name     setPlayerPosition
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @param    (int) x          X coordinate.
-* @param    (int) y          Y coordinate.
-* @param    (int) z          Z coordinate.
-* @return   (bool)           True on success.
+* @param    (number) player_id  Target player id.
+* @param    (number) x          X coordinate.
+* @param    (number) y          Y coordinate.
+* @param    (number) z          Z coordinate.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player position before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerPosition")) {
     return false;
   }
 
@@ -1294,13 +1158,12 @@ bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float
 * @name     getPlayerPosition
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   ({x, y, z}|nil)         Table containing x,y,z or nil.
+* @param    (number) player_id   Target player id.
+* @return   ({x, y, z}|nil)   Table containing x,y,z or nil.
 *
 */
 sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player position before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "getPlayerPosition")) {
     return sol::nil;
   }
 
@@ -1325,14 +1188,13 @@ sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state 
 * @name     setPlayerAngle
 * @side     server
 * @category Player
-* @param    (int) player_id      Target player id.
+* @param    (number) player_id         Target player id.
 * @param    (number) angle_degrees  Angle in degrees.
-* @return   (bool)               True on success.
+* @return   (boolean)                  True on success.
 *
 */
 bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player angle before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerAngle")) {
     return false;
   }
 
@@ -1348,17 +1210,12 @@ bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
 * @name     getPlayerAngle
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @return   (number|nil)     Angle in degrees or nil.
 *
 */
 sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player angle before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerAngle");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1378,15 +1235,14 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 * @name     setPlayerWorld
 * @side     server
 * @category Player
-* @param    (int) player_id     Target player id.
-* @param    (string) world         World name.
+* @param    (number) player_id       Target player id.
+* @param    (string) world        World name.
 * @param    (string) start_point  Optional start point name.
-* @return   (bool)              True on success.
+* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, std::optional<std::string> start_point) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player world before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerWorld")) {
     return false;
   }
 
@@ -1401,17 +1257,12 @@ bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, 
 * @name     getPlayerWorld
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (string|nil)        World name or nil.
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)     World name or nil.
 *
 */
 sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player world before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerWorld");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1428,14 +1279,13 @@ sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts)
 * @name     setPlayerVirtualWorld
 * @side     server
 * @category Player
-* @param    (int) player_id      Target player id.
-* @param    (int) virtual_world  Virtual world id (0-65535).
-* @return   (bool)            True on success.
+* @param    (number) player_id       Target player id.
+* @param    (number) virtual_world   Virtual world id (0-65535).
+* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player virtual world before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerVirtualWorld")) {
     return false;
   }
 
@@ -1450,17 +1300,12 @@ bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) 
 * @name     getPlayerVirtualWorld
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        Virtual world id or nil.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Virtual world id or nil.
 *
 */
 sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player virtual world before the server is initialized");
-    return sol::nil;
-  }
-
-  auto player_opt = g_server->GetPlayerManager().GetPlayer(player_id);
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerVirtualWorld");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1471,20 +1316,19 @@ sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_st
 
 /* luagmp (func)
 *
-* This function will ban the player on the server.
+* Ban the player on the server.
 *
 * @version  0.3.0
 * @name     ban
 * @side     server
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) reason  Optional reason why the player was banned.
 *
 */
 void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot ban player before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "ban")) {
     return;
   }
 
@@ -1499,20 +1343,19 @@ void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
 
 /* luagmp (func)
 *
-* This function will kick the player from the server.
+* Kick the player from the server.
 *
 * @version  0.3.0
 * @name     kick
 * @side     server
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 * @param    (string) reason  Optional reason why the player was kicked.
 *
 */
 void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot kick player before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "kick")) {
     return;
   }
 
@@ -1533,13 +1376,12 @@ void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
 * @name     isPlayerConnected
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (bool)           True when player is connected, otherwise false.
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True when player is connected, otherwise false.
 *
 */
 bool Function_IsPlayerConnected(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot check player connection before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "isPlayerConnected")) {
     return false;
   }
 
@@ -1554,13 +1396,12 @@ bool Function_IsPlayerConnected(std::uint32_t player_id) {
 * @name     isPlayerDead
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (bool)           True when player is dead, otherwise false.
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True when player is dead, otherwise false.
 *
 */
 bool Function_IsPlayerDead(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot check player death before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "isPlayerDead")) {
     return false;
   }
 
@@ -1575,13 +1416,12 @@ bool Function_IsPlayerDead(std::uint32_t player_id) {
 * @name     isPlayerSpawned
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (bool)           True when player is spawned, otherwise false.
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True when player is spawned, otherwise false.
 *
 */
 bool Function_IsPlayerSpawned(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot check player spawn before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "isPlayerSpawned")) {
     return false;
   }
 
@@ -1596,13 +1436,12 @@ bool Function_IsPlayerSpawned(std::uint32_t player_id) {
 * @name     isPlayerUnconscious
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (bool)           True when player is unconscious, otherwise false.
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True when player is unconscious, otherwise false.
 *
 */
 bool Function_IsPlayerUnconscious(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot check player unconscious state before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "isPlayerUnconscious")) {
     return false;
   }
 
@@ -1611,18 +1450,17 @@ bool Function_IsPlayerUnconscious(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* This function will immediately respawn the player if it is dead.
+* Immediately respawn the player if he is dead.
 *
 * @version  0.3.0
 * @name     respawnPlayer
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
+* @param    (number) player_id  Target player id.
 *
 */
 void Function_RespawnPlayer(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot respawn player before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "respawnPlayer")) {
     return;
   }
 
@@ -1631,20 +1469,19 @@ void Function_RespawnPlayer(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* This function will set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
+* Set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
 *
 * @version  0.3.0
 * @name     setPlayerRespawnTime
 * @side     server
 * @category Player
 * @note     The respawnTime can't be smaller than 1001 miliseconds.
-* @param    (int) player_id     Target player id.
-* @param    (int) respawn_time  New respawn time in milliseconds.
+* @param    (number) player_id     Target player id.
+* @param    (number) respawn_time  New respawn time in milliseconds.
 *
 */
 void Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn_time_ms) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set player respawn time before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "setPlayerRespawnTime")) {
     return;
   }
 
@@ -1659,19 +1496,18 @@ void Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn
 
 /* luagmp (func)
 *
-* This function will get the player time to respawn after death.
+* Get the player time to respawn after death.
 *
 * @version  0.3.0
 * @name     getPlayerRespawnTime
 * @side     server
 * @category Player
-* @param    (int) player_id  Target player id.
-* @return   (int|nil)        The player respawn time or nil if player isn't created.
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        The player respawn time or nil if player isn't created.
 *
 */
 sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get player respawn time before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "getPlayerRespawnTime")) {
     return sol::nil;
   }
 
@@ -1692,15 +1528,14 @@ sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_sta
 * @name     giveItem
 * @side     server
 * @category Inventory
-* @param    (int) player_id     Target player id.
+* @param    (number) player_id     Target player id.
 * @param    (string) instance   Item instance name from scripts.
-* @param    (int) amount        Amount to give.
-* @return   (bool)           True on success.
+* @param    (number) amount        Amount to give.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot give item before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "giveItem")) {
     return false;
   }
 
@@ -1715,15 +1550,14 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
 * @name     equipItem
 * @side     server
 * @category Inventory
-* @param    (int) player_id     Target player id.
+* @param    (number) player_id     Target player id.
 * @param    (string) instance   Item instance name from scripts.
-* @param    (int) slot_id       Optional slot id. Defaults to -1 for first free slot.
-* @return   (bool)           True on success.
+* @param    (number) slot_id       Optional slot id. Defaults to -1 for first free slot.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, sol::optional<std::int32_t> slot_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot equip item before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "equipItem")) {
     return false;
   }
 
@@ -1738,14 +1572,13 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 * @name     unequipItem
 * @side     server
 * @category Inventory
-* @param    (int) player_id     Target player id.
+* @param    (number) player_id     Target player id.
 * @param    (string) instance   Item instance name from scripts.
-* @return   (bool)           True on success.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot unequip item before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "unequipItem")) {
     return false;
   }
 
@@ -1760,14 +1593,13 @@ bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) 
 * @name     hasItem
 * @side     server
 * @category Inventory
-* @param    (int) player_id     Target player id.
+* @param    (number) player_id     Target player id.
 * @param    (string) instance   Item instance name from scripts.
-* @return   (int)               Item amount or 0 if missing.
+* @return   (number)               Item amount or 0 if missing.
 *
 */
 int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot check item before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "hasItem")) {
     return 0;
   }
 
@@ -1782,16 +1614,15 @@ int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
 * @name     removeItem
 * @side     server
 * @category Inventory
-* @param    (int) player_id     Target player id.
+* @param    (number) player_id     Target player id.
 * @param    (string) instance   Item instance name from scripts.
-* @param    (int) amount        Amount to remove.
-* @return   (bool)              True on success.
+* @param    (number) amount        Amount to remove.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot remove item before the server is initialized");
-    return 0;
+  if (!GetPlayerOrWarn(player_id, "removeItem")) {
+    return false;
   }
 
   return g_server->RemoveItem(player_id, ClampLuaText(instance, 255), amount);
@@ -1805,16 +1636,11 @@ bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, s
 * @name     setServerWorld
 * @side     server
 * @category Game
-* @param    (string) world   World name to set.
-* @return   (bool)       True on success.
+* @param    (string) world    World name to set.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetServerWorld(const std::string& world) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set server world before the server is initialized");
-    return false;
-  }
-
   return g_server->SetServerWorld(world);
 }
 
@@ -1830,11 +1656,6 @@ bool Function_SetServerWorld(const std::string& world) {
 *
 */
 std::string Function_GetServerWorld() {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get server world before the server is initialized");
-    return std::string{};
-  }
-
   return g_server->GetServerWorld();
 }
 
@@ -1847,19 +1668,14 @@ std::string Function_GetServerWorld() {
 * @side     server
 * @category Streamer
 * @param    ({x, y, z}) position_table  Table with x,y,z coordinates.
-* @param    (int) radius            Search radius.
-* @param    (string) world          World name to search in.
-* @param    (int) virtual_world    Optional virtual world id.
-* @return   ({...})                Array of player ids.
+* @param    (number) radius                Search radius.
+* @param    (string) world              World name to search in.
+* @param    (number) virtual_world         Optional virtual world id.
+* @return   ({...})                     Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_FindNearbyPlayers(const sol::table& position_table, int radius,
                                                       const std::string& world, sol::optional<int> virtual_world) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot find players before the server is initialized");
-    return {};
-  }
-
   auto position = Function_ParsePositionTable(position_table);
   if (!position.has_value()) {
     return {};
@@ -1876,13 +1692,12 @@ std::vector<std::uint32_t> Function_FindNearbyPlayers(const sol::table& position
 * @name     getSpawnedPlayersForPlayer
 * @side     server
 * @category Streamer
-* @param    (int) player_id  Target player id.
-* @return   ({...})            Array of player ids.
+* @param    (number) player_id   Target player id.
+* @return   ({...})           Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_GetSpawnedPlayersForPlayer(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get spawned players before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "getSpawnedPlayersForPlayer")) {
     return {};
   }
 
@@ -1897,13 +1712,12 @@ std::vector<std::uint32_t> Function_GetSpawnedPlayersForPlayer(std::uint32_t pla
 * @name     getStreamedPlayersByPlayer
 * @side     server
 * @category Streamer
-* @param    (int) player_id  Target player id.
-* @return   ({...})            Array of player ids.
+* @param    (number) player_id  Target player id.
+* @return   ({...})          Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t player_id) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get streamed players before the server is initialized");
+  if (!GetPlayerOrWarn(player_id, "getStreamedPlayersByPlayer")) {
     return {};
   }
 
@@ -1918,18 +1732,13 @@ std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t pla
 * @name     setTime
 * @side     server
 * @category Game
-* @param    (int) hour      Hour (0-23).
-* @param    (int) min       Minute (0-59).
-* @param    (int) day      Optional day offset.
-* @return   (bool)       True on success.
+* @param    (number) hour      Hour (0-23).
+* @param    (number) min       Minute (0-59).
+* @param    (number) day       Optional day offset.
+* @return   (boolean)          True on success.
 *
 */
 bool Function_SetTime(int hour, int min, sol::optional<int> day) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set time before the server is initialized");
-    return false;
-  }
-
   return g_server->SetTime(hour, min, day.value_or(0));
 }
 
@@ -1941,15 +1750,10 @@ bool Function_SetTime(int hour, int min, sol::optional<int> day) {
 * @name     getTime
 * @side     server
 * @category Game
-* @return   ({day, hour, min})        Table containing day, hour, min.
+* @return   ({day, hour, min})  Table containing day, hour, min.
 *
 */
 sol::object Function_GetTime(sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get time before the server is initialized");
-    return sol::nil;
-  }
-
   auto time = g_server->GetTime();
   sol::state_view lua(ts);
   sol::table time_table = lua.create_table();
@@ -1967,16 +1771,11 @@ sol::object Function_GetTime(sol::this_state ts) {
 * @name     setDayLength
 * @side     server
 * @category Game
-* @param    (float) miliseconds  Day length in milliseconds (min 10000 ms).
-* @return   (bool)            True on success.
+* @param    (number) miliseconds   Day length in milliseconds (min 10000 ms).
+* @return   (boolean)                True on success.
 *
 */
 bool Function_SetDayLength(float day_length_ms) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set day length before the server is initialized");
-    return false;
-  }
-
   constexpr float kMinDayLengthMs = 10000.0f;
   if (day_length_ms < kMinDayLengthMs) {
     SPDLOG_WARN("setDayLength called with invalid value {} ms, clamping to {} ms", day_length_ms, kMinDayLengthMs);
@@ -1994,83 +1793,63 @@ bool Function_SetDayLength(float day_length_ms) {
 * @name     getDayLength
 * @side     server
 * @category Game
-* @return   (float)  Day length in milliseconds.
+* @return   (number)  Day length in milliseconds.
 *
 */
 sol::object Function_GetDayLength(sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get day length before the server is initialized");
-    return sol::nil;
-  }
-
   sol::state_view lua(ts);
   return sol::make_object(lua, g_server->GetDayLength());
 }
 
 /* luagmp (func)
 *
-* This method will set the desired weather type immediately.
+* Set the desired weather type immediately.
 *
 * @version  0.3.0
 * @name     setWeatherType
 * @side     server
 * @category Weather
-* @param    (int) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
+* @param    (number) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
 *
 */
 void Function_SetWeatherType(int weather_type) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set weather before the server is initialized");
-    return;
-  }
-
   g_server->SetWeatherType(weather_type);
 }
 
 /* luagmp (func)
 *
-* This method will return the current weather type.
+* Return the current weather type.
 *
 * @version  0.3.0
 * @name     getWeatherType
 * @side     server
 * @category Weather
-* @return   (int)   Current weather type.
+* @return   (number)   Current weather type.
 *
 */
 int Function_GetWeatherType() {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get weather before the server is initialized");
-    return 0;
-  }
-
   return g_server->GetWeatherType();
 }
 
 /* luagmp (func)
 *
-* This method will set the sky weather time when it starts raining/snowing.
+* Set the sky weather time when it starts raining/snowing.
 *
 * @version  0.3.0
 * @name     setRainStartTime
 * @side     server
 * @category Weather
-* @param    (int) hour   The sky weather raining start hour.
-* @param    (int) min    The sky weather raining start min.
+* @param    (number) hour   The sky weather raining start hour.
+* @param    (number) min    The sky weather raining start min.
 *
 */
 void Function_SetRainStartTime(int hour, int min) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set rain start time before the server is initialized");
-    return;
-  }
-
   g_server->SetRainStartTime(hour, min);
 }
 
 /* luagmp (func)
 *
-* This method will get the sky weather time when it starts raining/snowing.
+* Get the sky weather time when it starts raining/snowing.
 *
 * @version  0.3.0
 * @name     getRainStartTime
@@ -2080,11 +1859,6 @@ void Function_SetRainStartTime(int hour, int min) {
 *
 */
 sol::object Function_GetRainStartTime(sol::this_state ts) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get rain start time before the server is initialized");
-    return sol::nil;
-  }
-
   sol::state_view lua(ts);
   auto time = g_server->GetRainStartTime();
   sol::table tbl = lua.create_table();
@@ -2095,62 +1869,47 @@ sol::object Function_GetRainStartTime(sol::this_state ts) {
 
 /* luagmp (func)
 *
-* This method will change the wind scale used during raining/snowing.
+* Change the wind scale used during raining/snowing.
 *
 * @version  0.3.0
 * @name     setWindScale
 * @side     server
 * @category Weather
-* @param    (float) wind_scale    Wind scale value.
+* @param    (number) wind_scale    Wind scale value.
 *
 */
 void Function_SetWindScale(float wind_scale) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot set wind scale before the server is initialized");
-    return;
-  }
-
   g_server->SetWindScale(wind_scale);
 }
 
 /* luagmp (func)
 *
-* This method returns the current wind scale.
+* Return the current wind scale.
 *
 * @version  0.3.0
 * @name     getWindScale
 * @side     server
 * @category Weather
-* @return   (float)   Current wind scale.
+* @return   (number)   Current wind scale.
 *
 */
 float Function_GetWindScale() {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot get wind scale before the server is initialized");
-    return 0.0f;
-  }
-
   return g_server->GetWindScale();
 }
 
 /* luagmp (func)
 *
-* This method will enable/disable weather completely.
+* Enable/disable weather completely.
 *
 * @version  0.3.0
 * @name     setDontRain
 * @side     server
 * @category Weather
-* @param    (bool) toggle   True to disable weather, false to enable it.
-* @return   (bool)       True on success.
+* @param    (boolean) toggle   True to disable weather, false to enable it.
+* @return   (boolean)          True on success.
 *
 */
 bool Function_SetDontRain(bool toggle) {
-  if (!g_server) {
-    SPDLOG_WARN("Cannot toggle rain before the server is initialized");
-    return false;
-  }
-
   return g_server->SetDontRain(toggle);
 }
 
@@ -2180,7 +1939,6 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
         return static_cast<int>(count);
       },
   });
-  lua["Log"] = Function_Log;
 
   lua["sendMessageToAll"] = Function_SendMessageToAll;
   lua["sendMessageToPlayer"] = Function_SendMessageToPlayer;

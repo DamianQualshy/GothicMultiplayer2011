@@ -272,7 +272,7 @@ void Vec2::set(float x_in, float y_in) {
 *
 * @name     isEqualEps
 * @param    (Vec2) vec Other vector.
-* @return   (bool) True if both components are equal within epsilon.
+* @return   (boolean) True if both components are equal within epsilon.
 *
 */
 bool Vec2::isEqualEps(const Vec2& vec) const {
@@ -591,7 +591,7 @@ void Vec3::set(float x_in, float y_in, float z_in) {
 *
 * @name     isEqualEps
 * @param    (Vec3) vec Other vector.
-* @return   (bool) True if all components are equal within epsilon.
+* @return   (boolean) True if all components are equal within epsilon.
 *
 */
 bool Vec3::isEqualEps(const Vec3& vec) const {
@@ -924,7 +924,7 @@ void Vec4::set(float x_in, float y_in, float z_in, float w_in) {
 *
 * @name     isEqualEps
 * @param    (Vec4) vec Other vector.
-* @return   (bool) True if all components are equal within epsilon.
+* @return   (boolean) True if all components are equal within epsilon.
 *
 */
 bool Vec4::isEqualEps(const Vec4& vec) const {
@@ -1124,7 +1124,7 @@ void Mat3::makeOrthonormal() {
 * Returns true if the matrix basis vectors are orthonormal.
 *
 * @name     isUpper3x3Orthonormal
-* @return   (bool) True if orthonormal within epsilon tolerance.
+* @return   (boolean) True if orthonormal within epsilon tolerance.
 *
 */
 bool Mat3::isUpper3x3Orthonormal() const {
@@ -1472,7 +1472,7 @@ void Mat4::makeOrthonormal() {
 * Returns true if the upper 3x3 basis vectors are orthonormal.
 *
 * @name     isUpper3x3Orthonormal
-* @return   (bool) True if orthonormal within epsilon tolerance.
+* @return   (boolean) True if orthonormal within epsilon tolerance.
 *
 */
 bool Mat4::isUpper3x3Orthonormal() const {
@@ -2032,7 +2032,7 @@ void Quat::makeIdentity() {
 * Returns true if this quaternion is identity (within epsilon tolerance).
 *
 * @name     isIdentity
-* @return   (bool) True if identity.
+* @return   (boolean) True if identity.
 *
 */
 bool Quat::isIdentity() const {
@@ -2294,17 +2294,17 @@ using namespace types;
 void BindMath(sol::state& lua) {
 /* luagmp (func)
 *
-* This function will get the 2d distance between two points.
+* Get the 2d distance between two points.
 *
 * @version  0.3.0
 * @name     getDistance2d
 * @side     shared
 * @category Math
-* @param  (float) x1      The position on X axis of the first point.
-* @param  (float) y1      The position on Y axis of the first point.
-* @param  (float) x2      The position on X axis of the second point.
-* @param  (float) y2      The position on Y axis of the second point.
-* @return (float)        The distance between the two points.
+* @param  (number) x1      The position on X axis of the first point.
+* @param  (number) y1      The position on Y axis of the first point.
+* @param  (number) x2      The position on X axis of the second point.
+* @param  (number) y2      The position on Y axis of the second point.
+* @return (number)        The distance between the two points.
 *
 */
   lua["getDistance2d"] = [](float x1, float y1, float x2, float y2) {
@@ -2315,19 +2315,19 @@ void BindMath(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will get the 3d distance between two points.
+* Get the 3d distance between two points.
 *
 * @version  0.3.0
 * @name     getDistance3d
 * @side     shared
 * @category Math
-* @param  (float) x1      The position on X axis of the first point.
-* @param  (float) y1      The position on Y axis of the first point.
-* @param  (float) z1      The position on Z axis of the first point.
-* @param  (float) x2      The position on X axis of the second point.
-* @param  (float) y2      The position on Y axis of the second point.
-* @param  (float) z2      The position on Z axis of the second point.
-* @return (float)        The distance between the two points.
+* @param  (number) x1      The position on X axis of the first point.
+* @param  (number) y1      The position on Y axis of the first point.
+* @param  (number) z1      The position on Z axis of the first point.
+* @param  (number) x2      The position on X axis of the second point.
+* @param  (number) y2      The position on Y axis of the second point.
+* @param  (number) z2      The position on Z axis of the second point.
+* @return (number)        The distance between the two points.
 *
 */
   lua["getDistance3d"] = [](float x1, float y1, float z1, float x2, float y2, float z2) {
@@ -2339,17 +2339,17 @@ void BindMath(sol::state& lua) {
   
 /* luagmp (func)
 *
-* This function will get angle on Y axis directed towards the second point.
+* Get angle on Y axis directed towards the second point.
 *
 * @version  0.3.0
 * @name     getVectorAngle
 * @side     shared
 * @category Math
-* @param  (float) x1      The position on X axis of the first point.
-* @param  (float) y1      The position on Y axis of the first point.
-* @param  (float) x2      The position on X axis of the second point.
-* @param  (float) y2      The position on Y axis of the second point.
-* @return (float)        The angle on Y axis directed towards the second point.
+* @param  (number) x1      The position on X axis of the first point.
+* @param  (number) y1      The position on Y axis of the first point.
+* @param  (number) x2      The position on X axis of the second point.
+* @param  (number) y2      The position on Y axis of the second point.
+* @return (number)        The angle on Y axis directed towards the second point.
 *
 */
   lua["getVectorAngle"] = [](float x1, float y1, float x2, float y2) {

@@ -66,7 +66,7 @@ std::string Function_GetHostname() {
 * @name     getMaxSlots
 * @side     shared
 * @category Game
-* @return   (int)       Max slots number on the server.
+* @return   (number)       Max slots number on the server.
 *
 */
 int Function_GetMaxSlots() {
@@ -114,7 +114,7 @@ sol::object Function_GetOnlinePlayers(sol::this_state ts) {
 * @name     getPlayersCount
 * @side     shared
 * @category Game
-* @return   (int)       Number of players on the server.
+* @return   (number)       Number of players on the server.
 *
 */
 int Function_GetPlayersCount() {
@@ -1051,7 +1051,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will bind function to specified event.
+* Bind function to specified event.
 *
 * @version  0.3.0
 * @name     addEventHandler
@@ -1065,21 +1065,21 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will register a new custom event with specified name.
+* Register a new custom event with specified name.
 *
 * @version  0.3.0
 * @name     addEvent
 * @side     shared
 * @category Event
 * @param    (string) eventName            The name of the event.
-* @param    (bool)   allowRemoteTrigger   Whether the event can be triggered remotely. (Optional)
+* @param    (boolean)   allowRemoteTrigger   Whether the event can be triggered remotely. (Optional)
 * @return   (boolean)                     True on success, false if the event already exists.
 *
 */
 
 /* luagmp (func)
 *
-* This function will notify (call) every handler bound to specified custom event.
+* Call every handler bound to specified custom event.
 *
 * @version  0.3.0
 * @name     callEvent
@@ -1093,7 +1093,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will cancel the current event.
+* Cancel the current event.
 *
 * @version  0.3.0
 * @name     cancelEvent
@@ -1104,19 +1104,19 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will set the event value.
+* Set the event value.
 *
 * @version  0.3.0
 * @name     eventValue
 * @side     shared
 * @category Event
-* @param    (int) eventValue   The new event value.
+* @param    (number) eventValue   The new event value.
 *
 */
 
 /* luagmp (func)
 *
-* This function will check if the event was cancelled.
+* Check if the event was cancelled.
 *
 * @version  0.3.0
 * @name     isEventCancelled
@@ -1128,7 +1128,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will unregister a custom event with specified name.
+* Unregister a custom event with specified name.
 *
 * @version  0.3.0
 * @name     removeEvent
@@ -1140,7 +1140,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will unbind function from specified event.
+* Unbind function from specified event.
 *
 * @version  0.3.0
 * @name     removeEventHandler
@@ -1154,7 +1154,7 @@ void SetServerInfoProvider(ServerInfoProvider provider) {
 
 /* luagmp (func)
 *
-* This function will toggle event (enable or disable it globally).
+* Toggle event (enable or disable it globally).
 *
 * @version  0.3.0
 * @name     toggleEvent

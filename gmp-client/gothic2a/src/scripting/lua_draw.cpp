@@ -82,8 +82,8 @@ LuaDraw::LuaDraw()
 *
 * Creates a new Draw object with an initial position and text.
 *
-* @param    (int) x Initial X position (virtual units).
-* @param    (int) y Initial Y position (virtual units).
+* @param    (number) x Initial X position (virtual units).
+* @param    (number) y Initial Y position (virtual units).
 * @param    (string) text Initial text content.
 *
 */
@@ -116,8 +116,8 @@ LuaDraw::~LuaDraw() {
 * Sets the draw position in virtual screen units.
 *
 * @name     setPosition
-* @param    (int) x X position (virtual units).
-* @param    (int) y Y position (virtual units).
+* @param    (number) x X position (virtual units).
+* @param    (number) y Y position (virtual units).
 *
 */
 void LuaDraw::setPosition(int x, int y) {
@@ -154,8 +154,8 @@ sol::table LuaDraw::getPosition(sol::this_state s) {
 * Sets the draw position in pixel coordinates.
 *
 * @name     setPositionPx
-* @param    (int) x X position in pixels.
-* @param    (int) y Y position in pixels.
+* @param    (number) x X position in pixels.
+* @param    (number) y Y position in pixels.
 *
 */
 void LuaDraw::setPositionPx(int x, int y) {
@@ -242,9 +242,9 @@ std::string LuaDraw::getFont() const {
 * Sets the text color.
 *
 * @name     setColor
-* @param    (int) r Red component (0-255).
-* @param    (int) g Green component (0-255).
-* @param    (int) b Blue component (0-255).
+* @param    (number) r Red component (0-255).
+* @param    (number) g Green component (0-255).
+* @param    (number) b Blue component (0-255).
 *
 */
 void LuaDraw::setColor(int r, int g, int b) {
@@ -276,7 +276,7 @@ sol::table LuaDraw::getColor(sol::this_state s) {
 * Sets text alpha (opacity).
 *
 * @name     setAlpha
-* @param    (int) alpha Opacity value (0-255).
+* @param    (number) alpha Opacity value (0-255).
 *
 */
 void LuaDraw::setAlpha(int a) {
@@ -291,7 +291,7 @@ void LuaDraw::setAlpha(int a) {
 * Returns the current alpha (opacity).
 *
 * @name     getAlpha
-* @return   (int) Opacity value (0-255).
+* @return   (number) Opacity value (0-255).
 *
 */
 int LuaDraw::getAlpha() const {
@@ -303,7 +303,7 @@ int LuaDraw::getAlpha() const {
 * Sets whether the Draw object should render.
 *
 * @name     setVisible
-* @param    (bool) visible True to render, false to hide.
+* @param    (boolean) visible True to render, false to hide.
 *
 */
 void LuaDraw::setVisible(bool visible) {
@@ -315,7 +315,7 @@ void LuaDraw::setVisible(bool visible) {
 * Returns whether this Draw object is visible.
 *
 * @name     getVisible
-* @return   (bool) True if visible.
+* @return   (boolean) True if visible.
 *
 */
 bool LuaDraw::getVisible() const {
@@ -368,7 +368,7 @@ bool LuaDraw::getVisible() const {
 * Gets or sets the alpha (opacity).
 *
 * @name     alpha
-* @return   (int) Opacity value (0-255).
+* @return   (number) Opacity value (0-255).
 *
 */
 /* luagmp (property)
@@ -376,7 +376,7 @@ bool LuaDraw::getVisible() const {
 * Gets or sets whether the Draw object is rendered.
 *
 * @name     visible
-* @return   (bool) True if visible.
+* @return   (boolean) True if visible.
 *
 */
 

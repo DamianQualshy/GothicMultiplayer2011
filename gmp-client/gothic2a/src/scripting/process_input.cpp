@@ -111,8 +111,8 @@ void BindInputConstants(sol::state& lua) {
 * @name     KeyPressed
 * @side     client
 * @category Input
-* @param    (int) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (bool)             True if the key is currently pressed, false otherwise.
+* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)             True if the key is currently pressed, false otherwise.
 *
 */
   lua.set_function("KeyPressed", [](int key) -> bool {
@@ -130,8 +130,8 @@ void BindInputConstants(sol::state& lua) {
 * @name     KeyToggled
 * @side     client
 * @category Input
-* @param    (int) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (bool)             True if the key was toggled, false otherwise.
+* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)             True if the key was toggled, false otherwise.
 *
 */
   lua.set_function("KeyToggled", [](int key) -> bool {
@@ -143,14 +143,14 @@ void BindInputConstants(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will disable/enable default game actions that are bound to keys.
+* Disable/enable default game actions that are bound to keys.
 *
 * @version  0.3.0
 * @name     disableControls
 * @side     client
 * @category Input
-* @param   (bool)             true when you want to disable game keys, otherwise false.
-* @return   (bool)             True on success.
+* @param   (boolean)             true when you want to disable game keys, otherwise false.
+* @return   (boolean)             True on success.
 *
 */
   lua.set_function("disableControls", [](bool toggle) -> bool {
@@ -170,7 +170,7 @@ void BindInputConstants(sol::state& lua) {
 * @name     isControlsDisabled
 * @side     client
 * @category Input
-* @return   (bool)             true when disabled, otherwise false.
+* @return   (boolean)             true when disabled, otherwise false.
 *
 */
   lua.set_function("isControlsDisabled", []() {
@@ -179,15 +179,15 @@ void BindInputConstants(sol::state& lua) {
 
 /* luagmp (func)
 *
-* This function will disable/enable specified keyboard key, like: ESCAPE, TAB, etc.
+* Disable/enable specified keyboard key, like: ESCAPE, TAB, etc.
 *
 * @version  0.3.0
 * @name     disableKey
 * @side     client
 * @category Input
-* @param   (int) keyId          The key code to disable. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @param   (bool) toggle          true when you want to disable specified keyboard key, otherwise false
-* @return   (bool)             True on success.
+* @param   (number) keyId          The key code to disable. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @param   (boolean) toggle          true when you want to disable specified keyboard key, otherwise false
+* @return   (boolean)             True on success.
 *
 */
   lua.set_function("disableKey", [](int key, bool toggle) -> bool {
@@ -207,8 +207,8 @@ void BindInputConstants(sol::state& lua) {
 * @name     isKeyDisabled
 * @side     client
 * @category Input
-* @param   (int) keyId          The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (bool)             true when disabled, otherwise false.
+* @param   (number) keyId          The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)             true when disabled, otherwise false.
 *
 */
   lua.set_function("isKeyDisabled", [](int key) {
@@ -229,9 +229,9 @@ void BindCursor(sol::state& lua) {
 * @name     setCursorPosition
 * @side     client
 * @category Cursor
-* @param    (int) x X position.
-* @param    (int) y Y position.
-* @return   (bool) True on success.
+* @param    (number) x X position.
+* @param    (number) y Y position.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorPosition", [](int x, int y) -> bool {
@@ -247,7 +247,7 @@ void BindCursor(sol::state& lua) {
 * @name     getCursorPosition
 * @side     client
 * @category Cursor
-* @return   (int, int) X and Y position.
+* @return   (number, int) X and Y position.
 *
 */
   lua.set_function("getCursorPosition", [](sol::this_state s) {
@@ -262,9 +262,9 @@ void BindCursor(sol::state& lua) {
 * @name     setCursorPositionPx
 * @side     client
 * @category Cursor
-* @param    (int) x X position in pixels.
-* @param    (int) y Y position in pixels.
-* @return   (bool) True on success.
+* @param    (number) x X position in pixels.
+* @param    (number) y Y position in pixels.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorPositionPx", [](int x, int y) -> bool {
@@ -280,7 +280,7 @@ void BindCursor(sol::state& lua) {
 * @name     getCursorPositionPx
 * @side     client
 * @category Cursor
-* @return   (int, int) X and Y position in pixels.
+* @return   (number, int) X and Y position in pixels.
 *
 */
   lua.set_function("getCursorPositionPx", [](sol::this_state s) {
@@ -295,9 +295,9 @@ void BindCursor(sol::state& lua) {
 * @name     setCursorSize
 * @side     client
 * @category Cursor
-* @param    (int) width Cursor width.
-* @param    (int) height Cursor height.
-* @return   (bool) True on success.
+* @param    (number) width Cursor width.
+* @param    (number) height Cursor height.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorSize", [](int width, int height) -> bool {
@@ -313,7 +313,7 @@ void BindCursor(sol::state& lua) {
 * @name     getCursorSize
 * @side     client
 * @category Cursor
-* @return   (int, int) Cursor width and height.
+* @return   (number, int) Cursor width and height.
 *
 */
   lua.set_function("getCursorSize", [](sol::this_state s) {
@@ -328,9 +328,9 @@ void BindCursor(sol::state& lua) {
 * @name     setCursorSizePx
 * @side     client
 * @category Cursor
-* @param    (int) width Cursor width in pixels.
-* @param    (int) height Cursor height in pixels.
-* @return   (bool) True on success.
+* @param    (number) width Cursor width in pixels.
+* @param    (number) height Cursor height in pixels.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorSizePx", [](int width, int height) -> bool {
@@ -346,7 +346,7 @@ void BindCursor(sol::state& lua) {
 * @name     getCursorSizePx
 * @side     client
 * @category Cursor
-* @return   (int, int) Cursor width and height in pixels.
+* @return   (number, int) Cursor width and height in pixels.
 *
 */
   lua.set_function("getCursorSizePx", [](sol::this_state s) {
@@ -362,7 +362,7 @@ void BindCursor(sol::state& lua) {
 * @side     client
 * @category Cursor
 * @param    (string) file Texture file name.
-* @return   (bool) True on success.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorTxt", [](const std::string& file) -> bool {
@@ -393,8 +393,8 @@ void BindCursor(sol::state& lua) {
 * @name     setCursorVisible
 * @side     client
 * @category Cursor
-* @param    (bool) toggle True to show the cursor, false to hide it.
-* @return   (bool) True on success.
+* @param    (boolean) toggle True to show the cursor, false to hide it.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorVisible", [](bool toggle) -> bool {
@@ -410,7 +410,7 @@ void BindCursor(sol::state& lua) {
 * @name     isCursorVisible
 * @side     client
 * @category Cursor
-* @return   (bool) True if the cursor is visible.
+* @return   (boolean) True if the cursor is visible.
 *
 */
   lua.set_function("isCursorVisible", []() {
@@ -426,7 +426,7 @@ void BindCursor(sol::state& lua) {
 * @side     client
 * @category Cursor
 * @param    (number) sensitivity Cursor sensitivity multiplier.
-* @return   (bool) True on success.
+* @return   (boolean) True on success.
 *
 */
   lua.set_function("setCursorSensitivity", [](float sensitivity) -> bool {
@@ -457,8 +457,8 @@ void BindCursor(sol::state& lua) {
 * @name     isMouseBtnPressed
 * @side     client
 * @category Cursor
-* @param    (int) button Mouse button identifier.
-* @return   (bool) True if the button is pressed.
+* @param    (number) button Mouse button identifier.
+* @return   (boolean) True if the button is pressed.
 *
 */
   lua.set_function("isMouseBtnPressed", [](int button) {

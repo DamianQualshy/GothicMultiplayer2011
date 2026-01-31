@@ -42,10 +42,10 @@ std::unordered_set<LuaTexture*> LuaTexture::active_textures_;
 *
 * Creates a new Texture.
 *
-* @param    (int) x X position (virtual units).
-* @param    (int) y Y position (virtual units).
-* @param    (int) width Width (virtual units).
-* @param    (int) height Height (virtual units).
+* @param    (number) x X position (virtual units).
+* @param    (number) y Y position (virtual units).
+* @param    (number) width Width (virtual units).
+* @param    (number) height Height (virtual units).
 * @param    (string) file Texture file path.
 *
 */
@@ -88,8 +88,8 @@ LuaTexture::~LuaTexture() {
 * Sets the texture position in virtual screen units.
 *
 * @name     setPosition
-* @param    (int) x X position (virtual units).
-* @param    (int) y Y position (virtual units).
+* @param    (number) x X position (virtual units).
+* @param    (number) y Y position (virtual units).
 *
 */
 void LuaTexture::setPosition(int x, int y) {
@@ -122,8 +122,8 @@ sol::table LuaTexture::getPosition(sol::this_state s) {
 * Sets the texture position in pixel coordinates.
 *
 * @name     setPositionPx
-* @param    (int) x X position (pixels).
-* @param    (int) y Y position (pixels).
+* @param    (number) x X position (pixels).
+* @param    (number) y Y position (pixels).
 *
 */
 void LuaTexture::setPositionPx(int x, int y) {
@@ -159,8 +159,8 @@ sol::table LuaTexture::getPositionPx(sol::this_state s) {
 * Sets the texture size in virtual screen units.
 *
 * @name     setSize
-* @param    (int) width Width (virtual units).
-* @param    (int) height Height (virtual units).
+* @param    (number) width Width (virtual units).
+* @param    (number) height Height (virtual units).
 *
 */
 void LuaTexture::setSize(int width, int height) {
@@ -193,8 +193,8 @@ sol::table LuaTexture::getSize(sol::this_state s) {
 * Sets the texture size in pixel coordinates.
 *
 * @name     setSizePx
-* @param    (int) width Width (pixels).
-* @param    (int) height Height (pixels).
+* @param    (number) width Width (pixels).
+* @param    (number) height Height (pixels).
 *
 */
 void LuaTexture::setSizePx(int width, int height) {
@@ -230,10 +230,10 @@ sol::table LuaTexture::getSizePx(sol::this_state s) {
 * Sets the texture rectangle in virtual screen units.
 *
 * @name     setRect
-* @param    (int) x X position (virtual units).
-* @param    (int) y Y position (virtual units).
-* @param    (int) width Width (virtual units).
-* @param    (int) height Height (virtual units).
+* @param    (number) x X position (virtual units).
+* @param    (number) y Y position (virtual units).
+* @param    (number) width Width (virtual units).
+* @param    (number) height Height (virtual units).
 *
 */
 void LuaTexture::setRect(int x, int y, int width, int height) {
@@ -280,10 +280,10 @@ sol::table LuaTexture::getRect(sol::this_state s) {
 * Sets the texture rectangle in pixel coordinates.
 *
 * @name     setRectPx
-* @param    (int) x X position (pixels).
-* @param    (int) y Y position (pixels).
-* @param    (int) width Width (pixels).
-* @param    (int) height Height (pixels).
+* @param    (number) x X position (pixels).
+* @param    (number) y Y position (pixels).
+* @param    (number) width Width (pixels).
+* @param    (number) height Height (pixels).
 *
 */
 void LuaTexture::setRectPx(int x, int y, int width, int height) {
@@ -322,9 +322,9 @@ sol::table LuaTexture::getRectPx(sol::this_state s) {
 * Sets the texture color.
 *
 * @name     setColor
-* @param    (int) r Red component (0-255).
-* @param    (int) g Green component (0-255).
-* @param    (int) b Blue component (0-255).
+* @param    (number) r Red component (0-255).
+* @param    (number) g Green component (0-255).
+* @param    (number) b Blue component (0-255).
 *
 */
 void LuaTexture::setColor(unsigned char r, unsigned char g, unsigned char b) {
@@ -353,7 +353,7 @@ sol::table LuaTexture::getColor(sol::this_state s) {
 * Sets the texture alpha (opacity).
 *
 * @name     setAlpha
-* @param    (int) alpha Opacity value (0-255).
+* @param    (number) alpha Opacity value (0-255).
 *
 */
 void LuaTexture::setAlpha(unsigned char alpha) {
@@ -365,7 +365,7 @@ void LuaTexture::setAlpha(unsigned char alpha) {
 * Returns the texture alpha (opacity).
 *
 * @name     getAlpha
-* @return   (int) Opacity value (0-255).
+* @return   (number) Opacity value (0-255).
 *
 */
 unsigned char LuaTexture::getAlpha() const {
@@ -406,7 +406,7 @@ std::string LuaTexture::getFile() const {
 * Sets whether the texture should be rendered.
 *
 * @name     setVisible
-* @param    (bool) visible True to render, false to hide.
+* @param    (boolean) visible True to render, false to hide.
 *
 */
 void LuaTexture::setVisible(bool visible) {
@@ -418,7 +418,7 @@ void LuaTexture::setVisible(bool visible) {
 * Returns whether the texture is visible.
 *
 * @name     getVisible
-* @return   (bool) True if visible.
+* @return   (boolean) True if visible.
 *
 */
 bool LuaTexture::getVisible() const {
@@ -499,7 +499,7 @@ void LuaTexture::top() {
 * Gets or sets the texture alpha (opacity).
 *
 * @name     alpha
-* @return   (int) Opacity value (0-255).
+* @return   (number) Opacity value (0-255).
 *
 */
 /* luagmp (property)
@@ -507,7 +507,7 @@ void LuaTexture::top() {
 * Gets or sets whether the texture is rendered.
 *
 * @name     visible
-* @return   (bool) True if visible.
+* @return   (boolean) True if visible.
 *
 */
 /* luagmp (property)

@@ -12,8 +12,6 @@ require('client.functions')
 
 LOG_INFO('[Dev][Client] Client-side resources initialized from main.lua')
 
-Discord.SetActivity({
-    state = "Playing GMPC",
-    details = "Testing LUA",
-    largeImageKey = "gothic_icon"
-})
+Discord.SetState("Playing GMPC")
+Discord.SetDetails("Testing LUA")
+Discord.SetLargeImage("gothic_icon")

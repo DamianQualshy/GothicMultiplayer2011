@@ -118,9 +118,9 @@ void RegisterGothicEventProxies() {
 * @name     onTime
 * @side     client
 * @category Game
-* @param    (int) day   The current in-game day.
-* @param    (int) hour  The current in-game hour.
-* @param    (int) min   The current in-game minute.
+* @param    (number) day   The current in-game day.
+* @param    (number) hour  The current in-game hour.
+* @param    (number) min   The current in-game minute.
 *
 */
   g_gothic_event_proxies[kEventOnTimeName] = [](LuaProxyArgs args) {
@@ -136,8 +136,8 @@ void RegisterGothicEventProxies() {
 * @name     onWeatherChange
 * @side     client
 * @category Weather
-* @param    (int) old_weather_type  Previous weather type.
-* @param    (int) new_weather_type  New weather type.
+* @param    (number) old_weather_type  Previous weather type.
+* @param    (number) new_weather_type  New weather type.
 *
 */
   g_gothic_event_proxies[kEventOnWeatherChangeName] = [](LuaProxyArgs args) {
@@ -153,7 +153,7 @@ void RegisterGothicEventProxies() {
 * @name     onKeyDown
 * @side     client
 * @category Input
-* @param    (int) key    The key code pressed.
+* @param    (number) key    The key code pressed.
 *
 */
   g_gothic_event_proxies[kEventOnKeyDownName] = [](LuaProxyArgs args) {
@@ -169,7 +169,7 @@ void RegisterGothicEventProxies() {
 * @name     onKeyUp
 * @side     client
 * @category Input
-* @param    (int) key    The key code released.
+* @param    (number) key    The key code released.
 *
 */
   g_gothic_event_proxies[kEventOnKeyUpName] = [](LuaProxyArgs args) {
@@ -185,7 +185,7 @@ void RegisterGothicEventProxies() {
 * @name     onMouseDown
 * @side     client
 * @category Mouse
-* @param    (int) button The mouse button pressed.
+* @param    (number) button The mouse button pressed.
 *
 */
   g_gothic_event_proxies[kEventOnMouseDownName] = [](LuaProxyArgs args) {
@@ -201,7 +201,7 @@ void RegisterGothicEventProxies() {
 * @name     onMouseUp
 * @side     client
 * @category Mouse
-* @param    (int) button The mouse button released.
+* @param    (number) button The mouse button released.
 *
 */
   g_gothic_event_proxies[kEventOnMouseUpName] = [](LuaProxyArgs args) {
@@ -217,8 +217,8 @@ void RegisterGothicEventProxies() {
 * @name     onMouseMove
 * @side     client
 * @category Mouse
-* @param    (int) x Cursor X position.
-* @param    (int) y Cursor Y position.
+* @param    (number) x Cursor X position.
+* @param    (number) y Cursor Y position.
 *
 */
   g_gothic_event_proxies[kEventOnMouseMoveName] = [](LuaProxyArgs args) {
@@ -234,7 +234,7 @@ void RegisterGothicEventProxies() {
 * @name     onMouseWheel
 * @side     client
 * @category Mouse
-* @param    (int) z Mouse wheel delta.
+* @param    (number) z Mouse wheel delta.
 *
 */
   g_gothic_event_proxies[kEventOnMouseWheelName] = [](LuaProxyArgs args) {
@@ -274,8 +274,8 @@ void RegisterGothicEventProxies() {
 * @name     onInventorySlotChange
 * @side     client
 * @category Inventory
-* @param    (int) from  Previous slot number.
-* @param    (int) to    Current slot number.
+* @param    (number) from  Previous slot number.
+* @param    (number) to    Current slot number.
 *
 */
   g_gothic_event_proxies[kEventOnInventorySlotChangeName] = [](LuaProxyArgs args) {
@@ -357,7 +357,7 @@ void RegisterGothicEventProxies() {
 * @side     client
 * @category Hero
 * @param    (string) item        Item instance.
-* @param    (bool) synchronized  True when pickup is synchronized with the server.
+* @param    (boolean) synchronized  True when pickup is synchronized with the server.
 *
 */
   g_gothic_event_proxies[kEventOnTakeItemName] = [](LuaProxyArgs args) {
@@ -375,8 +375,8 @@ void RegisterGothicEventProxies() {
 * @category Hero
 * @param    (string) item    Item instance.
 * @param    (string) scheme  Item scheme name, if available.
-* @param    (int) from     Previous interact state.
-* @param    (int) to       Current interact state.
+* @param    (number) from     Previous interact state.
+* @param    (number) to       Current interact state.
 *
 */
   g_gothic_event_proxies[kEventOnUseItemName] = [](LuaProxyArgs args) {
@@ -408,7 +408,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerCreate
 * @side     client
 * @category Player
-* @param    (int) player_id    The local player id.
+* @param    (number) player_id    The local player id.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerCreateName] = [](LuaProxyArgs args) {
@@ -424,7 +424,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerDestroy
 * @side     client
 * @category Player
-* @param    (int) player_id    The local player id.
+* @param    (number) player_id    The local player id.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerDestroyName] = [](LuaProxyArgs args) {
@@ -440,10 +440,10 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerMessage
 * @side     client
 * @category Player
-* @param    (int) sender_id  Optional sender id (nil for system).
-* @param    (int) r           Red color component.
-* @param    (int) g           Green color component.
-* @param    (int) b           Blue color component.
+* @param    (number) sender_id  Optional sender id (nil for system).
+* @param    (number) r           Red color component.
+* @param    (number) g           Green color component.
+* @param    (number) b           Blue color component.
 * @param    (string) message  Message text.
 *
 */
@@ -462,7 +462,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerRespawn
 * @side     client
 * @category Player
-* @param    (int) id  The id of the respawned player.
+* @param    (number) id  The id of the respawned player.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerRespawnName] = [](LuaProxyArgs args) {
@@ -478,7 +478,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerSpawn
 * @side     client
 * @category Player
-* @param    (int) id  The id of the spawned player.
+* @param    (number) id  The id of the spawned player.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerSpawnName] = [](LuaProxyArgs args) {
@@ -494,7 +494,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerDead
 * @side     client
 * @category Player
-* @param    (int) id  The id of the player who died.
+* @param    (number) id  The id of the player who died.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerDeadName] = [](LuaProxyArgs args) {
@@ -510,8 +510,8 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerChangePing
 * @side     client
 * @category Player
-* @param    (int) id    The id of the player.
-* @param    (int) ping  The player's ping.
+* @param    (number) id    The id of the player.
+* @param    (number) ping  The player's ping.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerChangePingName] = [](LuaProxyArgs args) {
@@ -654,9 +654,9 @@ void BindGothicEvents(sol::state& lua) {
 * @note     You may optionally provide a numeric source element id as the next argument, followed by any number of additional arguments to send with the event.
 * @note     `sourceElement` is an optional numeric identifier that represents the object or entity that caused the event. Its meaning is user-defined and depends on the game logic. 
 * @param    (string) eventName Name of the server-side event to trigger.
-* @param    (int|nil) sourceElement Optional source element id. Use nil or omit it if not needed.
+* @param    (number|nil) sourceElement Optional source element id. Use nil or omit it if not needed.
 * @param    (...) ... Optional arguments passed to the server event handler.
-* @return   (bool) True if the event was sent successfully, otherwise false.
+* @return   (boolean) True if the event was sent successfully, otherwise false.
 *
 */
   lua.set_function("triggerServerEvent", [&lua](sol::variadic_args args) -> bool {

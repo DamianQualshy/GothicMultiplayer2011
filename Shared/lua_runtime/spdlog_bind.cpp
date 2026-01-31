@@ -51,7 +51,7 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_ERROR
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */
 
@@ -66,7 +66,7 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_INFO
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */
 
@@ -81,7 +81,7 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_DEBUG
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */
 
@@ -96,7 +96,7 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_CRITICAL
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */
 
@@ -111,7 +111,7 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_WARN
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */
 
@@ -126,6 +126,6 @@ void Bind_spdlog(sol::state& lua) {
 * @name     LOG_TRACE
 * @side     shared
 * @category Log
-* @param  (string) text      The message text, may contain format specifiers.
+* @param  (string) text      Message text, may contain format specifiers.
 *
 */

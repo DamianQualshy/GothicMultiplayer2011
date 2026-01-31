@@ -35,7 +35,6 @@ inline const std::string kEventOnTickName = "onTick";
 inline const std::string kEventOnClockUpdateName = "onClockUpdate";
 inline const std::string kEventOnPlayerConnectName = "onPlayerConnect";
 inline const std::string kEventOnPlayerDisconnectName = "onPlayerDisconnect";
-inline const std::string kEventOnPlayerJoinName = "onPlayerJoin";
 inline const std::string kEventOnPlayerMessageName = "onPlayerMessage";
 inline const std::string kEventOnPlayerCommandName = "onPlayerCommand";
 inline const std::string kEventOnPlayerKillName = "onPlayerKill";
@@ -69,10 +68,6 @@ struct OnClockUpdateEvent {
   std::uint16_t day;
   std::uint8_t hour;
   std::uint8_t min;
-};
-
-struct OnPlayerJoinEvent {
-  std::uint64_t player_id;
 };
 
 struct OnPlayerDisconnectEvent {
