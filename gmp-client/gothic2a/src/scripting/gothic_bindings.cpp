@@ -109,8 +109,24 @@ Gothic2APlayer* GetPlayerById(std::uint64_t id) {
   return *it;
 }
 
-oCNpc* GetNpcById(std::uint64_t id) {
-  if (auto* player = GetPlayerById(id)) {
+Gothic2APlayer* GetPlayerByIdSigned(std::int64_t id) {
+  if (id < 0) {
+    return nullptr;
+  }
+
+  return GetPlayerById(static_cast<std::uint64_t>(id));
+}
+
+oCNpc* GetNpcById(std::int64_t id) {
+  if (id < 0) {
+    auto it = g_client_npcs.find(static_cast<int>(id));
+    if (it != g_client_npcs.end()) {
+      return it->second.npc;
+    }
+    return nullptr;
+  }
+
+  if (auto* player = GetPlayerById(static_cast<std::uint64_t>(id))) {
     return player->GetNpc();
   }
 
@@ -153,7 +169,7 @@ oCMenu_Status* GetStatusMenu() {
 * @return   (boolean)               True on success, false otherwise.
 *
 */
-bool Function_SetPlayerInstance(std::uint64_t id, const std::string& instance) {
+bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
   if (auto* npc = GetNpcById(id)) {
     if (auto* parser = zCParser::GetParser()) {
       zSTRING instance_name(instance.c_str());
@@ -180,7 +196,7 @@ bool Function_SetPlayerInstance(std::uint64_t id, const std::string& instance) {
 * @return   (string|nil)         Instance name or nil.
 *
 */
-sol::object Function_GetPlayerInstance(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerInstance(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -204,27 +220,32 @@ sol::object Function_GetPlayerInstance(std::uint64_t id, sol::this_state ts) {
 * @return   (boolean)           True on success.
 *
 */
-bool Function_SetPlayerName(std::uint64_t id, const std::string& name) {
-    if (auto* player = GetPlayerById(id)) {
-      zSTRING new_name(name.c_str());
+bool Function_SetPlayerName(std::int64_t id, const std::string& name) {
+  if (auto* player = GetPlayerByIdSigned(id)) {
+    zSTRING new_name(name.c_str());
 
-      for (auto* other_player : NetGame::Instance().players) {
-        if (!other_player || !other_player->GetNpc()) {
-          continue;
-        }
-
-        if (other_player->base_player().id() != id && other_player->GetNpc()->GetName() == new_name) {
-          return false;
-        }
+    for (auto* other_player : NetGame::Instance().players) {
+      if (!other_player || !other_player->GetNpc()) {
+        continue;
       }
 
-      player->SetName(new_name);
-      player->base_player().set_name(new_name.ToChar());
-      return true;
+      if (other_player->base_player().id() != static_cast<std::uint64_t>(id) && other_player->GetNpc()->GetName() == new_name) {
+        return false;
+      }
     }
 
-    return false;
+    player->SetName(new_name);
+    player->base_player().set_name(new_name.ToChar());
+    return true;
   }
+
+  if (auto* npc = GetNpcById(id)) {
+    npc->name[0] = name.c_str();
+    return true;
+  }
+
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -238,7 +259,7 @@ bool Function_SetPlayerName(std::uint64_t id, const std::string& name) {
 * @return   (string|nil)        Player name or nil.
 *
 */
-sol::object Function_GetPlayerName(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerName(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -263,12 +284,12 @@ sol::object Function_GetPlayerName(std::uint64_t id, sol::this_state ts) {
 * @param    (number) b          Blue (0-255).
 *
 */
-bool Function_SetPlayerColor(std::uint64_t id, int r, int g, int b) {
+bool Function_SetPlayerColor(std::int64_t id, int r, int g, int b) {
     r = std::clamp(r, 0, 255);
     g = std::clamp(g, 0, 255);
     b = std::clamp(b, 0, 255);
 
-    if (auto* player = GetPlayerById(id)) {
+    if (auto* player = GetPlayerByIdSigned(id)) {
       player->SetNameColor(zCOLOR(static_cast<unsigned char>(r), static_cast<unsigned char>(g),
                                   static_cast<unsigned char>(b), 255));
       return true;
@@ -288,10 +309,10 @@ bool Function_SetPlayerColor(std::uint64_t id, int r, int g, int b) {
 * @return   ({r, g, b}|nil)  RGB color (0-255) or nil.
 *
 */
-sol::object Function_GetPlayerColor(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerColor(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
-  if (auto* player = GetPlayerById(id)) {
+  if (auto* player = GetPlayerByIdSigned(id)) {
     const auto& color = player->GetNameColor();
 
     sol::table tbl = lua.create_table();
@@ -317,22 +338,24 @@ sol::object Function_GetPlayerColor(std::uint64_t id, sol::this_state ts) {
 * @param    (number) health     New health value.
 *
 */
-bool Function_SetPlayerHealth(std::uint64_t id, int health) {
-    if (health < 0) {
-      health = 0;
+bool Function_SetPlayerHealth(std::int64_t id, int health) {
+  if (health < 0) {
+    health = 0;
+  }
+
+  if (auto* npc = GetNpcById(id)) {
+    const int max_health = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
+    const int clamped_health = std::min(health, max_health);
+    npc->SetAttribute(NPC_ATR_HITPOINTS, clamped_health);
+
+    if (auto* player = GetPlayerByIdSigned(id)) {
+      player->base_player().set_health(static_cast<short>(clamped_health));
     }
 
-    if (auto* player = GetPlayerById(id)) {
-      if (auto* npc = player->GetNpc()) {
-        const int max_health = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
-        const int clamped_health = std::min(health, max_health);
-        npc->SetAttribute(NPC_ATR_HITPOINTS, clamped_health);
-        player->base_player().set_health(static_cast<short>(clamped_health));
-        return true;
-      }
-    }
-    return false;
+    return true;
   }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -346,7 +369,7 @@ bool Function_SetPlayerHealth(std::uint64_t id, int health) {
 * @return   (number|nil)              Current health or nil.
 *
 */
-sol::object Function_GetPlayerHealth(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerHealth(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -368,23 +391,21 @@ sol::object Function_GetPlayerHealth(std::uint64_t id, sol::this_state ts) {
 * @param    (number) max_health  New maximum health.
 *
 */
-bool Function_SetPlayerMaxHealth(std::uint64_t id, int max_health) {
-    if (max_health < 0) {
-      max_health = 0;
-    }
-
-    if (auto* player = GetPlayerById(id)) {
-      if (auto* npc = player->GetNpc()) {
-        npc->SetAttribute(NPC_ATR_HITPOINTSMAX, max_health);
-        const int current_health = npc->GetAttribute(NPC_ATR_HITPOINTS);
-        if (current_health > max_health) {
-          npc->SetAttribute(NPC_ATR_HITPOINTS, max_health);
-        }
-        return true;
-      }
-    }
-    return false;
+bool Function_SetPlayerMaxHealth(std::int64_t id, int max_health) {
+  if (max_health < 0) {
+    max_health = 0;
   }
+
+  if (auto* npc = GetNpcById(id)) {
+    npc->SetAttribute(NPC_ATR_HITPOINTSMAX, max_health);
+    const int current_health = npc->GetAttribute(NPC_ATR_HITPOINTS);
+    if (current_health > max_health) {
+      npc->SetAttribute(NPC_ATR_HITPOINTS, max_health);
+    }
+    return true;
+  }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -398,7 +419,7 @@ bool Function_SetPlayerMaxHealth(std::uint64_t id, int max_health) {
 * @return   (number|nil)              Max health or nil.
 *
 */
-sol::object Function_GetPlayerMaxHealth(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerMaxHealth(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -420,7 +441,7 @@ sol::object Function_GetPlayerMaxHealth(std::uint64_t id, sol::this_state ts) {
 * @param    (number) mana       Mana value.
 *
 */
-bool Function_SetPlayerMana(std::uint64_t id, int mana) {
+bool Function_SetPlayerMana(std::int64_t id, int mana) {
     if (mana < 0) {
       mana = 0;
     }
@@ -446,7 +467,7 @@ bool Function_SetPlayerMana(std::uint64_t id, int mana) {
 * @return   (number|nil)              Current mana or nil.
 *
 */
-sol::object Function_GetPlayerMana(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerMana(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -468,7 +489,7 @@ sol::object Function_GetPlayerMana(std::uint64_t id, sol::this_state ts) {
 * @param    (number) max_mana   New maximum mana.
 *
 */
-bool Function_SetPlayerMaxMana(std::uint64_t id, int max_mana) {
+bool Function_SetPlayerMaxMana(std::int64_t id, int max_mana) {
     if (max_mana < 0) {
       max_mana = 0;
     }
@@ -496,7 +517,7 @@ bool Function_SetPlayerMaxMana(std::uint64_t id, int max_mana) {
 * @return   (number|nil)              Max mana or nil.
 *
 */
-sol::object Function_GetPlayerMaxMana(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerMaxMana(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -518,7 +539,7 @@ sol::object Function_GetPlayerMaxMana(std::uint64_t id, sol::this_state ts) {
 * @param    (number) strength   Strength value.
 *
 */
-bool Function_SetPlayerStrength(std::uint64_t id, int strength) {
+bool Function_SetPlayerStrength(std::int64_t id, int strength) {
     if (strength < 0) {
       strength = 0;
     }
@@ -542,7 +563,7 @@ bool Function_SetPlayerStrength(std::uint64_t id, int strength) {
 * @return   (number|nil)              Strength value or nil.
 *
 */
-sol::object Function_GetPlayerStrength(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerStrength(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -564,7 +585,7 @@ sol::object Function_GetPlayerStrength(std::uint64_t id, sol::this_state ts) {
 * @param    (number) dexterity  Dexterity value.
 *
 */
-bool Function_SetPlayerDexterity(std::uint64_t id, int dexterity) {
+bool Function_SetPlayerDexterity(std::int64_t id, int dexterity) {
     if (dexterity < 0) {
       dexterity = 0;
     }
@@ -588,7 +609,7 @@ bool Function_SetPlayerDexterity(std::uint64_t id, int dexterity) {
 * @return   (number|nil)              Dexterity value or nil.
 *
 */
-sol::object Function_GetPlayerDexterity(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerDexterity(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -611,7 +632,7 @@ sol::object Function_GetPlayerDexterity(std::uint64_t id, sol::this_state ts) {
 * @param    (number) percentage Hit chance (0-100).
 *
 */
-bool Function_SetPlayerSkillWeapon(std::uint64_t id, int skill_id, int percentage) {
+bool Function_SetPlayerSkillWeapon(std::int64_t id, int skill_id, int percentage) {
     percentage = std::clamp(percentage, 0, 100);
 
     if (auto* npc = GetNpcById(id)) {
@@ -634,7 +655,7 @@ bool Function_SetPlayerSkillWeapon(std::uint64_t id, int skill_id, int percentag
 * @return   (number|nil)              Hit chance (0-100) or nil.
 *
 */
-sol::object Function_GetPlayerSkillWeapon(std::uint64_t id, int skill_id, sol::this_state ts) {
+sol::object Function_GetPlayerSkillWeapon(std::int64_t id, int skill_id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -657,7 +678,7 @@ sol::object Function_GetPlayerSkillWeapon(std::uint64_t id, int skill_id, sol::t
 * @param    (number) talent_value Talent value.
 *
 */
-bool Function_SetPlayerTalent(std::uint64_t id, int talent_id, int talent_value) {
+bool Function_SetPlayerTalent(std::int64_t id, int talent_id, int talent_value) {
     if (auto* npc = GetNpcById(id)) {
       npc->SetTalentSkill(talent_id, talent_value);
       return true;
@@ -678,7 +699,7 @@ bool Function_SetPlayerTalent(std::uint64_t id, int talent_id, int talent_value)
 * @return   (number|nil)              Talent value or nil.
 *
 */
-sol::object Function_GetPlayerTalent(std::uint64_t id, int talent_id, sol::this_state ts) {
+sol::object Function_GetPlayerTalent(std::int64_t id, int talent_id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -700,7 +721,7 @@ sol::object Function_GetPlayerTalent(std::uint64_t id, int talent_id, sol::this_
 * @param    (number) level         New level.
 *
 */
-bool Function_SetPlayerLevel(std::uint64_t id, int level) {
+bool Function_SetPlayerLevel(std::int64_t id, int level) {
     if (auto* npc = GetNpcById(id)) {
       npc->level = static_cast<int>(std::max(level, 0));
       return true;
@@ -720,7 +741,7 @@ bool Function_SetPlayerLevel(std::uint64_t id, int level) {
 * @return   (number|nil)        Level or nil.
 *
 */
-sol::object Function_GetPlayerLevel(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerLevel(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -896,7 +917,7 @@ sol::object Function_GetLearnPoints(sol::this_state ts) {
 * @param    (number) head_texture    Head texture index.
 *
 */
-bool Function_SetPlayerVisual(std::uint64_t id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
+bool Function_SetPlayerVisual(std::int64_t id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
          sol::optional<int> teeth_texture, sol::optional<int> skin_color) {
         if (auto* npc = GetNpcById(id); npc) {
           zSTRING body(body_model.c_str());
@@ -909,7 +930,7 @@ bool Function_SetPlayerVisual(std::uint64_t id, const std::string& body_model, i
         return false;
       }
 
-sol::object Function_GetPlayerVisual(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerVisual(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id); npc) {
@@ -936,7 +957,7 @@ sol::object Function_GetPlayerVisual(std::uint64_t id, sol::this_state ts) {
 * @param    (number) fatness   Fatness value.
 *
 */
-bool Function_SetPlayerFatness(std::uint64_t id, float fatness) {
+bool Function_SetPlayerFatness(std::int64_t id, float fatness) {
     if (auto* npc = GetNpcById(id); npc) {
       npc->SetFatness(fatness);
       return true;
@@ -944,7 +965,7 @@ bool Function_SetPlayerFatness(std::uint64_t id, float fatness) {
     return false;
   }
 
-sol::object Function_GetPlayerFatness(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerFatness(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -968,7 +989,7 @@ sol::object Function_GetPlayerFatness(std::uint64_t id, sol::this_state ts) {
 * @param    (number) z   Scale factor on z axis.
 *
 */
-bool Function_SetPlayerScale(std::uint64_t id, float x, float y, float z) {
+bool Function_SetPlayerScale(std::int64_t id, float x, float y, float z) {
     if (auto* npc = GetNpcById(id); npc) {
       npc->SetModelScale(zVEC3{x, y, z});
       return true;
@@ -988,7 +1009,7 @@ bool Function_SetPlayerScale(std::uint64_t id, float x, float y, float z) {
 * @return    ({x, y, z}|nil)   Player scale or nil.
 *
 */
-sol::object Function_GetPlayerScale(std::uint64_t id, sol::this_state ts){
+sol::object Function_GetPlayerScale(std::int64_t id, sol::this_state ts){
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id); npc) {
@@ -1016,7 +1037,7 @@ sol::object Function_GetPlayerScale(std::uint64_t id, sol::this_state ts){
 * @return   (boolean)            True on success.
 *
 */
-bool Function_SetPlayerWeaponMode(std::uint64_t id, int weapon_mode) {
+bool Function_SetPlayerWeaponMode(std::int64_t id, int weapon_mode) {
   if (auto* npc = GetNpcById(id); npc) {
     npc->SetWeaponMode(weapon_mode);
     return true;
@@ -1037,7 +1058,7 @@ bool Function_SetPlayerWeaponMode(std::uint64_t id, int weapon_mode) {
 * @return   (number|nil)        Weapon mode or nil.
 *
 */
-sol::object Function_GetPlayerWeaponMode(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerWeaponMode(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id); npc) {
@@ -1059,7 +1080,7 @@ sol::object Function_GetPlayerWeaponMode(std::uint64_t id, sol::this_state ts) {
 * @param    (string) overlay   The name of overlay.
 *
 */
-bool Function_ApplyPlayerOverlay(std::uint64_t id, const std::string& overlay) {
+bool Function_ApplyPlayerOverlay(std::int64_t id, const std::string& overlay) {
     if (auto* npc = GetNpcById(id); npc) {
       zSTRING overlay_name(overlay.c_str());
       return npc->ApplyOverlay(overlay_name) != 0;
@@ -1079,7 +1100,7 @@ bool Function_ApplyPlayerOverlay(std::uint64_t id, const std::string& overlay) {
 * @return   ({...}|nil)   Array of overlay names or nil.
 *
 */
-sol::object Function_GetPlayerOverlays(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerOverlays(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -1113,7 +1134,7 @@ sol::object Function_GetPlayerOverlays(std::uint64_t id, sol::this_state ts) {
 * @param    (string) overlay   The name of overlay.
 *
 */
-bool Function_RemovePlayerOverlay(std::uint64_t id, const std::string& overlay) {
+bool Function_RemovePlayerOverlay(std::int64_t id, const std::string& overlay) {
     if (auto* npc = GetNpcById(id); npc) {
       zSTRING overlay_name(overlay.c_str());
       const bool has_overlay = npc->GetOverlay(overlay_name) != 0;
@@ -1138,7 +1159,7 @@ bool Function_RemovePlayerOverlay(std::uint64_t id, const std::string& overlay) 
 * @return   (boolean)           True on success.
 *
 */
-bool Function_PlayAni(std::uint64_t id, const std::string& ani_name) {
+bool Function_PlayAni(std::int64_t id, const std::string& ani_name) {
   if (auto* npc = GetNpcById(id)) {
     if (auto* model = npc->GetModel()) {
       model->StartAnimation(zSTRING(ani_name.c_str()));
@@ -1162,7 +1183,7 @@ bool Function_PlayAni(std::uint64_t id, const std::string& ani_name) {
 * @return   (boolean)           True on success.
 *
 */
-bool Function_StopAni(std::uint64_t id, sol::optional<std::string> ani_name) {
+bool Function_StopAni(std::int64_t id, sol::optional<std::string> ani_name) {
   if (auto* npc = GetNpcById(id)) {
     if (auto* model = npc->GetModel()) {
       const std::string name = ani_name.value_or("");
@@ -1195,7 +1216,7 @@ bool Function_StopAni(std::uint64_t id, sol::optional<std::string> ani_name) {
 * @return   (boolean)           True on success.
 *
 */
-bool Function_PlayFaceAni(std::uint64_t id, const std::string& ani_name) {
+bool Function_PlayFaceAni(std::int64_t id, const std::string& ani_name) {
   if (auto* npc = GetNpcById(id)) {
     zSTRING face_name(ani_name.c_str());
     npc->StartFaceAni(face_name, 1.0f, 1.0f);
@@ -1218,7 +1239,7 @@ bool Function_PlayFaceAni(std::uint64_t id, const std::string& ani_name) {
 * @return   (boolean)           True on success.
 *
 */
-bool Function_StopFaceAni(std::uint64_t id, sol::optional<std::string> ani_name) {
+bool Function_StopFaceAni(std::int64_t id, sol::optional<std::string> ani_name) {
   if (auto* npc = GetNpcById(id)) {
     zSTRING face_name(ani_name.value_or("").c_str());
     npc->StopFaceAni(face_name);
@@ -1240,7 +1261,7 @@ bool Function_StopFaceAni(std::uint64_t id, sol::optional<std::string> ani_name)
 * @return   (boolean)           True on success.
 *
 */
-bool Function_PlayGesticulation(std::uint64_t id) {
+bool Function_PlayGesticulation(std::int64_t id) {
   if (auto* npc = GetNpcById(id); npc && !npc->IsDead() && !npc->IsUnconscious()) {
     npc->StartDialogAni();
     return true;
@@ -1263,18 +1284,20 @@ bool Function_PlayGesticulation(std::uint64_t id) {
 * @param    (number) z       Z coordinate.
 *
 */
-bool Function_SetPlayerPosition(std::uint64_t id, float x, float y, float z) {
-    if (auto* player = GetPlayerById(id)) {
-      if (auto* npc = player->GetNpc()) {
-        zVEC3 position{x, y, z};
-        npc->SetPositionWorld(position);
-        player->SetPosition(position);
-        player->base_player().set_position(x, y, z);
-        return true;
-      }
+bool Function_SetPlayerPosition(std::int64_t id, float x, float y, float z) {
+  if (auto* npc = GetNpcById(id)) {
+    zVEC3 position{x, y, z};
+    npc->SetPositionWorld(position);
+
+    if (auto* player = GetPlayerByIdSigned(id)) {
+      player->SetPosition(position);
+      player->base_player().set_position(x, y, z);
     }
-    return false;
+
+    return true;
   }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -1288,7 +1311,7 @@ bool Function_SetPlayerPosition(std::uint64_t id, float x, float y, float z) {
 * @return   ({x,y,z}|nil)  Table with keys `x`,`y`,`z` or nil.
 *
 */
-sol::object Function_GetPlayerPosition(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerPosition(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -1316,7 +1339,7 @@ sol::object Function_GetPlayerPosition(std::uint64_t id, sol::this_state ts) {
 * @param    (bool|nil) interpolate Optional interpolation flag.
 *
 */
-bool Function_SetPlayerAngle(std::uint64_t id, float angle, sol::optional<bool> /*interpolate*/) {
+bool Function_SetPlayerAngle(std::int64_t id, float angle, sol::optional<bool> /*interpolate*/) {
     if (auto* npc = GetNpcById(id)) {
       const float radians = angle;
       const zVEC3 heading_vector(std::sin(radians), 0.0F, std::cos(radians));
@@ -1338,7 +1361,7 @@ bool Function_SetPlayerAngle(std::uint64_t id, float angle, sol::optional<bool> 
 * @return   (number|nil)           Angle in radians or nil.
 *
 */
-sol::object Function_GetPlayerAngle(std::uint64_t id, sol::this_state ts) {
+sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
   sol::state_view lua(ts);
 
   if (auto* npc = GetNpcById(id)) {
@@ -1362,7 +1385,7 @@ sol::object Function_GetPlayerAngle(std::uint64_t id, sol::this_state ts) {
 * @return   (boolean)               True on success.
 *
 */
-bool Function_GiveItem(std::uint64_t id, const std::string& instance, std::int32_t amount) {
+bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_t amount) {
   if (amount <= 0) {
     return false;
   }
@@ -1395,7 +1418,7 @@ bool Function_GiveItem(std::uint64_t id, const std::string& instance, std::int32
 * @return   (boolean)               True on success.
 *
 */
-bool Function_EquipItem(std::uint64_t id, const std::string& instance, sol::optional<int> slot_id) {
+bool Function_EquipItem(std::int64_t id, const std::string& instance, sol::optional<int> slot_id) {
   (void)slot_id;
 
   if (auto* npc = GetNpcById(id)) {
@@ -1428,7 +1451,7 @@ bool Function_EquipItem(std::uint64_t id, const std::string& instance, sol::opti
 * @return   (boolean)               True on success.
 *
 */
-bool Function_UnequipItem(std::uint64_t id, const std::string& instance) {
+bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
   if (auto* npc = GetNpcById(id)) {
     if (auto* parser = zCParser::GetParser()) {
       zSTRING instance_name(instance.c_str());
@@ -1458,7 +1481,7 @@ bool Function_UnequipItem(std::uint64_t id, const std::string& instance) {
 * @return   (number)                Item amount or 0 if missing.
 *
 */
-int Function_HasItem(std::uint64_t id, const std::string& instance) {
+int Function_HasItem(std::int64_t id, const std::string& instance) {
   if (auto* npc = GetNpcById(id)) {
     if (auto* parser = zCParser::GetParser()) {
       zSTRING instance_name(instance.c_str());
@@ -1488,7 +1511,7 @@ int Function_HasItem(std::uint64_t id, const std::string& instance) {
 * @return   (boolean)               True on success.
 *
 */
-bool Function_RemoveItem(std::uint64_t id, const std::string& instance, std::int32_t amount) {
+bool Function_RemoveItem(std::int64_t id, const std::string& instance, std::int32_t amount) {
   if (amount <= 0) {
     return 0;
   }

@@ -9,10 +9,14 @@ addEventHandler('spawnNPCRequest', function()
 	if npc == nil then
         npc = createNpc("TestNpc")
     	spawnNpc(npc, "PC_HERO")
+
+		setPlayerVisual(npc, "HUM_BODY_NAKED0", 8, "HUM_HEAD_PSIONIC", 26)
 	end
 	if npc2 == nil then
         npc2 = createNpc("TestNpc2")
     	spawnNpc(npc2, "SCAVENGER")
+
+		setPlayerScale(npc2, 2.0, 2.0, 2.0)
 	end
 
 	triggerServerEvent("customEvent_Server", heroId, "Create NPCs")
