@@ -108,6 +108,11 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_FATNESS_UPDATE] = [this](Packet p) { OnPlayerFatnessUpdate(p); };
   packet_handlers_[PT_PLAYER_SCALE_UPDATE] = [this](Packet p) { OnPlayerScaleUpdate(p); };
   packet_handlers_[PT_PLAYER_OVERLAY_UPDATE] = [this](Packet p) { OnPlayerOverlayUpdate(p); };
+  packet_handlers_[PT_PLAYER_ANI_PLAY] = [this](Packet p) { OnPlayerAnimationPlay(p); };
+  packet_handlers_[PT_PLAYER_ANI_STOP] = [this](Packet p) { OnPlayerAnimationStop(p); };
+  packet_handlers_[PT_PLAYER_FACE_ANI_PLAY] = [this](Packet p) { OnPlayerFaceAnimationPlay(p); };
+  packet_handlers_[PT_PLAYER_FACE_ANI_STOP] = [this](Packet p) { OnPlayerFaceAnimationStop(p); };
+  packet_handlers_[PT_PLAYER_GESTICULATION] = [this](Packet p) { OnPlayerGesticulation(p); };
   packet_handlers_[PT_PLAYER_ATTRIBUTE_UPDATE] = [this](Packet p) { OnPlayerAttributeUpdate(p); };
   packet_handlers_[PT_PLAYER_ATTRIBUTE_SNAPSHOT] = [this](Packet p) { OnPlayerAttributeSnapshot(p); };
   packet_handlers_[PT_PLAYER_WORLD_UPDATE] = [this](Packet p) { OnPlayerWorldUpdate(p); };
@@ -998,6 +1003,56 @@ void GameClient::OnPlayerOverlayUpdate(Packet p) {
   }
 
   event_observer_.OnPlayerOverlayUpdate(packet.player_id, packet.overlay, packet.apply != 0);
+}
+
+void GameClient::OnPlayerAnimationPlay(Packet p) {
+  PlayerAnimationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  SPDLOG_DEBUG("PlayerAnimationPacket: {}", packet);
+
+  event_observer_.OnPlayerAnimationPlay(packet.player_id, packet.animation);
+}
+
+void GameClient::OnPlayerAnimationStop(Packet p) {
+  PlayerAnimationStopPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  SPDLOG_DEBUG("PlayerAnimationStopPacket: {}", packet);
+
+  event_observer_.OnPlayerAnimationStop(packet.player_id, packet.animation);
+}
+
+void GameClient::OnPlayerFaceAnimationPlay(Packet p) {
+  PlayerFaceAnimationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  SPDLOG_DEBUG("PlayerFaceAnimationPacket: {}", packet);
+
+  event_observer_.OnPlayerFaceAnimationPlay(packet.player_id, packet.animation);
+}
+
+void GameClient::OnPlayerFaceAnimationStop(Packet p) {
+  PlayerFaceAnimationStopPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  SPDLOG_DEBUG("PlayerFaceAnimationStopPacket: {}", packet);
+
+  event_observer_.OnPlayerFaceAnimationStop(packet.player_id, packet.animation);
+}
+
+void GameClient::OnPlayerGesticulation(Packet p) {
+  PlayerGesticulationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  SPDLOG_DEBUG("PlayerGesticulationPacket: {}", packet);
+
+  event_observer_.OnPlayerGesticulation(packet.player_id);
 }
 
 void GameClient::OnPlayerAttributeUpdate(Packet p) {

@@ -2270,6 +2270,116 @@ bool GameServer::RemovePlayerOverlay(PlayerId player_id, const std::string& over
   return true;
 }
 
+bool GameServer::PlayAnimation(PlayerId player_id, const std::string& animation) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("playAni called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto animation_name = SanitizeServerText(animation);
+  if (animation_name.size() > 255) {
+    animation_name.resize(255);
+  }
+  if (animation_name.empty()) {
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  PlayerAnimationPacket packet{};
+  packet.packet_type = PT_PLAYER_ANI_PLAY;
+  packet.player_id = player.player_id;
+  packet.animation = std::move(animation_name);
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
+bool GameServer::StopAnimation(PlayerId player_id, const std::string& animation) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("stopAni called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto animation_name = SanitizeServerText(animation);
+  if (animation_name.size() > 255) {
+    animation_name.resize(255);
+  }
+
+  auto& player = player_opt->get();
+  PlayerAnimationStopPacket packet{};
+  packet.packet_type = PT_PLAYER_ANI_STOP;
+  packet.player_id = player.player_id;
+  packet.animation = std::move(animation_name);
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
+bool GameServer::PlayFaceAnimation(PlayerId player_id, const std::string& animation) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("playFaceAni called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto animation_name = SanitizeServerText(animation);
+  if (animation_name.size() > 255) {
+    animation_name.resize(255);
+  }
+  if (animation_name.empty()) {
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  PlayerFaceAnimationPacket packet{};
+  packet.packet_type = PT_PLAYER_FACE_ANI_PLAY;
+  packet.player_id = player.player_id;
+  packet.animation = std::move(animation_name);
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
+bool GameServer::StopFaceAnimation(PlayerId player_id, const std::string& animation) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("stopFaceAni called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto animation_name = SanitizeServerText(animation);
+  if (animation_name.size() > 255) {
+    animation_name.resize(255);
+  }
+
+  auto& player = player_opt->get();
+  PlayerFaceAnimationStopPacket packet{};
+  packet.packet_type = PT_PLAYER_FACE_ANI_STOP;
+  packet.player_id = player.player_id;
+  packet.animation = std::move(animation_name);
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
+bool GameServer::PlayGesticulation(PlayerId player_id) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("playGesticulation called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  PlayerGesticulationPacket packet{};
+  packet.packet_type = PT_PLAYER_GESTICULATION;
+  packet.player_id = player.player_id;
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
 bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount) {
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {

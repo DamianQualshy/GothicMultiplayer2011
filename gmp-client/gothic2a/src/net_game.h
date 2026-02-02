@@ -121,6 +121,11 @@ public:
   void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) override;
   void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) override;
   void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) override;
+  void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerGesticulation(std::uint64_t player_id) override;
   void OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId attribute_id, std::int32_t value) override;
   void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) override;
   void OnPlayerDied(std::uint64_t player_id) override;

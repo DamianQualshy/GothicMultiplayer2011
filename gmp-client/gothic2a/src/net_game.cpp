@@ -85,6 +85,26 @@ oCMenu_Status* GetStatusMenu() {
   return dynamic_cast<oCMenu_Status*>(zCMenu::GetByName(fallback_name));
 }
 
+bool StopModelAnimation(zCModel* model, const std::string& animation) {
+  if (!model) {
+    return false;
+  }
+
+  if (!animation.empty()) {
+    model->StopAnimation(zSTRING(animation.c_str()));
+    return true;
+  }
+
+  if (model->numActiveAnis > 0) {
+    if (auto* active = model->GetActiveAni(0)) {
+      model->StopAni(active);
+      return true;
+    }
+  }
+
+  return false;
+}
+
 struct WorldTimerTickValues {
   float ticks_per_hour;
   float ticks_per_minute;
@@ -792,6 +812,64 @@ void NetGame::OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& 
     cplayer->GetNpc()->RemoveOverlay(overlay_name);
   }
   cplayer->base_player().remove_overlay(overlay);
+}
+
+void NetGame::OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) {
+  if (animation.empty()) {
+    return;
+  }
+
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  if (auto* model = cplayer->GetNpc()->GetModel()) {
+    model->StartAnimation(zSTRING(animation.c_str()));
+  }
+}
+
+void NetGame::OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  StopModelAnimation(cplayer->GetNpc()->GetModel(), animation);
+}
+
+void NetGame::OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) {
+  if (animation.empty()) {
+    return;
+  }
+
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  cplayer->GetNpc()->StartFaceAni(zSTRING(animation.c_str()), 1.0f, 1.0f);
+}
+
+void NetGame::OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  cplayer->GetNpc()->StopFaceAni(zSTRING(animation.c_str()));
+}
+
+void NetGame::OnPlayerGesticulation(std::uint64_t player_id) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  oCNpc* npc = cplayer->GetNpc();
+  if (!npc->IsDead() && !npc->IsUnconscious()) {
+    npc->StartDialogAni();
+  }
 }
 
 void NetGame::OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId attribute_id, std::int32_t value) {

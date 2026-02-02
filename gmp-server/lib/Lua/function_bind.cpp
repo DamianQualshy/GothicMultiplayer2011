@@ -1172,6 +1172,110 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 
 /* luagmp (func)
 *
+* Play an animation on a player/npc for all players.
+*
+* @version  0.3.0
+* @name     playAni
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string) aniName    Animation name (e.g. "T_STAND_2_SIT").
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
+  if (!GetPlayerOrWarn(player_id, "playAni")) {
+    return false;
+  }
+
+  return g_server->PlayAnimation(player_id, ClampLuaText(ani_name, 255));
+}
+
+/* luagmp (func)
+*
+* Stop a played animation on a player/npc for all players.
+*
+* @version  0.3.0
+* @name     stopAni
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string|nil) aniName Animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
+  if (!GetPlayerOrWarn(player_id, "stopAni")) {
+    return false;
+  }
+
+  return g_server->StopAnimation(player_id, ClampLuaText(ani_name.value_or(""), 255));
+}
+
+/* luagmp (func)
+*
+* Play a face animation on a player/npc.
+*
+* @version  0.3.0
+* @name     playFaceAni
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string) aniName    Face animation name (e.g. "S_FRIENDLY").
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayFaceAni(std::uint32_t player_id, const std::string& ani_name) {
+  if (!GetPlayerOrWarn(player_id, "playFaceAni")) {
+    return false;
+  }
+
+  return g_server->PlayFaceAnimation(player_id, ClampLuaText(ani_name, 255));
+}
+
+/* luagmp (func)
+*
+* Stop a played face animation on a player/npc.
+*
+* @version  0.3.0
+* @name     stopFaceAni
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string|nil) aniName Face animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
+  if (!GetPlayerOrWarn(player_id, "stopFaceAni")) {
+    return false;
+  }
+
+  return g_server->StopFaceAnimation(player_id, ClampLuaText(ani_name.value_or(""), 255));
+}
+
+/* luagmp (func)
+*
+* Play a gesticulation animation on a player/npc.
+*
+* @version  0.3.0
+* @name     playGesticulation
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayGesticulation(std::uint32_t player_id) {
+  if (!GetPlayerOrWarn(player_id, "playGesticulation")) {
+    return false;
+  }
+
+  return g_server->PlayGesticulation(player_id);
+}
+
+/* luagmp (func)
+*
 * Set a player's world position.
 *
 * @version  0.3.0
@@ -2031,6 +2135,11 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;
+  lua["playAni"] = Function_PlayAni;
+  lua["stopAni"] = Function_StopAni;
+  lua["playFaceAni"] = Function_PlayFaceAni;
+  lua["stopFaceAni"] = Function_StopFaceAni;
+  lua["playGesticulation"] = Function_PlayGesticulation;
   lua["setPlayerPosition"] = Function_SetPlayerPosition;
   lua["getPlayerPosition"] = Function_GetPlayerPosition;
   lua["setPlayerAngle"] = Function_SetPlayerAngle;

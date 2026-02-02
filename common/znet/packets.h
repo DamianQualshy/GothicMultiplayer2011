@@ -352,6 +352,118 @@ struct PlayerSkillWeaponUpdatePacket {
   std::int32_t percentage{0};
 };
 
+struct PlayerAnimationPacket {
+  std::uint8_t packet_type{0};
+  std::uint32_t player_id{0};
+  std::string animation;
+};
+
+template <typename S>
+void serialize(S& s, PlayerAnimationPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
+  s.text1b(packet.animation, 255);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerAnimationPacket& packet) {
+  os << "PlayerAnimationPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id
+     << ", animation: " << packet.animation << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerAnimationPacket> : ostream_formatter {};
+
+struct PlayerAnimationStopPacket {
+  std::uint8_t packet_type{0};
+  std::uint32_t player_id{0};
+  std::string animation;
+};
+
+template <typename S>
+void serialize(S& s, PlayerAnimationStopPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
+  s.text1b(packet.animation, 255);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerAnimationStopPacket& packet) {
+  os << "PlayerAnimationStopPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id
+     << ", animation: " << packet.animation << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerAnimationStopPacket> : ostream_formatter {};
+
+struct PlayerFaceAnimationPacket {
+  std::uint8_t packet_type{0};
+  std::uint32_t player_id{0};
+  std::string animation;
+};
+
+template <typename S>
+void serialize(S& s, PlayerFaceAnimationPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
+  s.text1b(packet.animation, 255);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerFaceAnimationPacket& packet) {
+  os << "PlayerFaceAnimationPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id
+     << ", animation: " << packet.animation << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerFaceAnimationPacket> : ostream_formatter {};
+
+struct PlayerFaceAnimationStopPacket {
+  std::uint8_t packet_type{0};
+  std::uint32_t player_id{0};
+  std::string animation;
+};
+
+template <typename S>
+void serialize(S& s, PlayerFaceAnimationStopPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
+  s.text1b(packet.animation, 255);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerFaceAnimationStopPacket& packet) {
+  os << "PlayerFaceAnimationStopPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id
+     << ", animation: " << packet.animation << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerFaceAnimationStopPacket> : ostream_formatter {};
+
+struct PlayerGesticulationPacket {
+  std::uint8_t packet_type{0};
+  std::uint32_t player_id{0};
+};
+
+template <typename S>
+void serialize(S& s, PlayerGesticulationPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerGesticulationPacket& packet) {
+  os << "PlayerGesticulationPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerGesticulationPacket> : ostream_formatter {};
+
 template <typename S>
 void serialize(S& s, PlayerSkillWeaponUpdatePacket& packet) {
   s.value1b(packet.packet_type);

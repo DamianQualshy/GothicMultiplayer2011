@@ -1127,6 +1127,130 @@ bool Function_RemovePlayerOverlay(std::uint64_t id, const std::string& overlay) 
 
 /* luagmp (func)
 *
+* Play an animation on a player/npc for all players.
+*
+* @version  0.3.0
+* @name     playAni
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string) aniName    Animation name (e.g. "T_STAND_2_SIT").
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayAni(std::uint64_t id, const std::string& ani_name) {
+  if (auto* npc = GetNpcById(id)) {
+    if (auto* model = npc->GetModel()) {
+      model->StartAnimation(zSTRING(ani_name.c_str()));
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* Stop a played animation on a player/npc for all players.
+*
+* @version  0.3.0
+* @name     stopAni
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string|nil) aniName Animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_StopAni(std::uint64_t id, sol::optional<std::string> ani_name) {
+  if (auto* npc = GetNpcById(id)) {
+    if (auto* model = npc->GetModel()) {
+      const std::string name = ani_name.value_or("");
+      if (!name.empty()) {
+        model->StopAnimation(zSTRING(name.c_str()));
+        return true;
+      }
+      if (model->numActiveAnis > 0) {
+        if (auto* active = model->GetActiveAni(0)) {
+          model->StopAni(active);
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* Play a face animation on a player/npc.
+*
+* @version  0.3.0
+* @name     playFaceAni
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string) aniName    Face animation name (e.g. "S_FRIENDLY").
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayFaceAni(std::uint64_t id, const std::string& ani_name) {
+  if (auto* npc = GetNpcById(id)) {
+    zSTRING face_name(ani_name.c_str());
+    npc->StartFaceAni(face_name, 1.0f, 1.0f);
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* Stop a played face animation on a player/npc.
+*
+* @version  0.3.0
+* @name     stopFaceAni
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @param    (string|nil) aniName Face animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_StopFaceAni(std::uint64_t id, sol::optional<std::string> ani_name) {
+  if (auto* npc = GetNpcById(id)) {
+    zSTRING face_name(ani_name.value_or("").c_str());
+    npc->StopFaceAni(face_name);
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* Play a gesticulation animation on a player/npc.
+*
+* @version  0.3.0
+* @name     playGesticulation
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_PlayGesticulation(std::uint64_t id) {
+  if (auto* npc = GetNpcById(id); npc && !npc->IsDead() && !npc->IsUnconscious()) {
+    npc->StartDialogAni();
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
 * Set a player's world position.
 *
 * @version  0.3.0
@@ -2357,6 +2481,11 @@ void BindGothicSpecific(sol::state& lua) {
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;
+  lua["playAni"] = Function_PlayAni;
+  lua["stopAni"] = Function_StopAni;
+  lua["playFaceAni"] = Function_PlayFaceAni;
+  lua["stopFaceAni"] = Function_StopFaceAni;
+  lua["playGesticulation"] = Function_PlayGesticulation;
   lua["setPlayerPosition"] = Function_SetPlayerPosition;
   lua["getPlayerPosition"] = Function_GetPlayerPosition;
   lua["setPlayerAngle"] = Function_SetPlayerAngle;

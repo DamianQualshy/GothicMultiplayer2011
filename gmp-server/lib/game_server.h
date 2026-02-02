@@ -119,6 +119,11 @@ public:
   bool SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode);
   bool ApplyPlayerOverlay(PlayerId player_id, const std::string& overlay);
   bool RemovePlayerOverlay(PlayerId player_id, const std::string& overlay);
+  bool PlayAnimation(PlayerId player_id, const std::string& animation);
+  bool StopAnimation(PlayerId player_id, const std::string& animation);
+  bool PlayFaceAnimation(PlayerId player_id, const std::string& animation);
+  bool StopFaceAnimation(PlayerId player_id, const std::string& animation);
+  bool PlayGesticulation(PlayerId player_id);
   bool SetPlayerPosition(PlayerId player_id, const glm::vec3& position);
   bool SetPlayerAngle(PlayerId player_id, float angle);
   bool GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);

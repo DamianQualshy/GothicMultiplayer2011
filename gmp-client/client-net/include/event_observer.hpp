@@ -76,6 +76,11 @@ public:
   virtual void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) {}
   virtual void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) {}
   virtual void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) {}
+  virtual void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerGesticulation(std::uint64_t player_id) {}
   virtual void OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId attribute_id, std::int32_t value) {}
   virtual void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) {}
   virtual void OnPlayerDied(std::uint64_t player_id) {}

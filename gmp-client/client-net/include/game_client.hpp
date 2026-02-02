@@ -139,6 +139,11 @@ private:
   void OnPlayerFatnessUpdate(Packet packet);
   void OnPlayerScaleUpdate(Packet packet);
   void OnPlayerOverlayUpdate(Packet packet);
+  void OnPlayerAnimationPlay(Packet packet);
+  void OnPlayerAnimationStop(Packet packet);
+  void OnPlayerFaceAnimationPlay(Packet packet);
+  void OnPlayerFaceAnimationStop(Packet packet);
+  void OnPlayerGesticulation(Packet packet);
   void OnPlayerAttributeUpdate(Packet packet);
   void OnPlayerAttributeSnapshot(Packet packet);
   void OnPlayerWorldUpdate(Packet packet);
