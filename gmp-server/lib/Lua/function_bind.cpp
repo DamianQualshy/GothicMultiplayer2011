@@ -1056,6 +1056,49 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
+* Set the player/npc weapon mode for all players.
+*
+* @version  0.3.0
+* @name     setPlayerWeaponMode
+* @side     server
+* @category Player
+* @param    (number) player_id   Target player id.
+* @param    (number) weapon_mode Weapon mode constant.
+* @return   (boolean)            True on success, false if the player is missing.
+*
+*/
+bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
+  if (!GetPlayerOrWarn(player_id, "setPlayerWeaponMode")) {
+    return false;
+  }
+
+  return g_server->SetPlayerWeaponMode(player_id, weapon_mode);
+}
+
+/* luagmp (func)
+*
+* Get the player/npc weapon mode.
+*
+* @version  0.3.0
+* @name     getPlayerWeaponMode
+* @side     server
+* @category Player
+* @param    (number) player_id   Target player id.
+* @return   (number|nil)         Weapon mode or nil if unavailable.
+*
+*/
+sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerWeaponMode");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return sol::make_object(lua, static_cast<int>(player_opt->get().state.weapon_mode));
+}
+
+/* luagmp (func)
+*
 * Apply animation overlay on a player.
 *
 * @version  0.3.0
@@ -1983,6 +2026,8 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerFatness"] = Function_GetPlayerFatness;
   lua["setPlayerScale"] = Function_SetPlayerScale;
   lua["getPlayerScale"] = Function_GetPlayerScale;
+  lua["setPlayerWeaponMode"] = Function_SetPlayerWeaponMode;
+  lua["getPlayerWeaponMode"] = Function_GetPlayerWeaponMode;
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;

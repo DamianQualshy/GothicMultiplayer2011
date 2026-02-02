@@ -116,6 +116,7 @@ public:
                        std::int16_t head_texture);
   bool SetPlayerFatness(PlayerId player_id, float fatness);
   bool SetPlayerScale(PlayerId player_id, const glm::vec3& scale);
+  bool SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode);
   bool ApplyPlayerOverlay(PlayerId player_id, const std::string& overlay);
   bool RemovePlayerOverlay(PlayerId player_id, const std::string& overlay);
   bool SetPlayerPosition(PlayerId player_id, const glm::vec3& position);

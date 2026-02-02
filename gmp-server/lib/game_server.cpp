@@ -2191,6 +2191,35 @@ bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
   return true;
 }
 
+bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("setPlayerWeaponMode called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  const auto old_mode = player.state.weapon_mode;
+  const auto clamped_mode = static_cast<std::uint8_t>(std::clamp<std::int32_t>(weapon_mode, 0, 255));
+  player.state.weapon_mode = clamped_mode;
+
+  if (old_mode != player.state.weapon_mode) {
+    EventManager::Instance().TriggerEvent(
+        kEventOnPlayerWeaponModeChangeName,
+        OnPlayerWeaponModeChangeEvent{player.player_id, old_mode, player.state.weapon_mode});
+  }
+
+  PlayerStateUpdatePacket packet{};
+  packet.packet_type = PT_ACTUAL_STATISTICS;
+  packet.player_id = player.player_id;
+  packet.state = player.state;
+  packet.state.health_points = player.health;
+  packet.state.mana_points = player.mana;
+
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  return true;
+}
+
 bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overlay) {
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {

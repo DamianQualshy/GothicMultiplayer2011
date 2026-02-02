@@ -1005,6 +1005,50 @@ sol::object Function_GetPlayerScale(std::uint64_t id, sol::this_state ts){
 
 /* luagmp (func)
 *
+* Set the player/npc weapon mode for all players.
+*
+* @version  0.3.0
+* @name     setPlayerWeaponMode
+* @side     client
+* @category Player
+* @param    (number) player_id   Target player id.
+* @param    (number) weapon_mode Weapon mode constant.
+* @return   (boolean)            True on success.
+*
+*/
+bool Function_SetPlayerWeaponMode(std::uint64_t id, int weapon_mode) {
+  if (auto* npc = GetNpcById(id); npc) {
+    npc->SetWeaponMode(weapon_mode);
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* Get the player/npc weapon mode.
+*
+* @version  0.3.0
+* @name     getPlayerWeaponMode
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (number|nil)        Weapon mode or nil.
+*
+*/
+sol::object Function_GetPlayerWeaponMode(std::uint64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+
+  if (auto* npc = GetNpcById(id); npc) {
+    return sol::make_object(lua, npc->GetWeaponMode());
+  }
+
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
 * Apply animation overlay on player.
 *
 * @version  0.3.0
@@ -1355,6 +1399,16 @@ bool Function_RemoveItem(std::uint64_t id, const std::string& instance, std::int
 bool Function_ClearInventory() {
   if (!player) {
     return false;
+  }
+
+  if (auto* equippedArmor = player->GetEquippedArmor()) {
+    player->UnequipItem(equippedArmor);
+  }
+  if (auto* rangedWeapon = player->GetEquippedRangedWeapon()) {
+    player->UnequipItem(rangedWeapon);
+  }
+  if (auto* meleeWeapon = player->GetEquippedMeleeWeapon()) {
+    player->UnequipItem(meleeWeapon);
   }
 
   player->inventory2.ClearInventory();
@@ -2298,6 +2352,8 @@ void BindGothicSpecific(sol::state& lua) {
   lua["getPlayerVisual"] = Function_GetPlayerVisual;
   lua["setPlayerScale"] = Function_SetPlayerScale;
   lua["getPlayerScale"] = Function_GetPlayerScale;
+  lua["setPlayerWeaponMode"] = Function_SetPlayerWeaponMode;
+  lua["getPlayerWeaponMode"] = Function_GetPlayerWeaponMode;
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;

@@ -472,7 +472,27 @@ std::optional<JsonFile> LoadJsonFile(const std::string& relative_path, std::stri
 }  // namespace
 
 void BindJson(sol::state& lua) {
+/* luagmp (class)
+*
+* JSON-backed key/value file returned by JSON().
+*
+* @version  0.3.0
+* @name     JsonFile
+* @side     server
+* @category File
+*
+*/
   sol::usertype<JsonFile> json_type = lua.new_usertype<JsonFile>("JsonFile", sol::no_constructor);
+
+/* luagmp (method)
+*
+* Return the key at the given 0-based index or nil if out of range.
+*
+* @name     key
+* @param    (number) index  Zero-based entry index.
+* @return   (string|nil)    Key at index or nil.
+*
+*/
   json_type["key"] = [](const JsonFile& file, int index, sol::this_state ts) {
     sol::state_view lua_state(ts);
     if (index < 0) {
@@ -480,7 +500,26 @@ void BindJson(sol::state& lua) {
     }
     return file.KeyAt(lua_state, static_cast<std::size_t>(index));
   };
+
+/* luagmp (method)
+*
+* Return the number of entries in the file.
+*
+* @name     len
+* @return   (number) Entry count.
+*
+*/
   json_type["len"] = [](const JsonFile& file) { return static_cast<int>(file.EntryCount()); };
+
+/* luagmp (method)
+*
+* Get a value by key.
+*
+* @name     getItem
+* @param    (string) key     Entry key.
+* @return   (any|nil)        Value or nil if missing/invalid.
+*
+*/
   json_type["getItem"] = [](const JsonFile& file, const std::string& key, sol::this_state ts) {
     sol::state_view lua_state(ts);
     std::string error;
@@ -490,6 +529,16 @@ void BindJson(sol::state& lua) {
     }
     return value;
   };
+
+/* luagmp (method)
+*
+* Set a value by key (autosaves on success).
+*
+* @name     setItem
+* @param    (string) key     Entry key.
+* @param    (any) value      Value to store.
+*
+*/
   json_type["setItem"] = [](JsonFile& file, const std::string& key, const sol::object& value, sol::this_state ts) {
     sol::state_view lua_state(ts);
     std::string error;
@@ -501,6 +550,15 @@ void BindJson(sol::state& lua) {
       SPDLOG_WARN("JSON save failed for key '{}': {}", key, error);
     }
   };
+
+/* luagmp (method)
+*
+* Remove a key (autosaves on success).
+*
+* @name     removeItem
+* @param    (string) key  Entry key.
+*
+*/
   json_type["removeItem"] = [](JsonFile& file, const std::string& key) {
     file.RemoveKey(key);
     std::string error;
@@ -508,6 +566,14 @@ void BindJson(sol::state& lua) {
       SPDLOG_WARN("JSON save failed after removeItem for key '{}': {}", key, error);
     }
   };
+
+/* luagmp (method)
+*
+* Remove all keys (autosaves on success).
+*
+* @name     clear
+*
+*/
   json_type["clear"] = [](JsonFile& file) {
     file.Clear();
     std::string error;
@@ -516,6 +582,18 @@ void BindJson(sol::state& lua) {
     }
   };
 
+/* luagmp (func)
+*
+* Open a JSON file relative to the server data directory.
+*
+* @version  0.3.0
+* @name     JSON
+* @side     server
+* @category File
+* @param    (string) relative_path  Path under the data directory.
+* @return   (JsonFile|nil)          File handle or nil on error.
+*
+*/
   lua["JSON"] = [&lua](const std::string& relative_path) -> sol::object {
     std::string error;
     auto file = LoadJsonFile(relative_path, error);
