@@ -63,6 +63,7 @@ SOFTWARE.
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
 #include "scripting/process_input.h"
+#include "version.h"
 #include "shared/event.h"
 #include "sol/sol.hpp"
 
@@ -147,6 +148,16 @@ zCOLOR kResourceInfoColor(0, 200, 255, 255);
 zCOLOR kResourceErrorColor(255, 0, 0, 255);
 zCOLOR kResourceSuccessColor(0, 255, 0, 255);
 
+struct MultiplayerMessageState {
+  zCView* view{nullptr};
+  int line_index{0};
+};
+
+MultiplayerMessageState& GetMultiplayerMessageState() {
+  static MultiplayerMessageState state;
+  return state;
+}
+
 void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR& color) {
   if (!ogame) {
     return;
@@ -159,10 +170,50 @@ void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR&
   constexpr int kLineHeight = 200;
   constexpr int kMaxLines = 5;
   static int line_index = 0;
+  auto& state = GetMultiplayerMessageState();
+  if (state.view != view) {
+    state.view = view;
+    state.line_index = 0;
+  }
 
-  const int y = kBaseY + (line_index * kLineHeight);
+  const int y = kBaseY + (state.line_index * kLineHeight);
   view->PrintTimedCX(y, message, duration_ms, &color);
-  line_index = (line_index + 1) % kMaxLines;
+  state.line_index = (state.line_index + 1) % kMaxLines;
+}
+
+void ClearMultiplayerStatusMessages() {
+  if (!ogame) {
+    return;
+  }
+  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
+  if (!view) {
+    return;
+  }
+  view->ClrPrintwin();
+  auto& state = GetMultiplayerMessageState();
+  state.view = view;
+  state.line_index = 0;
+}
+
+std::string BuildMultiplayerStatusMessage() {
+  std::string tag = GIT_TAG;
+  std::string commit = GIT_COMMIT;
+  std::ostringstream message;
+  message << "Gothic Multiplayer Classic";
+  if (!tag.empty() || !commit.empty()) {
+    message << " (";
+    if (!tag.empty()) {
+      message << tag;
+    }
+    if (!commit.empty()) {
+      if (!tag.empty()) {
+        message << " ";
+      }
+      message << commit;
+    }
+    message << ")";
+  }
+  return message.str();
 }
 
 }// namespace
@@ -186,6 +237,10 @@ void NetGame::Shutdown() {
     delete p;
   }
   players.clear();
+}
+
+void NetGame::ClearMultiplayerMessages() {
+  ClearMultiplayerStatusMessages();
 }
 
 void __stdcall NetGame::ProcessTaskScheduler() {
@@ -409,6 +464,8 @@ void NetGame::Disconnect() {
 
 void NetGame::OnConnectionStarted() {
   SPDLOG_INFO("Connection attempt started...");
+  std::string message = BuildMultiplayerStatusMessage();
+  PrintResourceStatusTimed(message.c_str(), 10000.0f, kResourceInfoColor);
 }
 
 void NetGame::OnConnected() {
@@ -1374,7 +1431,7 @@ void NetGame::OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8
     Gothic2APlayer* sender = GetPlayerById(*sender_id);
     if (sender) {
       SPDLOG_INFO("Message from player: {} ({}): {}", sender->npc->GetName().ToChar(), sender->GetName(), message);
-      CChat::GetInstance()->WriteMessage(NORMAL, false, color, "%s", message.c_str());
+      //CChat::GetInstance()->WriteMessage(NORMAL, false, color, "%s", message.c_str());
     }
   } else {
     CChat::GetInstance()->WriteMessage(NORMAL, false, color, "%s", message.c_str());

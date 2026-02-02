@@ -53,6 +53,7 @@ union STime {
 class NetGame : public CSyncFuncs, public gmp::client::EventObserver {
 public:
   void HandleNetwork();
+  void ClearMultiplayerMessages();
   bool IsConnected();
   bool Connect(std::string_view full_address);
   void JoinGame();

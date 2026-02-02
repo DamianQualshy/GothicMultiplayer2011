@@ -1363,20 +1363,6 @@ bool Function_ClearInventory() {
 
 /* luagmp (func)
 *
-* Close the game immediately.
-*
-* @version  0.3.0
-* @name     exitGame
-* @side     client
-* @category Game
-*
-*/
-void Function_ExitGame() {
-  GMPCore::ExitGame(0);
-}
-
-/* luagmp (func)
-*
 * Change the current game world.
 *
 * @version  0.3.0
@@ -2247,6 +2233,34 @@ void Function_SetLightingColor(int r, int g, int b) {
   SetLightingColor(r, g, b);
 }
 
+/* luagmp (func)
+*
+* Close the game immediately.
+*
+* @version  0.3.0
+* @name     exitGame
+* @side     client
+* @category Game
+*
+*/
+void Function_ExitGame() {
+  GMPCore::ExitGame(0);
+}
+
+/* luagmp (func)
+*
+* Clear multiplayer status messages shown while joining the server.
+*
+* @version  0.3.0
+* @name     clearMultiplayerMessages
+* @side     client
+* @category Game
+*
+*/
+void Function_ClearMultiplayerMessages() {
+  NetGame::Instance().ClearMultiplayerMessages();
+}
+
 void BindGothicSpecific(sol::state& lua) {
   SPDLOG_TRACE("Initializing Gothic 2 Addon 2.6 specific bindings...");
 
@@ -2308,6 +2322,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["unspawnNpc"] = Function_UnspawnNpc;
 
   lua["exitGame"] = Function_ExitGame;
+  lua["clearMultiplayerMessages"] = Function_ClearMultiplayerMessages;
 
   BindInputConstants(lua);
   BindCursor(lua);
