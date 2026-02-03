@@ -40,25 +40,33 @@ namespace {
 constexpr const char* kResourcesDirectory = "resources";
 constexpr const char* kMetadataFileName = "resource.toml";
 
-std::optional<ResourceManager::ResourceMetadata> LoadResourceMetadata(const fs::path& resource_root, const std::string& resource_name) {
+struct ResourceMetadataResult {
+  std::optional<ResourceManager::ResourceMetadata> metadata;
+  bool active = true;
+};
+
+ResourceMetadataResult LoadResourceMetadata(const fs::path& resource_root, const std::string& resource_name) {
+  ResourceMetadataResult result;
   const fs::path metadata_path = resource_root / kMetadataFileName;
   if (!fs::exists(metadata_path)) {
     SPDLOG_DEBUG("Resource '{}' has no {} metadata", resource_name, kMetadataFileName);
-    return std::nullopt;
+    return result;
   }
 
   try {
     const toml::value metadata = toml::parse(metadata_path.string());
+    result.active = toml::find_or(metadata, "active", true);
+
     if (!metadata.contains("version")) {
       SPDLOG_WARN("Resource '{}' metadata is missing a non-empty 'version' field; skipping client pack", resource_name);
-      return std::nullopt;
+      return result;
     }
 
     ResourceManager::ResourceMetadata meta;
     meta.version = toml::find<std::string>(metadata, "version");
     if (meta.version.empty()) {
       SPDLOG_WARN("Resource '{}' metadata declared an empty version; skipping client pack", resource_name);
-      return std::nullopt;
+      return result;
     }
 
     const std::string author = toml::find_or(metadata, "author", std::string{});
@@ -71,14 +79,15 @@ std::optional<ResourceManager::ResourceMetadata> LoadResourceMetadata(const fs::
       meta.description = description;
     }
 
-    return meta;
+    result.metadata = std::move(meta);
+    return result;
   } catch (const toml::syntax_error& err) {
     SPDLOG_ERROR("Failed to parse metadata for resource '{}': {}", resource_name, err.what());
   } catch (const std::exception& ex) {
     SPDLOG_ERROR("Unexpected error while reading metadata for resource '{}': {}", resource_name, ex.what());
   }
 
-  return std::nullopt;
+  return result;
 }
 
 }  // namespace
@@ -117,11 +126,16 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
     DiscoveredResource descriptor;
     descriptor.name = resource_name;
     descriptor.root_path = entry.path();
-    descriptor.metadata = LoadResourceMetadata(descriptor.root_path, descriptor.name);
+    auto metadata_result = LoadResourceMetadata(descriptor.root_path, descriptor.name);
+    descriptor.metadata = std::move(metadata_result.metadata);
+    descriptor.active = metadata_result.active;
 
     discovered_resources_.push_back(descriptor);
-    discovered.push_back(resource_name);
-    SPDLOG_DEBUG("  Found resource: '{}'{}", resource_name, descriptor.metadata ? " (metadata detected)" : "");
+    if (descriptor.active) {
+      discovered.push_back(resource_name);
+    }
+    SPDLOG_DEBUG("  Found resource: '{}'{}{}", resource_name, descriptor.metadata ? " (metadata detected)" : "",
+                 descriptor.active ? "" : " (inactive)");
   }
 
   // Sort for consistent load order
@@ -130,7 +144,9 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
     return lhs.name < rhs.name;
   });
 
-  SPDLOG_INFO("Discovered {} resource(s)", discovered.size());
+  const std::size_t active_count = discovered.size();
+  const std::size_t inactive_count = discovered_resources_.size() - active_count;
+  SPDLOG_INFO("Discovered {} active resource(s) ({} inactive)", active_count, inactive_count);
   return discovered;
 }
 
@@ -151,17 +167,32 @@ void ResourceManager::LogResourceInfo() const {
     return count;
   };
 
-  std::size_t scripts_count = 0;
+  std::size_t inactive_scripts_count = 0;
+  std::size_t inactive_resources = 0;
+  std::size_t active_scripts_count = 0;
+  std::size_t active_resources = 0;
   for (const auto& resource : discovered_resources_) {
-    scripts_count += count_scripts_in_directory(resource.root_path / "shared");
-    scripts_count += count_scripts_in_directory(resource.root_path / "server");
-    scripts_count += count_scripts_in_directory(resource.root_path / "client");
+    if (resource.active) {
+      ++active_resources;
+
+      active_scripts_count += count_scripts_in_directory(resource.root_path / "shared");
+      active_scripts_count += count_scripts_in_directory(resource.root_path / "server");
+      active_scripts_count += count_scripts_in_directory(resource.root_path / "client");
+    } else {
+      ++inactive_resources;
+
+      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "shared");
+      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "server");
+      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "client");
+    }
   }
 
   SPDLOG_INFO("");
   SPDLOG_INFO("-= Resources =-");
-  SPDLOG_INFO("* {:<18}: {}", "Resources count", discovered_resources_.size());
-  SPDLOG_INFO("* {:<18}: {}", "Scripts count", scripts_count);
+  SPDLOG_INFO("* {:<18}: {}", "Resources active", active_resources);
+  SPDLOG_INFO("* {:<18}: {}", "Active scripts count", active_scripts_count);
+  SPDLOG_INFO("* {:<18}: {}", "Resources inactive", inactive_resources);
+  SPDLOG_INFO("* {:<18}: {}", "Inactive scripts count", inactive_scripts_count);
 }
 
 bool ResourceManager::LoadResource(const std::string& name, LuaScript& lua_script) {

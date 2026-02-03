@@ -53,6 +53,7 @@ public:
     std::string name;
     std::filesystem::path root_path;
     std::optional<ResourceMetadata> metadata;
+    bool active = true;
   };
 
   ResourceManager();
