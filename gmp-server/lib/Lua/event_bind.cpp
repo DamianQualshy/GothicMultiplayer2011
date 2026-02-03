@@ -631,12 +631,18 @@ std::optional<std::function<void(LuaProxyArgs)>> GetProxy(std::string event_name
       LuaCustomEvent custom_event = std::any_cast<LuaCustomEvent>(args.event);
       sol::state_view lua(args.callback.lua_state());
       sol::object previous_source = lua["source"];
+      sol::object source_object = sol::make_object(lua, sol::lua_nil);
       if (custom_event.source_element.has_value()) {
-        lua["source"] = static_cast<int>(*custom_event.source_element);
+        source_object = sol::make_object(lua, static_cast<int>(*custom_event.source_element));
+        lua["source"] = source_object;
       } else {
         lua["source"] = sol::lua_nil;
       }
-      args.callback(sol::as_args(custom_event.args));
+      std::vector<sol::object> callback_args;
+      callback_args.reserve(custom_event.args.size() + 1);
+      callback_args.emplace_back(std::move(source_object));
+      callback_args.insert(callback_args.end(), custom_event.args.begin(), custom_event.args.end());
+      args.callback(sol::as_args(callback_args));
       lua["source"] = previous_source;
     }};
   }
@@ -731,7 +737,7 @@ void BindEvents(sol::state& lua) {
 * @note     You may optionally provide a numeric source element id after the event name, followed by any number of additional arguments to send with the event. 
 * @param    (number|{...}|nil) sendTo Target player id, table of player ids, or nil to send to all players.
 * @param    (string) eventName Name of the client-side event to trigger.
-* @param    (number|nil) sourceElement Optional source element id. If omitted or nil, defaults to 0.
+* @param    (number|nil) sourceElement Optional source element id. Use nil if not needed.
 * @param    (...) ... Optional arguments passed to the client event handler.
 * @return   (boolean) True if the event was sent successfully, otherwise false.
 *
@@ -775,7 +781,7 @@ void BindEvents(sol::state& lua) {
     if (index < args.size()) {
       sol::object source_obj = args[index];
       auto remaining = args.size() - index;
-      if (source_obj.get_type() == sol::type::number && remaining >= 2) {
+      if (source_obj.get_type() == sol::type::number && remaining >= 1) {
         source_element = source_obj.as<std::uint32_t>();
         index++;
       } else if (source_obj.get_type() == sol::type::nil) {
@@ -919,7 +925,10 @@ void BindEvents(sol::state& lua) {
 
     LuaCustomEvent event;
     event.args = args;
-    event.source_element = source_element;
+    if (source_element != 0) {
+      event.source_element = source_element;
+    }
+
     auto result = EventManager::Instance().DispatchEvent(event_name, event);
     return result.dispatched && !result.cancelled;
   }

@@ -70,15 +70,6 @@ SOFTWARE.
 
 Net::NetServer* g_net_server = nullptr;
 
-const char* WTF = "Dude, I dont understand you.";
-const char* OK = "OK!";
-const char* AG = "Access granted!";
-const char* PDE = "Player doesn't exist!";
-const char* IPNOTBANNED = "Following IP isn't banned!";
-const char* IPISBANNED = "Following IP is already banned!";
-const char* INVALIDPARAMETER = "Invalid command parameter!";
-#define MAX_KILL_TXT 3
-const char* KILLED[MAX_KILL_TXT] = {"K.O.", "R.I.P.", "FATALITY"};
 std::atomic<bool> g_is_server_running = true;
 void (*g_destroy_net_server_func)(Net::NetServer*) = nullptr;
 
@@ -90,6 +81,31 @@ constexpr std::size_t kMaxWorldNameLength = 32;
 constexpr std::size_t kMaxPlayerNameLength = 64;
 constexpr const char* kBanListFileName = "bans.json";
 constexpr std::string_view kFrame = "-========================================-";
+
+std::string FormatConnectionDetails(ConnectionHandle id) {
+  const auto id_string = std::to_string(id);
+  if (!g_net_server) {
+    return "id " + id_string;
+  }
+
+  std::string address = g_net_server->GetPlayerIp(id);
+  if (address.empty() || address == "UNASSIGNED_SYSTEM_ADDRESS") {
+    return "id " + id_string;
+  }
+
+  address.append(", id ").append(id_string);
+  return address;
+}
+
+std::string FormatPlayerLabel(const PlayerManager::Player& player) {
+  const auto connection_details = FormatConnectionDetails(player.connection);
+  if (player.name.empty()) {
+    return connection_details;
+  }
+  std::string label = player.name;
+  label.append(" (").append(connection_details).append(")");
+  return label;
+}
 
 #ifdef MASTER_SERVER_ENDPOINT
 constexpr std::string_view kMasterServerEndpoint = MASTER_SERVER_ENDPOINT;
@@ -837,11 +853,12 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
   switch (packetIdentifier) {
     case ID_DISCONNECTION_NOTIFICATION: {
       auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+      const auto player_label = player_opt.has_value() ? FormatPlayerLabel(player_opt->get()) : FormatConnectionDetails(p.id);
       if (player_opt.has_value()) {
         SendDisconnectionInfo(player_opt->get().player_id);
       }
       HandlePlayerDisconnect(p.id, gmp::server::DISCONNECTED);
-      SPDLOG_INFO("{} disconnected. Still connected {} users.", g_net_server->GetPlayerIp(p.id), player_manager_.GetPlayerCount());
+      SPDLOG_INFO("{} disconnected. Still connected users: {}.", player_label, player_manager_.GetPlayerCount());
       break;
     }
     case ID_NEW_INCOMING_CONNECTION: {
@@ -877,19 +894,19 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       }
       SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, p.id, 9);
     }
-      SPDLOG_INFO("ID_NEW_INCOMING_CONNECTION from {} with connection {}. Now we have {} connected users.", g_net_server->GetPlayerIp(p.id), p.id,
-                  player_manager_.GetPlayerCount());
+      SPDLOG_INFO("Incoming connection from {}. Now connected users: {}.", FormatConnectionDetails(p.id), player_manager_.GetPlayerCount());
       break;
     case ID_INCOMPATIBLE_PROTOCOL_VERSION:
       SPDLOG_WARN("ID_INCOMPATIBLE_PROTOCOL_VERSION");
       break;
     case ID_CONNECTION_LOST: {
       auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+      const auto player_label = player_opt.has_value() ? FormatPlayerLabel(player_opt->get()) : FormatConnectionDetails(p.id);
       if (player_opt.has_value()) {
         SendDisconnectionInfo(player_opt->get().player_id);
       }
       HandlePlayerDisconnect(p.id, gmp::server::LOST_CONNECTION);
-      SPDLOG_WARN("Connection lost from {}. Still connected {} users.", g_net_server->GetPlayerIp(p.id), player_manager_.GetPlayerCount());
+      SPDLOG_WARN("{} lost connection. Still connected users: {}.", player_label, player_manager_.GetPlayerCount());
       break;
     }
     case PT_REQUEST_FILE_LENGTH:
@@ -1022,6 +1039,8 @@ void GameServer::SomeoneJoinGame(Packet p) {
   SendExistingPlayersPacket(player);
 
   BroadcastPlayerJoined(player);
+
+  SPDLOG_INFO("{} joined the server. Now connected users: {}.", FormatPlayerLabel(player), player_manager_.GetPlayerCount());
 
   // join
   EventManager::Instance().TriggerEvent(kEventOnPlayerConnectName, player.player_id);
@@ -2898,4 +2917,32 @@ std::uint32_t GameServer::GetPort() const {
     return g_net_server->GetPort();
   }
   return 0;
+}
+
+std::string GameServer::GetPlayerIp(PlayerId player_id) const {
+  if (!g_net_server) {
+    return {};
+  }
+
+  auto connection_opt = player_manager_.GetConnectionHandle(player_id);
+  if (!connection_opt.has_value()) {
+    return {};
+  }
+
+  const char* ip = g_net_server->GetPlayerIp(connection_opt.value());
+  if (!ip || std::string_view(ip).empty() || std::string_view(ip) == "UNASSIGNED_SYSTEM_ADDRESS") {
+    return {};
+  }
+
+  return ip;
+}
+
+std::string GameServer::GetPlayerMacAddress(PlayerId player_id) const {
+  (void)player_id;
+  return {};
+}
+
+std::string GameServer::GetPlayerUUID(PlayerId player_id) const {
+  (void)player_id;
+  return {};
 }

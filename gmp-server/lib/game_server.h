@@ -165,6 +165,9 @@ public:
   bool RespawnPlayer(PlayerId player_id);
   bool SetPlayerRespawnTime(PlayerId player_id, std::int32_t respawn_time_ms);
   std::optional<std::int32_t> GetPlayerRespawnTime(PlayerId player_id) const;
+  std::string GetPlayerIp(PlayerId player_id) const;
+  std::string GetPlayerMacAddress(PlayerId player_id) const;
+  std::string GetPlayerUUID(PlayerId player_id) const;
 
   PlayerManager& GetPlayerManager() {
     return player_manager_;

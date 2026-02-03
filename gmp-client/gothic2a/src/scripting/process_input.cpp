@@ -28,10 +28,16 @@ void ProcessInput(zCInput* zinput) {
 
   std::memset(s_pressedThisFrame, 0, sizeof(s_pressedThisFrame));
   std::memset(s_toggledThisFrame, 0, sizeof(s_toggledThisFrame));
+  std::array<bool, kMaxTrackedCode + 1> processed_codes = {};
+  processed_codes.fill(false);
 
   // Process keyboard keys
   for (const auto& key : kKeyboardKeys) {
     const int code = key.code;
+    if (code < 0 || code > kMaxTrackedCode || processed_codes[code]) {
+      continue;
+    }
+    processed_codes[code] = true;
     const bool is_disabled = code >= 0 && code <= kMaxTrackedCode && s_disabledKeys[code];
     const bool is_pressed = !is_disabled && zinput->KeyPressed(code) != 0;
     const bool was_pressed = s_prevPressed[code];
@@ -158,7 +164,7 @@ void BindInputConstants(sol::state& lua) {
       return false;
     }
 
-    Gothic_II_Addon::player->SetNpcAIDisabled(!toggle);
+    Gothic_II_Addon::player->SetNpcAIDisabled(toggle);
     return true;
   });
 

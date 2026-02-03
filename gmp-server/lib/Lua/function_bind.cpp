@@ -333,6 +333,84 @@ sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) 
 
 /* luagmp (func)
 *
+* Get a player's IP address or nil if unavailable.
+*
+* @version  0.3.0
+* @name     getPlayerIP
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Player IP or nil.
+*
+*/
+sol::object Function_GetPlayerIP(std::uint32_t player_id, sol::this_state ts) {
+  if (!GetPlayerOrWarn(player_id, "getPlayerIP")) {
+    return sol::nil;
+  }
+
+  const auto ip = g_server->GetPlayerIp(player_id);
+  if (ip.empty()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return sol::make_object(lua, ip);
+}
+
+/* luagmp (func)
+*
+* Get a player's MAC address or nil if unavailable.
+*
+* @version  0.3.0
+* @name     getPlayerMacAddress
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Player MAC address or nil.
+*
+*/
+sol::object Function_GetPlayerMacAddress(std::uint32_t player_id, sol::this_state ts) {
+  if (!GetPlayerOrWarn(player_id, "getPlayerMacAddress")) {
+    return sol::nil;
+  }
+
+  const auto mac = g_server->GetPlayerMacAddress(player_id);
+  if (mac.empty()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return sol::make_object(lua, mac);
+}
+
+/* luagmp (func)
+*
+* Get a player's UUID or nil if unavailable.
+*
+* @version  0.3.0
+* @name     getPlayerUUID
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Player UUID or nil.
+*
+*/
+sol::object Function_GetPlayerUUID(std::uint32_t player_id, sol::this_state ts) {
+  if (!GetPlayerOrWarn(player_id, "getPlayerUUID")) {
+    return sol::nil;
+  }
+
+  const auto uuid = g_server->GetPlayerUUID(player_id);
+  if (uuid.empty()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return sol::make_object(lua, uuid);
+}
+
+/* luagmp (func)
+*
 * Set a player's name color (RGB 0-255).
 *
 * @version  0.3.0
@@ -2098,6 +2176,9 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerInstance"] = Function_GetPlayerInstance;
   lua["setPlayerName"] = Function_SetPlayerName;
   lua["getPlayerName"] = Function_GetPlayerName;
+  lua["getPlayerIP"] = Function_GetPlayerIP;
+  lua["getPlayerMacAddress"] = Function_GetPlayerMacAddress;
+  lua["getPlayerUUID"] = Function_GetPlayerUUID;
   lua["setPlayerColor"] = Function_SetPlayerColor;
   lua["getPlayerColor"] = Function_GetPlayerColor;
   lua["setPlayerHealth"] = Function_SetPlayerHealth;

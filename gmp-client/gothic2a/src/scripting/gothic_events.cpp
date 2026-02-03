@@ -562,12 +562,18 @@ std::optional<std::function<void(LuaProxyArgs)>> GetProxy(const std::string& eve
       LuaCustomEvent custom_event = std::any_cast<LuaCustomEvent>(args.event);
       sol::state_view lua(args.callback.lua_state());
       sol::object previous_source = lua["source"];
+      sol::object source_object = sol::make_object(lua, sol::lua_nil);
       if (custom_event.source_element.has_value()) {
-        lua["source"] = static_cast<int>(*custom_event.source_element);
+        source_object = sol::make_object(lua, static_cast<int>(*custom_event.source_element));
+        lua["source"] = source_object;
       } else {
         lua["source"] = sol::lua_nil;
       }
-      args.callback(sol::as_args(custom_event.args));
+      std::vector<sol::object> callback_args;
+      callback_args.reserve(custom_event.args.size() + 1);
+      callback_args.emplace_back(std::move(source_object));
+      callback_args.insert(callback_args.end(), custom_event.args.begin(), custom_event.args.end());
+      args.callback(sol::as_args(callback_args));
       lua["source"] = previous_source;
     }};
   }
@@ -654,7 +660,7 @@ void BindGothicEvents(sol::state& lua) {
 * @note     You may optionally provide a numeric source element id as the next argument, followed by any number of additional arguments to send with the event.
 * @note     `sourceElement` is an optional numeric identifier that represents the object or entity that caused the event. Its meaning is user-defined and depends on the game logic. 
 * @param    (string) eventName Name of the server-side event to trigger.
-* @param    (number|nil) sourceElement Optional source element id. Use nil or omit it if not needed.
+* @param    (number|nil) sourceElement Optional source element id. Use nil if not needed.
 * @param    (...) ... Optional arguments passed to the server event handler.
 * @return   (boolean) True if the event was sent successfully, otherwise false.
 *
@@ -688,7 +694,7 @@ void BindGothicEvents(sol::state& lua) {
     if (index < args.size()) {
       sol::object source_obj = args[index];
       auto remaining = args.size() - index;
-      if (source_obj.get_type() == sol::type::number && remaining >= 2) {
+      if (source_obj.get_type() == sol::type::number && remaining >= 1) {
         source_element = source_obj.as<std::uint32_t>();
         index++;
       } else if (source_obj.get_type() == sol::type::nil) {
@@ -769,7 +775,10 @@ bool TriggerRemoteEvent(const std::string& event_name, std::uint32_t source_elem
 
   LuaCustomEvent event;
   event.args = args;
-  event.source_element = source_element;
+  if (source_element != 0) {
+    event.source_element = source_element;
+  }
+
   auto result = EventManager::Instance().DispatchEvent(event_name, event);
   return result.dispatched && !result.cancelled;
 }
