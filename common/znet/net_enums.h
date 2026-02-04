@@ -84,6 +84,10 @@ enum PacketID {
   PT_SKY_SETTINGS,
   PT_DODIE,
   PT_RESPAWN,
+  PT_PLAYER_HIT,
+  PT_PLAYER_UNCONSCIOUS,
+  PT_PLAYER_STANDUP,
+  PT_PLAYER_DIED,
   PT_DROPITEM,
   PT_TAKEITEM,
   PT_GIVEITEM,
@@ -191,6 +195,14 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_DODIE";
     case PT_RESPAWN:
       return "PT_RESPAWN";
+    case PT_PLAYER_HIT:
+      return "PT_PLAYER_HIT";
+    case PT_PLAYER_UNCONSCIOUS:
+      return "PT_PLAYER_UNCONSCIOUS";
+    case PT_PLAYER_STANDUP:
+      return "PT_PLAYER_STANDUP";
+    case PT_PLAYER_DIED:
+      return "PT_PLAYER_DIED";
     case PT_DROPITEM:
       return "PT_DROPITEM";
     case PT_TAKEITEM:

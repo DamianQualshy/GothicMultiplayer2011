@@ -37,7 +37,8 @@ inline const std::string kEventOnPlayerConnectName = "onPlayerConnect";
 inline const std::string kEventOnPlayerDisconnectName = "onPlayerDisconnect";
 inline const std::string kEventOnPlayerMessageName = "onPlayerMessage";
 inline const std::string kEventOnPlayerCommandName = "onPlayerCommand";
-inline const std::string kEventOnPlayerKillName = "onPlayerKill";
+inline const std::string kEventOnPlayerUnconsciousName = "onPlayerUnconscious";
+inline const std::string kEventOnPlayerStandUpName = "onPlayerStandUp";
 inline const std::string kEventOnPlayerDeathName = "onPlayerDeath";
 inline const std::string kEventOnPlayerDropItemName = "onPlayerDropItem";
 inline const std::string kEventOnPlayerTakeItemName = "onPlayerTakeItem";
@@ -86,9 +87,13 @@ struct OnPlayerCommandEvent {
   std::string params;
 };
 
-struct OnPlayerKillEvent {
-  std::uint64_t killer_id;
+struct OnPlayerUnconsciousEvent {
+  std::optional<std::uint64_t> attacker_id;
   std::uint64_t victim_id;
+};
+
+struct OnPlayerStandUpEvent {
+  std::uint64_t player_id;
 };
 
 struct OnPlayerDeathEvent {

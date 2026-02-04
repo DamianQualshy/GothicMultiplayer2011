@@ -32,8 +32,12 @@ addEventHandler('onPlayerCommand', function(playerId, command, params)
     LOG_INFO("Command from {}: /{} {}", playerId, command, params)
 end)
 
-addEventHandler('onPlayerKill', function(killerId, victimId)
-    LOG_INFO("Player {} killed {}", killerId, victimId)
+addEventHandler('onPlayerUnconscious', function(attackerId, victimId)
+    LOG_INFO("{} knocked {} unconscious", optionalIdToString(attackerId), victimId)
+end)
+
+addEventHandler('onPlayerStandUp', function(playerId)
+    LOG_INFO("Player {} stood up", playerId)
 end)
 
 addEventHandler('onPlayerDeath', function(playerId, killerId)

@@ -555,7 +555,8 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerDisconnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCommandName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerKillName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerUnconsciousName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerStandUpName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDeathName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDropItemName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerTakeItemName);
@@ -927,6 +928,110 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_CASTSPELLONTARGET:
       HandleCastSpell(p, true);
       break;
+    case PT_PLAYER_HIT: {
+      PlayerHitReportPacket packet;
+      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+      if (!state.second) {
+        SPDLOG_WARN("Failed to deserialize PlayerHitReportPacket");
+        break;
+      }
+      auto attacker_opt = player_manager_.GetPlayerByConnection(p.id);
+      auto victim_opt = player_manager_.GetPlayer(packet.victim_id);
+      if (!attacker_opt.has_value() || !victim_opt.has_value()) {
+        break;
+      }
+      auto& attacker = attacker_opt->get();
+      auto& victim = victim_opt->get();
+      if (!attacker.is_ingame || !victim.is_ingame || victim.tod != 0) {
+        break;
+      }
+      const auto old_health = victim.health;
+      const auto new_health = std::clamp<std::int32_t>(packet.health, 0, victim.max_health);
+      if (new_health >= old_health) {
+        break;
+      }
+      victim.health = static_cast<std::int16_t>(new_health);
+      victim.state.health_points = victim.health;
+      EventManager::Instance().TriggerEvent(
+          kEventOnPlayerChangeHealthName,
+          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
+      SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
+      const auto damage = static_cast<std::int32_t>(old_health) - static_cast<std::int32_t>(victim.health);
+      EventManager::Instance().TriggerEvent(
+          kEventOnPlayerHitName,
+          OnPlayerHitEvent{attacker.player_id, victim.player_id,
+                           static_cast<std::int16_t>(std::min<std::int32_t>(damage, std::numeric_limits<std::int16_t>::max()))});
+      if (victim.health <= 0) {
+        HandlePlayerDeath(victim, attacker.player_id);
+      }
+    } break;
+    case PT_PLAYER_UNCONSCIOUS: {
+      PlayerUnconsciousPacket packet;
+      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+      if (!state.second) {
+        SPDLOG_WARN("Failed to deserialize PlayerUnconsciousPacket");
+        break;
+      }
+      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+      if (!player_opt.has_value()) {
+        break;
+      }
+      auto& player = player_opt->get();
+      if (player.tod != 0) {
+        break;
+      }
+      const bool was_unconscious = (player.flags & PlayerManager::PL_UNCONCIOUS) != 0;
+      player.flags |= PlayerManager::PL_UNCONCIOUS;
+      if (player.health > 1) {
+        SetPlayerHealth(player.player_id, 1);
+      }
+      if (!was_unconscious) {
+        std::optional<std::uint64_t> attacker;
+        if (packet.attacker_id.has_value()) {
+          attacker = packet.attacker_id.value();
+        }
+        EventManager::Instance().TriggerEvent(kEventOnPlayerUnconsciousName, OnPlayerUnconsciousEvent{attacker, player.player_id});
+      }
+    } break;
+    case PT_PLAYER_STANDUP: {
+      PlayerStandUpPacket packet;
+      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+      if (!state.second) {
+        SPDLOG_WARN("Failed to deserialize PlayerStandUpPacket");
+        break;
+      }
+      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+      if (!player_opt.has_value()) {
+        break;
+      }
+      auto& player = player_opt->get();
+      if ((player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
+        player.flags &= ~PlayerManager::PL_UNCONCIOUS;
+        EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
+      }
+    } break;
+    case PT_PLAYER_DIED: {
+      PlayerDeathReportPacket packet;
+      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+      if (!state.second) {
+        SPDLOG_WARN("Failed to deserialize PlayerDeathReportPacket");
+        break;
+      }
+      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+      if (!player_opt.has_value()) {
+        break;
+      }
+      auto& player = player_opt->get();
+      std::optional<PlayerId> killer_id;
+      if (packet.killer_id.has_value()) {
+        killer_id = packet.killer_id.value();
+      }
+      HandlePlayerDeath(player, killer_id);
+    } break;
     case PT_DROPITEM:
       HandleDropItem(p);
       break;
@@ -986,13 +1091,10 @@ void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> kille
   const auto old_health = victim.health;
   victim.health = 0;
   victim.state.health_points = 0;
+  victim.flags &= ~PlayerManager::PL_UNCONCIOUS;
   victim.tod = time(NULL);
   if (old_health != victim.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
-  }
-
-  if (killer_id.has_value() && killer_id.value() != victim.player_id) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerKillName, OnPlayerKillEvent{killer_id.value(), victim.player_id});
   }
 
   EventManager::Instance().TriggerEvent(kEventOnPlayerDeathName, OnPlayerDeathEvent{victim.player_id, killer_id});
@@ -1060,6 +1162,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
   const auto old_state = updated_player.state;
+  const auto old_health = updated_player.health;
+  const auto old_mana = updated_player.mana;
   const auto instance_or_nil = [](std::int16_t instance_id) -> std::optional<std::int16_t> {
     return instance_id == 0 ? std::nullopt : std::optional<std::int16_t>{instance_id};
   };
@@ -1077,6 +1181,45 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   updated_player.state.ranged_weapon_instance = packet.state.ranged_weapon_instance;
   updated_player.state.health_points = updated_player.health;
   updated_player.state.mana_points = updated_player.mana;
+
+  if (updated_player.tod == 0) {
+    const auto requested_health = std::clamp<std::int32_t>(packet.state.health_points, 0, updated_player.max_health);
+    const auto requested_mana = std::clamp<std::int32_t>(packet.state.mana_points, 0, updated_player.max_mana);
+    bool died = false;
+    const auto effective_health = requested_health > old_health ? static_cast<std::int32_t>(old_health) : requested_health;
+
+    if (effective_health <= 0 && old_health > 0) {
+      EventManager::Instance().TriggerEvent(
+          kEventOnPlayerHitName,
+          OnPlayerHitEvent{std::nullopt, updated_player.player_id, static_cast<std::int16_t>(std::min<std::int32_t>(old_health,
+                                                                                                                   std::numeric_limits<std::int16_t>::max()))});
+      HandlePlayerDeath(updated_player, std::nullopt);
+      died = true;
+    } else if (effective_health != old_health) {
+      updated_player.health = static_cast<std::int16_t>(effective_health);
+      if (old_health != updated_player.health) {
+        EventManager::Instance().TriggerEvent(
+            kEventOnPlayerChangeHealthName,
+            OnPlayerChangeHealthEvent{updated_player.player_id, old_health, updated_player.health});
+      }
+
+      const auto damage = static_cast<std::int32_t>(old_health) - static_cast<std::int32_t>(updated_player.health);
+      if (damage > 0) {
+        EventManager::Instance().TriggerEvent(
+            kEventOnPlayerHitName,
+            OnPlayerHitEvent{std::nullopt, updated_player.player_id, static_cast<std::int16_t>(std::min<std::int32_t>(
+                                                                    damage, std::numeric_limits<std::int16_t>::max()))});
+      }
+    }
+
+    if (!died && requested_mana != old_mana) {
+      updated_player.mana = static_cast<std::int16_t>(requested_mana);
+      if (old_mana != updated_player.mana) {
+        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName,
+                                              OnPlayerChangeManaEvent{updated_player.player_id, old_mana, updated_player.mana});
+      }
+    }
+  }
 
   if (old_state.weapon_mode != updated_player.state.weapon_mode) {
     EventManager::Instance().TriggerEvent(

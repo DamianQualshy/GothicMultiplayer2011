@@ -61,6 +61,10 @@ public:
   void SendTakeItem(short Instance);
   void SendCastSpell(oCNpc* Target, short SpellId);
   void SendMessage(const char* msg);
+  void SendPlayerHit(std::uint32_t victim_id, std::int16_t health);
+  void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
+  void SendPlayerStandUp();
+  void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
   void UpdatePlayerStats(short anim);
   void SyncGameTime();
   void Disconnect();
@@ -160,4 +164,7 @@ private:
   std::optional<int> last_ping_;
   std::string last_world_name_;
   float day_length_ms_{0.0f};
+
+public:
+  std::optional<std::uint64_t> GetPlayerIdByNpc(oCNpc* npc);
 };

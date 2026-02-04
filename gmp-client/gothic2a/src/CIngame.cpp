@@ -309,6 +309,11 @@ void CIngame::CheckForHPDiff() {
   for (size_t i = 0; i < NetGame::Instance().players.size(); i++) {
     if (NetGame::Instance().players[i]->base_player().health() !=
         static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS])) {
+      if (NetGame::Instance().players[i]->IsLocalPlayer()) {
+        NetGame::Instance().players[i]->base_player().set_health(
+            static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]));
+        continue;
+      }
       if (!ValidatePlayerForHPDiff(NetGame::Instance().players[i])) {
         if (NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS] <= 0) {
           NetGame::Instance().players[i]->RespawnPlayer();

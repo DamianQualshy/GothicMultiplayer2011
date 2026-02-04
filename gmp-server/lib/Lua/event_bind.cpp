@@ -173,23 +173,6 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player kills another player.
-*
-* @version  0.3.0
-* @name     onPlayerKill
-* @side     server
-* @category Player
-* @param    (number) killer_id    The id of the killer.
-* @param    (number) victim_id    The id of the victim.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerKillName] = {[](LuaProxyArgs args) {
-    OnPlayerKillEvent player_kill_event = std::any_cast<OnPlayerKillEvent>(args.event);
-    args.callback(player_kill_event.killer_id, player_kill_event.victim_id);
-  }};
-
-/* luagmp (event)
-*
 * Triggered when a player dies.
 *
 * @version  0.3.0
@@ -205,6 +188,42 @@ void RegisterProxies() {
     sol::state_view lua(args.callback.lua_state());
     sol::object killer = player_death_event.killer_id.has_value() ? sol::make_object(lua, player_death_event.killer_id.value()) : sol::lua_nil;
     args.callback(player_death_event.player_id, killer);
+  }};
+
+/* luagmp (event)
+*
+* Triggered when a player stands up after being unconscious.
+*
+* @version  0.3.0
+* @name     onPlayerStandUp
+* @side     server
+* @category Player
+* @param    (number) player_id    The id of the player who stood up.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerStandUpName] = {[](LuaProxyArgs args) {
+    OnPlayerStandUpEvent player_standup_event = std::any_cast<OnPlayerStandUpEvent>(args.event);
+    args.callback(player_standup_event.player_id);
+  }};
+
+/* luagmp (event)
+*
+* Triggered when a player becomes unconscious.
+*
+* @version  0.3.0
+* @name     onPlayerUnconscious
+* @side     server
+* @category Player
+* @param    (number) attacker_id  Optional attacker id (nil if none).
+* @param    (number) victim_id     Victim player id.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerUnconsciousName] = {[](LuaProxyArgs args) {
+    OnPlayerUnconsciousEvent player_unconscious_event = std::any_cast<OnPlayerUnconsciousEvent>(args.event);
+    sol::state_view lua(args.callback.lua_state());
+    sol::object attacker =
+        player_unconscious_event.attacker_id.has_value() ? sol::make_object(lua, player_unconscious_event.attacker_id.value()) : sol::lua_nil;
+    args.callback(attacker, player_unconscious_event.victim_id);
   }};
 
 /* luagmp (event)

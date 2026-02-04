@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include <ctime>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -75,6 +76,7 @@ constexpr DWORD kEquipItemHookAddress = 0x007323C0;
 constexpr DWORD kUnequipItemHookAddress = 0x007326C0;
 constexpr DWORD kDoDieHookAddress = 0x00736760;
 constexpr DWORD kDropUnconsciousHookAddress = 0x00735EB0;
+constexpr DWORD kStandUpHookAddress = 0x00682B40;
 constexpr DWORD kCallOnStateFuncHookAddress = 0x00720870;
 constexpr DWORD kAINormalHookAddress = 0x004A4370;
 constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
@@ -89,6 +91,7 @@ using EquipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
 using UnequipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
 using DoDieOriginalFn = void(__thiscall*)(oCNpc*, oCNpc*);
 using DropUnconsciousOriginalFn = void(__thiscall*)(oCNpc*, float, oCNpc*);
+using StandUpOriginalFn = void(__thiscall*)(oCNpc*, int, int);
 using CallOnStateFuncOriginalFn = void(__thiscall*)(oCMobInter*, oCNpc*, int);
 using AINormalOriginalFn = void(__thiscall*)(zCAICamera*);
 using OnDamageAnimOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
@@ -103,6 +106,7 @@ EquipItemOriginalFn g_originalEquipItem = nullptr;
 UnequipItemOriginalFn g_originalUnequipItem = nullptr;
 DoDieOriginalFn g_originalDoDie = nullptr;
 DropUnconsciousOriginalFn g_originalDropUnconscious = nullptr;
+StandUpOriginalFn g_originalStandUp = nullptr;
 CallOnStateFuncOriginalFn g_originalCallOnStateFunc = nullptr;
 AINormalOriginalFn g_originalAINormal = nullptr;
 OnDamageAnimOriginalFn g_originalOnDamageAnim = nullptr;
@@ -206,6 +210,13 @@ void __fastcall OnDoDie(oCNpc* thisNpc, void* /*edx*/, oCNpc* attacker) {
     g_originalDoDie(thisNpc, attacker);
   }
   ClearNpcHands(thisNpc);
+  if (thisNpc == player && NetGame::Instance().IsConnected()) {
+    std::optional<std::uint32_t> killer_id;
+    if (auto attacker_id = NetGame::Instance().GetPlayerIdByNpc(attacker); attacker_id.has_value()) {
+      killer_id = static_cast<std::uint32_t>(attacker_id.value());
+    }
+    NetGame::Instance().SendPlayerDeath(killer_id);
+  }
 }
 
 // Hook: oCNpc::DropUnconscious - clears hands after going unconscious
@@ -214,6 +225,24 @@ void __fastcall OnDropUnconscious(oCNpc* thisNpc, void* /*edx*/, float duration,
     g_originalDropUnconscious(thisNpc, duration, attacker);
   }
   ClearNpcHands(thisNpc);
+  if (thisNpc == player && NetGame::Instance().IsConnected()) {
+    std::optional<std::uint32_t> attacker_id;
+    if (auto id = NetGame::Instance().GetPlayerIdByNpc(attacker); id.has_value()) {
+      attacker_id = static_cast<std::uint32_t>(id.value());
+    }
+    NetGame::Instance().SendPlayerUnconscious(attacker_id);
+  }
+}
+
+// Hook: oCNpc::StandUp - notify server when the local player stands up from unconscious
+void __fastcall OnStandUp(oCNpc* thisNpc, void* /*edx*/, int param1, int param2) {
+  const bool was_unconscious = thisNpc->IsUnconscious();
+  if (g_originalStandUp) {
+    g_originalStandUp(thisNpc, param1, param2);
+  }
+  if (thisNpc == player && was_unconscious && NetGame::Instance().IsConnected()) {
+    NetGame::Instance().SendPlayerStandUp();
+  }
 }
 
 // Hook: oCMobInter::CallOnStateFunc - skip SLEEPABIT state to prevent sleep exploit
@@ -257,6 +286,13 @@ void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDesc
   }
   if (g_originalOnDamageHit) {
     g_originalOnDamageHit(thisNpc, damageDesc);
+  }
+  // All we're doing here is send a Hit notification for the server to deal with the damage logic.
+  if (damageDesc.pNpcAttacker == player && thisNpc != player && NetGame::Instance().IsConnected()) {
+    if (auto victim_id = NetGame::Instance().GetPlayerIdByNpc(thisNpc); victim_id.has_value()) {
+      NetGame::Instance().SendPlayerHit(static_cast<std::uint32_t>(victim_id.value()),
+                                        static_cast<std::int16_t>(thisNpc->attribute[NPC_ATR_HITPOINTS]));
+    }
   }
 }
 
@@ -615,6 +651,10 @@ void Initialize(void) {
     // oCNpc::DropUnconscious - clear hands after going unconscious
     if (auto original = CreateHook(kDropUnconsciousHookAddress, (DWORD)OnDropUnconscious)) {
       g_originalDropUnconscious = reinterpret_cast<DropUnconsciousOriginalFn>(*original);
+    }
+    // oCNpc::StandUp - notify server when local player stands up
+    if (auto original = CreateHook(kStandUpHookAddress, (DWORD)OnStandUp)) {
+      g_originalStandUp = reinterpret_cast<StandUpOriginalFn>(*original);
     }
     // oCMobInter::CallOnStateFunc - skip SLEEPABIT to prevent sleep exploit
     if (auto original = CreateHook(kCallOnStateFuncHookAddress, (DWORD)OnCallOnStateFunc)) {

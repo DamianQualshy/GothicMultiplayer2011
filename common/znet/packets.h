@@ -1115,6 +1115,50 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerRespawnInfoPacket&
   return os;
 }
 
+struct PlayerHitReportPacket {
+  std::uint8_t packet_type;
+  std::uint32_t victim_id;
+  std::int16_t health;
+};
+
+template <typename S>
+void serialize(S& s, PlayerHitReportPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.victim_id);
+  s.value2b(packet.health);
+}
+
+struct PlayerUnconsciousPacket {
+  std::uint8_t packet_type;
+  std::optional<std::uint32_t> attacker_id;
+};
+
+template <typename S>
+void serialize(S& s, PlayerUnconsciousPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
+}
+
+struct PlayerStandUpPacket {
+  std::uint8_t packet_type;
+};
+
+template <typename S>
+void serialize(S& s, PlayerStandUpPacket& packet) {
+  s.value1b(packet.packet_type);
+}
+
+struct PlayerDeathReportPacket {
+  std::uint8_t packet_type;
+  std::optional<std::uint32_t> killer_id;
+};
+
+template <typename S>
+void serialize(S& s, PlayerDeathReportPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.ext4b(packet.killer_id, bitsery::ext::StdOptional{});
+}
+
 struct ClientResourceInfoEntry {
   std::string name;
   std::string version;

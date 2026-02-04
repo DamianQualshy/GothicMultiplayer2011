@@ -339,6 +339,34 @@ void GameClient::SendTakeItem(std::uint16_t instance) {
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
+void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int16_t health) {
+  PlayerHitReportPacket packet;
+  packet.packet_type = PT_PLAYER_HIT;
+  packet.victim_id = victim_id;
+  packet.health = health;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+}
+
+void GameClient::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id) {
+  PlayerUnconsciousPacket packet;
+  packet.packet_type = PT_PLAYER_UNCONSCIOUS;
+  packet.attacker_id = attacker_id;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+}
+
+void GameClient::SendPlayerStandUp() {
+  PlayerStandUpPacket packet;
+  packet.packet_type = PT_PLAYER_STANDUP;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+}
+
+void GameClient::SendPlayerDeath(std::optional<std::uint32_t> killer_id) {
+  PlayerDeathReportPacket packet;
+  packet.packet_type = PT_PLAYER_DIED;
+  packet.killer_id = killer_id;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+}
+
 void GameClient::UpdatePlayerStats(const PlayerState& state) {
   PlayerStateUpdatePacket packet;
   packet.packet_type = PT_ACTUAL_STATISTICS;

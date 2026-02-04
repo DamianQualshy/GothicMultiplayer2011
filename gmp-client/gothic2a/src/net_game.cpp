@@ -367,6 +367,18 @@ Gothic2APlayer* NetGame::GetPlayerById(std::uint64_t player_id) {
   return nullptr;
 }
 
+std::optional<std::uint64_t> NetGame::GetPlayerIdByNpc(oCNpc* npc) {
+  if (!npc) {
+    return std::nullopt;
+  }
+  for (auto* player : players) {
+    if (player->npc == npc) {
+      return player->base_player().id();
+    }
+  }
+  return std::nullopt;
+}
+
 void NetGame::JoinGame() {
   if (IsReadyToJoin) {
     HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)InterfaceLoop);
@@ -413,6 +425,22 @@ void NetGame::SendDropItem(short instance, short amount) {
 
 void NetGame::SendTakeItem(short instance) {
   game_client->SendTakeItem(static_cast<std::uint16_t>(instance));
+}
+
+void NetGame::SendPlayerHit(std::uint32_t victim_id, std::int16_t health) {
+  game_client->SendPlayerHit(victim_id, health);
+}
+
+void NetGame::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id) {
+  game_client->SendPlayerUnconscious(attacker_id);
+}
+
+void NetGame::SendPlayerStandUp() {
+  game_client->SendPlayerStandUp();
+}
+
+void NetGame::SendPlayerDeath(std::optional<std::uint32_t> killer_id) {
+  game_client->SendPlayerDeath(killer_id);
 }
 
 glm::vec3 Vec3ToGlmVec3(const zVEC3& vec) {
@@ -576,6 +604,9 @@ void NetGame::OnResourcesReady() {
   SPDLOG_INFO("All required client resources downloaded and loaded");
   IsReadyToJoin = true;
   PrintResourceStatusTimed("Client resources ready. You may join the server.", 10000.0f, kResourceSuccessColor);
+  
+  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
+  view->SetFontColor(zCOLOR(255, 255, 255));
 }
 
 void NetGame::OnMapChange(const std::string& map_name) {
@@ -681,8 +712,7 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
   newhero->SetName(new_player.name().c_str());
   (void)new_player;
 
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "%s%s", new_player.name().c_str(),
-                                     Language::Instance()[Language::SOMEONE_JOIN_GAME].ToChar());
+  SPDLOG_INFO("Player '{}' id {} joined the game.", new_player.name(), new_player.id());
   newhero->base_player().set_enabled(false);
   newhero->base_player().set_update_health_packet_counter(0);
   this->players.push_back(newhero);
@@ -691,8 +721,7 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
 void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {
   for (size_t i = 1; i < this->players.size(); i++) {
     if (this->players[i]->base_player().id() == player_id) {
-      CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s%s", this->players[i]->GetName(),
-                                         Language::Instance()[Language::SOMEONEDISCONNECT_FROM_SERVER].ToChar());
+      SPDLOG_INFO("Player '{}' (id {}) disconnected from server", this->players[i]->GetName(), player_id);
       this->players[i]->LeaveGame();
       EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDestroyName, gmp::gothic::PlayerLifecycleEvent{player_id});
       delete this->players[i];
