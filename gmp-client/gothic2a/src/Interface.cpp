@@ -47,6 +47,7 @@ CMenu* MainMenu;
 std::vector<CMenu*> MenuList;
 zCMenu* Options;
 bool OrgOptionsOpened = false;
+bool GMPMenuEnabled = true;
 extern zCOLOR Red;
 extern zCOLOR Normal;
 extern CIngame* global_ingame;
@@ -130,7 +131,7 @@ void InterfaceLoop(void) {
     }
   }
   if (!player->inventory2.IsOpen()) {
-    if (zinput->KeyToggled(KEY_ESCAPE) && !OrgOptionsOpened) {
+    if (zinput->KeyToggled(KEY_ESCAPE) && !OrgOptionsOpened && GMPMenuEnabled) {
       if (!MainMenu) {
         if (HelpOpen) {
           HelpOpen = false;
@@ -149,6 +150,30 @@ void InterfaceLoop(void) {
         }
       }
     }
+  }
+}
+
+void EnableGMPMenu(bool enable) {
+  GMPMenuEnabled = enable;
+}
+
+void OpenGMPMenu() {
+  if (!MainMenu) {
+    if (HelpOpen) {
+      HelpOpen = false;
+    }
+    CreateMainMenu();
+    return;
+  }
+
+  if (!MainMenu->IsOpened()) {
+    MainMenu->Open();
+  }
+}
+
+void CloseGMPMenu() {
+  if (MainMenu && MainMenu->IsOpened()) {
+    MainMenu->Close();
   }
 }
 

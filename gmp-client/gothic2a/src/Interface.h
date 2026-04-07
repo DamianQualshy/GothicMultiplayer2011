@@ -37,3 +37,7 @@ SOFTWARE.
 void InterfaceLoop(void);
 void CreateMainMenu(void);
 void ExitToBigMainMenu(void);
+void ExitToBigMainMenu(void);
+void EnableGMPMenu(bool enable);
+void OpenGMPMenu();
+void CloseGMPMenu();

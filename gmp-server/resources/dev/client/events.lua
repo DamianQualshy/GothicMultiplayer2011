@@ -12,8 +12,21 @@ addEventHandler('onKeyUp', function(key)
     LOG_INFO('onKeyUp (key={})', key)
 end)
 
+local menuEnabled = false
 addEventHandler('onKeyDown', function(key)
     LOG_INFO('onKeyDown (key={})', key)
+    if key == KEY_N then
+        menuEnabled = not menuEnabled
+        enableGMPMenu(menuEnabled)
+        LOG_INFO('GMP Menu enabled: {}', menuEnabled)
+    end
+    if key == KEY_M then
+        if(menuEnabled) then
+            openGMPMenu()
+        else
+            exitGame()
+        end
+    end
 end)
 
 addEventHandler('onPlayerCreate', function(playerId)

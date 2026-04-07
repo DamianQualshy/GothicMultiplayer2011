@@ -39,6 +39,7 @@ SOFTWARE.
 #include "net_game.h"
 #include "patch.h"
 #include "gmp_core.h"
+#include "Interface.h"
 
 #include "lua_draw.h"
 #include "lua_texture.h"
@@ -2462,6 +2463,49 @@ void Function_ClearMultiplayerMessages() {
   NetGame::Instance().ClearMultiplayerMessages();
 }
 
+/* luagmp (func)
+*
+* Enable or disable opening GMP menu with ESC.
+*
+* @version  0.3.0
+* @name     enableGMPMenu
+* @side     client
+* @category Interface
+* @param    (boolean) enable  True to allow ESC to open/close GMP menu, false to ignore ESC for GMP menu.
+*
+*/
+void Function_EnableGMPMenu(bool enable) {
+  EnableGMPMenu(enable);
+}
+
+/* luagmp (func)
+*
+* Force open GMP menu.
+*
+* @version  0.3.0
+* @name     openGMPMenu
+* @side     client
+* @category Interface
+*
+*/
+void Function_OpenGMPMenu() {
+  OpenGMPMenu();
+}
+
+/* luagmp (func)
+*
+* Force close GMP menu.
+*
+* @version  0.3.0
+* @name     closeGMPMenu
+* @side     client
+* @category Interface
+*
+*/
+void Function_CloseGMPMenu() {
+  CloseGMPMenu();
+}
+
 void BindGothicSpecific(sol::state& lua) {
   SPDLOG_TRACE("Initializing Gothic 2 Addon 2.6 specific bindings...");
 
@@ -2531,6 +2575,9 @@ void BindGothicSpecific(sol::state& lua) {
 
   lua["exitGame"] = Function_ExitGame;
   lua["clearMultiplayerMessages"] = Function_ClearMultiplayerMessages;
+  lua["enableGMPMenu"] = Function_EnableGMPMenu;
+  lua["openGMPMenu"] = Function_OpenGMPMenu;
+  lua["closeGMPMenu"] = Function_CloseGMPMenu;
 
   BindInputConstants(lua);
   BindCursor(lua);
