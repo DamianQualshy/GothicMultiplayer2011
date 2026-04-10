@@ -122,7 +122,10 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
       // Disable Gothic's built-in exception/crash handler as early as possible.
       Patch::DisableNativeExceptionHandler();
 
-      ExternalConsoleWindow::Init();
+      if (Config::Instance().IsDebugConsoleEnabled()) {
+        ExternalConsoleWindow::Init();
+      }
+
       spdlog::default_logger()->sinks().push_back(std::make_shared<spdlog::sinks::basic_file_sink_mt>("GMP_Log.txt", true));
       spdlog::flush_on(spdlog::level::info);
       spdlog::set_level(spdlog::level::info);

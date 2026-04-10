@@ -166,6 +166,11 @@ void Config::LoadConfigFromFile() {
     mcp_pipe_enabled_ = *mcp_opt;
   }
 
+  // Debug console enable flag
+  if (auto debug_console_opt = toml.GetValue<bool>("debug_console_enabled"); debug_console_opt) {
+    debug_console_enabled_ = *debug_console_opt;
+  }
+
   // If nickname is empty, the user didn't set up the config yet.
   is_default_ = Nickname.IsEmpty();
 }
@@ -184,6 +189,7 @@ void Config::DefaultSettings() {
   renderer_type_ = RendererType::D3D9;
   test_mode_config_ = TestModeConfig{};  // Reset test mode to defaults
   mcp_pipe_enabled_ = false;
+  debug_console_enabled_ = true;
   vsync_enabled = true;
   is_default_ = true;
 };
@@ -220,6 +226,7 @@ void Config::SaveConfigToFile() {
   toml["window_always_on_top"] = toml::value(window_always_on_top_);
   toml["vsync_enabled"] = toml::value(vsync_enabled);
   toml["mcp_pipe_enabled"] = toml::value(mcp_pipe_enabled_);
+  toml["debug_console_enabled"] = toml::value(debug_console_enabled_);
 
   // Save renderer type as string
   std::string renderer_str;

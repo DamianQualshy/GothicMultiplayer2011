@@ -115,6 +115,14 @@ public:
     return mcp_pipe_enabled_;
   }
 
+  /**
+   * @brief Check if Debug Console should be enabled.
+   * Defaults to true (enabled).
+   */
+  bool IsDebugConsoleEnabled() const {
+    return debug_console_enabled_;
+  }
+
   static Config& Instance() {
     static Config instance;
     return instance;
@@ -132,4 +140,6 @@ private:
   TestModeConfig test_mode_config_;
   // Whether to enable the MCP Named Pipe server (disabled by default)
   bool mcp_pipe_enabled_ = false;
+  // Whether to spawn external debug console window (enabled by default)
+  bool debug_console_enabled_ = true;
 };

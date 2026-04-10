@@ -46,6 +46,7 @@ SOFTWARE.
 #include "lua_sound.h"
 #include "lua_cursor.h"
 #include "lua_vob.h"
+#include "lua_way.h"
 #include "sky_utils.h"
 
 using namespace Gothic_II_Addon;
@@ -2586,6 +2587,7 @@ void BindGothicSpecific(sol::state& lua) {
   BindTexture(lua);
   BindSound(lua);
   BindVob(lua);
+  BindWay(lua);
   BindInterface(lua);
 
   lua["setTime"] = Function_SetTime;

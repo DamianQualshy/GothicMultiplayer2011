@@ -24,36 +24,28 @@ SOFTWARE.
 
 #pragma once
 
-#include <thread>
+#include <string>
+#include <vector>
 
-class ExternalConsoleWindow {
+#include "sol/sol.hpp"
+
+namespace gmp::gothic {
+
+class LuaWay {
 public:
-  /**
-   * @brief Initialize the external console window (call once at startup).
-   */
-  static void Init();
+  LuaWay(const std::string& start_wp, const std::string& end_wp);
 
-  /**
-   * @brief Save the current console window position to config.
-   *
-   * Call this before exit to remember the console position.
-   * This is safe to call and won't throw exceptions.
-   */
-  static void SavePosition();
+  const std::string& getStart() const;
+  const std::string& getEnd() const;
 
-  ~ExternalConsoleWindow() = default;
+  std::vector<std::string> getWaypoints() const;
+  int getCountWaypoints() const;
 
 private:
-  ExternalConsoleWindow();
-
-  ExternalConsoleWindow(const ExternalConsoleWindow&) = delete;
-  ExternalConsoleWindow& operator=(const ExternalConsoleWindow&) = delete;
-
-  void StartInputThread();
-  void ProcessConsoleInput();
-  void ExecuteConsoleCommand(const char* command);
-  void RedirectStdStreamsToConsole();
-  bool EnsureConsoleAvailable();
-
-  std::thread input_thread_;
+  std::string start_wp_;
+  std::string end_wp_;
 };
+
+void BindWay(sol::state& lua);
+
+}  // namespace gmp::gothic
