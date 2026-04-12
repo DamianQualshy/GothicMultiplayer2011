@@ -24,8 +24,22 @@ child.visualAlpha = 1.0
 child:setPosition(150.0, 0.0, 200.0)
 child:setRotation(0.0, 0.0, 0.0)
 
+print(parent.objectName)
+print(parent.parent)
+
+parent:addToWorld()
+child:addToWorld(parent)
+
+local parentPos = parent:getPosition()
+print(string.format("Parent position: %.2f %.2f %.2f", parentPos.x, parentPos.y, parentPos.z))
+local parentRot = parent:getRotation()
+print(string.format("Parent rotation: %.2f %.2f %.2f", parentRot.x, parentRot.y, parentRot.z))
+
+print(child.parent)
+child:floor()
+
 function onResourceStart()
-  print(parent.objectName)
+  --[[ print(parent.objectName)
   print(parent.parent)
 
   parent:addToWorld()
@@ -37,7 +51,7 @@ function onResourceStart()
   print(string.format("Parent rotation: %.2f %.2f %.2f", parentRot.x, parentRot.y, parentRot.z))
 
   print(child.parent)
-  child:floor()
+  child:floor() ]]
 end
 
 function onResourceStop()

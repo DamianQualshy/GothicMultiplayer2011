@@ -3,32 +3,7 @@ LOG_INFO('[Dev][Client] ui.lua initialized.')
 
 local title = Draw.new(0, 0, "NewDraw")
 
-title:setPosition(0.1, 0.1)
-title:setPositionPx(100, 60)
-
-title:setText("Hello UI")
-title:setFont("FONT_OLD_20_WHITE_HI.TGA")
-title:setColor(255, 200, 120)
-title:setAlpha(255)
-title:setVisible(true)
-
 local logo = Texture.new(40, 80, 256, 256, "DEFAULT.TGA")
-
-logo:setPosition(0.05, 0.2)
-logo:setPositionPx(40, 100)
-
-logo:setSize(256, 256)
-logo:setSizePx(256, 256)
-
-logo:setRect(0, 0, 1, 1)
-logo:setRectPx(0, 0, 256, 256)
-
-logo:setColor(255, 255, 255)
-logo:setAlpha(230)
-logo:setVisible(true)
-logo:setFile("MENU_INGAME.TGA")
-
-logo:top()  -- bring to front
 
 local posX, posY        = title.position
 local pxX, pxY          = title.positionPx
@@ -50,6 +25,42 @@ local la               = logo.alpha
 local lVisible         = logo.visible
 local currentFile      = logo.file
 
+addEventHandler("onInit", function()
+	logo:setPosition(0.05, 0.2)
+	logo:setPositionPx(40, 100)
+
+	logo:setSize(256, 256)
+	logo:setSizePx(256, 256)
+
+	logo:setRect(0, 0, 1, 1)
+	logo:setRectPx(0, 0, 256, 256)
+
+	logo:setColor(255, 255, 255)
+	logo:setAlpha(230)
+	logo:setVisible(true)
+	logo:setFile("MENU_INGAME.TGA")
+
+
+	title:setPosition(0.1, 0.1)
+	title:setPositionPx(100, 60)
+
+	title:setText("Hello UI")
+	title:setFont("FONT_OLD_20_WHITE_HI.TGA")
+	title:setColor(255, 200, 120)
+	title:setAlpha(255)
+	title:setVisible(true)
+
+	
+	logo:top()  -- bring to front
+end)
+
+addEventHandler("onExit", function()
+	title.setVisible(false)
+	title = nil
+
+	logo.setVisible(false)
+	logo = nil
+end)
 
 function onResourceStart()
 --[[ 	if tVisible then
@@ -72,12 +83,4 @@ function onResourceStart()
 		print(string.format("logo.alpha %d", la))
 		print(string.format("logo.file %s", currentFile))
 	end ]]
-end
-
-function onResourceStop()
-	title.setVisible(false)
-	title = nil
-
-	logo.setVisible(false)
-	logo = nil
 end

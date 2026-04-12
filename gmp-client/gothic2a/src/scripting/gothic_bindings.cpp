@@ -2471,7 +2471,7 @@ void Function_ClearMultiplayerMessages() {
 * @version  0.3.0
 * @name     enableGMPMenu
 * @side     client
-* @category Interface
+* @category Game
 * @param    (boolean) enable  True to allow ESC to open/close GMP menu, false to ignore ESC for GMP menu.
 *
 */
@@ -2486,7 +2486,7 @@ void Function_EnableGMPMenu(bool enable) {
 * @version  0.3.0
 * @name     openGMPMenu
 * @side     client
-* @category Interface
+* @category Game
 *
 */
 void Function_OpenGMPMenu() {
@@ -2500,7 +2500,7 @@ void Function_OpenGMPMenu() {
 * @version  0.3.0
 * @name     closeGMPMenu
 * @side     client
-* @category Interface
+* @category Game
 *
 */
 void Function_CloseGMPMenu() {

@@ -17,9 +17,9 @@ Discord.setDetails("Testing LUA")
 Discord.setLargeImage("gothic_icon")
 
 
-renderWaynet(true)
-local wp1 = "HAFEN"
-local wp2 = "START"
+toggleDrawWaynet(true)
+local wp1 = "CITY1"
+local wp2 = "CITY2"
 
 local testWay = Way.new(wp1, wp2)
 local waypoints = testWay:getWaypoints()
@@ -30,3 +30,14 @@ LOG_INFO("getCountWaypoints {}", testWay:getCountWaypoints())
 for i, wp in ipairs(waypoints) do
   LOG_INFO("Waypoint {}: {}", i, wp)
 end
+
+local wp = getWaypoint("HAFEN")
+LOG_INFO("HAFEN - x:{} y:{} z:{}", wp.x, wp.y, wp.z)
+--[[ local waypoints2 = getWaypoints()
+for i, wp in ipairs(waypoints2) do
+  LOG_INFO("Waypoint {}: {}", i, wp)
+end ]]
+local nearwp = getNearestWaypoint(0, 0, 0)
+LOG_INFO("{} - x:{} y:{} z:{}", nearwp.name, nearwp.x, nearwp.y, nearwp.z)
+local nextnearwp = getNextNearestWaypoint(0, 0, 0)
+LOG_INFO("{} - x:{} y:{} z:{}", nextnearwp.name, nextnearwp.x, nextnearwp.y, nextnearwp.z)

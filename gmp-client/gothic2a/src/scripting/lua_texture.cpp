@@ -80,6 +80,11 @@ LuaTexture::~LuaTexture() {
   delete view_;
   view_ = nullptr;
 
+  if (texture_) {
+    texture_->Release();
+  }
+  texture_ = nullptr;
+
   active_textures_.erase(this);
 }
 
@@ -381,6 +386,11 @@ unsigned char LuaTexture::getAlpha() const {
 *
 */
 void LuaTexture::setFile(const std::string& file) {
+  if (texture_) {
+    texture_->Release();
+    texture_ = nullptr;
+  }
+
   fileName_ = file;
   zSTRING fileString(file.c_str());
   texture_ = zCTexture::Load(fileString, 0);
