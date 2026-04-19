@@ -183,6 +183,44 @@ void Gothic2APlayer::SetNpc(oCNpc* Npc) {
   this->ScriptInstance = Npc->GetInstance();
 };
 
+bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
+  if (!npc || !zfactory || !ogame || !ogame->GetSpawnManager()) {
+    return false;
+  }
+
+  oCNpc* old_npc = npc;
+  oCNpc* new_npc = zfactory->CreateNpc(instance_id);
+  if (!new_npc) {
+    return false;
+  }
+
+  new_npc->idx = -1;
+
+  zVEC3 position = old_npc->GetPositionWorld();
+  zVEC3 heading = old_npc->GetAtVectorWorld();
+  zSTRING name = old_npc->GetName();
+
+  if (!IsLocalPlayer()) {
+    new_npc->startAIState = 0;
+  }
+
+  new_npc->Enable(position);
+  new_npc->SetHeadingYWorld(heading);
+  new_npc->SetAnimationsEnabled(true);
+  new_npc->name[0] = name;
+
+  if (IsLocalPlayer()) {
+    new_npc->SetAsPlayer();
+  }
+
+  SetNpc(new_npc);
+  old_npc->Disable();
+  old_npc->RemoveVobFromWorld();
+  old_npc->Release();
+  old_npc = nullptr;
+  return true;
+}
+
 void Gothic2APlayer::SetNpcType(NpcType TYPE) {
   if (Type == TYPE)
     return;

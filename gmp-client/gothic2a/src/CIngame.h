@@ -27,12 +27,10 @@ SOFTWARE.
 
 #include <ctime>
 
-#include "CAnimMenu.h"
 #include "CChat.h"
 #include "CInterpolatePos.h"
 #include "CInventory.h"
 #include "language.h"
-#include "CMap.h"
 #include "CPlayerList.h"
 #include "CShrinker.h"
 
@@ -53,7 +51,6 @@ public:
   CURRENT_MAP RecognizedMap;
   bool PlayerExists(const char* PlayerName);
   time_t NextTimeSync;
-  CMap* MMap;
   CShrinker* Shrinker;
   CInventory* Inventory;
   std::vector<CInterpolatePos*> Interpolation;
@@ -61,9 +58,7 @@ public:
 private:
   zSTRING szPing;
   bool SwampLightsOn;
-  bool mapusable;
   clock_t last_player_update;
   CPlayerList* PList;
   CChat* chat_interface;
-  CAnimMenu* AMenu;
 };

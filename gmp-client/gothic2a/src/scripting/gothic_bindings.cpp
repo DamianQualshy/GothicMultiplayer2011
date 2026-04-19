@@ -135,6 +135,42 @@ oCNpc* GetNpcById(std::int64_t id) {
   return nullptr;
 }
 
+bool ReplaceStandaloneNpcInstance(oCNpc*& npc, int instance_id) {
+  if (!npc || !zfactory || !ogame) {
+    return false;
+  }
+
+  auto* spawn_manager = GetSpawnManager();
+  if (!spawn_manager) {
+    return false;
+  }
+
+  oCNpc* old_npc = npc;
+  oCNpc* new_npc = zfactory->CreateNpc(instance_id);
+  if (!new_npc) {
+    return false;
+  }
+  
+  new_npc->idx = -1;
+
+  zVEC3 position = old_npc->GetPositionWorld();
+  zVEC3 heading = old_npc->GetAtVectorWorld();
+  zSTRING name = old_npc->GetName();
+
+  new_npc->startAIState = 0;
+  new_npc->Enable(position);
+  new_npc->SetHeadingYWorld(heading);
+  new_npc->SetAnimationsEnabled(true);
+  new_npc->name[0] = name;
+
+  new_npc->SetAsPlayer();
+  old_npc->Disable();
+  old_npc->RemoveVobFromWorld();
+  old_npc->Release();
+  old_npc = nullptr;
+  return true;
+}
+
 oCMenu_Status* GetStatusMenu() {
   zSTRING status_menu_name("MENU_STATUS");
   if (auto* menu = dynamic_cast<oCMenu_Status*>(zCMenu::GetByName(status_menu_name))) {
@@ -172,15 +208,27 @@ oCMenu_Status* GetStatusMenu() {
 *
 */
 bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
-  if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
-      zSTRING instance_name(instance.c_str());
-      const int instance_id = parser->GetIndex(instance_name);
+  if (auto* parser = zCParser::GetParser()) {
+    zSTRING instance_name(instance.c_str());
+    const int instance_id = parser->GetIndex(instance_name);
+    if (instance_id < 0) {
+      return false;
+    }
 
-      if (instance_id >= 0) {
-        npc->InitByScript(instance_id, 0);
+    if (auto* player = GetPlayerByIdSigned(id)) {
+      if (player->ReplaceNpcInstance(instance_id)) {
+        player->base_player().set_instance(instance);
         return true;
       }
+      return false;
+    }
+
+    if (id < 0) {
+      auto it = g_client_npcs.find(static_cast<int>(id));
+      if (it == g_client_npcs.end()) {
+        return false;
+      }
+      return ReplaceStandaloneNpcInstance(it->second.npc, instance_id);
     }
   }
   return false;

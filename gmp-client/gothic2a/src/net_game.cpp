@@ -751,8 +751,7 @@ void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string&
   if (auto* parser = zCParser::GetParser()) {
     zSTRING instance_name(instance.c_str());
     const int instance_id = parser->GetIndex(instance_name);
-    if (instance_id >= 0) {
-      cplayer->GetNpc()->InitByScript(instance_id, 0);
+    if (instance_id >= 0 && cplayer->ReplaceNpcInstance(instance_id)) {
       cplayer->base_player().set_instance(instance);
     }
   }

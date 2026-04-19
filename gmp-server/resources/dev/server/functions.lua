@@ -75,6 +75,20 @@ addEventHandler("onPlayerCommand", function(playerId, cmd, params)
 		sendMessageToPlayer(id, 0, 255, 0, string.format("Your name was changed to %s", name))
 	end
 
+	if cmd == "instance" then
+		local args = sscanf("ds", params)
+		if not args then
+			sendMessageToPlayer(playerId, 255, 0, 0, "Usage: /instance id instance_name")
+			return
+		end
+
+		local id = args[1]
+		local name = string.upper(args[2])
+
+		setPlayerInstance(id, name)
+		sendMessageToPlayer(id, 0, 255, 0, string.format("Your instance was changed to %s", name))
+	end
+
 	if cmd == "tp" then
 		local args = sscanf("dd", params)
 		if not args then

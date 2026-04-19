@@ -62,11 +62,6 @@ CIngame::CIngame() {
   if (!memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21))
     RecognizedMap = MAP_KHORINIS;
   PList = CPlayerList::GetInstance();
-  MMap = CMap::GetInstance();
-  AMenu = CAnimMenu::GetInstance();
-  mapusable = false;
-  if (MMap->CheckMap())
-    mapusable = true;
   global_ingame = this;
   HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)CIngame::Loop);
 }
@@ -75,9 +70,7 @@ CIngame::~CIngame() {
   delete Shrinker;
   delete Inventory;
   this->chat_interface = NULL;
-  this->MMap = NULL;
   this->PList = NULL;
-  this->AMenu = NULL;
   this->Shrinker = NULL;
   this->Inventory = NULL;
   global_ingame = NULL;
@@ -219,27 +212,7 @@ void CIngame::HandleInput() {
       PList->ClosePlayerList();
     PList->UpdatePlayerList();
   }
-  // MAP
-  if (mapusable) {
-    if (zinput->KeyToggled(KEY_F2) && (!NetGame::Instance().ForceHideMap)) {
-      if (!MMap->Opened)
-        MMap->Open();
-      else
-        MMap->Close();
-    }
-    if (MMap->Opened) {
-      if (zinput->KeyToggled(KEY_ESCAPE) || (NetGame::Instance().ForceHideMap))
-        MMap->Close();
-      MMap->PrintMap();
-    }
-  }
-  // ANIM MENU
-  if (zinput->KeyToggled(KEY_F3) && !player->IsDead()) {
-    if (!AMenu->Opened)
-      AMenu->Open();
-    else
-      AMenu->Close();
-  }
+  // DEBUG TOOLS
   debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
   if (zinput->KeyToggled(KEY_F5) && !chat_interface->IsInputActive()) {
     zVEC3 basePos = player->GetPositionWorld();
@@ -259,11 +232,6 @@ void CIngame::HandleInput() {
       }
     }
     CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "Spawned %d fire effects for stress test", spawnCount);
-  }
-  if (AMenu->Opened) {
-    if (zinput->KeyToggled(KEY_ESCAPE))
-      AMenu->Close();
-    AMenu->PrintMenu();
   }
   const bool allow_chat_open = !PList->IsPlayerListOpen();
   chat_interface->HandleInput(allow_chat_open);

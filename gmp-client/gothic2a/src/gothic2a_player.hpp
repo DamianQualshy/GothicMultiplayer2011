@@ -85,6 +85,7 @@ public:
   void SetNameColor(const zCOLOR& color);
   const zCOLOR& GetNameColor() const { return name_color_; }
   void SetNpc(oCNpc* npc);
+  bool ReplaceNpcInstance(int instance_id);
   void SetNpcType(NpcType Type);
   void SetPosition(zVEC3& pos);
   void SetPosition(float x, float y, float z);
