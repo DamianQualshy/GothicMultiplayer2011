@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "Lua/way_bind.h"
+#include "Lua/lua_way.h"
 
 #include <algorithm>
 #include <cctype>
@@ -489,6 +489,16 @@ sol::object Function_GetNextNearestWaypoint(const std::string& world, float x, f
   return sol::make_object(lua, MakeWaypointTable(lua, *second_nearest));
 }
 
+/* luagmp (class)
+*
+* Represents a route between two waypoint names computed from server-side waynet JSON.
+*
+* @version  0.3.0
+* @name     Way
+* @side     server
+* @category World
+*
+*/
 class Way {
 public:
 /* luagmp (constructor)
@@ -537,16 +547,6 @@ private:
 }  // namespace
 
 void BindWay(sol::state& lua) {
-/* luagmp (class)
-*
-* Represents a route between two waypoint names computed from server-side waynet JSON.
-*
-* @version  0.3.0
-* @name     Way
-* @side     server
-* @category World
-*
-*/
   sol::usertype<Way> way_type =
       lua.new_usertype<Way>("Way", sol::constructors<Way(const std::string&, const std::string&, const std::string&)>());
 

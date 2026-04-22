@@ -73,7 +73,7 @@ const void* GetFunctionIdentity(const sol::protected_function& function) {
 void RegisterGothicEventProxies() {
 /* luagmp (event)
 *
-* Triggered once when the Gothic engine initializes.
+* This event is triggered once when the player connects to the server.
 *
 * @version  0.3.0
 * @name     onInit
@@ -85,7 +85,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the Gothic engine is exiting.
+* This event is triggered when the player disconnects from the server.
 *
 * @version  0.3.0
 * @name     onExit
@@ -97,7 +97,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered each frame when the game renders.
+* This event is triggered each frame.
 *
 * @version  0.3.0
 * @name     onRender
@@ -112,7 +112,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered each time the game time minute passes.
+* This event is triggered each time the game time minute passes.
 *
 * @version  0.3.0
 * @name     onTime
@@ -130,7 +130,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when weather changes.
+* This event is triggered when weather changes.
 *
 * @version  0.3.0
 * @name     onWeatherChange
@@ -147,7 +147,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a key is pressed.
+* This event is triggered when a key is pressed.
 *
 * @version  0.3.0
 * @name     onKeyDown
@@ -163,7 +163,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a key is released.
+* This event is triggered when a key is released.
 *
 * @version  0.3.0
 * @name     onKeyUp
@@ -179,7 +179,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a mouse button is pressed.
+* This event is triggered when a mouse button is pressed.
 *
 * @version  0.3.0
 * @name     onMouseDown
@@ -195,7 +195,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a mouse button is released.
+* This event is triggered when a mouse button is released.
 *
 * @version  0.3.0
 * @name     onMouseUp
@@ -211,7 +211,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the mouse cursor is moved.
+* This event is triggered when the mouse cursor is moved.
 *
 * @version  0.3.0
 * @name     onMouseMove
@@ -228,7 +228,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the mouse wheel is scrolled.
+* This event is triggered when the mouse wheel is scrolled.
 *
 * @version  0.3.0
 * @name     onMouseWheel
@@ -244,7 +244,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the user opens the inventory.
+* This event is triggered when the user opens the inventory.
 *
 * @version  0.3.0
 * @name     onOpenInventory
@@ -256,7 +256,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the user closes the inventory.
+* This event is triggered when the user closes the inventory.
 *
 * @version  0.3.0
 * @name     onCloseInventory
@@ -268,7 +268,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the selected inventory slot changes.
+* This event is triggered when the selected inventory slot changes.
 *
 * @version  0.3.0
 * @name     onInventorySlotChange
@@ -285,14 +285,14 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the client requests a world change.
+* This event is triggered when the client requests a world change via oCTriggerChangeLevel vob.
 *
 * @version  0.3.0
 * @name     onWorldChange
 * @side     client
 * @category World
-* @param    (string) world     World filename.
-* @param    (string) waypoint  Waypoint name used for teleport.
+* @param    (string) world     New world filename.
+* @param    (string) waypoint  Waypoint name the player will be teleported to.
 *
 */
   g_gothic_event_proxies[kEventOnWorldChangeName] = [](LuaProxyArgs args) {
@@ -302,7 +302,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the active world is loaded and the hero is present in it.
+* This event is triggered when the player enters a world.
 *
 * @version  0.3.0
 * @name     onWorldEnter
@@ -318,7 +318,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the hero equips an item.
+* This event is triggered when the hero equips an item.
 *
 * @version  0.3.0
 * @name     onEquip
@@ -334,7 +334,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the hero drops an item.
+* This event is triggered when the hero drops an item.
 *
 * @version  0.3.0
 * @name     onDropItem
@@ -350,13 +350,13 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the hero takes an item from the ground.
+* This event is triggered when the hero takes an item from the ground.
 *
 * @version  0.3.0
 * @name     onTakeItem
 * @side     client
 * @category Hero
-* @param    (string) item        Item instance.
+* @param    (string) item           Item instance.
 * @param    (boolean) synchronized  True when pickup is synchronized with the server.
 *
 */
@@ -367,14 +367,14 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the hero uses, interacts with, opens, or consumes an item.
+* This event is triggered when the hero uses, interacts with, opens, or consumes an item.
 *
 * @version  0.3.0
 * @name     onUseItem
 * @side     client
 * @category Hero
-* @param    (string) item    Item instance.
-* @param    (string) scheme  Item scheme name, if available.
+* @param    (string) item     Item instance.
+* @param    (string) scheme   Item scheme name, if available.
 * @param    (number) from     Previous interact state.
 * @param    (number) to       Current interact state.
 *
@@ -386,7 +386,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the hero unequips an item.
+* This event is triggered when the hero unequips an item.
 *
 * @version  0.3.0
 * @name     onUnequip
@@ -402,7 +402,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player object is created locally.
+* This event is triggered when a player object is created locally.
 *
 * @version  0.3.0
 * @name     onPlayerCreate
@@ -418,7 +418,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a local player object is destroyed.
+* This event is triggered when a local player object is destroyed.
 *
 * @version  0.3.0
 * @name     onPlayerDestroy
@@ -434,17 +434,17 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a chat message is received locally.
+* This event is triggered when a chat message is received locally.
 *
 * @version  0.3.0
 * @name     onPlayerMessage
 * @side     client
 * @category Player
-* @param    (number) sender_id  Optional sender id (nil for system).
-* @param    (number) r           Red color component.
-* @param    (number) g           Green color component.
-* @param    (number) b           Blue color component.
-* @param    (string) message  Message text.
+* @param    (number) sender_id    Optional sender id (nil for system).
+* @param    (number) r            The red color component in RGB model.
+* @param    (number) g            The green color component in RGB model.
+* @param    (number) b            The blue color component in RGB model.
+* @param    (string) message      Message text.
 *
 */
   g_gothic_event_proxies[kEventOnPlayerMessageName] = [](LuaProxyArgs args) {
@@ -456,7 +456,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player respawns after death.
+* This event is triggered when a player respawns after death.
 *
 * @version  0.3.0
 * @name     onPlayerRespawn
@@ -472,7 +472,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player is spawned into the world.
+* This event is triggered when a player is spawned into the world.
 *
 * @version  0.3.0
 * @name     onPlayerSpawn
@@ -488,7 +488,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player or NPC dies.
+* This event is triggered when a player or NPC dies.
 *
 * @version  0.3.0
 * @name     onPlayerDead
@@ -504,7 +504,7 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
-* Triggered when the client receives a ping update for a player.
+* This event is triggered when the client receives a ping update for a player.
 *
 * @version  0.3.0
 * @name     onPlayerChangePing
@@ -650,7 +650,7 @@ void BindGothicEvents(sol::state& lua) {
 
 /* luagmp (func)
 *
-* Triggers a custom server-side event and optionally passes arguments.
+* This function triggers a custom server-side event and optionally passes arguments.
 * The first argument is always the event name.
 * 
 * @version  0.3.0

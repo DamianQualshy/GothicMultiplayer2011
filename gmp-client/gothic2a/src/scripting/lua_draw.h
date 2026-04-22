@@ -82,4 +82,6 @@ private:
   static std::unordered_set<LuaDraw*> active_draws_;
 };
 
+void BindDraw(sol::state& lua);
+
 }  // namespace gmp::gothic

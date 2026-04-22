@@ -50,7 +50,7 @@ zCRoute* FindRouteByName(const std::string& start_wp, const std::string& end_wp)
 
 /* luagmp (func)
 *
-* Enable or disable waynet rendering.
+* This function will enable/disable waynet rendering.
 *
 * @version  0.3.0
 * @name     toggleDrawWaynet
@@ -102,9 +102,9 @@ sol::table MakeWaypointTable(sol::state_view lua, zCWaypoint* waypoint) {
 
 /* luagmp (class)
 *
-* @version  0.3.0
-* Represents a way path generated between two waypoint names.
+* This class represents a route between two waypoint names computed from Zengin zCRoute class.
 *
+* @version  0.3.0
 * @name     Way
 * @side     client
 * @category World
@@ -123,7 +123,7 @@ LuaWay::LuaWay(const std::string& start_wp, const std::string& end_wp)
 
 /* luagmp (method)
 *
-* Returns the start waypoint name.
+* This method will return the start waypoint name.
 *
 * @name     getStart
 * @return   (string)
@@ -135,7 +135,7 @@ const std::string& LuaWay::getStart() const {
 
 /* luagmp (method)
 *
-* Returns the end waypoint name.
+* This method will return the end waypoint name.
 *
 * @name     getEnd
 * @return   (string)
@@ -147,10 +147,10 @@ const std::string& LuaWay::getEnd() const {
 
 /* luagmp (method)
 *
-* Get all waypoints from the computed route.
+* This method will return all waypoints from the computed route.
 *
 * @name     getWaypoints
-* @return   ([wpName...]) Array with waypoint names.
+* @return   ({wpName...})   Table with waypoint names.
 *
 */
 std::vector<std::string> LuaWay::getWaypoints() const {
@@ -182,10 +182,10 @@ std::vector<std::string> LuaWay::getWaypoints() const {
 
 /* luagmp (method)
 *
-* Get number of waypoints in the computed route.
+* This method will return the number of waypoints in the computed route.
 *
 * @name     getCountWaypoints
-* @return   (number)
+* @return   (number)      Number of waypoints.
 *
 */
 int LuaWay::getCountWaypoints() const {
@@ -201,14 +201,14 @@ int LuaWay::getCountWaypoints() const {
 
 /* luagmp (func)
 *
-* Retrieve world position of a waypoint by name.
+* This function will return world position of a waypoint by name.
 *
 * @version  0.3.0
 * @name     getWaypoint
 * @side     client
 * @category World
 * @param    (string) name       Waypoint name.
-* @return   ({x, y, z}|nil)     Waypoint position or nil.
+* @return   ({x, y, z}|nil)     Waypoint position table or nil.
 *
 */
 sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_state ts) {
@@ -229,7 +229,7 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
 
 /* luagmp (func)
 *
-* Retrieve nearest waypoint for a given position.
+* This function will return the nearest waypoint for a given position.
 *
 * @version  0.3.0
 * @name     getNearestWaypoint
@@ -239,7 +239,7 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
 * @param    (number) y                Position Y.
 * @param    (number) z                Position Z.
 * @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z}|nil)     Waypoint information or nil.
+* @return   ({name, x, y, z}|nil)     Waypoint information table or nil.
 *
 */
 sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
@@ -284,7 +284,7 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 
 /* luagmp (func)
 *
-* Retrieve second nearest waypoint for a given position.
+* This function will return the second nearest waypoint for a given position.
 *
 * @version  0.3.0
 * @name     getNextNearestWaypoint
@@ -293,7 +293,7 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 * @param    (number) x                Position X.
 * @param    (number) y                Position Y.
 * @param    (number) z                Position Z.
-* @return   ({name, x, y, z}|nil)     Waypoint information or nil.
+* @return   ({name, x, y, z}|nil)     Waypoint information table or nil.
 *
 */
 sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this_state ts) {
@@ -342,13 +342,13 @@ sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this
 
 /* luagmp (func)
 *
-* Retrieve list of all waypoints from current world.
+* This function will return the list of all waypoints from current world.
 *
 * @version  0.3.0
 * @name     getWaypoints
 * @side     client
 * @category World
-* @return   ({...})                 Array of waypoint tables {name, x, y, z}.
+* @return   ({...})                 Table of waypoints {name, x, y, z}.
 *
 */
 sol::table Function_GetWaypoints(sol::this_state ts) {

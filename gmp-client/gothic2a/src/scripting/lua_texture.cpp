@@ -26,12 +26,9 @@ std::unordered_set<LuaTexture*> LuaTexture::active_textures_;
 
 /* luagmp (class)
 *
+* This class represents a 2d Texture on screen.
+*
 * @version  0.3.0
-* 2D texture rendering helper for drawing image quads on screen.
-*
-* Stores position, size, rect, color, alpha, visibility and source file.
-* Call render() to draw the texture using current settings.
-*
 * @name     Texture
 * @side     client
 * @category UI
@@ -42,11 +39,11 @@ std::unordered_set<LuaTexture*> LuaTexture::active_textures_;
 *
 * Creates a new Texture.
 *
-* @param    (number) x X position (virtual units).
-* @param    (number) y Y position (virtual units).
-* @param    (number) width Width (virtual units).
+* @param    (number) x      X position (virtual units).
+* @param    (number) y      Y position (virtual units).
+* @param    (number) width  Width (virtual units).
 * @param    (number) height Height (virtual units).
-* @param    (string) file Texture file path.
+* @param    (string) file   Texture file path.
 *
 */
 LuaTexture::LuaTexture(int x, int y, int width, int height, const std::string& file)
@@ -90,11 +87,11 @@ LuaTexture::~LuaTexture() {
 
 /* luagmp (method)
 *
-* Sets the texture position in virtual screen units.
+* This method will set the Texture position in virtual screen units.
 *
 * @name     setPosition
-* @param    (number) x X position (virtual units).
-* @param    (number) y Y position (virtual units).
+* @param    (number) x    X position (virtual units).
+* @param    (number) y    Y position (virtual units).
 *
 */
 void LuaTexture::setPosition(int x, int y) {
@@ -103,10 +100,10 @@ void LuaTexture::setPosition(int x, int y) {
 
 /* luagmp (method)
 *
-* Returns the texture position in virtual screen units.
+* This method will return the Texture position in virtual screen units.
 *
 * @name     getPosition
-* @return   ({x, y}) Table containing x and y (virtual units).
+* @return   ({x, y})      Table containing x and y (virtual units).
 *
 */
 sol::table LuaTexture::getPosition(sol::this_state s) {
@@ -124,11 +121,11 @@ sol::table LuaTexture::getPosition(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture position in pixel coordinates.
+* This method will set the Texture position in pixel coordinates.
 *
 * @name     setPositionPx
-* @param    (number) x X position (pixels).
-* @param    (number) y Y position (pixels).
+* @param    (number) x    X position (pixels).
+* @param    (number) y    Y position (pixels).
 *
 */
 void LuaTexture::setPositionPx(int x, int y) {
@@ -140,10 +137,10 @@ void LuaTexture::setPositionPx(int x, int y) {
 
 /* luagmp (method)
 *
-* Returns the texture position in pixel coordinates.
+* This method will return the Texture position in pixel coordinates.
 *
 * @name     getPositionPx
-* @return   ({x, y}) Table containing x and y (pixels).
+* @return   ({x, y})      Table containing x and y (pixels).
 *
 */
 sol::table LuaTexture::getPositionPx(sol::this_state s) {
@@ -161,11 +158,11 @@ sol::table LuaTexture::getPositionPx(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture size in virtual screen units.
+* This method will set the Texture size in virtual screen units.
 *
 * @name     setSize
-* @param    (number) width Width (virtual units).
-* @param    (number) height Height (virtual units).
+* @param    (number) width    Width (virtual units).
+* @param    (number) height   Height (virtual units).
 *
 */
 void LuaTexture::setSize(int width, int height) {
@@ -174,7 +171,7 @@ void LuaTexture::setSize(int width, int height) {
 
 /* luagmp (method)
 *
-* Returns the texture size in virtual screen units.
+* This method will return the Texture size in virtual screen units.
 *
 * @name     getSize
 * @return   ({width, height}) Table containing width and height (virtual units).
@@ -195,11 +192,11 @@ sol::table LuaTexture::getSize(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture size in pixel coordinates.
+* This method will set the Texture size in pixel coordinates.
 *
 * @name     setSizePx
-* @param    (number) width Width (pixels).
-* @param    (number) height Height (pixels).
+* @param    (number) width    Width (pixels).
+* @param    (number) height   Height (pixels).
 *
 */
 void LuaTexture::setSizePx(int width, int height) {
@@ -211,7 +208,7 @@ void LuaTexture::setSizePx(int width, int height) {
 
 /* luagmp (method)
 *
-* Returns the texture size in pixel coordinates.
+* This method will return the Texture size in pixel coordinates.
 *
 * @name     getSizePx
 * @return   ({width, height}) Table containing width and height (pixels).
@@ -232,12 +229,12 @@ sol::table LuaTexture::getSizePx(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture rectangle in virtual screen units.
+* This method will set the Texture rectangle in virtual screen units.
 *
 * @name     setRect
-* @param    (number) x X position (virtual units).
-* @param    (number) y Y position (virtual units).
-* @param    (number) width Width (virtual units).
+* @param    (number) x      X position (virtual units).
+* @param    (number) y      Y position (virtual units).
+* @param    (number) width  Width (virtual units).
 * @param    (number) height Height (virtual units).
 *
 */
@@ -261,7 +258,7 @@ void LuaTexture::setRect(int x, int y, int width, int height) {
 
 /* luagmp (method)
 *
-* Returns the texture rectangle in virtual screen units.
+* This method will return the Texture rectangle in virtual screen units.
 *
 * @name     getRect
 * @return   ({x, y, width, height}) Table containing x,y,width,height (virtual units).
@@ -282,13 +279,13 @@ sol::table LuaTexture::getRect(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture rectangle in pixel coordinates.
+* This method will set the Texture rectangle in pixel coordinates.
 *
 * @name     setRectPx
-* @param    (number) x X position (pixels).
-* @param    (number) y Y position (pixels).
-* @param    (number) width Width (pixels).
-* @param    (number) height Height (pixels).
+* @param    (number) x        X position (pixels).
+* @param    (number) y        Y position (pixels).
+* @param    (number) width    Width (pixels).
+* @param    (number) height   Height (pixels).
 *
 */
 void LuaTexture::setRectPx(int x, int y, int width, int height) {
@@ -301,7 +298,7 @@ void LuaTexture::setRectPx(int x, int y, int width, int height) {
 
 /* luagmp (method)
 *
-* Returns the texture rectangle in pixel coordinates.
+* This method will return the Texture rectangle in pixel coordinates.
 *
 * @name     getRectPx
 * @return   ({x, y, width, height}) Table containing x,y,width,height (pixels).
@@ -324,12 +321,12 @@ sol::table LuaTexture::getRectPx(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture color.
+* This method will set the Texture color.
 *
 * @name     setColor
-* @param    (number) r Red component (0-255).
-* @param    (number) g Green component (0-255).
-* @param    (number) b Blue component (0-255).
+* @param    (number) r    The red color component in RGB model.
+* @param    (number) g    The green color component in RGB model.
+* @param    (number) b    The blue color component in RGB model.
 *
 */
 void LuaTexture::setColor(unsigned char r, unsigned char g, unsigned char b) {
@@ -338,10 +335,10 @@ void LuaTexture::setColor(unsigned char r, unsigned char g, unsigned char b) {
 
 /* luagmp (method)
 *
-* Returns the texture color.
+* This method will return the Texture color.
 *
 * @name     getColor
-* @return   ({r, g, b}) Table containing r,g,b (0-255).
+* @return   ({r, g, b})   Table containing color in RGB model.
 *
 */
 sol::table LuaTexture::getColor(sol::this_state s) {
@@ -355,7 +352,7 @@ sol::table LuaTexture::getColor(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the texture alpha (opacity).
+* This method will set the Texture alpha.
 *
 * @name     setAlpha
 * @param    (number) alpha Opacity value (0-255).
@@ -367,10 +364,10 @@ void LuaTexture::setAlpha(unsigned char alpha) {
 
 /* luagmp (method)
 *
-* Returns the texture alpha (opacity).
+* This method will return the current Texture alpha (opacity).
 *
 * @name     getAlpha
-* @return   (number) Opacity value (0-255).
+* @return   (number)      Opacity value (0-255).
 *
 */
 unsigned char LuaTexture::getAlpha() const {
@@ -379,10 +376,10 @@ unsigned char LuaTexture::getAlpha() const {
 
 /* luagmp (method)
 *
-* Sets the texture file name.
+* This method will set the Texture file name.
 *
 * @name     setFile
-* @param    (string) file Texture file name.
+* @param    (string) file  Texture file name.
 *
 */
 void LuaTexture::setFile(const std::string& file) {
@@ -401,10 +398,10 @@ void LuaTexture::setFile(const std::string& file) {
 
 /* luagmp (method)
 *
-* Returns the texture file name.
+* This method will return the Texture file name.
 *
 * @name     getFile
-* @return   (string) Texture file name.
+* @return   (string)    Texture file name.
 *
 */
 std::string LuaTexture::getFile() const {
@@ -413,10 +410,10 @@ std::string LuaTexture::getFile() const {
 
 /* luagmp (method)
 *
-* Sets whether the texture should be rendered.
+* This method will set whether the Texture should be rendered.
 *
 * @name     setVisible
-* @param    (boolean) visible True to render, false to hide.
+* @param    (boolean) visible   True to render, false to hide.
 *
 */
 void LuaTexture::setVisible(bool visible) {
@@ -425,10 +422,10 @@ void LuaTexture::setVisible(bool visible) {
 
 /* luagmp (method)
 *
-* Returns whether the texture is visible.
+* This method will return whether the Texture is visible.
 *
 * @name     getVisible
-* @return   (boolean) True if visible.
+* @return   (boolean)   True if visible.
 *
 */
 bool LuaTexture::getVisible() const {
@@ -437,7 +434,7 @@ bool LuaTexture::getVisible() const {
 
 /* luagmp (method)
 *
-* Moves the texture to the top of the render order.
+* This method will move the Texture to the top of the render order.
 *
 * @name     top
 *
@@ -450,7 +447,7 @@ void LuaTexture::top() {
 
 /* luagmp (property)
 *
-* Gets or sets the texture position in virtual screen units.
+* Represents the Texture position in virtual screen units.
 *
 * @name     position
 * @return   ({x, y}) Table containing x and y (virtual units).
@@ -458,7 +455,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture position in pixel coordinates.
+* Represents the Texture position in pixel coordinates.
 *
 * @name     positionPx
 * @return   ({x, y}) Table containing x and y (pixels).
@@ -466,7 +463,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture size in virtual screen units.
+* Represents the Texture size in virtual screen units.
 *
 * @name     size
 * @return   ({width, height}) Table containing width and height (virtual units).
@@ -474,7 +471,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture size in pixel coordinates.
+* Represents the Texture size in pixel coordinates.
 *
 * @name     sizePx
 * @return   ({width, height}) Table containing width and height (pixels).
@@ -482,7 +479,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture rectangle in virtual screen units.
+* Represents the Texture rectangle in virtual screen units.
 *
 * @name     rect
 * @return   ({x, y, width, height}) Table containing x,y,width,height (virtual units).
@@ -490,7 +487,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture rectangle in pixel coordinates.
+* Represents the Texture rectangle in pixel coordinates.
 *
 * @name     rectPx
 * @return   ({x, y, width, height}) Table containing x,y,width,height (pixels).
@@ -498,15 +495,15 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture color.
+* Represents the Texture color.
 *
 * @name     color
-* @return   ({r, g, b}) Table containing r,g,b (0-255).
+* @return   ({r, g, b}) Table containing color in RGB model.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the texture alpha (opacity).
+* Represents the Texture alpha .
 *
 * @name     alpha
 * @return   (number) Opacity value (0-255).
@@ -514,7 +511,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets whether the texture is rendered.
+* Represents whether the texture is rendered.
 *
 * @name     visible
 * @return   (boolean) True if visible.
@@ -522,7 +519,7 @@ void LuaTexture::top() {
 */
 /* luagmp (property)
 *
-* Gets or sets the texture file path.
+* Represents the texture file path.
 *
 * @name     file
 * @return   (string) Texture file path.
@@ -624,6 +621,58 @@ void LuaTexture::updateViewPos(int x, int y) {
     return;
   }
   view_->SetPos(x, y);
+}
+
+void BindTexture(sol::state& lua) {
+  sol::usertype<LuaTexture> texture_type = lua.new_usertype<LuaTexture>(
+      "Texture",
+      sol::constructors<LuaTexture(int, int, int, int, const std::string&)>());
+
+  texture_type[sol::meta_function::call] =
+      [](int x, int y, int width, int height, const std::string& file) {
+        return LuaTexture(x, y, width, height, file);
+      };
+
+  texture_type["setPosition"] = &LuaTexture::setPosition;
+  texture_type["getPosition"] = &LuaTexture::getPosition;
+  texture_type["setPositionPx"] = &LuaTexture::setPositionPx;
+  texture_type["getPositionPx"] = &LuaTexture::getPositionPx;
+
+  texture_type["setSize"] = &LuaTexture::setSize;
+  texture_type["getSize"] = &LuaTexture::getSize;
+  texture_type["setSizePx"] = &LuaTexture::setSizePx;
+  texture_type["getSizePx"] = &LuaTexture::getSizePx;
+
+  texture_type["setRect"] = &LuaTexture::setRect;
+  texture_type["getRect"] = &LuaTexture::getRect;
+  texture_type["setRectPx"] = &LuaTexture::setRectPx;
+  texture_type["getRectPx"] = &LuaTexture::getRectPx;
+
+  texture_type["setColor"] = &LuaTexture::setColor;
+  texture_type["getColor"] = &LuaTexture::getColor;
+  texture_type["setAlpha"] = &LuaTexture::setAlpha;
+  texture_type["getAlpha"] = &LuaTexture::getAlpha;
+
+  texture_type["setVisible"] = &LuaTexture::setVisible;
+  texture_type["getVisible"] = &LuaTexture::getVisible;
+  texture_type["setFile"] = &LuaTexture::setFile;
+  texture_type["getFile"] = &LuaTexture::getFile;
+  
+  texture_type["top"] = &LuaTexture::top;
+
+  texture_type["render"] = &LuaTexture::render;
+
+  // Properties (Lua table access)
+  texture_type["position"] = sol::property(&LuaTexture::getPosition, &LuaTexture::setPosition);
+  texture_type["positionPx"] = sol::property(&LuaTexture::getPositionPx, &LuaTexture::setPositionPx);
+  texture_type["size"] = sol::property(&LuaTexture::getSize, &LuaTexture::setSize);
+  texture_type["sizePx"] = sol::property(&LuaTexture::getSizePx, &LuaTexture::setSizePx);
+  texture_type["rect"] = sol::property(&LuaTexture::getRect, &LuaTexture::setRect);
+  texture_type["rectPx"] = sol::property(&LuaTexture::getRectPx, &LuaTexture::setRectPx);
+  texture_type["color"] = sol::property(&LuaTexture::getColor, &LuaTexture::setColor);
+  texture_type["alpha"] = sol::property(&LuaTexture::getAlpha, &LuaTexture::setAlpha);
+  texture_type["visible"] = sol::property(&LuaTexture::getVisible, &LuaTexture::setVisible);
+  texture_type["file"] = sol::property(&LuaTexture::getFile, &LuaTexture::setFile);
 }
 
 }  // namespace gmp::gothic

@@ -123,7 +123,7 @@ std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std
 
 /* luagmp (func)
 *
-* Send a colored chat message to all connected players.
+* This function will send a colored chat message to all connected players.
 *
 * @version  0.3.0
 * @name     sendMessageToAll
@@ -132,8 +132,7 @@ std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std
 * @param    (number) r        Red component (0-255).
 * @param    (number) g        Green component (0-255).
 * @param    (number) b        Blue component (0-255).
-* @param    (string) text  Message text to send.
-* @return   (boolean)         True on success.
+* @param    (string) text     Message text to send.
 *
 */
 bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
@@ -143,7 +142,7 @@ bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
 
 /* luagmp (func)
 *
-* Send a colored chat message to a specific player.
+* This function will send a colored chat message to a specific player.
 *
 * @version  0.3.0
 * @name     sendMessageToPlayer
@@ -153,8 +152,7 @@ bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
 * @param    (number) r          Red component (0-255).
 * @param    (number) g          Green component (0-255).
 * @param    (number) b          Blue component (0-255).
-* @param    (string) text    Message text to send.
-* @return   (boolean)           True on success, false if the player is missing.
+* @param    (string) text       Message text to send.
 *
 */
 bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, const std::string& text) {
@@ -168,7 +166,7 @@ bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, 
 
 /* luagmp (func)
 *
-* Send a player-sourced colored message to all players (includes sender id).
+* This function will send a player-sourced colored message to all players (includes sender id).
 *
 * @version  0.3.0
 * @name     sendPlayerMessageToAll
@@ -178,8 +176,7 @@ bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, 
 * @param    (number) r          Red component (0-255).
 * @param    (number) g          Green component (0-255).
 * @param    (number) b          Blue component (0-255).
-* @param    (string) text    Message text.
-* @return   (boolean)           True on success, false if the sender is missing.
+* @param    (string) text       Message text.
 *
 */
 bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int b, const std::string& text) {
@@ -193,7 +190,7 @@ bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int 
 
 /* luagmp (func)
 *
-* Send a player-sourced colored message to a specific player.
+* This function will send a player-sourced colored message to a specific player.
 *
 * @version  0.3.0
 * @name     sendPlayerMessageToPlayer
@@ -204,8 +201,7 @@ bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int 
 * @param    (number) r            Red component (0-255).
 * @param    (number) g            Green component (0-255).
 * @param    (number) b            Blue component (0-255).
-* @param    (string) text      Message text.
-* @return   (boolean)             True on success, false if sender or receiver is missing.
+* @param    (string) text         Message text.
 *
 */
 bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t receiver_id, int r, int g, int b,
@@ -224,16 +220,15 @@ bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t r
 
 /* luagmp (func)
 *
-* Spawn a player, optionally overriding the spawn position.
+* This function will spawn the player, optionally overriding the spawn position.
 *
 * @version  0.3.0
 * @name     spawnPlayer
 * @side     server
 * @category Player
 * @note     If the player is not spawned, server doesn't recognize his presence at all.
-* @param    (number) player_id   Player id to spawn.
-* @param    ({x, y, z})       Optional position table or three numeric coords.
-* @return   (boolean)            True on success, false if the player is missing.
+* @param    (number) player_id    Player id to spawn.
+* @param    ({x, y, z})           Optional position table or three numeric coords.
 *
 */
 bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
@@ -247,15 +242,14 @@ bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
 
 /* luagmp (func)
 *
-* Set a player's instance name.
+* This function will set the player's character instance.
 *
 * @version  0.3.0
 * @name     setPlayerInstance
 * @side     server
 * @category Player
 * @param    (number) player_id     Target player id.
-* @param    (string) instance   Instance name.
-* @return   (boolean)              True on success, false if the player is missing.
+* @param    (string) instance      Instance name.
 *
 */
 bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& instance) {
@@ -268,14 +262,14 @@ bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& inst
 
 /* luagmp (func)
 *
-* Get a player's instance name or nil if unavailable.
+* This function will return the player's instance name, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerInstance
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (string|nil)     Instance name or nil.
+* @return   (string|nil)        Instance name or nil.
 *
 */
 sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state ts) {
@@ -290,15 +284,14 @@ sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state 
 
 /* luagmp (func)
 *
-* Set a player's display name.
+* This function will set the player's character name.
 *
 * @version  0.3.0
 * @name     setPlayerName
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (string) name    New player name.
-* @return   (boolean)           True on success, false if the player is missing.
+* @param    (string) name       New player name.
 *
 */
 bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
@@ -311,14 +304,14 @@ bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
 
 /* luagmp (func)
 *
-* Get a player's name or nil if unavailable.
+* This function will return the player's name, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerName
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (string|nil)     Player name or nil.
+* @return   (string|nil)        Player name or nil.
 *
 */
 sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) {
@@ -333,7 +326,7 @@ sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) 
 
 /* luagmp (func)
 *
-* Get a player's IP address or nil if unavailable.
+* This function will return the player's IP address or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerIP
@@ -359,7 +352,7 @@ sol::object Function_GetPlayerIP(std::uint32_t player_id, sol::this_state ts) {
 
 /* luagmp (func)
 *
-* Get a player's MAC address or nil if unavailable.
+* This function will return the player's MAC address or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerMacAddress
@@ -385,7 +378,7 @@ sol::object Function_GetPlayerMacAddress(std::uint32_t player_id, sol::this_stat
 
 /* luagmp (func)
 *
-* Get a player's UUID or nil if unavailable.
+* This function will return the player's UUID or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerUUID
@@ -411,7 +404,7 @@ sol::object Function_GetPlayerUUID(std::uint32_t player_id, sol::this_state ts) 
 
 /* luagmp (func)
 *
-* Set a player's name color (RGB 0-255).
+* This function will set the player's name color in RGB format.
 *
 * @version  0.3.0
 * @name     setPlayerColor
@@ -421,7 +414,6 @@ sol::object Function_GetPlayerUUID(std::uint32_t player_id, sol::this_state ts) 
 * @param    (number) r          Red (0-255).
 * @param    (number) g          Green (0-255).
 * @param    (number) b          Blue (0-255).
-* @return   (boolean)           True on success, false if the player is missing.
 *
 */
 bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
@@ -434,14 +426,14 @@ bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
 
 /* luagmp (func)
 *
-* Get a player's name color as a table {r, g, b} or nil if unavailable.
+* This function will return the player's name color, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerColor
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   ({r, g, b}|nil)   RGB color or nil.
+* @return   ({r, g, b}|nil)      RGB color table or nil.
 *
 */
 sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts) {
@@ -461,7 +453,7 @@ sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
-* Set a player's current health.
+* This function will set the player's current health.
 *
 * @version  0.3.0
 * @name     setPlayerHealth
@@ -469,7 +461,6 @@ sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) health     New health value.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
@@ -482,7 +473,7 @@ bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
 
 /* luagmp (func)
 *
-* Get a player's current health or nil if unavailable.
+* This function will return the player's current health, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerHealth
@@ -504,7 +495,7 @@ sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts
 
 /* luagmp (func)
 *
-* Set a player's maximum health.
+* This function will set the player's maximum health.
 *
 * @version  0.3.0
 * @name     setPlayerMaxHealth
@@ -512,7 +503,6 @@ sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts
 * @category Player
 * @param    (number) player_id   Target player id.
 * @param    (number) max_health  New maximum health.
-* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
@@ -525,7 +515,7 @@ bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
 
 /* luagmp (func)
 *
-* Get a player's maximum health or nil if unavailable.
+* This function will return the player's maximum health, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerMaxHealth
@@ -547,7 +537,7 @@ sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state
 
 /* luagmp (func)
 *
-* Set a player's current mana.
+* This function will set the player's current mana.
 *
 * @version  0.3.0
 * @name     setPlayerMana
@@ -555,7 +545,6 @@ sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) mana       New mana value.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
@@ -568,7 +557,7 @@ bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
 
 /* luagmp (func)
 *
-* Get a player's current mana or nil if unavailable.
+* This function will return the player's current mana, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerMana
@@ -590,7 +579,7 @@ sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) 
 
 /* luagmp (func)
 *
-* Set a player's maximum mana.
+* This function will set the player's maximum mana.
 *
 * @version  0.3.0
 * @name     setPlayerMaxMana
@@ -598,7 +587,6 @@ sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) 
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) max_mana   New maximum mana.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
@@ -611,7 +599,7 @@ bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
 
 /* luagmp (func)
 *
-* Get a player's maximum mana or nil if unavailable.
+* This function will get the player's maximum mana, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerMaxMana
@@ -633,7 +621,7 @@ sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state t
 
 /* luagmp (func)
 *
-* Set a player's strength attribute.
+* This function will set the player's strength attribute.
 *
 * @version  0.3.0
 * @name     setPlayerStrength
@@ -641,7 +629,6 @@ sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state t
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) strength   New strength value.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
@@ -654,7 +641,7 @@ bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
 
 /* luagmp (func)
 *
-* Get a player's strength attribute or nil if unavailable.
+* This function will return the player's strength attribute, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerStrength
@@ -676,7 +663,7 @@ sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state 
 
 /* luagmp (func)
 *
-* Set a player's dexterity attribute.
+* This function will set the player's dexterity attribute.
 *
 * @version  0.3.0
 * @name     setPlayerDexterity
@@ -684,7 +671,6 @@ sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state 
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) dexterity  New dexterity value.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
@@ -697,7 +683,7 @@ bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
 
 /* luagmp (func)
 *
-* Get a player's dexterity attribute or nil if unavailable.
+* This function will return the player's dexterity attribute, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerDexterity
@@ -719,16 +705,15 @@ sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state
 
 /* luagmp (func)
 *
-* Set a player's weapon skill hit chance (0-100).
+* This function will set the player's weapon skill hit chance.
 *
 * @version  0.3.0
 * @name     setPlayerSkillWeapon
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) skill_id   Skill identifier.
-* @param    (number) percentage Hit chance (0-100).
-* @return   (boolean)           True on success.
+* @param    (number) skill_id   Skill identifier, for more information check [Weapon Constants](../../shared-constants/Weapon.md).
+* @param    (number) percentage Hit chance amount.
 *
 */
 bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int percentage) {
@@ -741,15 +726,15 @@ bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int pe
 
 /* luagmp (func)
 *
-* Get a player's weapon skill hit chance.
+* This function will return the player's weapon skill hit chance, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerSkillWeapon
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) skill_id   Skill identifier.
-* @return   (number|nil)        Hit chance (0-100) or nil.
+* @param    (number) skill_id   Skill identifier, for more information check [Weapon Constants](../../shared-constants/Weapon.md).
+* @return   (number|nil)        Hit chance amount or nil.
 *
 */
 sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, sol::this_state ts) {
@@ -767,16 +752,15 @@ sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id,
 
 /* luagmp (func)
 *
-* Set a player's talent value.
+* This function will set the player's talent value.
 *
 * @version  0.3.0
 * @name     setPlayerTalent
 * @side     server
 * @category Player
 * @param    (number) player_id     Target player id.
-* @param    (number) talent_id     Talent identifier.
+* @param    (number) talent_id     Talent identifier, for more information check [Talent Constants](../../shared-constants/Talent.md).
 * @param    (number) talent_value  Talent value.
-* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent_value) {
@@ -789,14 +773,14 @@ bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent
 
 /* luagmp (func)
 *
-* Get a player's talent value.
+* This function will return the player's talent value, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerTalent
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) talent_id  Talent identifier.
+* @param    (number) talent_id  Talent identifier, for more information check [Talent Constants](../../shared-constants/Talent.md).
 * @return   (number|nil)        Talent value or nil.
 *
 */
@@ -815,7 +799,7 @@ sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol
 
 /* luagmp (func)
 *
-* Set a player's experience level.
+* This function will set the player's level.
 *
 * @version  0.3.0
 * @name     setPlayerLevel
@@ -823,7 +807,6 @@ sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) level      New level.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
@@ -836,7 +819,7 @@ bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
 
 /* luagmp (func)
 *
-* Get a player's level or nil if unavailable.
+* This function will return the player's level, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerLevel
@@ -858,7 +841,7 @@ sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
-* Set a player's experience points.
+* This function will set the player's experience points.
 *
 * @version  0.3.0
 * @name     setPlayerExp
@@ -866,7 +849,6 @@ sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) exp        New exp value.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
@@ -879,7 +861,7 @@ bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
 
 /* luagmp (func)
 *
-* Get a player's experience points or nil if unavailable.
+* This function will return the player's experience points, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerExp
@@ -901,7 +883,7 @@ sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
 
 /* luagmp (func)
 *
-* Set the experience required for a player's next level.
+* This function will set the experience required for the player's next level.
 *
 * @version  0.3.0
 * @name     setPlayerNextLevelExp
@@ -909,7 +891,6 @@ sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id      Target player id.
 * @param    (number) next_level_exp Required exp for next level.
-* @return   (boolean)               True on success.
 *
 */
 bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp) {
@@ -922,7 +903,7 @@ bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp)
 
 /* luagmp (func)
 *
-* Get the experience required for a player's next level or nil if unavailable.
+* This function will return the experience required for the player's next level, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerNextLevelExp
@@ -944,7 +925,7 @@ sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_st
 
 /* luagmp (func)
 *
-* Set a player's learn points.
+* This function will set the player's learn points.
 *
 * @version  0.3.0
 * @name     setPlayerLearnPoints
@@ -952,7 +933,6 @@ sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_st
 * @category Player
 * @param    (number) player_id     Target player id.
 * @param    (number) learn_points  New learn points value.
-* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
@@ -965,7 +945,7 @@ bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
 
 /* luagmp (func)
 *
-* Get a player's learn points or nil if unavailable.
+* This function will return the player's learn points, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerLearnPoints
@@ -987,18 +967,17 @@ sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_sta
 
 /* luagmp (func)
 *
-* Set a player's visual model and textures.
+* This function will set the player's visual model and textures.
 *
 * @version  0.3.0
 * @name     setPlayerVisual
 * @side     server
 * @category Player
 * @param    (number) player_id       Target player id.
-* @param    (string) body_model   Body model name.
+* @param    (string) body_model      Body model name.
 * @param    (number) body_texture    Body texture index.
-* @param    (string) head_model   Head model name.
+* @param    (string) head_model      Head model name.
 * @param    (number) head_texture    Head texture index.
-* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model,
@@ -1013,7 +992,7 @@ bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_m
 
 /* luagmp (func)
 *
-* Get a player's visual information as a table or nil if unavailable.
+* This function will return the player's visual information as a table, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerVisual
@@ -1041,15 +1020,14 @@ sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts
 
 /* luagmp (func)
 *
-* Set a player's model fatness.
+* This function will set the player's model fatness.
 *
 * @version  0.3.0
 * @name     setPlayerFatness
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @param    (number) fatness   Fatness value.
-* @return   (boolean)            True on success.
+* @param    (number) fatness     Fatness value.
 *
 */
 bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
@@ -1062,14 +1040,14 @@ bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
 
 /* luagmp (func)
 *
-* Get a player's model fatness.
+* This function will return the player's model fatness, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerFatness
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   (float|nil)       Fatness value or nil.
+* @return   (float|nil)          Fatness value or nil.
 *
 */
 sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state ts) {
@@ -1084,17 +1062,16 @@ sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state t
 
 /* luagmp (func)
 *
-* Set a player's model scale.
+* This function will set the player's model scale.
 *
 * @version  0.3.0
 * @name     setPlayerScale
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @param    (number) x         Scale factor on x axis.
-* @param    (number) y         Scale factor on y axis.
-* @param    (number) z         Scale factor on z axis.
-* @return   (boolean)            True on success.
+* @param    (number) x           Scale factor on x axis.
+* @param    (number) y           Scale factor on y axis.
+* @param    (number) z           Scale factor on z axis.
 *
 */
 bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z) {
@@ -1107,14 +1084,14 @@ bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z)
 
 /* luagmp (func)
 *
-* Get a player's model scale.
+* This function will return the player's model scale.
 *
 * @version  0.3.0
 * @name     getPlayerScale
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   ({x, y, z}|nil)   Scale table or nil.
+* @return   ({x, y, z}|nil)      Scale table or nil.
 *
 */
 sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts) {
@@ -1134,7 +1111,7 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
-* Set the player/npc weapon mode for all players.
+* This function will set the player's weapon mode.
 *
 * @version  0.3.0
 * @name     setPlayerWeaponMode
@@ -1142,7 +1119,6 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id   Target player id.
 * @param    (number) weapon_mode Weapon mode constant.
-* @return   (boolean)            True on success, false if the player is missing.
 *
 */
 bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
@@ -1155,14 +1131,14 @@ bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
 
 /* luagmp (func)
 *
-* Get the player/npc weapon mode.
+* This function will return the player's weapon mode, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerWeaponMode
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   (number|nil)         Weapon mode or nil if unavailable.
+* @return   (number|nil)         Weapon mode or nil.
 *
 */
 sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_state ts) {
@@ -1177,15 +1153,14 @@ sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_stat
 
 /* luagmp (func)
 *
-* Apply animation overlay on a player.
+* This function will apply animation overlay on the player.
 *
 * @version  0.3.0
 * @name     applyPlayerOverlay
 * @side     server
 * @category Player
-* @param    (number) player_id     Target player id.
-* @param    (string) overlay    Overlay name.
-* @return   (boolean)              True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string) overlay      Overlay name.
 *
 */
 bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
@@ -1198,7 +1173,7 @@ bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& ove
 
 /* luagmp (func)
 *
-* Get a player's active animation overlays.
+* This function will return the player's active animation overlays.
 *
 * @version  0.3.0
 * @name     getPlayerOverlays
@@ -1229,15 +1204,14 @@ sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state 
 
 /* luagmp (func)
 *
-* Remove animation overlay on a player.
+* This function will remove a specified animation overlay from the player.
 *
 * @version  0.3.0
 * @name     removePlayerOverlay
 * @side     server
 * @category Player
 * @param    (number) player_id     Target player id.
-* @param    (string) overlay    Overlay name.
-* @return   (boolean)              True on success.
+* @param    (string) overlay       Overlay name.
 *
 */
 bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
@@ -1250,7 +1224,7 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 
 /* luagmp (func)
 *
-* Play an animation on a player/npc for all players.
+* This function will play an animation on the player's character.
 *
 * @version  0.3.0
 * @name     playAni
@@ -1258,7 +1232,6 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Animation name (e.g. "T_STAND_2_SIT").
-* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
@@ -1271,15 +1244,14 @@ bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
 
 /* luagmp (func)
 *
-* Stop a played animation on a player/npc for all players.
+* This function will stop a played animation on the player's character.
 *
 * @version  0.3.0
 * @name     stopAni
 * @side     server
 * @category Player
-* @param    (number) player_id  Target player id.
-* @param    (string|nil) aniName Animation name to stop. Defaults to "" for first active animation.
-* @return   (boolean)           True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string|nil) aniName  Animation name to stop. Defaults to "" for first active animation.
 *
 */
 bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
@@ -1292,7 +1264,7 @@ bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_na
 
 /* luagmp (func)
 *
-* Play a face animation on a player/npc.
+* This function will play a face animation on the player's character.
 *
 * @version  0.3.0
 * @name     playFaceAni
@@ -1300,7 +1272,6 @@ bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_na
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Face animation name (e.g. "S_FRIENDLY").
-* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayFaceAni(std::uint32_t player_id, const std::string& ani_name) {
@@ -1313,15 +1284,14 @@ bool Function_PlayFaceAni(std::uint32_t player_id, const std::string& ani_name) 
 
 /* luagmp (func)
 *
-* Stop a played face animation on a player/npc.
+* This function will stop a played face animation on the player's character.
 *
 * @version  0.3.0
 * @name     stopFaceAni
 * @side     server
 * @category Player
-* @param    (number) player_id  Target player id.
-* @param    (string|nil) aniName Face animation name to stop. Defaults to "" for first active animation.
-* @return   (boolean)           True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string|nil) aniName  Face animation name to stop. Defaults to "" for first active animation.
 *
 */
 bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
@@ -1334,14 +1304,13 @@ bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> an
 
 /* luagmp (func)
 *
-* Play a gesticulation animation on a player/npc.
+* This function will play gesticulation animation on the player's character.
 *
 * @version  0.3.0
 * @name     playGesticulation
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayGesticulation(std::uint32_t player_id) {
@@ -1354,7 +1323,7 @@ bool Function_PlayGesticulation(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* Set a player's world position.
+* This function will set the player's world position.
 *
 * @version  0.3.0
 * @name     setPlayerPosition
@@ -1364,7 +1333,6 @@ bool Function_PlayGesticulation(std::uint32_t player_id) {
 * @param    (number) x          X coordinate.
 * @param    (number) y          Y coordinate.
 * @param    (number) z          Z coordinate.
-* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z) {
@@ -1377,14 +1345,14 @@ bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float
 
 /* luagmp (func)
 *
-* Get a player's position as a table {x,y,z} or nil if unavailable.
+* This function will return the player's position, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerPosition
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   ({x, y, z}|nil)   Table containing x,y,z or nil.
+* @return   ({x, y, z}|nil)      Table containing x,y,z or nil.
 *
 */
 sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state ts) {
@@ -1407,15 +1375,14 @@ sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state 
 
 /* luagmp (func)
 *
-* Set a player's facing angle (degrees).
+* This function will set the player's facing angle (degrees).
 *
 * @version  0.3.0
 * @name     setPlayerAngle
 * @side     server
 * @category Player
-* @param    (number) player_id         Target player id.
-* @param    (number) angle_degrees  Angle in degrees.
-* @return   (boolean)                  True on success.
+* @param    (number) player_id        Target player id.
+* @param    (number) angle_degrees    Angle in degrees.
 *
 */
 bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
@@ -1429,14 +1396,14 @@ bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
 
 /* luagmp (func)
 *
-* Get a player's facing angle in degrees or nil if unavailable.
+* This function will return the player's facing angle in degrees, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerAngle
 * @side     server
 * @category Player
-* @param    (number) player_id  Target player id.
-* @return   (number|nil)     Angle in degrees or nil.
+* @param    (number) player_id    Target player id.
+* @return   (number|nil)          Angle in degrees or nil.
 *
 */
 sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts) {
@@ -1454,16 +1421,15 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
-* Move a player to a different world, optionally specifying a start point.
+* This function will move the player to a different world, optionally specifying a start point.
 *
 * @version  0.3.0
 * @name     setPlayerWorld
 * @side     server
 * @category Player
-* @param    (number) player_id       Target player id.
-* @param    (string) world        World name.
-* @param    (string) start_point  Optional start point name.
-* @return   (boolean)                True on success.
+* @param    (number) player_id      Target player id.
+* @param    (string) world          World name.
+* @param    (string) start_point    Optional start point name.
 *
 */
 bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, std::optional<std::string> start_point) {
@@ -1476,14 +1442,14 @@ bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, 
 
 /* luagmp (func)
 *
-* Get the current world name for a player or nil if player missing.
+* This function will return the player's current world name, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerWorld
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (string|nil)     World name or nil.
+* @return   (string|nil)        World name or nil.
 *
 */
 sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts) {
@@ -1498,7 +1464,7 @@ sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts)
 
 /* luagmp (func)
 *
-* Set a player's virtual world id.
+* This function will set the player's virtual world id.
 *
 * @version  0.3.0
 * @name     setPlayerVirtualWorld
@@ -1506,7 +1472,6 @@ sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id       Target player id.
 * @param    (number) virtual_world   Virtual world id (0-65535).
-* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) {
@@ -1519,7 +1484,7 @@ bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) 
 
 /* luagmp (func)
 *
-* Get a player's virtual world id or nil if unavailable.
+* This function will return the player's virtual world id, or nil if unavailable.
 *
 * @version  0.3.0
 * @name     getPlayerVirtualWorld
@@ -1541,7 +1506,7 @@ sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_st
 
 /* luagmp (func)
 *
-* Ban the player on the server.
+* This function will ban the player on the server.
 *
 * @version  0.3.0
 * @name     ban
@@ -1549,7 +1514,7 @@ sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_st
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
 * @param    (number) player_id  Target player id.
-* @param    (string) reason  Optional reason why the player was banned.
+* @param    (string) reason     Optional reason why the player was banned.
 *
 */
 void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
@@ -1568,7 +1533,7 @@ void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
 
 /* luagmp (func)
 *
-* Kick the player from the server.
+* This function will kick the player from the server.
 *
 * @version  0.3.0
 * @name     kick
@@ -1576,7 +1541,7 @@ void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
 * @param    (number) player_id  Target player id.
-* @param    (string) reason  Optional reason why the player was kicked.
+* @param    (string) reason     Optional reason why the player was kicked.
 *
 */
 void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
@@ -1595,7 +1560,7 @@ void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
 
 /* luagmp (func)
 *
-* The function is used to check whether player is connected to the server.
+* This function will check whether player is connected to the server.
 *
 * @version  0.3.0
 * @name     isPlayerConnected
@@ -1615,7 +1580,7 @@ bool Function_IsPlayerConnected(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* The function is used to check whether player is dead.
+* This function will check whether player is dead.
 *
 * @version  0.3.0
 * @name     isPlayerDead
@@ -1635,7 +1600,7 @@ bool Function_IsPlayerDead(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* The function is used to check whether player is spawned.
+* This function will check whether player is spawned.
 *
 * @version  0.3.0
 * @name     isPlayerSpawned
@@ -1655,7 +1620,7 @@ bool Function_IsPlayerSpawned(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* The function is used to check whether player is in unconscious state. The player will be unconscious, when it gets beaten up, but not killed.
+* This function will check whether player is in unconscious state. The player will be unconscious, when it gets beaten up, but not killed.
 *
 * @version  0.3.0
 * @name     isPlayerUnconscious
@@ -1675,7 +1640,7 @@ bool Function_IsPlayerUnconscious(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* Immediately respawn the player if he is dead.
+* This function will immediately respawn the player if he is dead.
 *
 * @version  0.3.0
 * @name     respawnPlayer
@@ -1694,7 +1659,7 @@ void Function_RespawnPlayer(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* Set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
+* This function will set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
 *
 * @version  0.3.0
 * @name     setPlayerRespawnTime
@@ -1721,7 +1686,7 @@ void Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn
 
 /* luagmp (func)
 *
-* Get the player time to respawn after death.
+* This function will return the player time to respawn after death.
 *
 * @version  0.3.0
 * @name     getPlayerRespawnTime
@@ -1747,16 +1712,15 @@ sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_sta
 
 /* luagmp (func)
 *
-* Give an item to a player or NPC.
+* This function will give an item to the player.
 *
 * @version  0.3.0
 * @name     giveItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id     Target player id.
-* @param    (string) instance   Item instance name from scripts.
-* @param    (number) amount        Amount to give.
-* @return   (boolean)              True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Item instance name from scripts.
+* @param    (number) amount       Amount to give.
 *
 */
 bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
@@ -1769,16 +1733,15 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
 
 /* luagmp (func)
 *
-* Equip an item for all players.
+* This function will equip an item for the player.
 *
 * @version  0.3.0
 * @name     equipItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id     Target player id.
-* @param    (string) instance   Item instance name from scripts.
-* @param    (number) slot_id       Optional slot id. Defaults to -1 for first free slot.
-* @return   (boolean)           True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Item instance name from scripts.
+* @param    (number) slot_id      Optional slot id. Defaults to -1 for first free slot.
 *
 */
 bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, sol::optional<std::int32_t> slot_id) {
@@ -1791,15 +1754,14 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 
 /* luagmp (func)
 *
-* Unequip an item for all players.
+* This function will unequip an item for the player.
 *
 * @version  0.3.0
 * @name     unequipItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id     Target player id.
-* @param    (string) instance   Item instance name from scripts.
-* @return   (boolean)              True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Item instance name from scripts.
 *
 */
 bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) {
@@ -1812,15 +1774,15 @@ bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) 
 
 /* luagmp (func)
 *
-* Get the amount of a specific item in a player's inventory.
+* This function will return the amount of a specific item in the player's inventory.
 *
 * @version  0.3.0
 * @name     hasItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id     Target player id.
-* @param    (string) instance   Item instance name from scripts.
-* @return   (number)               Item amount or 0 if missing.
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Item instance name from scripts.
+* @return   (number)              Item amount or 0 if missing.
 *
 */
 int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
@@ -1833,16 +1795,15 @@ int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
 
 /* luagmp (func)
 *
-* Remove an item from a player or NPC.
+* This function will remove an item from the player's inventory.
 *
 * @version  0.3.0
 * @name     removeItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id     Target player id.
-* @param    (string) instance   Item instance name from scripts.
-* @param    (number) amount        Amount to remove.
-* @return   (boolean)              True on success.
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Item instance name from scripts.
+* @param    (number) amount       Amount to remove.
 *
 */
 bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
@@ -1855,14 +1816,14 @@ bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, s
 
 /* luagmp (func)
 *
-* Set the server's current world name.
+* This function will set the server's current world name.
 *
 * @version  0.3.0
 * @name     setServerWorld
 * @side     server
 * @category Game
-* @param    (string) world    World name to set.
-* @return   (boolean)            True on success.
+* @param    (string) world      World name to set.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetServerWorld(const std::string& world) {
@@ -1871,13 +1832,13 @@ bool Function_SetServerWorld(const std::string& world) {
 
 /* luagmp (func)
 *
-* Get the server's current world name.
+* This function will return the server's current world name.
 *
 * @version  0.3.0
 * @name     getServerWorld
 * @side     server
 * @category Game
-* @return   (string)         Current server world or empty string.
+* @return   (string)        Current server world or empty string.
 *
 */
 std::string Function_GetServerWorld() {
@@ -1886,17 +1847,17 @@ std::string Function_GetServerWorld() {
 
 /* luagmp (func)
 *
-* Find player ids within a radius of a given position in a world.
+* This function will return player ids within a radius of a given position in a world.
 *
 * @version  0.3.0
 * @name     findNearbyPlayers
 * @side     server
 * @category Streamer
-* @param    ({x, y, z}) position_table  Table with x,y,z coordinates.
-* @param    (number) radius                Search radius.
-* @param    (string) world              World name to search in.
-* @param    (number) virtual_world         Optional virtual world id.
-* @return   ({...})                     Array of player ids.
+* @param    ({x, y, z}) position_table    Table with x,y,z coordinates.
+* @param    (number) radius               Search radius.
+* @param    (string) world                World name to search in.
+* @param    (number) virtual_world        Optional virtual world id.
+* @return   ({...})                       Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_FindNearbyPlayers(const sol::table& position_table, int radius,
@@ -1911,14 +1872,14 @@ std::vector<std::uint32_t> Function_FindNearbyPlayers(const sol::table& position
 
 /* luagmp (func)
 *
-* Get the list of players that have been spawned for the given player.
+* This function will return the list of players that have been spawned for the given player.
 *
 * @version  0.3.0
 * @name     getSpawnedPlayersForPlayer
 * @side     server
 * @category Streamer
 * @param    (number) player_id   Target player id.
-* @return   ({...})           Array of player ids.
+* @return   ({...})              Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_GetSpawnedPlayersForPlayer(std::uint32_t player_id) {
@@ -1931,14 +1892,14 @@ std::vector<std::uint32_t> Function_GetSpawnedPlayersForPlayer(std::uint32_t pla
 
 /* luagmp (func)
 *
-* Get the list of players currently streamed to the given player.
+* This function will return the list of players currently streamed to the given player.
 *
 * @version  0.3.0
 * @name     getStreamedPlayersByPlayer
 * @side     server
 * @category Streamer
 * @param    (number) player_id  Target player id.
-* @return   ({...})          Array of player ids.
+* @return   ({...})             Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t player_id) {
@@ -1951,7 +1912,7 @@ std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t pla
 
 /* luagmp (func)
 *
-* Set the server time (hour, minute, optional day offset).
+* This function will set the server time (hour, minute, optional day offset).
 *
 * @version  0.3.0
 * @name     setTime
@@ -1960,7 +1921,6 @@ std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t pla
 * @param    (number) hour      Hour (0-23).
 * @param    (number) min       Minute (0-59).
 * @param    (number) day       Optional day offset.
-* @return   (boolean)          True on success.
 *
 */
 bool Function_SetTime(int hour, int min, sol::optional<int> day) {
@@ -1969,7 +1929,7 @@ bool Function_SetTime(int hour, int min, sol::optional<int> day) {
 
 /* luagmp (func)
 *
-* Get the current server time as a table {day,hour,min}.
+* This function will return the current server time as a table {day,hour,min}.
 *
 * @version  0.3.0
 * @name     getTime
@@ -1990,14 +1950,13 @@ sol::object Function_GetTime(sol::this_state ts) {
 
 /* luagmp (func)
 *
-* Set the duration of a full in-game day in milliseconds.
+* This function will set the duration of a full in-game day in milliseconds.
 *
 * @version  0.3.0
 * @name     setDayLength
 * @side     server
 * @category Game
 * @param    (number) miliseconds   Day length in milliseconds (min 10000 ms).
-* @return   (boolean)                True on success.
 *
 */
 bool Function_SetDayLength(float day_length_ms) {
@@ -2012,7 +1971,7 @@ bool Function_SetDayLength(float day_length_ms) {
 
 /* luagmp (func)
 *
-* Get the current duration of a full in-game day in milliseconds.
+* This function will return the current duration of a full in-game day in milliseconds.
 *
 * @version  0.3.0
 * @name     getDayLength
@@ -2024,118 +1983,6 @@ bool Function_SetDayLength(float day_length_ms) {
 sol::object Function_GetDayLength(sol::this_state ts) {
   sol::state_view lua(ts);
   return sol::make_object(lua, g_server->GetDayLength());
-}
-
-/* luagmp (func)
-*
-* Set the desired weather type immediately.
-*
-* @version  0.3.0
-* @name     setWeatherType
-* @side     server
-* @category Weather
-* @param    (number) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
-*
-*/
-void Function_SetWeatherType(int weather_type) {
-  g_server->SetWeatherType(weather_type);
-}
-
-/* luagmp (func)
-*
-* Return the current weather type.
-*
-* @version  0.3.0
-* @name     getWeatherType
-* @side     server
-* @category Weather
-* @return   (number)   Current weather type.
-*
-*/
-int Function_GetWeatherType() {
-  return g_server->GetWeatherType();
-}
-
-/* luagmp (func)
-*
-* Set the sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     setRainStartTime
-* @side     server
-* @category Weather
-* @param    (number) hour   The sky weather raining start hour.
-* @param    (number) min    The sky weather raining start min.
-*
-*/
-void Function_SetRainStartTime(int hour, int min) {
-  g_server->SetRainStartTime(hour, min);
-}
-
-/* luagmp (func)
-*
-* Get the sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     getRainStartTime
-* @side     server
-* @category Weather
-* @return   ({hour, min})  The sky weather raining start time.
-*
-*/
-sol::object Function_GetRainStartTime(sol::this_state ts) {
-  sol::state_view lua(ts);
-  auto time = g_server->GetRainStartTime();
-  sol::table tbl = lua.create_table();
-  tbl["hour"] = time.first;
-  tbl["min"] = time.second;
-  return tbl;
-}
-
-/* luagmp (func)
-*
-* Change the wind scale used during raining/snowing.
-*
-* @version  0.3.0
-* @name     setWindScale
-* @side     server
-* @category Weather
-* @param    (number) wind_scale    Wind scale value.
-*
-*/
-void Function_SetWindScale(float wind_scale) {
-  g_server->SetWindScale(wind_scale);
-}
-
-/* luagmp (func)
-*
-* Return the current wind scale.
-*
-* @version  0.3.0
-* @name     getWindScale
-* @side     server
-* @category Weather
-* @return   (number)   Current wind scale.
-*
-*/
-float Function_GetWindScale() {
-  return g_server->GetWindScale();
-}
-
-/* luagmp (func)
-*
-* Enable/disable weather completely.
-*
-* @version  0.3.0
-* @name     setDontRain
-* @side     server
-* @category Weather
-* @param    (boolean) toggle   True to disable weather, false to enable it.
-* @return   (boolean)          True on success.
-*
-*/
-bool Function_SetDontRain(bool toggle) {
-  return g_server->SetDontRain(toggle);
 }
 
 
@@ -2257,12 +2104,4 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getTime"] = Function_GetTime;
   lua["setDayLength"] = Function_SetDayLength;
   lua["getDayLength"] = Function_GetDayLength;
-
-  lua["setWeatherType"] = Function_SetWeatherType;
-  lua["getWeatherType"] = Function_GetWeatherType;
-  lua["setRainStartTime"] = Function_SetRainStartTime;
-  lua["getRainStartTime"] = Function_GetRainStartTime;
-  lua["setWindScale"] = Function_SetWindScale;
-  lua["getWindScale"] = Function_GetWindScale;
-  lua["setDontRain"] = Function_SetDontRain;
 }

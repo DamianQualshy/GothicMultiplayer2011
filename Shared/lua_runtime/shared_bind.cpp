@@ -40,7 +40,7 @@ std::optional<ServerInfoProvider> g_server_info_provider;
 
 /* luagmp (func)
 *
-* Get the hostname of the server.
+* This function returns the host name of the server.
 *
 * @version  0.3.0
 * @name     getHostname
@@ -60,7 +60,7 @@ std::string Function_GetHostname() {
 
 /* luagmp (func)
 *
-* Get the max number of slots available on the server.
+* This function returns the max number of slots available on the server.
 *
 * @version  0.3.0
 * @name     getMaxSlots
@@ -80,7 +80,7 @@ int Function_GetMaxSlots() {
 
 /* luagmp (func)
 *
-* Get the array containing player ids that are currently online.
+* This function returns the array containing player ids that are currently online.
 *
 * @version  0.3.0
 * @name     getOnlinePlayers
@@ -108,7 +108,7 @@ sol::object Function_GetOnlinePlayers(sol::this_state ts) {
 
 /* luagmp (func)
 *
-* Get the number of online players on the server.
+* This function returns the number of online players on the server.
 *
 * @version  0.3.0
 * @name     getPlayersCount

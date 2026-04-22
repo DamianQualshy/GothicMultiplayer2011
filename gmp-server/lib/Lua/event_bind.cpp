@@ -93,9 +93,9 @@ void RegisterProxies() {
 * @name     onClockUpdate
 * @side     server
 * @category Game
-* @param    (number) day               The current ingame day.
-* @param    (number) hour              The current ingame hour.
-* @param    (number) min               The current ingame minute.
+* @param    (number) day           The current ingame day.
+* @param    (number) hour          The current ingame hour.
+* @param    (number) min           The current ingame minute.
 *
 */
   kLuaEventProxies[kEventOnClockUpdateName] = {[](LuaProxyArgs args) {
@@ -105,7 +105,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player connects to the server.
+* This event is triggered when a player connects to the server.
 *
 * @version  0.3.0
 * @name     onPlayerConnect
@@ -121,7 +121,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player disconnects from the server.
+* This event is triggered when a player disconnects from the server.
 *
 * @version  0.3.0
 * @name     onPlayerDisconnect
@@ -138,14 +138,14 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player sends a chat message.
+* This event is triggered when a player sends a chat message.
 *
 * @version  0.3.0
 * @name     onPlayerMessage
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player who sent the message.
-* @param    (string) text      The message text.
+* @param    (string) text         The message text.
 *
 */
   kLuaEventProxies[kEventOnPlayerMessageName] = {[](LuaProxyArgs args) {
@@ -155,15 +155,15 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player issues a command.
+* This event is triggered when a player issues a command.
 *
 * @version  0.3.0
 * @name     onPlayerCommand
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player issuing the command.
-* @param    (string) command   The command name.
-* @param    ({...}) params     Command parameters.
+* @param    (string) command      The command name.
+* @param    ({...}) params        Command parameters.
 *
 */
   kLuaEventProxies[kEventOnPlayerCommandName] = {[](LuaProxyArgs args) {
@@ -173,14 +173,14 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player dies.
+* This event is triggered when a player dies.
 *
 * @version  0.3.0
 * @name     onPlayerDeath
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player who died.
-* @param    (number) killer_id   Optional id of the killer (nil if none).
+* @param    (number) killer_id    Optional id of the killer (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerDeathName] = {[](LuaProxyArgs args) {
@@ -192,7 +192,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player stands up after being unconscious.
+* This event is triggered when a player stands up after being unconscious.
 *
 * @version  0.3.0
 * @name     onPlayerStandUp
@@ -208,14 +208,14 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player becomes unconscious.
+* This event is triggered when a player becomes unconscious.
 *
 * @version  0.3.0
 * @name     onPlayerUnconscious
 * @side     server
 * @category Player
-* @param    (number) attacker_id  Optional attacker id (nil if none).
-* @param    (number) victim_id     Victim player id.
+* @param    (number) attacker_id    Optional attacker id (nil if none).
+* @param    (number) victim_id      Victim player id.
 *
 */
   kLuaEventProxies[kEventOnPlayerUnconsciousName] = {[](LuaProxyArgs args) {
@@ -228,7 +228,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player drops an item.
+* This event is triggered when a player drops an item.
 *
 * @version  0.3.0
 * @name     onPlayerDropItem
@@ -246,7 +246,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player picks up an item.
+* This event is triggered when a player picks up an item.
 *
 * @version  0.3.0
 * @name     onPlayerTakeItem
@@ -263,7 +263,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player casts a spell.
+* This event is triggered when a player casts a spell.
 *
 * @version  0.3.0
 * @name     onPlayerCastSpell
@@ -271,7 +271,7 @@ void RegisterProxies() {
 * @category Player
 * @param    (number) caster_id    Caster player id.
 * @param    (number) spell_id     Spell identifier.
-* @param    (number) target_id   Optional target player id (nil if none).
+* @param    (number) target_id    Optional target player id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerCastSpellName] = {[](LuaProxyArgs args) {
@@ -283,7 +283,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when player health changes.
+* This event is triggered when player health changes.
 *
 * @version  0.3.0
 * @name     onPlayerChangeHealth
@@ -301,7 +301,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when player mana changes.
+* This event is triggered when player mana changes.
 *
 * @version  0.3.0
 * @name     onPlayerChangeMana
@@ -319,15 +319,15 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when player tries to change the played world (ZEN).
+* This event is triggered when player tries to change the played world (ZEN).
 *
 * @version  0.3.0
 * @name     onPlayerChangeWorld
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player who tries to change the played world.
-* @param    (string) world     The filename of the world.
-* @param    (string) waypoint  The name of the waypoint that the player will be teleported to.
+* @param    (string) world        The filename of the world.
+* @param    (string) waypoint     The name of the waypoint that the player will be teleported to.
 *
 */
   kLuaEventProxies[kEventOnPlayerChangeWorldName] = {[](LuaProxyArgs args) {
@@ -337,7 +337,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's weapon mode changes.
+* This event is triggered when a player's weapon mode changes.
 *
 * @version  0.3.0
 * @name     onPlayerWeaponModeChange
@@ -355,7 +355,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's amulet changes.
+* This event is triggered when a player's amulet changes.
 *
 * @version  0.3.0
 * @name     onPlayerAmuletChange
@@ -374,7 +374,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's armor changes.
+* This event is triggered when a player's armor changes.
 *
 * @version  0.3.0
 * @name     onPlayerArmorChange
@@ -393,7 +393,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's belt changes.
+* This event is triggered when a player's belt changes.
 *
 * @version  0.3.0
 * @name     onPlayerBeltChange
@@ -412,7 +412,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's hand item changes.
+* This event is triggered when a player's hand item changes.
 *
 * @version  0.3.0
 * @name     onPlayerHandItemChange
@@ -432,7 +432,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's helmet changes.
+* This event is triggered when a player's helmet changes.
 *
 * @version  0.3.0
 * @name     onPlayerHelmetChange
@@ -451,7 +451,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's melee weapon changes.
+* This event is triggered when a player's melee weapon changes.
 *
 * @version  0.3.0
 * @name     onPlayerMeleeWeaponChange
@@ -470,7 +470,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's ranged weapon changes.
+* This event is triggered when a player's ranged weapon changes.
 *
 * @version  0.3.0
 * @name     onPlayerRangedWeaponChange
@@ -489,7 +489,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's ring changes.
+* This event is triggered when a player's ring changes.
 *
 * @version  0.3.0
 * @name     onPlayerRingChange
@@ -509,7 +509,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's shield changes.
+* This event is triggered when a player's shield changes.
 *
 * @version  0.3.0
 * @name     onPlayerShieldChange
@@ -528,7 +528,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player's active spell slot changes.
+* This event is triggered when a player's active spell slot changes.
 *
 * @version  0.3.0
 * @name     onPlayerSpellSlotChange
@@ -548,7 +548,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player spawns (initial spawn).
+* This event is triggered when a player spawns (initial spawn).
 *
 * @version  0.3.0
 * @name     onPlayerSpawn
@@ -567,7 +567,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player respawns.
+* This event is triggered when a player respawns.
 *
 * @version  0.3.0
 * @name     onPlayerRespawn
@@ -586,7 +586,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player is spawned for another player (streaming in).
+* This event is triggered when a player is spawned for another player (streaming in).
 *
 * @version  0.3.0
 * @name     onPlayerSpawnFor
@@ -603,7 +603,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player is unspawned for another player (streaming out).
+* This event is triggered when a player is unspawned for another player (streaming out).
 *
 * @version  0.3.0
 * @name     onPlayerUnspawnFor
@@ -620,7 +620,7 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* Triggered when a player is hit.
+* This event is triggered when a player is hit.
 *
 * @version  0.3.0
 * @name     onPlayerHit
@@ -746,7 +746,7 @@ void BindEvents(sol::state& lua) {
   };
 /* luagmp (func)
 *
-* Triggers a custom client-side event for one or more players and optionally passes arguments.
+* This function will treigger a custom client-side event for one or more players and optionally passes arguments.
 *
 * @version  0.3.0
 * @name     triggerClientEvent

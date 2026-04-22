@@ -38,12 +38,9 @@ constexpr float kMaxBalance = 1.0f;
 
 /* luagmp (class)
 *
+* This class represents an internal sound method.
+*
 * @version  0.3.0
-* Sound playback helper.
-*
-* Provides basic control over a sound resource loaded from a file, including
-* playback, looping, volume, stereo balance and querying playback state.
-*
 * @name     Sound
 * @side     client
 * @category Game
@@ -53,7 +50,7 @@ constexpr float kMaxBalance = 1.0f;
 *
 * Creates a new Sound from a file.
 *
-* @param    (string) file Sound file path.
+* @param    (string) file     Sound file path.
 *
 */
 
@@ -120,7 +117,7 @@ void LuaSound::StopIfNeeded() {
 
 /* luagmp (method)
 *
-* Start sound playback.
+* This method will start Sound playback.
 *
 * @name     play
 *
@@ -151,7 +148,7 @@ void LuaSound::play() {
 
 /* luagmp (method)
 *
-* Stop sound playback.
+* This method will stop Sound playback.
 *
 * @name     stop
 *
@@ -162,7 +159,7 @@ void LuaSound::stop() {
 
 /* luagmp (method)
 *
-* Return whether the sound is currently playing.
+* This method will return whether the Sound is currently playing.
 *
 * @name     isPlaying
 * @return   (boolean) True if the sound is playing.
@@ -174,7 +171,7 @@ bool LuaSound::isPlaying() const {
 
 /* luagmp (property)
 *
-* Get or set the sound file path.
+* Represents the sound file path.
 *
 * @name     file
 * @return   (string) Sound file path.
@@ -182,7 +179,7 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Return the current playback time.
+* Represents the current playback time.
 *
 * @name     playingTime
 * @readonly
@@ -191,7 +188,7 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Get or set the playback volume.
+* Represents the playback volume.
 *
 * @name     volume
 * @return   (number) Volume level (0.0 - 1.0).
@@ -199,7 +196,7 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Get or set whether the sound should loop.
+* Represents whether the sound should loop.
 *
 * @name     looping
 * @return   (boolean) True if looping is enabled.
@@ -207,7 +204,7 @@ bool LuaSound::isPlaying() const {
 */
 /* luagmp (property)
 *
-* Get or set the stereo balance (pan).
+* Represents the stereo balance (pan).
 *
 * @name     balance
 * @return   (number) Stereo balance value (-1.0 - 1.0).
@@ -264,6 +261,22 @@ float LuaSound::getBalance() const {
 void LuaSound::setBalance(float balance) {
   balance_ = std::clamp(balance, kMinBalance, kMaxBalance);
   ApplyProperties();
+}
+
+void BindSound(sol::state& lua) {
+  sol::usertype<LuaSound> sound_type = lua.new_usertype<LuaSound>(
+      "Sound",
+      sol::constructors<LuaSound(const std::string&)>());
+
+  sound_type["play"] = &LuaSound::play;
+  sound_type["stop"] = &LuaSound::stop;
+  sound_type["isPlaying"] = &LuaSound::isPlaying;
+
+  sound_type["file"] = sol::property(&LuaSound::getFile, &LuaSound::setFile);
+  sound_type["playingTime"] = sol::property(&LuaSound::getPlayingTime);
+  sound_type["volume"] = sol::property(&LuaSound::getVolume, &LuaSound::setVolume);
+  sound_type["looping"] = sol::property(&LuaSound::getLooping, &LuaSound::setLooping);
+  sound_type["balance"] = sol::property(&LuaSound::getBalance, &LuaSound::setBalance);
 }
 
 }  // namespace gmp::gothic

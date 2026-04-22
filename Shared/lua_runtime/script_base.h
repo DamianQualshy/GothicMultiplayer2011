@@ -29,8 +29,9 @@ SOFTWARE.
 #include "spdlog_bind.h"
 #include "shared_bind.h"
 #include "timer_manager.h"
-#include "math_bind.h"
-#include "utility_bind.h"
+#include "lua_constants.h"
+#include "lua_math.h"
+#include "lua_utility.h"
 
 namespace lua {
 

@@ -4,11 +4,12 @@
 
 #include "sol/sol.hpp"
 // Binds
+#include "Lua/lua_constants.h"
 #include "Lua/event_bind.h"
-#include "Lua/constants_bind.h"
 #include "Lua/function_bind.h"
-#include "Lua/json_bind.h"
-#include "Lua/way_bind.h"
+#include "Lua/lua_json.h"
+#include "Lua/lua_sky.h"
+#include "Lua/lua_way.h"
 
 using namespace std;
 
@@ -22,4 +23,5 @@ void LuaScript::BindDomainSpecific() {
   lua::bindings::BindFunctions(lua_, timer_manager_);
   lua::bindings::BindJson(lua_);
   lua::bindings::BindWay(lua_);
+  lua::bindings::BindSky(lua_);
 }

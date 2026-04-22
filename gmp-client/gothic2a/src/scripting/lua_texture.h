@@ -71,4 +71,6 @@ private:
   void updateViewPos(int x, int y);
 };
 
+void BindTexture(sol::state& lua);
+
 }  // namespace gmp::gothic

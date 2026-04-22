@@ -21,7 +21,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "utility_bind.h"
+#include "lua_utility.h"
 
 #include <algorithm>
 #include <array>
@@ -100,7 +100,7 @@ std::vector<sol::object> CopyArguments(sol::state_view lua, const sol::variadic_
 
 /* luagmp (func)
 *
-* Convert a hex color string to an RGB table.
+* This function will convert a hex color string to an RGB table.
 *
 * @version  0.3.0
 * @name     hexToRgb
@@ -130,7 +130,7 @@ sol::object Function_HexToRgb(const std::string& hex, sol::this_state ts) {
 
 /* luagmp (func)
 *
-* Convert RGB components to a lowercase hex color string.
+* This function will convert RGB components to a lowercase hex color string.
 *
 * @version  0.3.0
 * @name     rgbToHex
@@ -155,7 +155,7 @@ std::string Function_RgbToHex(int r, int g, int b) {
 
 /* luagmp (func)
 *
-* Split text according to a format string and return the parsed values.
+* This function will split text according to a format string and return the parsed values.
 *
 * @version  0.3.0
 * @name     sscanf
@@ -230,7 +230,7 @@ sol::object Function_Sscanf(const std::string& format, const std::string& text, 
 
 /* luagmp (func)
 *
-* Get the number of milliseconds since the scripting runtime started.
+* This function will return the number of milliseconds since the scripting runtime started.
 *
 * @version  0.3.0
 * @name     getTickCount
@@ -245,7 +245,7 @@ std::int64_t Function_GetTickCount() {
 
 /* luagmp (func)
 *
-* Calculate the SHA-256 hash of a string and return it as hex.
+* This function will calculate the SHA-256 hash of a string and return it as hex.
 *
 * @version  0.3.0
 * @name     sha256
@@ -263,7 +263,7 @@ std::string Function_HashSha256(const std::string& input) {
 
 /* luagmp (func)
 *
-* Calculate the SHA-512 hash of a string and return it as hex.
+* This function will calculate the SHA-512 hash of a string and return it as hex.
 *
 * @version  0.3.0
 * @name     sha512
@@ -293,7 +293,7 @@ void BindUtilities(sol::state& lua) {
 void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 /* luagmp (func)
 *
-* Create a new timer that calls the given function at a fixed interval.
+* This function will create a new timer that calls the given function at a fixed interval.
 *
 * The timer passes any additional arguments to the callback when it executes.
 * If execute_times is 0 or negative, the timer repeats indefinitely.
@@ -302,11 +302,11 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 * @name     setTimer
 * @side     shared
 * @category Timer
-* @param    (function) func  Callback function executed by the timer.
-* @param    (number) interval   Interval in milliseconds.
-* @param    (number) execute_times How many times to execute the callback (<= 0 means infinite).
-* @param    (...) ... Additional arguments forwarded to the callback.
-* @return   (number) Timer ID.
+* @param    (function) func         Callback function executed by the timer.
+* @param    (number) interval       Interval in milliseconds.
+* @param    (number) execute_times  How many times to execute the callback (<= 0 means infinite).
+* @param    (...) ...               Additional arguments forwarded to the callback.
+* @return   (number)                Timer ID.
 *
 */
   lua.set_function("setTimer",
@@ -320,27 +320,27 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 
 /* luagmp (func)
 *
-* Stop and remove an existing timer.
+* This function will stop and remove an existing timer.
 *
 * @version  0.3.0
 * @name     killTimer
 * @side     shared
 * @category Timer
-* @param    (number) timer_id  Timer ID returned by setTimer.
+* @param    (number) timer_id   Timer ID returned by setTimer.
 *
 */
   lua.set_function("killTimer", [&timer_manager](int timer_id) { timer_manager.KillTimer(static_cast<TimerManager::TimerId>(timer_id)); });
 
 /* luagmp (func)
 *
-* Set the interval (in milliseconds) of an existing timer.
+* This function will set the interval (in milliseconds) of an existing timer.
 *
 * @version  0.3.0
 * @name     setTimerInterval
 * @side     shared
 * @category Timer
-* @param    (number) timer_id  Timer ID returned by setTimer.
-* @param    (number) interval  New interval in milliseconds.
+* @param    (number) timer_id     Timer ID returned by setTimer.
+* @param    (number) interval     New interval in milliseconds.
 *
 */
   lua.set_function("setTimerInterval", [&timer_manager](int timer_id, int interval) {
@@ -349,14 +349,14 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 
 /* luagmp (func)
 *
-* Return the interval (in milliseconds) of a timer, or nil if the timer does not exist.
+* This function will return the interval (in milliseconds) of a timer, or nil if the timer does not exist.
 *
 * @version  0.3.0
 * @name     getTimerInterval
 * @side     shared
 * @category Timer
-* @param    (number) timer_id  Timer ID returned by setTimer.
-* @return   (number|nil) Interval in milliseconds, or nil if not found.
+* @param    (number) timer_id      Timer ID returned by setTimer.
+* @return   (number|nil)           Interval in milliseconds, or nil if not found.
 *
 */
   lua.set_function("getTimerInterval", [&timer_manager](int timer_id, sol::this_state ts) -> sol::object {
@@ -370,16 +370,15 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 
 /* luagmp (func)
 *
-* Set how many times the timer should execute.
-*
+* This function will set how many times the timer should execute.
 * If execute_times is 0 or negative, the timer repeats indefinitely.
 *
 * @version  0.3.0
 * @name     setTimerExecuteTimes
 * @side     shared
 * @category Timer
-* @param    (number) timer_id  Timer ID returned by setTimer.
-* @param    (number) execute_times How many times to execute (<= 0 means infinite).
+* @param    (number) timer_id       Timer ID returned by setTimer.
+* @param    (number) execute_times  How many times to execute (<= 0 means infinite).
 *
 */
   lua.set_function("setTimerExecuteTimes", [&timer_manager](int timer_id, int execute_times) {
@@ -389,16 +388,15 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
 
 /* luagmp (func)
 *
-* Return how many times the timer will execute, or nil if the timer does not exist.
-*
+* This function will return how many times the timer will execute, or nil if the timer does not exist.
 * A value of 0 means the timer repeats indefinitely.
 *
 * @version  0.3.0
 * @name     getTimerExecuteTimes
 * @side     shared
 * @category Timer
-* @param    (number) timer_id  Timer ID returned by setTimer.
-* @return   (number|nil) Execute count (0 = infinite), or nil if not found.
+* @param    (number) timer_id     Timer ID returned by setTimer.
+* @return   (number|nil)          Execute count (0 = infinite), or nil if not found.
 *
 */
   lua.set_function("getTimerExecuteTimes", [&timer_manager](int timer_id, sol::this_state ts) -> sol::object {

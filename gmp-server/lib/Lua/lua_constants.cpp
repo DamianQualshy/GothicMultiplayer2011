@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "constants_bind.h"
+#include "lua_constants.h"
 
 #include "server_constants.h"
 

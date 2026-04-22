@@ -20,7 +20,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "math_bind.h"
+#include "lua_math.h"
 
 #include <algorithm>
 #include <cmath>
@@ -92,7 +92,7 @@ glm::mat4 MakeRowMatrix(const Vec4& r0, const Vec4& r1, const Vec4& r2, const Ve
 // ---------------- Vec2 ----------------
 /* luagmp (class)
 *
-* 2D vector with basic math utilities.
+* This class represents a 2d vector.
 *
 * @version  0.3.0
 * @name     Vec2
@@ -115,8 +115,8 @@ Vec2::Vec2(float value) : x(value), y(value) {
 *
 * Creates a Vec2 with explicit x and y components.
 *
-* @param    (number) x X component.
-* @param    (number) y Y component.
+* @param    (number) x  X component.
+* @param    (number) y  Y component.
 *
 */
 Vec2::Vec2(float x_in, float y_in) : x(x_in), y(y_in) {
@@ -124,7 +124,7 @@ Vec2::Vec2(float x_in, float y_in) : x(x_in), y(y_in) {
 
 /* luagmp (property)
 *
-* X component.
+* Represents the X component.
 *
 * @name     x
 * @return   (number) X component value.
@@ -132,7 +132,7 @@ Vec2::Vec2(float x_in, float y_in) : x(x_in), y(y_in) {
 */
 /* luagmp (property)
 *
-* Y component.
+* Represents the Y component.
 *
 * @name     y
 * @return   (number) Y component value.
@@ -141,7 +141,7 @@ Vec2::Vec2(float x_in, float y_in) : x(x_in), y(y_in) {
 
 /* luagmp (method)
 *
-* Returns the vector length (magnitude).
+* This method returns the vector length (magnitude).
 *
 * @name     len
 * @return   (number) Vector length.
@@ -153,7 +153,7 @@ float Vec2::len() const {
 
 /* luagmp (method)
 *
-* Returns the squared vector length.
+* This method returns the squared vector length.
 *
 * @name     len2
 * @return   (number) Squared vector length.
@@ -165,7 +165,7 @@ float Vec2::len2() const {
 
 /* luagmp (method)
 *
-* Returns an approximate vector length.
+* This method returns an approximate vector length.
 *
 * @name     lenApprox
 * @return   (number) Approximate vector length.
@@ -181,7 +181,7 @@ float Vec2::lenApprox() const {
 
 /* luagmp (method)
 *
-* Returns the distance to another vector.
+* This method returns the distance to another vector.
 *
 * @name     distance
 * @param    (Vec2) vec Other vector.
@@ -196,10 +196,9 @@ float Vec2::distance(const Vec2& vec) const {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place.
-*
+* This method normalizes the vector in-place.
 * If the vector length is zero, no change is applied.
-*
+* 
 * @name     normalize
 * @return   (Vec2) This vector (normalized).
 *
@@ -216,10 +215,9 @@ Vec2& Vec2::normalize() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an epsilon check.
-*
+* This method normalizes the vector in-place using an epsilon check.
 * If the vector length is below a small threshold, no change is applied.
-*
+* 
 * @name     normalizeSafe
 * @return   (Vec2) This vector (normalized).
 *
@@ -236,7 +234,7 @@ Vec2& Vec2::normalizeSafe() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an approximate inverse square root.
+* This method normalizes the vector in-place using an approximate inverse square root.
 *
 * @name     normalizeApprox
 * @return   (Vec2) This vector (normalized).
@@ -254,7 +252,7 @@ Vec2& Vec2::normalizeApprox() {
 
 /* luagmp (method)
 *
-* Sets both components of the vector.
+* This method sets both components of the vector.
 *
 * @name     set
 * @param    (number) x X component.
@@ -268,7 +266,7 @@ void Vec2::set(float x_in, float y_in) {
 
 /* luagmp (method)
 *
-* Compares this vector with another vector using an epsilon tolerance.
+* This method compares this vector with another vector using an epsilon tolerance.
 *
 * @name     isEqualEps
 * @param    (Vec2) vec Other vector.
@@ -281,7 +279,7 @@ bool Vec2::isEqualEps(const Vec2& vec) const {
 
 /* luagmp (method)
 *
-* Returns a vector with absolute component values.
+* This method returns a vector with absolute component values.
 *
 * @name     abs
 * @return   (Vec2) Vector with abs(x) and abs(y).
@@ -293,7 +291,7 @@ Vec2 Vec2::abs() const {
 
 /* luagmp (method)
 *
-* Swaps two vectors.
+* This method swaps two vectors.
 *
 * @static
 * @name     swap
@@ -307,7 +305,7 @@ void Vec2::swap(Vec2& vec1, Vec2& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise minimum of two vectors.
+* This method returns the component-wise minimum of two vectors.
 *
 * @static
 * @name     min
@@ -322,7 +320,7 @@ Vec2 Vec2::min(const Vec2& vec1, const Vec2& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise maximum of two vectors.
+* This method returns the component-wise maximum of two vectors.
 *
 * @static
 * @name     max
@@ -337,7 +335,7 @@ Vec2 Vec2::max(const Vec2& vec1, const Vec2& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise product of two vectors.
+* This method returns the component-wise product of two vectors.
 *
 * @static
 * @name     prod
@@ -352,7 +350,7 @@ Vec2 Vec2::prod(const Vec2& vec1, const Vec2& vec2) {
 
 /* luagmp (method)
 *
-* Returns the dot product of two vectors.
+* This method returns the dot product of two vectors.
 *
 * @static
 * @name     dot
@@ -367,7 +365,7 @@ float Vec2::dot(const Vec2& vec1, const Vec2& vec2) {
 
 /* luagmp (method)
 *
-* Linearly interpolates between two vectors.
+* This method linearly interpolates between two vectors.
 *
 * @static
 * @name     lerp
@@ -384,7 +382,7 @@ Vec2 Vec2::lerp(float t, const Vec2& v1, const Vec2& v2) {
 // ---------------- Vec3 ----------------
 /* luagmp (class)
 *
-* 3D vector with basic math utilities.
+* This class represents a 3d vector.
 *
 * @version  0.3.0
 * @name     Vec3
@@ -417,7 +415,7 @@ Vec3::Vec3(float x_in, float y_in, float z_in) : x(x_in), y(y_in), z(z_in) {
 
 /* luagmp (property)
 *
-* X component.
+* Represents X component.
 *
 * @name     x
 * @return   (number) X component value.
@@ -425,7 +423,7 @@ Vec3::Vec3(float x_in, float y_in, float z_in) : x(x_in), y(y_in), z(z_in) {
 */
 /* luagmp (property)
 *
-* Y component.
+* Represents Y component.
 *
 * @name     y
 * @return   (number) Y component value.
@@ -433,7 +431,7 @@ Vec3::Vec3(float x_in, float y_in, float z_in) : x(x_in), y(y_in), z(z_in) {
 */
 /* luagmp (property)
 *
-* Z component.
+* Represents Z component.
 *
 * @name     z
 * @return   (number) Z component value.
@@ -442,7 +440,7 @@ Vec3::Vec3(float x_in, float y_in, float z_in) : x(x_in), y(y_in), z(z_in) {
 
 /* luagmp (method)
 *
-* Returns the vector length (magnitude).
+* This method returns the vector length (magnitude).
 *
 * @name     len
 * @return   (number) Vector length.
@@ -454,7 +452,7 @@ float Vec3::len() const {
 
 /* luagmp (method)
 *
-* Returns the squared vector length.
+* This method returns the squared vector length.
 *
 * @name     len2
 * @return   (number) Squared vector length.
@@ -466,7 +464,7 @@ float Vec3::len2() const {
 
 /* luagmp (method)
 *
-* Returns an approximate vector length.
+* This method returns an approximate vector length.
 *
 * @name     lenApprox
 * @return   (number) Approximate vector length.
@@ -482,7 +480,7 @@ float Vec3::lenApprox() const {
 
 /* luagmp (method)
 *
-* Returns the distance to another vector.
+* This method returns the distance to another vector.
 *
 * @name     distance
 * @param    (Vec3) vec Other vector.
@@ -495,7 +493,7 @@ float Vec3::distance(const Vec3& vec) const {
 
 /* luagmp (method)
 *
-* Returns the 2D distance to another vector (ignores Z component).
+* This method returns the 2D distance to another vector (ignores Z component).
 *
 * @name     distance2d
 * @param    (Vec3) vec Other vector.
@@ -510,8 +508,7 @@ float Vec3::distance2d(const Vec3& vec) const {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place.
-*
+* This method normalizes the vector in-place.
 * If the vector length is zero, no change is applied.
 *
 * @name     normalize
@@ -531,8 +528,7 @@ Vec3& Vec3::normalize() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an epsilon check.
-*
+* This method normalizes the vector in-place using an epsilon check.
 * If the vector length is below a small threshold, no change is applied.
 *
 * @name     normalizeSafe
@@ -552,7 +548,7 @@ Vec3& Vec3::normalizeSafe() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an approximate inverse square root.
+* This method normalizes the vector in-place using an approximate inverse square root.
 *
 * @name     normalizeApprox
 * @return   (Vec3) This vector (normalized).
@@ -571,7 +567,7 @@ Vec3& Vec3::normalizeApprox() {
 
 /* luagmp (method)
 *
-* Sets all components of the vector.
+* This method sets all components of the vector.
 *
 * @name     set
 * @param    (number) x X component.
@@ -587,7 +583,7 @@ void Vec3::set(float x_in, float y_in, float z_in) {
 
 /* luagmp (method)
 *
-* Compares this vector with another vector using an epsilon tolerance.
+* This method compares this vector with another vector using an epsilon tolerance.
 *
 * @name     isEqualEps
 * @param    (Vec3) vec Other vector.
@@ -600,7 +596,7 @@ bool Vec3::isEqualEps(const Vec3& vec) const {
 
 /* luagmp (method)
 *
-* Returns a vector with absolute component values.
+* This method returns a vector with absolute component values.
 *
 * @name     abs
 * @return   (Vec3) Vector with abs(x), abs(y) and abs(z).
@@ -612,7 +608,7 @@ Vec3 Vec3::abs() const {
 
 /* luagmp (method)
 *
-* Returns the reflection of this vector around a surface normal.
+* This method returns the reflection of this vector around a surface normal.
 *
 * @name     reflect
 * @param    (Vec3) normal Surface normal (typically normalized).
@@ -626,7 +622,7 @@ Vec3 Vec3::reflect(const Vec3& normal) const {
 
 /* luagmp (method)
 *
-* Swaps two vectors.
+* This method swaps two vectors.
 *
 * @static
 * @name     swap
@@ -640,7 +636,7 @@ void Vec3::swap(Vec3& vec1, Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise minimum of two vectors.
+* This method returns the component-wise minimum of two vectors.
 *
 * @static
 * @name     min
@@ -655,7 +651,7 @@ Vec3 Vec3::min(const Vec3& vec1, const Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise maximum of two vectors.
+* This method returns the component-wise maximum of two vectors.
 *
 * @static
 * @name     max
@@ -670,7 +666,7 @@ Vec3 Vec3::max(const Vec3& vec1, const Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise product of two vectors.
+* This method returns the component-wise product of two vectors.
 *
 * @static
 * @name     prod
@@ -685,7 +681,7 @@ Vec3 Vec3::prod(const Vec3& vec1, const Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Returns the dot product of two vectors.
+* This method returns the dot product of two vectors.
 *
 * @static
 * @name     dot
@@ -700,7 +696,7 @@ float Vec3::dot(const Vec3& vec1, const Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Returns the cross product of two vectors.
+* This method returns the cross product of two vectors.
 *
 * @static
 * @name     cross
@@ -715,7 +711,7 @@ Vec3 Vec3::cross(const Vec3& vec1, const Vec3& vec2) {
 
 /* luagmp (method)
 *
-* Linearly interpolates between two vectors.
+* This method linearly interpolates between two vectors.
 *
 * @static
 * @name     lerp
@@ -732,7 +728,7 @@ Vec3 Vec3::lerp(float t, const Vec3& v1, const Vec3& v2) {
 // ---------------- Vec4 ----------------
 /* luagmp (class)
 *
-* 4D vector with basic math utilities.
+* This class represents a 4d vector.
 *
 * @version  0.3.0
 * @name     Vec4
@@ -765,7 +761,7 @@ Vec4::Vec4(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 }
 /* luagmp (property)
 *
-* X component.
+* Represents X component.
 *
 * @name     x
 * @return   (number) X component value.
@@ -773,7 +769,7 @@ Vec4::Vec4(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* Y component.
+* Represents Y component.
 *
 * @name     y
 * @return   (number) Y component value.
@@ -781,7 +777,7 @@ Vec4::Vec4(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* Z component.
+* Represents Z component.
 *
 * @name     z
 * @return   (number) Z component value.
@@ -789,7 +785,7 @@ Vec4::Vec4(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* W component.
+* Represents W component.
 *
 * @name     w
 * @return   (number) W component value.
@@ -798,7 +794,7 @@ Vec4::Vec4(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 
 /* luagmp (method)
 *
-* Returns the vector length (magnitude).
+* This method returns the vector length (magnitude).
 *
 * @name     len
 * @return   (number) Vector length.
@@ -810,7 +806,7 @@ float Vec4::len() const {
 
 /* luagmp (method)
 *
-* Returns the squared vector length.
+* This method returns the squared vector length.
 *
 * @name     len2
 * @return   (number) Squared vector length.
@@ -822,7 +818,7 @@ float Vec4::len2() const {
 
 /* luagmp (method)
 *
-* Returns an approximate vector length.
+* This method returns an approximate vector length.
 *
 * @name     lenApprox
 * @return   (number) Approximate vector length.
@@ -838,8 +834,7 @@ float Vec4::lenApprox() const {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place.
-*
+* This method normalizes the vector in-place.
 * If the vector length is zero, no change is applied.
 *
 * @name     normalize
@@ -860,8 +855,7 @@ Vec4& Vec4::normalize() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an epsilon check.
-*
+* This method normalizes the vector in-place using an epsilon check.
 * If the vector length is below a small threshold, no change is applied.
 *
 * @name     normalizeSafe
@@ -882,7 +876,7 @@ Vec4& Vec4::normalizeSafe() {
 
 /* luagmp (method)
 *
-* Normalizes the vector in-place using an approximate inverse square root.
+* This method normalizes the vector in-place using an approximate inverse square root.
 *
 * @name     normalizeApprox
 * @return   (Vec4) This vector (normalized).
@@ -902,7 +896,7 @@ Vec4& Vec4::normalizeApprox() {
 
 /* luagmp (method)
 *
-* Sets all components of the vector.
+* This method sets all components of the vector.
 *
 * @name     set
 * @param    (number) x X component.
@@ -920,7 +914,7 @@ void Vec4::set(float x_in, float y_in, float z_in, float w_in) {
 
 /* luagmp (method)
 *
-* Compares this vector with another vector using an epsilon tolerance.
+* This method compares this vector with another vector using an epsilon tolerance.
 *
 * @name     isEqualEps
 * @param    (Vec4) vec Other vector.
@@ -933,7 +927,7 @@ bool Vec4::isEqualEps(const Vec4& vec) const {
 
 /* luagmp (method)
 *
-* Returns a vector with absolute component values.
+* This method returns a vector with absolute component values.
 *
 * @name     abs
 * @return   (Vec4) Vector with abs(x), abs(y), abs(z) and abs(w).
@@ -945,7 +939,7 @@ Vec4 Vec4::abs() const {
 
 /* luagmp (method)
 *
-* Swaps two vectors.
+* This method swaps two vectors.
 *
 * @static
 * @name     swap
@@ -959,7 +953,7 @@ void Vec4::swap(Vec4& vec1, Vec4& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise minimum of two vectors.
+* This method returns the component-wise minimum of two vectors.
 *
 * @static
 * @name     min
@@ -974,7 +968,7 @@ Vec4 Vec4::min(const Vec4& vec1, const Vec4& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise maximum of two vectors.
+* This method returns the component-wise maximum of two vectors.
 *
 * @static
 * @name     max
@@ -989,7 +983,7 @@ Vec4 Vec4::max(const Vec4& vec1, const Vec4& vec2) {
 
 /* luagmp (method)
 *
-* Returns the component-wise product of two vectors.
+* This method returns the component-wise product of two vectors.
 *
 * @static
 * @name     prod
@@ -1004,7 +998,7 @@ Vec4 Vec4::prod(const Vec4& vec1, const Vec4& vec2) {
 
 /* luagmp (method)
 *
-* Returns the dot product of two vectors.
+* This method returns the dot product of two vectors.
 *
 * @static
 * @name     dot
@@ -1019,7 +1013,7 @@ float Vec4::dot(const Vec4& vec1, const Vec4& vec2) {
 
 /* luagmp (method)
 *
-* Linearly interpolates between two vectors.
+* This method linearly interpolates between two vectors.
 *
 * @static
 * @name     lerp
@@ -1036,7 +1030,7 @@ Vec4 Vec4::lerp(float t, const Vec4& v1, const Vec4& v2) {
 // ---------------- Mat3 ----------------
 /* luagmp (class)
 *
-* 3x3 matrix with common transformation utilities.
+* This class represents a 3x3 matrix.
 *
 * @version  0.3.0
 * @name     Mat3
@@ -1076,7 +1070,7 @@ Mat3::Mat3(const Vec3& v0, const Vec3& v1, const Vec3& v2) : mat_(MakeRowMatrix(
 
 /* luagmp (method)
 *
-* Resets the matrix to identity.
+* This method resets the matrix to identity.
 *
 * @name     makeIdentity
 *
@@ -1087,7 +1081,7 @@ void Mat3::makeIdentity() {
 
 /* luagmp (method)
 *
-* Sets all matrix elements to zero.
+* This method sets all matrix elements to zero.
 *
 * @name     makeZero
 *
@@ -1098,8 +1092,7 @@ void Mat3::makeZero() {
 
 /* luagmp (method)
 *
-* Orthonormalizes the matrix basis vectors.
-*
+* This method orthonormalizes the matrix basis vectors.
 * This makes the basis vectors unit-length and mutually orthogonal.
 *
 * @name     makeOrthonormal
@@ -1121,7 +1114,7 @@ void Mat3::makeOrthonormal() {
 
 /* luagmp (method)
 *
-* Returns true if the matrix basis vectors are orthonormal.
+* This method returns true if the matrix basis vectors are orthonormal.
 *
 * @name     isUpper3x3Orthonormal
 * @return   (boolean) True if orthonormal within epsilon tolerance.
@@ -1140,7 +1133,7 @@ bool Mat3::isUpper3x3Orthonormal() const {
 
 /* luagmp (method)
 *
-* Returns the transposed matrix.
+* This method returns the transposed matrix.
 *
 * @name     transpose
 * @return   (Mat3) Transposed matrix.
@@ -1154,7 +1147,7 @@ Mat3 Mat3::transpose() const {
 
 /* luagmp (method)
 *
-* Returns the inverse matrix.
+* This method returns the inverse matrix.
 *
 * @name     inverse
 * @return   (Mat3) Inverse matrix.
@@ -1168,7 +1161,7 @@ Mat3 Mat3::inverse() const {
 
 /* luagmp (method)
 *
-* Rotates a vector by this matrix.
+* This method rotates a vector by this matrix.
 *
 * @name     rotate
 * @param    (Vec3) vec Vector to rotate.
@@ -1181,7 +1174,7 @@ Vec3 Mat3::rotate(const Vec3& vec) const {
 
 /* luagmp (method)
 *
-* Sets the right basis vector.
+* This method sets the right basis vector.
 *
 * @name     setRightVector
 * @param    (Vec3) vec New right vector.
@@ -1193,7 +1186,7 @@ void Mat3::setRightVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the right basis vector.
+* This method returns the right basis vector.
 *
 * @name     getRightVector
 * @return   (Vec3) Right vector.
@@ -1205,7 +1198,7 @@ Vec3 Mat3::getRightVector() const {
 
 /* luagmp (method)
 *
-* Sets the up basis vector.
+* This method sets the up basis vector.
 *
 * @name     setUpVector
 * @param    (Vec3) vec New up vector.
@@ -1217,7 +1210,7 @@ void Mat3::setUpVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the up basis vector.
+* This method returns the up basis vector.
 *
 * @name     getUpVector
 * @return   (Vec3) Up vector.
@@ -1229,7 +1222,7 @@ Vec3 Mat3::getUpVector() const {
 
 /* luagmp (method)
 *
-* Sets the forward (at) basis vector.
+* This method sets the forward (at) basis vector.
 *
 * @name     setAtVector
 * @param    (Vec3) vec New at vector.
@@ -1241,7 +1234,7 @@ void Mat3::setAtVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the forward (at) basis vector.
+* This method returns the forward (at) basis vector.
 *
 * @name     getAtVector
 * @return   (Vec3) At vector.
@@ -1253,7 +1246,7 @@ Vec3 Mat3::getAtVector() const {
 
 /* luagmp (method)
 *
-* Resets rotation to identity.
+* This method resets rotation to identity.
 *
 * @name     resetRotation
 *
@@ -1264,7 +1257,7 @@ void Mat3::resetRotation() {
 
 /* luagmp (method)
 *
-* Returns a copy of this matrix with scaling removed.
+* This method returns a copy of this matrix with scaling removed.
 *
 * @name     extractRotation
 * @return   (Mat3) Rotation-only matrix.
@@ -1281,7 +1274,7 @@ Mat3 Mat3::extractRotation() const {
 
 /* luagmp (method)
 *
-* Extracts scaling factors from the basis vectors.
+* This method extracts scaling factors from the basis vectors.
 *
 * @name     extractScaling
 * @return   (Vec3) Scaling factors for x, y and z axes.
@@ -1293,7 +1286,7 @@ Vec3 Mat3::extractScaling() const {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the X axis (degrees).
+* This method post-multiplies a rotation around the X axis (degrees).
 *
 * @name     postRotateX
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1307,7 +1300,7 @@ void Mat3::postRotateX(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the Y axis (degrees).
+* This method post-multiplies a rotation around the Y axis (degrees).
 *
 * @name     postRotateY
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1321,7 +1314,7 @@ void Mat3::postRotateY(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the Z axis (degrees).
+* This method post-multiplies a rotation around the Z axis (degrees).
 *
 * @name     postRotateZ
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1335,7 +1328,7 @@ void Mat3::postRotateZ(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Pre-multiplies a scaling transformation.
+* This method pre-multiplies a scaling transformation.
 *
 * @name     preScale
 * @param    (Vec3) scale Scaling factors for x, y and z axes.
@@ -1348,7 +1341,7 @@ void Mat3::preScale(const Vec3& scale) {
 
 /* luagmp (method)
 *
-* Post-multiplies a scaling transformation.
+* This method post-multiplies a scaling transformation.
 *
 * @name     postScale
 * @param    (Vec3) scale Scaling factors for x, y and z axes.
@@ -1361,7 +1354,7 @@ void Mat3::postScale(const Vec3& scale) {
 
 /* luagmp (method)
 *
-* Swaps two matrices.
+* This method swaps two matrices.
 *
 * @static
 * @name     swap
@@ -1375,7 +1368,7 @@ void Mat3::swap(Mat3& mat1, Mat3& mat2) {
 
 /* luagmp (method)
 *
-* Returns a pointer to the raw matrix data (column-major float array).
+* This method returns a pointer to the raw matrix data (column-major float array).
 *
 * @name     data
 * @return   (userdata) Pointer to matrix float data.
@@ -1388,7 +1381,7 @@ const float* Mat3::data() const {
 // ---------------- Mat4 ----------------
 /* luagmp (class)
 *
-* 4x4 matrix with common transformation utilities (rotation, scaling, translation).
+* This class represents a 4x4 matrix.
 *
 * @version  0.3.0
 * @name     Mat4
@@ -1430,7 +1423,7 @@ Mat4::Mat4(const Vec4& v0, const Vec4& v1, const Vec4& v2, const Vec4& v3) : mat
 
 /* luagmp (method)
 *
-* Resets the matrix to identity.
+* This method resets the matrix to identity.
 *
 * @name     makeIdentity
 *
@@ -1441,7 +1434,7 @@ void Mat4::makeIdentity() {
 
 /* luagmp (method)
 *
-* Sets all matrix elements to zero.
+* This method sets all matrix elements to zero.
 *
 * @name     makeZero
 *
@@ -1452,7 +1445,7 @@ void Mat4::makeZero() {
 
 /* luagmp (method)
 *
-* Orthonormalizes the upper-left 3x3 basis vectors while preserving translation.
+* This method orthonormalizes the upper-left 3x3 basis vectors while preserving translation.
 *
 * @name     makeOrthonormal
 *
@@ -1469,7 +1462,7 @@ void Mat4::makeOrthonormal() {
 
 /* luagmp (method)
 *
-* Returns true if the upper 3x3 basis vectors are orthonormal.
+* This method returns true if the upper 3x3 basis vectors are orthonormal.
 *
 * @name     isUpper3x3Orthonormal
 * @return   (boolean) True if orthonormal within epsilon tolerance.
@@ -1482,7 +1475,7 @@ bool Mat4::isUpper3x3Orthonormal() const {
 
 /* luagmp (method)
 *
-* Returns the transposed matrix.
+* This method returns the transposed matrix.
 *
 * @name     transpose
 * @return   (Mat4) Transposed matrix.
@@ -1496,7 +1489,7 @@ Mat4 Mat4::transpose() const {
 
 /* luagmp (method)
 *
-* Returns the inverse matrix.
+* This method returns the inverse matrix.
 *
 * @name     inverse
 * @return   (Mat4) Inverse matrix.
@@ -1510,8 +1503,7 @@ Mat4 Mat4::inverse() const {
 
 /* luagmp (method)
 *
-* Returns the inverse of a linear transform with translation.
-*
+* This method returns the inverse of a linear transform with translation.
 * This is intended for typical transform matrices (rotation/scale + translation).
 *
 * @name     inverseLinTrafo
@@ -1531,7 +1523,7 @@ Mat4 Mat4::inverseLinTrafo() const {
 
 /* luagmp (method)
 *
-* Rotates a vector by the matrix (ignores translation).
+* This method rotates a vector by the matrix (ignores translation).
 *
 * @name     rotate
 * @param    (Vec3) vec Vector to rotate.
@@ -1544,7 +1536,7 @@ Vec3 Mat4::rotate(const Vec3& vec) const {
 
 /* luagmp (method)
 *
-* Sets the right basis vector.
+* This method sets the right basis vector.
 *
 * @name     setRightVector
 * @param    (Vec3) vec New right vector.
@@ -1556,7 +1548,7 @@ void Mat4::setRightVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the right basis vector.
+* This method returns the right basis vector.
 *
 * @name     getRightVector
 * @return   (Vec3) Right vector.
@@ -1568,7 +1560,7 @@ Vec3 Mat4::getRightVector() const {
 
 /* luagmp (method)
 *
-* Sets the forward (at) basis vector.
+* This method sets the forward (at) basis vector.
 *
 * @name     setAtVector
 * @param    (Vec3) vec New at vector.
@@ -1580,7 +1572,7 @@ void Mat4::setAtVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the forward (at) basis vector.
+* This method returns the forward (at) basis vector.
 *
 * @name     getAtVector
 * @return   (Vec3) At vector.
@@ -1592,7 +1584,7 @@ Vec3 Mat4::getAtVector() const {
 
 /* luagmp (method)
 *
-* Sets the up basis vector.
+* This method sets the up basis vector.
 *
 * @name     setUpVector
 * @param    (Vec3) vec New up vector.
@@ -1604,7 +1596,7 @@ void Mat4::setUpVector(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the up basis vector.
+* This method returns the up basis vector.
 *
 * @name     getUpVector
 * @return   (Vec3) Up vector.
@@ -1616,7 +1608,7 @@ Vec3 Mat4::getUpVector() const {
 
 /* luagmp (method)
 *
-* Sets the translation component.
+* This method sets the translation component.
 *
 * @name     setTranslation
 * @param    (Vec3) vec New translation vector.
@@ -1628,7 +1620,7 @@ void Mat4::setTranslation(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Returns the translation component.
+* This method returns the translation component.
 *
 * @name     getTranslation
 * @return   (Vec3) Translation vector.
@@ -1640,7 +1632,7 @@ Vec3 Mat4::getTranslation() const {
 
 /* luagmp (method)
 *
-* Resets rotation to identity while preserving translation.
+* This method resets rotation to identity while preserving translation.
 *
 * @name     resetRotation
 *
@@ -1653,7 +1645,7 @@ void Mat4::resetRotation() {
 
 /* luagmp (method)
 *
-* Extracts the rotation part of the matrix (scaling removed).
+* This method extracts the rotation part of the matrix (scaling removed).
 *
 * @name     extractRotation
 * @return   (Mat3) Rotation matrix.
@@ -1671,7 +1663,7 @@ Mat3 Mat4::extractRotation() const {
 
 /* luagmp (method)
 *
-* Extracts scaling factors from the matrix basis vectors.
+* This method extracts scaling factors from the matrix basis vectors.
 *
 * @name     extractScaling
 * @return   (Vec3) Scaling factors for x, y and z axes.
@@ -1683,7 +1675,7 @@ Vec3 Mat4::extractScaling() const {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the X axis (degrees).
+* This method post-multiplies a rotation around the X axis (degrees).
 *
 * @name     postRotateX
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1697,7 +1689,7 @@ void Mat4::postRotateX(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the Y axis (degrees).
+* This method post-multiplies a rotation around the Y axis (degrees).
 *
 * @name     postRotateY
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1711,7 +1703,7 @@ void Mat4::postRotateY(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Post-multiplies a rotation around the Z axis (degrees).
+* This method post-multiplies a rotation around the Z axis (degrees).
 *
 * @name     postRotateZ
 * @param    (number) angle_degrees Rotation angle in degrees.
@@ -1725,7 +1717,7 @@ void Mat4::postRotateZ(float angle_degrees) {
 
 /* luagmp (method)
 *
-* Pre-multiplies a scaling transformation.
+* This method pre-multiplies a scaling transformation.
 *
 * @name     preScale
 * @param    (Vec3) scale Scaling factors for x, y and z axes.
@@ -1738,7 +1730,7 @@ void Mat4::preScale(const Vec3& scale) {
 
 /* luagmp (method)
 *
-* Post-multiplies a scaling transformation.
+* This method post-multiplies a scaling transformation.
 *
 * @name     postScale
 * @param    (Vec3) scale Scaling factors for x, y and z axes.
@@ -1751,7 +1743,7 @@ void Mat4::postScale(const Vec3& scale) {
 
 /* luagmp (method)
 *
-* Swaps two matrices.
+* This method swaps two matrices.
 *
 * @static
 * @name     swap
@@ -1765,7 +1757,7 @@ void Mat4::swap(Mat4& mat1, Mat4& mat2) {
 
 /* luagmp (method)
 *
-* Builds a look-at transform from a position, target and up vector.
+* This method builds a look-at transform from a position, target and up vector.
 *
 * @static
 * @name     lookAt
@@ -1799,7 +1791,7 @@ Mat4 Mat4::lookAt(const Vec3& from, const Vec3& to, const Vec3& up) {
 
 /* luagmp (method)
 *
-* Returns a pointer to the raw matrix data (column-major float array).
+* This method returns a pointer to the raw matrix data (column-major float array).
 *
 * @name     data
 * @return   (userdata) Pointer to matrix float data.
@@ -1812,7 +1804,7 @@ const float* Mat4::data() const {
 // ---------------- Quat ----------------
 /* luagmp (class)
 *
-* Quaternion representing 3D rotation.
+* This class represents a Quaternion.
 *
 * Provides conversion to/from matrices, Euler angles and axis-angle, as well as
 * common quaternion operations and interpolation utilities.
@@ -1856,7 +1848,7 @@ Quat::Quat(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 
 /* luagmp (property)
 *
-* X component.
+* Represents X component.
 *
 * @name     x
 * @return   (number) X component value.
@@ -1864,7 +1856,7 @@ Quat::Quat(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* Y component.
+* Represents Y component.
 *
 * @name     y
 * @return   (number) Y component value.
@@ -1872,7 +1864,7 @@ Quat::Quat(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* Z component.
+* Represents Z component.
 *
 * @name     z
 * @return   (number) Z component value.
@@ -1880,7 +1872,7 @@ Quat::Quat(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 */
 /* luagmp (property)
 *
-* W component.
+* Represents W component.
 *
 * @name     w
 * @return   (number) W component value.
@@ -1889,7 +1881,7 @@ Quat::Quat(float x_in, float y_in, float z_in, float w_in) : x(x_in), y(y_in), z
 
 /* luagmp (method)
 *
-* Converts this quaternion to a 3x3 rotation matrix.
+* This method converts this quaternion to a 3x3 rotation matrix.
 *
 * @name     toMat3
 * @return   (Mat3) Rotation matrix.
@@ -1904,7 +1896,7 @@ Mat3 Quat::toMat3() const {
 
 /* luagmp (method)
 *
-* Sets this quaternion from a 3x3 rotation matrix.
+* This method sets this quaternion from a 3x3 rotation matrix.
 *
 * @name     fromMat3
 * @param    (Mat3) mat Rotation matrix.
@@ -1920,7 +1912,7 @@ void Quat::fromMat3(const Mat3& mat) {
 
 /* luagmp (method)
 *
-* Converts this quaternion to a 4x4 rotation matrix.
+* This method converts this quaternion to a 4x4 rotation matrix.
 *
 * @name     toMat4
 * @return   (Mat4) Rotation matrix.
@@ -1935,7 +1927,7 @@ Mat4 Quat::toMat4() const {
 
 /* luagmp (method)
 *
-* Sets this quaternion from a 4x4 transform matrix (rotation part).
+* This method sets this quaternion from a 4x4 transform matrix (rotation part).
 *
 * @name     fromMat4
 * @param    (Mat4) mat Transform matrix.
@@ -1951,7 +1943,7 @@ void Quat::fromMat4(const Mat4& mat) {
 
 /* luagmp (method)
 *
-* Converts this quaternion to Euler angles.
+* This method converts this quaternion to Euler angles.
 *
 * @name     toEuler
 * @return   (Vec3) Euler angles as a 3D vector.
@@ -1965,7 +1957,7 @@ Vec3 Quat::toEuler() const {
 
 /* luagmp (method)
 *
-* Sets this quaternion from Euler angles.
+* This method sets this quaternion from Euler angles.
 *
 * @name     fromEuler
 * @param    (Vec3) vec Euler angles as a 3D vector.
@@ -1981,8 +1973,7 @@ void Quat::fromEuler(const Vec3& vec) {
 
 /* luagmp (method)
 *
-* Converts this quaternion to axis-angle representation.
-*
+* This method converts this quaternion to axis-angle representation.
 * The returned Vec4 contains (axis.x, axis.y, axis.z, angle).
 *
 * @name     toAxisAngle
@@ -1998,7 +1989,7 @@ Vec4 Quat::toAxisAngle() const {
 
 /* luagmp (method)
 *
-* Sets this quaternion from an axis and angle.
+* This method sets this quaternion from an axis and angle.
 *
 * @name     fromAxisAngle
 * @param    (Vec3) axis Rotation axis (typically normalized).
@@ -2015,7 +2006,7 @@ void Quat::fromAxisAngle(const Vec3& axis, float angle) {
 
 /* luagmp (method)
 *
-* Sets this quaternion to identity (no rotation).
+* This method sets this quaternion to identity (no rotation).
 *
 * @name     makeIdentity
 *
@@ -2029,7 +2020,7 @@ void Quat::makeIdentity() {
 
 /* luagmp (method)
 *
-* Returns true if this quaternion is identity (within epsilon tolerance).
+* This method returns true if this quaternion is identity (within epsilon tolerance).
 *
 * @name     isIdentity
 * @return   (boolean) True if identity.
@@ -2041,7 +2032,7 @@ bool Quat::isIdentity() const {
 
 /* luagmp (method)
 *
-* Returns the quaternion length.
+* This method returns the quaternion length.
 *
 * @name     len
 * @return   (number) Quaternion length.
@@ -2053,7 +2044,7 @@ float Quat::len() const {
 
 /* luagmp (method)
 *
-* Returns the squared quaternion length.
+* This method returns the squared quaternion length.
 *
 * @name     len2
 * @return   (number) Squared quaternion length.
@@ -2065,7 +2056,7 @@ float Quat::len2() const {
 
 /* luagmp (method)
 *
-* Returns an approximate quaternion length.
+* This method returns an approximate quaternion length.
 *
 * @name     lenApprox
 * @return   (number) Approximate length.
@@ -2081,8 +2072,7 @@ float Quat::lenApprox() const {
 
 /* luagmp (method)
 *
-* Normalizes the quaternion in-place.
-*
+* This method normalizes the quaternion in-place.
 * If the quaternion length is zero, no change is applied.
 *
 * @name     normalize
@@ -2103,8 +2093,7 @@ Quat& Quat::normalize() {
 
 /* luagmp (method)
 *
-* Normalizes the quaternion in-place using an epsilon check.
-*
+* This method normalizes the quaternion in-place using an epsilon check.
 * If the quaternion length is below a small threshold, no change is applied.
 *
 * @name     normalizeSafe
@@ -2125,7 +2114,7 @@ Quat& Quat::normalizeSafe() {
 
 /* luagmp (method)
 *
-* Normalizes the quaternion in-place using an approximate inverse square root.
+* This method normalizes the quaternion in-place using an approximate inverse square root.
 *
 * @name     normalizeApprox
 * @return   (Quat) This quaternion (normalized).
@@ -2145,7 +2134,7 @@ Quat& Quat::normalizeApprox() {
 
 /* luagmp (method)
 *
-* Sets quaternion components.
+* This method sets quaternion components.
 *
 * @name     set
 * @param    (number) x X component.
@@ -2163,8 +2152,7 @@ void Quat::set(float x_in, float y_in, float z_in, float w_in) {
 
 /* luagmp (method)
 *
-* Returns the inverse quaternion.
-*
+* This method returns the inverse quaternion.
 * For unit quaternions, this is equivalent to conjugate().
 *
 * @name     inverse
@@ -2182,7 +2170,7 @@ Quat Quat::inverse() const {
 
 /* luagmp (method)
 *
-* Returns the conjugate quaternion.
+* This method returns the conjugate quaternion.
 *
 * @name     conjugate
 * @return   (Quat) Conjugated quaternion.
@@ -2194,7 +2182,7 @@ Quat Quat::conjugate() const {
 
 /* luagmp (method)
 *
-* Returns the dot product of two quaternions.
+* This method returns the dot product of two quaternions.
 *
 * @static
 * @name     dot
@@ -2209,7 +2197,7 @@ float Quat::dot(const Quat& quat1, const Quat& quat2) {
 
 /* luagmp (method)
 *
-* Linearly interpolates between two quaternions.
+* This method linearly interpolates between two quaternions.
 *
 * @static
 * @name     lerp
@@ -2225,7 +2213,7 @@ Quat Quat::lerp(float t, const Quat& q1, const Quat& q2) {
 
 /* luagmp (method)
 *
-* Spherically interpolates between two quaternions.
+* This method spherically interpolates between two quaternions.
 *
 * @static
 * @name     slerp
@@ -2244,7 +2232,7 @@ Quat Quat::slerp(float t, const Quat& q1, const Quat& q2) {
 
 /* luagmp (method)
 *
-* Performs a squad-style interpolation using three quaternions.
+* This method performs a squad-style interpolation using three quaternions.
 *
 * @static
 * @name     squad
@@ -2267,7 +2255,7 @@ Quat Quat::squad(float t, const Quat& q1, const Quat& q2, const Quat& q3) {
 
 /* luagmp (method)
 *
-* Creates a quaternion that looks in the given forward direction with the given up direction.
+* This method creates a quaternion that looks in the given forward direction with the given up direction.
 *
 * @static
 * @name     lookRotation
@@ -2294,7 +2282,7 @@ using namespace types;
 void BindMath(sol::state& lua) {
 /* luagmp (func)
 *
-* Get the 2d distance between two points.
+* This function returns the 2d distance between two points.
 *
 * @version  0.3.0
 * @name     getDistance2d
@@ -2315,7 +2303,7 @@ void BindMath(sol::state& lua) {
 
 /* luagmp (func)
 *
-* Get the 3d distance between two points.
+* This function returns the 3d distance between two points.
 *
 * @version  0.3.0
 * @name     getDistance3d
@@ -2327,7 +2315,7 @@ void BindMath(sol::state& lua) {
 * @param  (number) x2      The position on X axis of the second point.
 * @param  (number) y2      The position on Y axis of the second point.
 * @param  (number) z2      The position on Z axis of the second point.
-* @return (number)        The distance between the two points.
+* @return (number)         The distance between the two points.
 *
 */
   lua["getDistance3d"] = [](float x1, float y1, float z1, float x2, float y2, float z2) {
@@ -2339,7 +2327,7 @@ void BindMath(sol::state& lua) {
   
 /* luagmp (func)
 *
-* Get angle on Y axis directed towards the second point.
+* This function returns the angle on Y axis directed towards the second point.
 *
 * @version  0.3.0
 * @name     getVectorAngle
@@ -2349,7 +2337,7 @@ void BindMath(sol::state& lua) {
 * @param  (number) y1      The position on Y axis of the first point.
 * @param  (number) x2      The position on X axis of the second point.
 * @param  (number) y2      The position on Y axis of the second point.
-* @return (number)        The angle on Y axis directed towards the second point.
+* @return (number)         The angle on Y axis directed towards the second point.
 *
 */
   lua["getVectorAngle"] = [](float x1, float y1, float x2, float y2) {

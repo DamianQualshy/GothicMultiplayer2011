@@ -27,7 +27,7 @@ SOFTWARE.
 #include <memory>
 #include <string>
 
-#include "shared/lua_runtime/math_bind.h"
+#include "shared/lua_runtime/lua_math.h"
 #include "sol/sol.hpp"
 
 #include "ZenGin/zGothicAPI.h"
@@ -88,5 +88,7 @@ private:
 
   std::shared_ptr<VobInstance> instance_;
 };
+
+void BindVob(sol::state& lua);
 
 }  // namespace gmp::gothic

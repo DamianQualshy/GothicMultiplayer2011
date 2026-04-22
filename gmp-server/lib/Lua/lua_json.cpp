@@ -22,7 +22,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "Lua/json_bind.h"
+#include "Lua/lua_json.h"
 
 #include <cmath>
 #include <filesystem>

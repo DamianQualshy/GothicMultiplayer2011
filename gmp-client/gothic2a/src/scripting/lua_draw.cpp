@@ -49,12 +49,9 @@ std::unordered_set<LuaDraw*> LuaDraw::active_draws_;
 
 /* luagmp (class)
 *
-* @version  0.3.0
 * 2D text drawing helper for rendering overlay text on screen.
 *
-* The Draw class stores position, text, font, color, alpha and visibility.
-* Call render() each frame to draw the text using current settings.
-*
+* @version  0.3.0
 * @name     Draw
 * @side     client
 * @category UI
@@ -82,8 +79,8 @@ LuaDraw::LuaDraw()
 *
 * Creates a new Draw object with an initial position and text.
 *
-* @param    (number) x Initial X position (virtual units).
-* @param    (number) y Initial Y position (virtual units).
+* @param    (number) x    Initial X position (virtual units).
+* @param    (number) y    Initial Y position (virtual units).
 * @param    (string) text Initial text content.
 *
 */
@@ -113,11 +110,11 @@ LuaDraw::~LuaDraw() {
 
 /* luagmp (method)
 *
-* Sets the draw position in virtual screen units.
+* This function will set the draw position in virtual screen units.
 *
 * @name     setPosition
-* @param    (number) x X position (virtual units).
-* @param    (number) y Y position (virtual units).
+* @param    (number) x    X position.
+* @param    (number) y    Y position.
 *
 */
 void LuaDraw::setPosition(int x, int y) {
@@ -130,10 +127,10 @@ void LuaDraw::setPosition(int x, int y) {
 
 /* luagmp (method)
 *
-* Returns the draw position in virtual screen units.
+* This function will return the draw position in virtual screen units.
 *
 * @name     getPosition
-* @return   ({x, y}) Table containing x and y (virtual units).
+* @return   ({x, y})    Table containing x and y numbers.
 *
 */
 sol::table LuaDraw::getPosition(sol::this_state s) {
@@ -151,11 +148,11 @@ sol::table LuaDraw::getPosition(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the draw position in pixel coordinates.
+* This function will set the draw position in pixel coordinates.
 *
 * @name     setPositionPx
-* @param    (number) x X position in pixels.
-* @param    (number) y Y position in pixels.
+* @param    (number) x    X position.
+* @param    (number) y    Y position.
 *
 */
 void LuaDraw::setPositionPx(int x, int y) {
@@ -167,10 +164,10 @@ void LuaDraw::setPositionPx(int x, int y) {
 
 /* luagmp (method)
 *
-* Returns the draw position in pixel coordinates.
+* This function will return the draw position in pixel coordinates.
 *
 * @name     getPositionPx
-* @return   ({x, y}) Table containing x and y in pixels.
+* @return   ({x, y})    Table containing x and y numbers.
 *
 */
 sol::table LuaDraw::getPositionPx(sol::this_state s) {
@@ -188,10 +185,10 @@ sol::table LuaDraw::getPositionPx(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets the text to render.
+* This function will set the text to render.
 *
 * @name     setText
-* @param    (string) text Text to display.
+* @param    (string) text    Text to display.
 *
 */
 void LuaDraw::setText(const std::string& text) {
@@ -200,10 +197,10 @@ void LuaDraw::setText(const std::string& text) {
 
 /* luagmp (method)
 *
-* Returns the current text.
+* This function will return the current text.
 *
 * @name     getText
-* @return   (string) Current text.
+* @return   (string)    Current text.
 *
 */
 std::string LuaDraw::getText() const {
@@ -212,10 +209,10 @@ std::string LuaDraw::getText() const {
 
 /* luagmp (method)
 *
-* Sets the font used for rendering.
+* This function will set the font used for rendering.
 *
 * @name     setFont
-* @param    (string) font Font file name.
+* @param    (string) font     Font file name.
 *
 */
 void LuaDraw::setFont(const std::string& fontName) {
@@ -227,10 +224,10 @@ void LuaDraw::setFont(const std::string& fontName) {
 
 /* luagmp (method)
 *
-* Returns the current font file name.
+* This function will return the current font file name.
 *
 * @name     getFont
-* @return   (string) Font file name.
+* @return   (string)    Font file name.
 *
 */
 std::string LuaDraw::getFont() const {
@@ -239,12 +236,12 @@ std::string LuaDraw::getFont() const {
 
 /* luagmp (method)
 *
-* Sets the text color.
+* This function will set the text color.
 *
 * @name     setColor
-* @param    (number) r Red component (0-255).
-* @param    (number) g Green component (0-255).
-* @param    (number) b Blue component (0-255).
+* @param    (number) r    The red color component in RGB model.
+* @param    (number) g    The green color component in RGB model.
+* @param    (number) b    The blue color component in RGB model.
 *
 */
 void LuaDraw::setColor(int r, int g, int b) {
@@ -256,10 +253,10 @@ void LuaDraw::setColor(int r, int g, int b) {
 
 /* luagmp (method)
 *
-* Returns the current text color.
+* This function will return the current text color.
 *
 * @name     getColor
-* @return   ({r, g, b}) Table containing r,g,b (0-255).
+* @return   ({r, g, b})     Table containing color in RGB model.
 *
 */
 sol::table LuaDraw::getColor(sol::this_state s) {
@@ -273,10 +270,10 @@ sol::table LuaDraw::getColor(sol::this_state s) {
 
 /* luagmp (method)
 *
-* Sets text alpha (opacity).
+* This function will set the text alpha.
 *
 * @name     setAlpha
-* @param    (number) alpha Opacity value (0-255).
+* @param    (number) alpha    Opacity value (0-255).
 *
 */
 void LuaDraw::setAlpha(int a) {
@@ -288,10 +285,10 @@ void LuaDraw::setAlpha(int a) {
 
 /* luagmp (method)
 *
-* Returns the current alpha (opacity).
+* This function will return the current alpha
 *
 * @name     getAlpha
-* @return   (number) Opacity value (0-255).
+* @return   (number)    Opacity value (0-255).
 *
 */
 int LuaDraw::getAlpha() const {
@@ -300,10 +297,10 @@ int LuaDraw::getAlpha() const {
 
 /* luagmp (method)
 *
-* Sets whether the Draw object should render.
+* This function will set whether the Draw object should render.
 *
 * @name     setVisible
-* @param    (boolean) visible True to render, false to hide.
+* @param    (boolean) visible     True to render, false to hide.
 *
 */
 void LuaDraw::setVisible(bool visible) {
@@ -312,10 +309,10 @@ void LuaDraw::setVisible(bool visible) {
 
 /* luagmp (method)
 *
-* Returns whether this Draw object is visible.
+* This function will return whether this Draw object is visible.
 *
 * @name     getVisible
-* @return   (boolean) True if visible.
+* @return   (boolean)     True if visible.
 *
 */
 bool LuaDraw::getVisible() const {
@@ -324,59 +321,59 @@ bool LuaDraw::getVisible() const {
 
 /* luagmp (property)
 *
-* Gets or sets the draw position in virtual screen units.
+* Represents the draw position in virtual screen units.
 *
 * @name     position
-* @return   ({x, y}) Table containing x and y (virtual units).
+* @return   ({x, y})      Table containing x and y numbers.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the draw position in pixel coordinates.
+* Represents the draw position in pixel coordinates.
 *
 * @name     positionPx
-* @return   ({x, y}) Table containing x and y (pixels).
+* @return   ({x, y})      Table containing x and y numbers.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the displayed text.
+* Represents the displayed text.
 *
 * @name     text
-* @return   (string) Current text.
+* @return   (string)      Current text.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the font identifier used for rendering.
+* Represents the font identifier used for rendering.
 *
 * @name     font
-* @return   (string) Font identifier/name.
+* @return   (string)      Font identifier/name.
 *
 */
 /* luagmp (property)
 *
-* Returns the current text color.
+* Represents the draw's color.
 *
 * @name     color
 * @readonly
-* @return   ({r, g, b}) Table containing r,g,b (0-255).
+* @return   ({r, g, b})    Table containing color in RGB model.
 *
 */
 /* luagmp (property)
 *
-* Gets or sets the alpha (opacity).
+* Represents the draw's alpha.
 *
 * @name     alpha
-* @return   (number) Opacity value (0-255).
+* @return   (number)        Opacity value (0-255).
 *
 */
 /* luagmp (property)
 *
-* Gets or sets whether the Draw object is rendered.
+* Represents whether the Draw object is rendered.
 *
 * @name     visible
-* @return   (boolean) True if visible.
+* @return   (boolean)       True if visible.
 *
 */
 
@@ -423,6 +420,47 @@ void LuaDraw::Blit() {
     view_->Print(posX_, posY_, text_.c_str());
     view_->zCView::Blit();
   }
+}
+
+void BindDraw(sol::state& lua) {
+  sol::usertype<LuaDraw> draw_type = lua.new_usertype<LuaDraw>(
+      "Draw",
+      sol::constructors<LuaDraw(), LuaDraw(int, int, const std::string&)>());
+
+  draw_type[sol::meta_function::call] = sol::overload(
+      []() { return LuaDraw(); },
+      [](int x, int y, const std::string& text) { return LuaDraw(x, y, text); });
+
+  draw_type["setPosition"] = &LuaDraw::setPosition;
+  draw_type["getPosition"] = &LuaDraw::getPosition;
+  draw_type["setPositionPx"] = &LuaDraw::setPositionPx;
+  draw_type["getPositionPx"] = &LuaDraw::getPositionPx;
+
+  draw_type["setText"] = &LuaDraw::setText;
+  draw_type["getText"] = &LuaDraw::getText;
+
+  draw_type["setFont"] = &LuaDraw::setFont;
+  draw_type["getFont"] = &LuaDraw::getFont;
+
+  draw_type["setColor"] = &LuaDraw::setColor;
+  draw_type["getColor"] = &LuaDraw::getColor;
+
+  draw_type["setAlpha"] = &LuaDraw::setAlpha;
+  draw_type["getAlpha"] = &LuaDraw::getAlpha;
+
+  draw_type["setVisible"] = &LuaDraw::setVisible;
+  draw_type["getVisible"] = &LuaDraw::getVisible;
+
+  draw_type["render"] = &LuaDraw::render;
+
+  // Properties (Lua table access)
+  draw_type["position"] = sol::property(&LuaDraw::getPosition, &LuaDraw::setPosition);
+  draw_type["positionPx"] = sol::property(&LuaDraw::getPositionPx, &LuaDraw::setPositionPx);
+  draw_type["text"] = sol::property(&LuaDraw::getText, &LuaDraw::setText);
+  draw_type["font"] = sol::property(&LuaDraw::getFont, &LuaDraw::setFont);
+  draw_type["color"] = sol::property(&LuaDraw::getColor, &LuaDraw::setColor);
+  draw_type["alpha"] = sol::property(&LuaDraw::getAlpha, &LuaDraw::setAlpha);
+  draw_type["visible"] = sol::property(&LuaDraw::getVisible, &LuaDraw::setVisible);
 }
 
 }  // namespace gmp::gothic
