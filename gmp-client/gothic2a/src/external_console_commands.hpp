@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Gothic Multiplayer Team.
+Copyright (c) 2026 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,35 +24,4 @@ SOFTWARE.
 
 #pragma once
 
-#include <thread>
-
-class ExternalConsoleWindow {
-public:
-  /**
-   * @brief Initialize the external console window (call once at startup).
-   */
-  static void Init();
-
-  /**
-   * @brief Save the current console window position to config.
-   *
-   * Call this before exit to remember the console position.
-   * This is safe to call and won't throw exceptions.
-   */
-  static void SavePosition();
-
-  ~ExternalConsoleWindow() = default;
-
-private:
-  ExternalConsoleWindow();
-
-  ExternalConsoleWindow(const ExternalConsoleWindow&) = delete;
-  ExternalConsoleWindow& operator=(const ExternalConsoleWindow&) = delete;
-
-  void StartInputThread();
-  void ProcessConsoleInput();
-  void RedirectStdStreamsToConsole();
-  bool EnsureConsoleAvailable();
-
-  std::thread input_thread_;
-};
+void ExecuteExternalConsoleCommand(const char* command);

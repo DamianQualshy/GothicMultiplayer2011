@@ -24,7 +24,10 @@ SOFTWARE.
 
 #include "lua_way.h"
 
+#include <cmath>
 #include <limits>
+#include <utility>
+#include <vector>
 
 #include "ZenGin/zGothicAPI.h"
 
@@ -80,6 +83,14 @@ zCWayNet* GetWayNet() {
   return world->wayNet;
 }
 
+zCWorld* GetGameWorld() {
+  if (!ogame) {
+    return nullptr;
+  }
+
+  return ogame->GetGameWorld();
+}
+
 sol::table MakeVec3Table(sol::state_view lua, const zVEC3& position) {
   sol::table tbl = lua.create_table();
   tbl["x"] = position[VX];
@@ -88,14 +99,131 @@ sol::table MakeVec3Table(sol::state_view lua, const zVEC3& position) {
   return tbl;
 }
 
-sol::table MakeWaypointTable(sol::state_view lua, zCWaypoint* waypoint) {
-  sol::table tbl = lua.create_table();
-  tbl["name"] = waypoint->GetName().ToChar();
-  const zVEC3 position = waypoint->GetPositionWorld();
-  tbl["x"] = position[VX];
-  tbl["y"] = position[VY];
-  tbl["z"] = position[VZ];
+float GetAngleDegreesFromDirection(const zVEC3& direction) {
+  const float x = direction[VX];
+  const float z = direction[VZ];
+
+  float angle = std::atan2(x, z) * DEGREE;
+  if (angle < 0.0f) {
+    angle += 360.0f;
+  }
+  return angle;
+}
+
+void AddAngle(sol::table& tbl, const zVEC3& direction) {
+  tbl["angle"] = GetAngleDegreesFromDirection(direction);
+}
+
+void AddWaypointAngle(sol::table& tbl, zCWaypoint* waypoint) {
+  if (!waypoint) {
+    return;
+  }
+
+  if (zCVobWaypoint* waypoint_vob = waypoint->GetVob()) {
+    AddAngle(tbl, waypoint_vob->GetAtVectorWorld());
+    return;
+  }
+
+  AddAngle(tbl, waypoint->dir);
+}
+
+sol::table MakeWaypointPositionTable(sol::state_view lua, zCWaypoint* waypoint) {
+  sol::table tbl = MakeVec3Table(lua, waypoint->GetPositionWorld());
+  AddWaypointAngle(tbl, waypoint);
   return tbl;
+}
+
+sol::table MakeWaypointTable(sol::state_view lua, zCWaypoint* waypoint) {
+  sol::table tbl = MakeWaypointPositionTable(lua, waypoint);
+  tbl["name"] = waypoint->GetName().ToChar();
+  return tbl;
+}
+
+sol::table MakeFreepointPositionTable(sol::state_view lua, zCVobSpot* freepoint) {
+  sol::table tbl = MakeVec3Table(lua, freepoint->GetPositionWorld());
+  AddAngle(tbl, freepoint->GetAtVectorWorld());
+  return tbl;
+}
+
+sol::table MakeFreepointTable(sol::state_view lua, zCVobSpot* freepoint) {
+  sol::table tbl = MakeFreepointPositionTable(lua, freepoint);
+  tbl["name"] = freepoint->GetObjectName().ToChar();
+  return tbl;
+}
+
+std::vector<zCVobSpot*> GetFreepoints() {
+  std::vector<zCVobSpot*> freepoints;
+  zCWorld* world = GetGameWorld();
+  if (!world) {
+    return freepoints;
+  }
+
+  zCArray<zCVob*> freepoint_vobs;
+  world->SearchVobListByClass(zCVobSpot::classDef, freepoint_vobs, &world->globalVobTree);
+  freepoints.reserve(freepoint_vobs.GetNumInList());
+  for (int i = 0; i < freepoint_vobs.GetNumInList(); ++i) {
+    zCVob* vob = freepoint_vobs[i];
+    if (!vob) {
+      continue;
+    }
+
+    freepoints.push_back(static_cast<zCVobSpot*>(vob));
+  }
+
+  return freepoints;
+}
+
+zCVobSpot* FindFreepointByName(const std::string& freepoint_name) {
+  for (zCVobSpot* freepoint : GetFreepoints()) {
+    if (!freepoint) {
+      continue;
+    }
+
+    if (freepoint_name == freepoint->GetObjectName().ToChar()) {
+      return freepoint;
+    }
+  }
+
+  return nullptr;
+}
+
+std::pair<zCVobSpot*, zCVobSpot*> FindNearestFreepointPair(float x, float y, float z, float max_distance) {
+  const bool limit_distance = max_distance > 0.0f;
+  const float max_distance_sq = max_distance * max_distance;
+  zCVobSpot* nearest = nullptr;
+  zCVobSpot* second_nearest = nullptr;
+  float nearest_sq = std::numeric_limits<float>::max();
+  float second_nearest_sq = std::numeric_limits<float>::max();
+
+  for (zCVobSpot* freepoint : GetFreepoints()) {
+    if (!freepoint) {
+      continue;
+    }
+
+    const zVEC3 position = freepoint->GetPositionWorld();
+    const float dx = position[VX] - x;
+    const float dy = position[VY] - y;
+    const float dz = position[VZ] - z;
+    const float distance_sq = (dx * dx) + (dy * dy) + (dz * dz);
+    if (limit_distance && distance_sq > max_distance_sq) {
+      continue;
+    }
+
+    if (distance_sq < nearest_sq) {
+      second_nearest = nearest;
+      second_nearest_sq = nearest_sq;
+      nearest = freepoint;
+      nearest_sq = distance_sq;
+      continue;
+    }
+
+    if (distance_sq < second_nearest_sq) {
+      second_nearest = freepoint;
+      second_nearest_sq = distance_sq;
+    }
+  }
+
+  return {nearest, second_nearest};
 }
 
 }  // namespace
@@ -208,7 +336,7 @@ int LuaWay::getCountWaypoints() const {
 * @side     client
 * @category World
 * @param    (string) name       Waypoint name.
-* @return   ({x, y, z}|nil)     Waypoint position table or nil.
+* @return   ({x, y, z, angle}|nil)     Waypoint position table or nil.
 *
 */
 sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_state ts) {
@@ -224,7 +352,29 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeVec3Table(lua, waypoint->GetPositionWorld()));
+  return sol::make_object(lua, MakeWaypointPositionTable(lua, waypoint));
+}
+
+/* luagmp (func)
+*
+* This function will return world position of a freepoint by name.
+*
+* @version  0.3.0
+* @name     getFreepoint
+* @side     client
+* @category World
+* @param    (string) name       Freepoint name.
+* @return   ({x, y, z, angle}|nil)     Freepoint position table or nil.
+*
+*/
+sol::object Function_GetFreepoint(const std::string& freepoint_name, sol::this_state ts) {
+  sol::state_view lua(ts);
+  zCVobSpot* freepoint = FindFreepointByName(freepoint_name);
+  if (!freepoint) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, MakeFreepointPositionTable(lua, freepoint));
 }
 
 /* luagmp (func)
@@ -239,7 +389,7 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
 * @param    (number) y                Position Y.
 * @param    (number) z                Position Z.
 * @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z}|nil)     Waypoint information table or nil.
+* @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
 *
 */
 sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
@@ -284,6 +434,31 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 
 /* luagmp (func)
 *
+* This function will return the nearest freepoint for a given position.
+*
+* @version  0.3.0
+* @name     getNearestFreepoint
+* @side     client
+* @category World
+* @param    (number) x                Position X.
+* @param    (number) y                Position Y.
+* @param    (number) z                Position Z.
+* @param    (number|nil) distance     Optional maximum search distance.
+* @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
+*
+*/
+sol::object Function_GetNearestFreepoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
+  sol::state_view lua(ts);
+  const auto [nearest, _] = FindNearestFreepointPair(x, y, z, distance.value_or(-1.0f));
+  if (!nearest) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, MakeFreepointTable(lua, nearest));
+}
+
+/* luagmp (func)
+*
 * This function will return the second nearest waypoint for a given position.
 *
 * @version  0.3.0
@@ -293,7 +468,7 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 * @param    (number) x                Position X.
 * @param    (number) y                Position Y.
 * @param    (number) z                Position Z.
-* @return   ({name, x, y, z}|nil)     Waypoint information table or nil.
+* @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
 *
 */
 sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this_state ts) {
@@ -342,13 +517,37 @@ sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this
 
 /* luagmp (func)
 *
+* This function will return the second nearest freepoint for a given position.
+*
+* @version  0.3.0
+* @name     getNextNearestFreepoint
+* @side     client
+* @category World
+* @param    (number) x                Position X.
+* @param    (number) y                Position Y.
+* @param    (number) z                Position Z.
+* @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
+*
+*/
+sol::object Function_GetNextNearestFreepoint(float x, float y, float z, sol::this_state ts) {
+  sol::state_view lua(ts);
+  const auto [_, second_nearest] = FindNearestFreepointPair(x, y, z, -1.0f);
+  if (!second_nearest) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, MakeFreepointTable(lua, second_nearest));
+}
+
+/* luagmp (func)
+*
 * This function will return the list of all waypoints from current world.
 *
 * @version  0.3.0
 * @name     getWaypoints
 * @side     client
 * @category World
-* @return   ({...})                 Table of waypoints {name, x, y, z}.
+* @return   ({...})                 Table of waypoints {name, x, y, z, angle}.
 *
 */
 sol::table Function_GetWaypoints(sol::this_state ts) {
@@ -387,6 +586,9 @@ void BindWay(sol::state& lua) {
   lua["getNearestWaypoint"] = Function_GetNearestWaypoint;
   lua["getNextNearestWaypoint"] = Function_GetNextNearestWaypoint;
   lua["getWaypoints"] = Function_GetWaypoints;
+  lua["getFreepoint"] = Function_GetFreepoint;
+  lua["getNearestFreepoint"] = Function_GetNearestFreepoint;
+  lua["getNextNearestFreepoint"] = Function_GetNextNearestFreepoint;
 }
 
 }  // namespace gmp::gothic

@@ -33,8 +33,15 @@ for i, wp in ipairs(waypoints) do
 end
 
 local wp = getWaypoint("NEWWORLD\\NEWWORLD.ZEN", "HAFEN")
-LOG_INFO("HAFEN - x:{} y:{} z:{}", wp.x, wp.y, wp.z)
+LOG_INFO("HAFEN - x:{} y:{} z:{} a:{}", wp.x, wp.y, wp.z, wp.angle)
 local nearwp = getNearestWaypoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
-LOG_INFO("{} - x:{} y:{} z:{}", nearwp.name, nearwp.x, nearwp.y, nearwp.z)
+LOG_INFO("{} - x:{} y:{} z:{} a:{}", nearwp.name, nearwp.x, nearwp.y, nearwp.z, nearwp.angle)
 local nextnearwp = getNextNearestWaypoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
-LOG_INFO("{} - x:{} y:{} z:{}", nextnearwp.name, nextnearwp.x, nextnearwp.y, nextnearwp.z)
+LOG_INFO("{} - x:{} y:{} z:{} a:{}", nextnearwp.name, nextnearwp.x, nextnearwp.y, nextnearwp.z, nextnearwp.angle)
+
+local fp = getFreepoint("NEWWORLD\\NEWWORLD.ZEN", "START_NW_ORETRAIL_OW")
+LOG_INFO("START_NW_ORETRAIL_OW - x:{} y:{} z:{} a:{}", fp.x, fp.y, fp.z, fp.angle)
+local nearfp = getNearestFreepoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
+LOG_INFO("{} - x:{} y:{} z:{} a:{}", nearfp.name, nearfp.x, nearfp.y, nearfp.z, nearfp.angle)
+local nextnearfp = getNextNearestFreepoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
+LOG_INFO("{} - x:{} y:{} z:{} a:{}", nextnearfp.name, nextnearfp.x, nextnearfp.y, nextnearfp.z, nextnearfp.angle)
