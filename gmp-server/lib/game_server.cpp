@@ -564,16 +564,16 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeManaName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeWorldName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerWeaponModeChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerAmuletChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerArmorChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerBeltChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerHandItemChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerHelmetChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerMeleeWeaponChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerRangedWeaponChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerRingChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerShieldChangeName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerSpellSlotChangeName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipAmuletName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipArmorName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipBeltName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipHandItemName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipHelmetName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipMeleeWeaponName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipRangedWeaponName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipRingName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipShieldName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerEquipSpellSlotName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCastSpellName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerRespawnName);
@@ -635,7 +635,7 @@ bool GameServer::Init() {
   clock_ = std::make_unique<GothicClock>(GothicClock::Time{}, seconds_per_game_minute);
   if (IsPublic() && !kMasterServerEndpoint.empty()) {
     public_list_http_thread_future_ = std::async(&GameServer::AddToPublicListHTTP, this);
-    SPDLOG_INFO("Master Server connection successful!");
+    SPDLOG_INFO("Master Server heartbeat started.");
   } else if (IsPublic()) {
     SPDLOG_WARN("Server marked as public, but no Master Server endpoint is configured. Skipping registration.");
   } else if (!IsPublic()) {
@@ -1129,6 +1129,12 @@ void GameServer::SomeoneJoinGame(Packet p) {
   player.state.left_hand_item_instance = packet.left_hand_item_instance;
   player.state.right_hand_item_instance = packet.right_hand_item_instance;
   player.state.equipped_armor_instance = packet.equipped_armor_instance;
+  player.state.equipped_helmet_instance = packet.equipped_helmet_instance;
+  player.state.equipped_shield_instance = packet.equipped_shield_instance;
+  player.state.equipped_amulet_instance = packet.equipped_amulet_instance;
+  player.state.equipped_belt_instance = packet.equipped_belt_instance;
+  player.state.equipped_ring_left_instance = packet.equipped_ring_left_instance;
+  player.state.equipped_ring_right_instance = packet.equipped_ring_right_instance;
   player.state.animation = packet.animation;
   player.body_model = packet.body_model;
   player.body_texture = packet.body_texture;
@@ -1173,9 +1179,16 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   updated_player.state.left_hand_item_instance = packet.state.left_hand_item_instance;
   updated_player.state.right_hand_item_instance = packet.state.right_hand_item_instance;
   updated_player.state.equipped_armor_instance = packet.state.equipped_armor_instance;
+  updated_player.state.equipped_helmet_instance = packet.state.equipped_helmet_instance;
+  updated_player.state.equipped_shield_instance = packet.state.equipped_shield_instance;
+  updated_player.state.equipped_amulet_instance = packet.state.equipped_amulet_instance;
+  updated_player.state.equipped_belt_instance = packet.state.equipped_belt_instance;
+  updated_player.state.equipped_ring_left_instance = packet.state.equipped_ring_left_instance;
+  updated_player.state.equipped_ring_right_instance = packet.state.equipped_ring_right_instance;
   updated_player.state.animation = packet.state.animation;
   updated_player.state.weapon_mode = packet.state.weapon_mode;
   updated_player.state.active_spell_nr = packet.state.active_spell_nr;
+  updated_player.state.active_spell_instance = packet.state.active_spell_instance;
   updated_player.state.head_direction = packet.state.head_direction;
   updated_player.state.melee_weapon_instance = packet.state.melee_weapon_instance;
   updated_player.state.ranged_weapon_instance = packet.state.ranged_weapon_instance;
@@ -1229,31 +1242,70 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 
   if (old_state.left_hand_item_instance != updated_player.state.left_hand_item_instance) {
     const auto instance = instance_or_nil(updated_player.state.left_hand_item_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerHandItemChangeName,
-                                          OnPlayerHandItemChangeEvent{updated_player.player_id, 0, instance});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHandItemName,
+                                          OnPlayerEquipHandItemEvent{updated_player.player_id, 0, instance});
   }
 
   if (old_state.right_hand_item_instance != updated_player.state.right_hand_item_instance) {
     const auto instance = instance_or_nil(updated_player.state.right_hand_item_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerHandItemChangeName,
-                                          OnPlayerHandItemChangeEvent{updated_player.player_id, 1, instance});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHandItemName,
+                                          OnPlayerEquipHandItemEvent{updated_player.player_id, 1, instance});
   }
 
   if (old_state.equipped_armor_instance != updated_player.state.equipped_armor_instance) {
     const auto instance = instance_or_nil(updated_player.state.equipped_armor_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerArmorChangeName, OnPlayerArmorChangeEvent{updated_player.player_id, instance});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipArmorName, OnPlayerEquipArmorEvent{updated_player.player_id, instance});
+  }
+
+  if (old_state.equipped_amulet_instance != updated_player.state.equipped_amulet_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_amulet_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipAmuletName, OnPlayerEquipAmuletEvent{updated_player.player_id, instance});
+  }
+
+  if (old_state.equipped_belt_instance != updated_player.state.equipped_belt_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_belt_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipBeltName, OnPlayerEquipBeltEvent{updated_player.player_id, instance});
+  }
+
+  if (old_state.equipped_ring_left_instance != updated_player.state.equipped_ring_left_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_ring_left_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRingName, OnPlayerEquipRingEvent{updated_player.player_id, 0, instance});
+  }
+
+  if (old_state.equipped_ring_right_instance != updated_player.state.equipped_ring_right_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_ring_right_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRingName, OnPlayerEquipRingEvent{updated_player.player_id, 1, instance});
+  }
+
+  if (old_state.equipped_helmet_instance != updated_player.state.equipped_helmet_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_helmet_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHelmetName, OnPlayerEquipHelmetEvent{updated_player.player_id, instance});
+  }
+
+  if (old_state.equipped_shield_instance != updated_player.state.equipped_shield_instance) {
+    const auto instance = instance_or_nil(updated_player.state.equipped_shield_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipShieldName, OnPlayerEquipShieldEvent{updated_player.player_id, instance});
   }
 
   if (old_state.melee_weapon_instance != updated_player.state.melee_weapon_instance) {
     const auto instance = instance_or_nil(updated_player.state.melee_weapon_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerMeleeWeaponChangeName,
-                                          OnPlayerMeleeWeaponChangeEvent{updated_player.player_id, instance});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipMeleeWeaponName,
+                                          OnPlayerEquipMeleeWeaponEvent{updated_player.player_id, instance});
   }
 
   if (old_state.ranged_weapon_instance != updated_player.state.ranged_weapon_instance) {
     const auto instance = instance_or_nil(updated_player.state.ranged_weapon_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerRangedWeaponChangeName,
-                                          OnPlayerRangedWeaponChangeEvent{updated_player.player_id, instance});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRangedWeaponName,
+                                          OnPlayerEquipRangedWeaponEvent{updated_player.player_id, instance});
+  }
+
+  if (old_state.active_spell_nr != updated_player.state.active_spell_nr ||
+      old_state.active_spell_instance != updated_player.state.active_spell_instance) {
+    const auto instance = instance_or_nil(updated_player.state.active_spell_instance);
+    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipSpellSlotName,
+                                          OnPlayerEquipSpellSlotEvent{updated_player.player_id,
+                                                                      updated_player.state.active_spell_nr,
+                                                                      instance});
   }
 }
 
@@ -1396,7 +1448,6 @@ void GameServer::HandleDropItem(Packet p) {
       SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
     }
   });
-  SPDLOG_INFO("{} DROPPED ITEM. AMOUNT: {}", player.name, packet.item_amount);
 }
 
 void GameServer::HandleTakeItem(Packet p) {
@@ -1418,7 +1469,19 @@ void GameServer::HandleTakeItem(Packet p) {
       SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
     }
   });
-  SPDLOG_INFO("{} TOOK ITEM.", player.name);
+}
+
+nlohmann::json GameServer::BuildMasterServerPayload() const {
+  const auto port = g_net_server ? g_net_server->GetPort() : static_cast<std::uint32_t>(config_.Get<std::int32_t>("port"));
+  const auto ip_address = g_net_server ? g_net_server->GetAddress() : std::string{};
+
+  return nlohmann::json{{"server_seed", config_.Get<std::string>("server_identity_seed")},
+                        {"ip_address", ip_address},
+                        {"port", port},
+                        {"name", SanitizeServerText(config_.Get<std::string>("name"))},
+                        {"current_players", static_cast<std::uint32_t>(player_manager_.GetPlayerCount())},
+                        {"max_slots", static_cast<std::uint32_t>(config_.Get<std::int32_t>("slots"))},
+                        {"map", SanitizeServerText(config_.Get<std::string>("map"))}};
 }
 
 void GameServer::AddToPublicListHTTP() {
@@ -1442,42 +1505,23 @@ void GameServer::AddToPublicListHTTP() {
   client->set_read_timeout(5, 0);
   client->set_write_timeout(5, 0);
 
-  auto server_name = SanitizeServerText(g_server->config_.Get<std::string>("name"));
-  auto server_auth_key = SanitizeServerText(g_server->config_.Get<std::string>("auth_key"));
-  const auto make_server_key = [](std::string address, std::uint32_t port) {
-    if (address == "0.0.0.0" || address == "::" || address.empty()) {
-      address = "0.0.0.0";
-    }
-
-    return address + ":" + std::to_string(port);
-  };
-
-  auto server_address = g_net_server->GetAddress();
-  auto server_port = static_cast<std::uint32_t>(g_net_server->GetPort());
-  auto server_key = make_server_key(server_address, server_port);
   auto last_update = std::chrono::system_clock::now() - 15s;
 
   while (g_is_server_running) {
     auto now = std::chrono::system_clock::now();
     if (now - last_update >= 15s) {
       last_update = now;
-      nlohmann::json server_info{{"servername", server_name},
-                                 {"players", static_cast<std::int32_t>(player_manager_.GetPlayerCount())},
-                                 {"maxslots", g_server->config_.Get<std::int32_t>("slots")}};
-
-      if (!server_auth_key.empty()) {
-        server_info["auth_key"] = server_auth_key;
-      }
-
-      nlohmann::json payload = nlohmann::json::object();
-      payload[server_key] = std::move(server_info);
+      auto payload = BuildMasterServerPayload();
 
       auto response = client->Post(endpoint_info.path.c_str(), payload.dump(), "application/json");
       if (!response) {
-        SPDLOG_WARN("Failed to update master server at {}:{}{}", endpoint_info.host, endpoint_info.port, endpoint_info.path);
+        SPDLOG_WARN("Failed to update master server at {}:{}{}: {}", endpoint_info.host, endpoint_info.port, endpoint_info.path,
+                    httplib::to_string(response.error()));
       } else if (response->status >= 400) {
         SPDLOG_WARN("Master server responded with status {} when updating {}:{}{}", response->status, endpoint_info.host, endpoint_info.port,
                     endpoint_info.path);
+      } else {
+        SPDLOG_DEBUG("Master server heartbeat succeeded with status {}", response->status);
       }
     }
     std::this_thread::sleep_for(100ms);
@@ -1657,6 +1701,12 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
   packet.left_hand_item_instance = joining_player.state.left_hand_item_instance;
   packet.right_hand_item_instance = joining_player.state.right_hand_item_instance;
   packet.equipped_armor_instance = joining_player.state.equipped_armor_instance;
+  packet.equipped_helmet_instance = joining_player.state.equipped_helmet_instance;
+  packet.equipped_shield_instance = joining_player.state.equipped_shield_instance;
+  packet.equipped_amulet_instance = joining_player.state.equipped_amulet_instance;
+  packet.equipped_belt_instance = joining_player.state.equipped_belt_instance;
+  packet.equipped_ring_left_instance = joining_player.state.equipped_ring_left_instance;
+  packet.equipped_ring_right_instance = joining_player.state.equipped_ring_right_instance;
   packet.animation = joining_player.state.animation;
   packet.body_model = joining_player.body_model;
   packet.body_texture = joining_player.body_texture;
@@ -1699,6 +1749,12 @@ void GameServer::SendExistingPlayersPacket(Player& target_player) {
     player_packet.left_hand_item_instance = existing_player.state.left_hand_item_instance;
     player_packet.right_hand_item_instance = existing_player.state.right_hand_item_instance;
     player_packet.equipped_armor_instance = existing_player.state.equipped_armor_instance;
+    player_packet.equipped_helmet_instance = existing_player.state.equipped_helmet_instance;
+    player_packet.equipped_shield_instance = existing_player.state.equipped_shield_instance;
+    player_packet.equipped_amulet_instance = existing_player.state.equipped_amulet_instance;
+    player_packet.equipped_belt_instance = existing_player.state.equipped_belt_instance;
+    player_packet.equipped_ring_left_instance = existing_player.state.equipped_ring_left_instance;
+    player_packet.equipped_ring_right_instance = existing_player.state.equipped_ring_right_instance;
     player_packet.body_model = existing_player.body_model;
     player_packet.body_texture = existing_player.body_texture;
     player_packet.head_model = existing_player.head_model;
@@ -1792,6 +1848,12 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   packet.left_hand_item_instance = player.state.left_hand_item_instance;
   packet.right_hand_item_instance = player.state.right_hand_item_instance;
   packet.equipped_armor_instance = player.state.equipped_armor_instance;
+  packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
+  packet.equipped_shield_instance = player.state.equipped_shield_instance;
+  packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
+  packet.equipped_belt_instance = player.state.equipped_belt_instance;
+  packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
+  packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
   packet.animation = player.state.animation;
   packet.body_model = player.body_model;
   packet.body_texture = player.body_texture;
@@ -1964,6 +2026,12 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   spawn_packet.left_hand_item_instance = player.state.left_hand_item_instance;
   spawn_packet.right_hand_item_instance = player.state.right_hand_item_instance;
   spawn_packet.equipped_armor_instance = player.state.equipped_armor_instance;
+  spawn_packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
+  spawn_packet.equipped_shield_instance = player.state.equipped_shield_instance;
+  spawn_packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
+  spawn_packet.equipped_belt_instance = player.state.equipped_belt_instance;
+  spawn_packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
+  spawn_packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
   spawn_packet.animation = player.state.animation;
   spawn_packet.body_model = player.body_model;
   spawn_packet.body_texture = player.body_texture;
@@ -2047,6 +2115,12 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   spawn_packet.left_hand_item_instance = player.state.left_hand_item_instance;
   spawn_packet.right_hand_item_instance = player.state.right_hand_item_instance;
   spawn_packet.equipped_armor_instance = player.state.equipped_armor_instance;
+  spawn_packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
+  spawn_packet.equipped_shield_instance = player.state.equipped_shield_instance;
+  spawn_packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
+  spawn_packet.equipped_belt_instance = player.state.equipped_belt_instance;
+  spawn_packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
+  spawn_packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
   spawn_packet.animation = player.state.animation;
   spawn_packet.body_model = player.body_model;
   spawn_packet.body_texture = player.body_texture;

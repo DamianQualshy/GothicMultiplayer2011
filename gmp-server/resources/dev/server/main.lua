@@ -17,6 +17,38 @@ addEventHandler('onPlayerConnect', function(playerId)
 	print(isPlayerDead(playerId))
 	print(isPlayerSpawned(playerId))
 	print(isPlayerUnconscious(playerId))
+
+    setPlayerMaxHealth(playerId, 1000)
+	setPlayerHealth(playerId, 1000)
+    setPlayerMaxMana(playerId, 1000)
+    setPlayerMana(playerId, 1000)
+    setPlayerStrength(playerId, 100)
+    setPlayerDexterity(playerId, 100)
+    setPlayerSkillWeapon(playerId, TALENT_1H, 100)
+	setPlayerSkillWeapon(playerId, TALENT_BOW, 100)
+
+    giveItem(playerId, "ITAR_THORUS_ADDON", 1)
+    equipItem(playerId, "ITAR_THORUS_ADDON")
+    giveItem(playerId, "ITMW_1H_BLESSED_01", 1)
+    equipItem(playerId, "ITMW_1H_BLESSED_01")
+    giveItem(playerId, "ITRW_BOW_M_01", 1)
+    equipItem(playerId, "ITRW_BOW_M_01")
+
+    giveItem(playerId, "ITPO_SPEED", 50)
+	giveItem(playerId, "ITPO_HEALTH_ADDON_04", 50)
+    giveItem(playerId, "ITPO_MANA_ADDON_04", 50)
+    giveItem(playerId, "ITBE_ADDON_STR_5", 1)
+    giveItem(playerId, "ITRI_STR_01", 1)
+    giveItem(playerId, "ITAM_DEX_01", 1)
+
+	giveItem(playerId, "ITRW_ARROW", 100)
+    giveItem(playerId, "ITRW_BOLT", 100)
+
+	giveItem(playerId, "ITSC_LIGHT", 10)
+    giveItem(playerId, "ITSC_FIREBOLT", 10)
+	
+	giveItem(playerId, "ITMI_GOLD", 100)
+	giveItem(playerId, "ITMI_OLDCOIN", 100)
 end)
 
 local wp1 = "CITY1"

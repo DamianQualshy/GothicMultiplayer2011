@@ -401,10 +401,7 @@ int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* 
 
   static int dropItemTimeout = 0;
   if (global_ingame && dropItemTimeout < GetTickCount() && ShouldEmitMessageOnce(s_last_drop_msg, thisNpc, msg)) {
-    const bool synchronized = NetGame::Instance().DropItemsAllowed != 0;
-    if (synchronized) {
-      NetGame::Instance().SendDropItem(item->GetInstance(), item->amount);
-    }
+    NetGame::Instance().SendDropItem(item->GetInstance(), item->amount);
     EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnDropItemName, gmp::gothic::OnItemEvent{ResolveItemInstanceName(item)});
     dropItemTimeout = GetTickCount() + DROP_ITEM_TIMEOUT;
   }
@@ -421,12 +418,9 @@ int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* 
 
   oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
   if (item && global_ingame && ShouldEmitMessageOnce(s_last_take_msg, thisNpc, msg)) {
-    const bool synchronized = NetGame::Instance().DropItemsAllowed != 0;
-    if (synchronized) {
-      NetGame::Instance().SendTakeItem(item->GetInstance());
-    }
+    NetGame::Instance().SendTakeItem(item->GetInstance());
     EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnTakeItemName,
-                                          gmp::gothic::OnTakeItemEvent{ResolveItemInstanceName(item), synchronized});
+                                          gmp::gothic::OnTakeItemEvent{ResolveItemInstanceName(item), true});
   }
 
   return result;

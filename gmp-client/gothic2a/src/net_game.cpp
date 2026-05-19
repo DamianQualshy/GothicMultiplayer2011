@@ -105,6 +105,247 @@ bool StopModelAnimation(zCModel* model, const std::string& animation) {
   return false;
 }
 
+oCItem* GetNpcSlotItem(oCNpc* npc, const char* slot_name) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  zSTRING slot(slot_name);
+  return npc->GetSlotItem(slot);
+}
+
+std::int16_t GetSlotItemInstance(oCNpc* npc, const char* slot_name) {
+  if (auto* item = GetNpcSlotItem(npc, slot_name)) {
+    return static_cast<std::int16_t>(item->GetInstance());
+  }
+
+  return 0;
+}
+
+bool IsNetworkItemInstance(std::int16_t instance) {
+  return instance > 5892 && instance < 7850;
+}
+
+bool IsHelmetItem(oCItem* item) {
+  return item && (item->wear & ITM_WEAR_HEAD) != 0;
+}
+
+bool IsShieldItem(oCItem* item) {
+  return item && item->HasFlag(ITM_FLAG_SHIELD);
+}
+
+bool HasItemFlag(oCItem* item, int item_flag) {
+  return item && item->HasFlag(item_flag);
+}
+
+std::vector<oCItem*> GetActiveInventoryItems(oCNpc* npc, int item_flag) {
+  std::vector<oCItem*> items;
+  if (!npc) {
+    return items;
+  }
+
+  for (zCListSort<oCItem>* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
+    oCItem* item = entry->GetData();
+    if (HasItemFlag(item, item_flag) && item->HasFlag(ITM_FLAG_ACTIVE)) {
+      items.push_back(item);
+    }
+  }
+
+  return items;
+}
+
+std::int16_t GetEquippedInventoryItemInstance(oCNpc* npc, int item_flag) {
+  const auto items = GetActiveInventoryItems(npc, item_flag);
+  if (items.empty()) {
+    return 0;
+  }
+
+  return static_cast<std::int16_t>(items.front()->GetInstance());
+}
+
+std::array<std::int16_t, 2> GetEquippedRingInstances(oCNpc* npc, const std::array<std::int16_t, 2>& previous_rings) {
+  std::array<std::int16_t, 2> rings{0, 0};
+  std::vector<std::int16_t> active_instances;
+  for (auto* item : GetActiveInventoryItems(npc, ITM_FLAG_RING)) {
+    active_instances.push_back(static_cast<std::int16_t>(item->GetInstance()));
+  }
+
+  for (std::size_t i = 0; i < previous_rings.size(); ++i) {
+    const auto previous = previous_rings[i];
+    if (previous == 0) {
+      continue;
+    }
+
+    const auto it = std::find(active_instances.begin(), active_instances.end(), previous);
+    if (it != active_instances.end()) {
+      rings[i] = previous;
+      active_instances.erase(it);
+    }
+  }
+
+  for (const auto instance : active_instances) {
+    const auto empty_slot = std::find(rings.begin(), rings.end(), 0);
+    if (empty_slot == rings.end()) {
+      break;
+    }
+
+    *empty_slot = instance;
+  }
+
+  return rings;
+}
+
+std::int16_t GetActiveSpellItemInstance(oCNpc* npc) {
+  if (!npc) {
+    return 0;
+  }
+
+  const int active_spell_nr = npc->GetActiveSpellNr();
+  if (active_spell_nr <= 0) {
+    return 0;
+  }
+
+  if (auto* item = npc->GetSpellItem(active_spell_nr)) {
+    return static_cast<std::int16_t>(item->GetInstance());
+  }
+
+  return 0;
+}
+
+oCItem* GetOrCreateInventoryItem(oCNpc* npc, std::int16_t instance, int required_flag) {
+  if (!npc || !IsNetworkItemInstance(instance)) {
+    return nullptr;
+  }
+
+  oCItem* item = npc->inventory2.IsIn(static_cast<int>(instance), 1);
+  if (!item) {
+    item = zfactory->CreateItem(static_cast<int>(instance));
+    if (!item) {
+      return nullptr;
+    }
+
+    if (!HasItemFlag(item, required_flag)) {
+      item->RemoveVobFromWorld();
+      return nullptr;
+    }
+
+    npc->inventory2.Insert(item);
+  } else if (!HasItemFlag(item, required_flag)) {
+    return nullptr;
+  }
+
+  return item;
+}
+
+void SyncEquippedInventoryItem(oCNpc* npc, std::int16_t instance, int item_flag) {
+  if (!npc) {
+    return;
+  }
+
+  const auto active_items = GetActiveInventoryItems(npc, item_flag);
+  for (auto* item : active_items) {
+    if (instance == 0 || item->GetInstance() != static_cast<int>(instance)) {
+      npc->UnequipItem(item);
+    }
+  }
+
+  if (instance == 0) {
+    return;
+  }
+
+  const auto remaining_items = GetActiveInventoryItems(npc, item_flag);
+  const auto already_equipped = std::any_of(remaining_items.begin(), remaining_items.end(), [instance](oCItem* item) {
+    return item && item->GetInstance() == static_cast<int>(instance);
+  });
+  if (already_equipped) {
+    return;
+  }
+
+  if (auto* item = GetOrCreateInventoryItem(npc, instance, item_flag)) {
+    npc->Equip(item);
+  }
+}
+
+void SyncEquippedRingItems(oCNpc* npc, std::int16_t left_instance, std::int16_t right_instance) {
+  if (!npc) {
+    return;
+  }
+
+  std::array<std::int16_t, 2> desired{left_instance, right_instance};
+  std::array<bool, 2> matched{false, false};
+
+  const auto active_rings = GetActiveInventoryItems(npc, ITM_FLAG_RING);
+  for (auto* item : active_rings) {
+    bool keep = false;
+    for (std::size_t i = 0; i < desired.size(); ++i) {
+      if (!matched[i] && desired[i] != 0 && item->GetInstance() == static_cast<int>(desired[i])) {
+        matched[i] = true;
+        keep = true;
+        break;
+      }
+    }
+
+    if (!keep) {
+      npc->UnequipItem(item);
+    }
+  }
+
+  for (std::size_t i = 0; i < desired.size(); ++i) {
+    if (matched[i] || desired[i] == 0) {
+      continue;
+    }
+
+    if (auto* item = GetOrCreateInventoryItem(npc, desired[i], ITM_FLAG_RING)) {
+      npc->Equip(item);
+    }
+  }
+}
+
+void SyncEquippedSlotItem(oCNpc* npc, std::int16_t instance, const char* slot_name, bool (*is_valid_slot_item)(oCItem*)) {
+  if (!npc) {
+    return;
+  }
+
+  oCItem* current = GetNpcSlotItem(npc, slot_name);
+  if (instance == 0) {
+    if (current) {
+      npc->UnequipItem(current);
+    }
+    return;
+  }
+
+  if (!IsNetworkItemInstance(instance)) {
+    return;
+  }
+
+  if (current && current->GetInstance() == static_cast<int>(instance)) {
+    return;
+  }
+
+  if (current) {
+    npc->UnequipItem(current);
+  }
+
+  oCItem* item = npc->inventory2.IsIn(static_cast<int>(instance), 1);
+  if (!item) {
+    item = zfactory->CreateItem(static_cast<int>(instance));
+    if (!item) {
+      return;
+    }
+
+    if (!is_valid_slot_item(item)) {
+      item->RemoveVobFromWorld();
+      return;
+    }
+
+    npc->inventory2.Insert(item);
+  } else if (!is_valid_slot_item(item)) {
+    return;
+  }
+
+  npc->Equip(item);
+}
+
 struct WorldTimerTickValues {
   float ticks_per_hour;
   float ticks_per_minute;
@@ -469,11 +710,25 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.left_hand_item_instance = player->GetLeftHand() ? static_cast<short>(player->GetLeftHand()->GetInstance()) : 0;
   state.right_hand_item_instance = player->GetRightHand() ? static_cast<short>(player->GetRightHand()->GetInstance()) : 0;
   state.equipped_armor_instance = player->GetEquippedArmor() ? static_cast<short>(player->GetEquippedArmor()->GetInstance()) : 0;
+  state.equipped_helmet_instance = GetSlotItemInstance(player, NPC_NODE_HELMET);
+  state.equipped_shield_instance = GetSlotItemInstance(player, NPC_NODE_SHIELD);
+  state.equipped_amulet_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET);
+  state.equipped_belt_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT);
+  std::array<std::int16_t, 2> previous_rings{0, 0};
+  if (game_client && game_client->player_manager().HasLocalPlayer()) {
+    auto& local_player = game_client->player_manager().GetLocalPlayer();
+    previous_rings[0] = static_cast<std::int16_t>(local_player.equipped_ring_left());
+    previous_rings[1] = static_cast<std::int16_t>(local_player.equipped_ring_right());
+  }
+  const auto equipped_rings = GetEquippedRingInstances(player, previous_rings);
+  state.equipped_ring_left_instance = equipped_rings[0];
+  state.equipped_ring_right_instance = equipped_rings[1];
   state.animation = anim;
   state.health_points = static_cast<std::int16_t>(player->attribute[NPC_ATR_HITPOINTS]);
   state.mana_points = static_cast<std::int16_t>(player->attribute[NPC_ATR_MANA]);
   state.weapon_mode = static_cast<uint8_t>(player->GetWeaponMode());
   state.active_spell_nr = player->GetActiveSpellNr() > 0 ? static_cast<uint8_t>(player->GetActiveSpellNr()) : 0;
+  state.active_spell_instance = GetActiveSpellItemInstance(player);
   state.head_direction = GetHeadDirectionByte(player);
   state.melee_weapon_instance = player->GetEquippedMeleeWeapon() ? static_cast<short>(player->GetEquippedMeleeWeapon()->GetInstance()) : 0;
   state.ranged_weapon_instance = player->GetEquippedRangedWeapon() ? static_cast<short>(player->GetEquippedRangedWeapon()->GetInstance()) : 0;
@@ -637,7 +892,6 @@ void NetGame::OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_m
   }
 
   oCGame::s_bUsePotionKeys = flags & 0x01;
-  this->DropItemsAllowed = flags & 0x02;
   this->ForceHideMap = flags & 0x04;
 }
 
@@ -1127,6 +1381,13 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
       }
     }
   }
+
+  // Update equipped helmet and shield
+  SyncEquippedSlotItem(cplayer->npc, state.equipped_helmet_instance, NPC_NODE_HELMET, IsHelmetItem);
+  SyncEquippedSlotItem(cplayer->npc, state.equipped_shield_instance, NPC_NODE_SHIELD, IsShieldItem);
+  SyncEquippedInventoryItem(cplayer->npc, state.equipped_amulet_instance, ITM_FLAG_AMULET);
+  SyncEquippedInventoryItem(cplayer->npc, state.equipped_belt_instance, ITM_FLAG_BELT);
+  SyncEquippedRingItems(cplayer->npc, state.equipped_ring_left_instance, state.equipped_ring_right_instance);
 
   // Update animation
   if (cplayer->npc && state.animation > 0 && state.animation < 1400) {

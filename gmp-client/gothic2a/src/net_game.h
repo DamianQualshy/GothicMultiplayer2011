@@ -87,7 +87,6 @@ public:
   zSTRING map;
   bool IsInGame{false};
   short mp_restore{0};
-  int DropItemsAllowed{0};
   int ForceHideMap{0};
   bool IsReadyToJoin{false};
   std::unique_ptr<gmp::GothicTaskScheduler> task_scheduler;

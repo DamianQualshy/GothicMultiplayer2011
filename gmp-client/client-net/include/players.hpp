@@ -269,6 +269,48 @@ public:
     equipped_armor_instance_ = instance;
   }
 
+  std::uint16_t equipped_helmet() const {
+    return equipped_helmet_instance_;
+  }
+  void set_equipped_helmet(std::uint16_t instance) {
+    equipped_helmet_instance_ = instance;
+  }
+
+  std::uint16_t equipped_shield() const {
+    return equipped_shield_instance_;
+  }
+  void set_equipped_shield(std::uint16_t instance) {
+    equipped_shield_instance_ = instance;
+  }
+
+  std::uint16_t equipped_amulet() const {
+    return equipped_amulet_instance_;
+  }
+  void set_equipped_amulet(std::uint16_t instance) {
+    equipped_amulet_instance_ = instance;
+  }
+
+  std::uint16_t equipped_belt() const {
+    return equipped_belt_instance_;
+  }
+  void set_equipped_belt(std::uint16_t instance) {
+    equipped_belt_instance_ = instance;
+  }
+
+  std::uint16_t equipped_ring_left() const {
+    return equipped_ring_left_instance_;
+  }
+  void set_equipped_ring_left(std::uint16_t instance) {
+    equipped_ring_left_instance_ = instance;
+  }
+
+  std::uint16_t equipped_ring_right() const {
+    return equipped_ring_right_instance_;
+  }
+  void set_equipped_ring_right(std::uint16_t instance) {
+    equipped_ring_right_instance_ = instance;
+  }
+
   std::uint16_t melee_weapon() const {
     return melee_weapon_instance_;
   }
@@ -303,6 +345,13 @@ public:
   }
   void set_active_spell(std::uint8_t spell) {
     active_spell_nr_ = spell;
+  }
+
+  std::uint16_t active_spell_instance() const {
+    return active_spell_instance_;
+  }
+  void set_active_spell_instance(std::uint16_t instance) {
+    active_spell_instance_ = instance;
   }
 
   std::uint8_t head_direction() const {
@@ -381,6 +430,12 @@ protected:
   std::uint16_t left_hand_item_instance_{0};
   std::uint16_t right_hand_item_instance_{0};
   std::uint16_t equipped_armor_instance_{0};
+  std::uint16_t equipped_helmet_instance_{0};
+  std::uint16_t equipped_shield_instance_{0};
+  std::uint16_t equipped_amulet_instance_{0};
+  std::uint16_t equipped_belt_instance_{0};
+  std::uint16_t equipped_ring_left_instance_{0};
+  std::uint16_t equipped_ring_right_instance_{0};
   std::uint16_t melee_weapon_instance_{0};
   std::uint16_t ranged_weapon_instance_{0};
 
@@ -388,6 +443,7 @@ protected:
   std::uint16_t animation_{0};
   std::uint8_t weapon_mode_{0};
   std::uint8_t active_spell_nr_{0};
+  std::uint16_t active_spell_instance_{0};
   std::uint8_t head_direction_{0};
   bool enabled_{false};
   std::int16_t update_health_packet_{0};

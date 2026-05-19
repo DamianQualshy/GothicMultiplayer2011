@@ -23,8 +23,8 @@ addEventHandler('onKeyDown', function(key)
     if key == KEY_M then
         if(menuEnabled) then
             openGMPMenu()
-        else
-            exitGame()
+        --[[ else
+            exitGame() ]]
         end
     end
 end)

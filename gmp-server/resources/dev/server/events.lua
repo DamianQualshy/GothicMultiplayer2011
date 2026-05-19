@@ -56,32 +56,44 @@ addEventHandler('onPlayerWeaponModeChange', function(playerId, weaponModeOld, We
     LOG_INFO("Player {} changed weapon mode from {} to {}", playerId, weaponModeOld, WeaponModeNew)
 end)
 
-addEventHandler('onPlayerHandItemChange', function(playerId, handSlot, itemInstance)
-    LOG_INFO("Player {} changed equip state for Hand Item on slot {} for {}", playerId, handSlot, itemInstance)
+addEventHandler('onPlayerEquipHandItem', function(playerId, handSlot, itemInstance)
+    LOG_INFO("Player {} equipped hand item on slot {}: {}", playerId, handSlot, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerRingChange', function(playerId, handSlot, itemInstance)
-    LOG_INFO("Player {} changed equip state for Ring on slot {} for {}", playerId, handSlot, itemInstance)
+addEventHandler('onPlayerEquipAmulet', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped amulet: {}", playerId, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerShieldChange', function(playerId, itemInstance)
-    LOG_INFO("Player {} changed equip state for Shield for {}", playerId, itemInstance)
+addEventHandler('onPlayerEquipShield', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped shield: {}", playerId, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerArmorChange', function(playerId, itemInstance)
-    LOG_INFO("Player {} changed equip state for Armor for {}", playerId, itemInstance)
+addEventHandler('onPlayerEquipHelmet', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped helmet: {}", playerId, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerMeleeWeaponChange', function(playerId, itemInstance)
-    LOG_INFO("Player {} changed equip state for Melee Weapon for {}", playerId, itemInstance)
+addEventHandler('onPlayerEquipBelt', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped belt: {}", playerId, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerRangedWeaponChange', function(playerId, itemInstance)
-    LOG_INFO("Player {} changed equip state for Ranged Weapon for {}", playerId, itemInstance)
+addEventHandler('onPlayerEquipRing', function(playerId, ringSlot, itemInstance)
+    LOG_INFO("Player {} equipped ring on slot {}: {}", playerId, ringSlot, optionalIdToString(itemInstance))
 end)
 
-addEventHandler('onPlayerSpellSlotChange', function(playerId, handSlot, itemInstance)
-    LOG_INFO("Player {} changed equip state for a Spell Slot on slot {} for {}", playerId, handSlot, itemInstance)
+addEventHandler('onPlayerEquipArmor', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped armor: {}", playerId, optionalIdToString(itemInstance))
+end)
+
+addEventHandler('onPlayerEquipMeleeWeapon', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped melee weapon: {}", playerId, optionalIdToString(itemInstance))
+end)
+
+addEventHandler('onPlayerEquipRangedWeapon', function(playerId, itemInstance)
+    LOG_INFO("Player {} equipped ranged weapon: {}", playerId, optionalIdToString(itemInstance))
+end)
+
+addEventHandler('onPlayerEquipSpellSlot', function(playerId, spellSlot, itemInstance)
+    LOG_INFO("Player {} equipped spell slot {}: {}", playerId, spellSlot, optionalIdToString(itemInstance))
 end)
 
 addEventHandler('onPlayerCastSpell', function(casterId, spellId, targetId)

@@ -47,16 +47,16 @@ inline const std::string kEventOnPlayerChangeHealthName = "onPlayerChangeHealth"
 inline const std::string kEventOnPlayerChangeManaName = "onPlayerChangeMana";
 inline const std::string kEventOnPlayerChangeWorldName = "onPlayerChangeWorld";
 inline const std::string kEventOnPlayerWeaponModeChangeName = "onPlayerWeaponModeChange";
-inline const std::string kEventOnPlayerAmuletChangeName = "onPlayerAmuletChange";
-inline const std::string kEventOnPlayerArmorChangeName = "onPlayerArmorChange";
-inline const std::string kEventOnPlayerBeltChangeName = "onPlayerBeltChange";
-inline const std::string kEventOnPlayerHandItemChangeName = "onPlayerHandItemChange";
-inline const std::string kEventOnPlayerHelmetChangeName = "onPlayerHelmetChange";
-inline const std::string kEventOnPlayerMeleeWeaponChangeName = "onPlayerMeleeWeaponChange";
-inline const std::string kEventOnPlayerRangedWeaponChangeName = "onPlayerRangedWeaponChange";
-inline const std::string kEventOnPlayerRingChangeName = "onPlayerRingChange";
-inline const std::string kEventOnPlayerShieldChangeName = "onPlayerShieldChange";
-inline const std::string kEventOnPlayerSpellSlotChangeName = "onPlayerSpellSlotChange";
+inline const std::string kEventOnPlayerEquipAmuletName = "onPlayerEquipAmulet";
+inline const std::string kEventOnPlayerEquipArmorName = "onPlayerEquipArmor";
+inline const std::string kEventOnPlayerEquipBeltName = "onPlayerEquipBelt";
+inline const std::string kEventOnPlayerEquipHandItemName = "onPlayerEquipHandItem";
+inline const std::string kEventOnPlayerEquipHelmetName = "onPlayerEquipHelmet";
+inline const std::string kEventOnPlayerEquipMeleeWeaponName = "onPlayerEquipMeleeWeapon";
+inline const std::string kEventOnPlayerEquipRangedWeaponName = "onPlayerEquipRangedWeapon";
+inline const std::string kEventOnPlayerEquipRingName = "onPlayerEquipRing";
+inline const std::string kEventOnPlayerEquipShieldName = "onPlayerEquipShield";
+inline const std::string kEventOnPlayerEquipSpellSlotName = "onPlayerEquipSpellSlot";
 inline const std::string kEventOnPlayerSpawnName = "onPlayerSpawn";
 inline const std::string kEventOnPlayerRespawnName = "onPlayerRespawn";
 inline const std::string kEventOnPlayerSpawnForName = "onPlayerSpawnFor";
@@ -142,54 +142,54 @@ struct OnPlayerWeaponModeChangeEvent {
   std::uint8_t new_mode;
 };
 
-struct OnPlayerAmuletChangeEvent {
+struct OnPlayerEquipAmuletEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerArmorChangeEvent {
+struct OnPlayerEquipArmorEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerBeltChangeEvent {
+struct OnPlayerEquipBeltEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerHandItemChangeEvent {
+struct OnPlayerEquipHandItemEvent {
   std::uint64_t player_id;
   std::uint8_t hand;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerHelmetChangeEvent {
+struct OnPlayerEquipHelmetEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerMeleeWeaponChangeEvent {
+struct OnPlayerEquipMeleeWeaponEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerRangedWeaponChangeEvent {
+struct OnPlayerEquipRangedWeaponEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerRingChangeEvent {
+struct OnPlayerEquipRingEvent {
   std::uint64_t player_id;
-  std::uint8_t hand_id;
+  std::uint8_t ring_slot;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerShieldChangeEvent {
+struct OnPlayerEquipShieldEvent {
   std::uint64_t player_id;
   std::optional<std::int16_t> instance_id;
 };
 
-struct OnPlayerSpellSlotChangeEvent {
+struct OnPlayerEquipSpellSlotEvent {
   std::uint64_t player_id;
   std::uint8_t slot_id;
   std::optional<std::int16_t> instance_id;

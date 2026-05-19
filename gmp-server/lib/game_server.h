@@ -35,6 +35,7 @@ SOFTWARE.
 #include <future>
 #include <memory>
 #include <mutex>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
 #include <string>
 #include <thread>
@@ -84,6 +85,7 @@ public:
   ~GameServer() override;
 
   void AddToPublicListHTTP();
+  nlohmann::json BuildMasterServerPayload() const;
   bool Receive();
   bool HandlePacket(Net::ConnectionHandle connectionHandle, unsigned char* data, std::uint32_t size);
   void Run();

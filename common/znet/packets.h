@@ -56,6 +56,12 @@ struct ExistingPlayerInfo {
   std::int16_t left_hand_item_instance{0};
   std::int16_t right_hand_item_instance{0};
   std::int16_t equipped_armor_instance{0};
+  std::int16_t equipped_helmet_instance{0};
+  std::int16_t equipped_shield_instance{0};
+  std::int16_t equipped_amulet_instance{0};
+  std::int16_t equipped_belt_instance{0};
+  std::int16_t equipped_ring_left_instance{0};
+  std::int16_t equipped_ring_right_instance{0};
   std::string body_model;
   std::uint16_t body_texture{0};
   std::string head_model;
@@ -115,6 +121,12 @@ void serialize(S& s, ExistingPlayerInfo& info) {
   s.value2b(info.left_hand_item_instance);
   s.value2b(info.right_hand_item_instance);
   s.value2b(info.equipped_armor_instance);
+  s.value2b(info.equipped_helmet_instance);
+  s.value2b(info.equipped_shield_instance);
+  s.value2b(info.equipped_amulet_instance);
+  s.value2b(info.equipped_belt_instance);
+  s.value2b(info.equipped_ring_left_instance);
+  s.value2b(info.equipped_ring_right_instance);
   s.text1b(info.body_model, 255);
   s.value2b(info.body_texture);
   s.text1b(info.head_model, 255);
@@ -151,7 +163,13 @@ inline std::ostream& operator<<(std::ostream& os, const ExistingPlayerInfo& pack
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id << ", position: (" << packet.position.x
      << ", " << packet.position.y << ", " << packet.position.z << ")"
      << ", left_hand_item_instance: " << packet.left_hand_item_instance << ", right_hand_item_instance: " << packet.right_hand_item_instance
-     << ", equipped_armor_instance: " << packet.equipped_armor_instance 
+     << ", equipped_armor_instance: " << packet.equipped_armor_instance
+     << ", equipped_helmet_instance: " << packet.equipped_helmet_instance
+     << ", equipped_shield_instance: " << packet.equipped_shield_instance
+     << ", equipped_amulet_instance: " << packet.equipped_amulet_instance
+     << ", equipped_belt_instance: " << packet.equipped_belt_instance
+     << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
+     << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
      << ", walk_style: " << static_cast<int>(packet.walk_style) << ", player_name: " << packet.player_name
@@ -618,6 +636,12 @@ struct JoinGamePacket {
   std::int16_t left_hand_item_instance{0};
   std::int16_t right_hand_item_instance{0};
   std::int16_t equipped_armor_instance{0};
+  std::int16_t equipped_helmet_instance{0};
+  std::int16_t equipped_shield_instance{0};
+  std::int16_t equipped_amulet_instance{0};
+  std::int16_t equipped_belt_instance{0};
+  std::int16_t equipped_ring_left_instance{0};
+  std::int16_t equipped_ring_right_instance{0};
   std::int16_t animation{0};
   std::string body_model;
   std::uint16_t body_texture{0};
@@ -637,6 +661,12 @@ void serialize(S& s, JoinGamePacket& packet) {
   s.value2b(packet.left_hand_item_instance);
   s.value2b(packet.right_hand_item_instance);
   s.value2b(packet.equipped_armor_instance);
+  s.value2b(packet.equipped_helmet_instance);
+  s.value2b(packet.equipped_shield_instance);
+  s.value2b(packet.equipped_amulet_instance);
+  s.value2b(packet.equipped_belt_instance);
+  s.value2b(packet.equipped_ring_left_instance);
+  s.value2b(packet.equipped_ring_right_instance);
   s.value2b(packet.animation);
   s.text1b(packet.body_model, 255);
   s.value2b(packet.body_texture);
@@ -653,7 +683,13 @@ inline std::ostream& operator<<(std::ostream& os, const JoinGamePacket& packet) 
      << packet.position.z << ")"
      << ", normal: (" << packet.normal.x << ", " << packet.normal.y << ", " << packet.normal.z << ")"
      << ", left_hand_item_instance: " << packet.left_hand_item_instance << ", right_hand_item_instance: " << packet.right_hand_item_instance
-     << ", equipped_armor_instance: " << packet.equipped_armor_instance << ", animation: " << packet.animation
+     << ", equipped_armor_instance: " << packet.equipped_armor_instance
+     << ", equipped_helmet_instance: " << packet.equipped_helmet_instance
+     << ", equipped_shield_instance: " << packet.equipped_shield_instance
+     << ", equipped_amulet_instance: " << packet.equipped_amulet_instance
+     << ", equipped_belt_instance: " << packet.equipped_belt_instance
+     << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
+     << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance << ", animation: " << packet.animation
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture) 
      << ", walk_style: " << static_cast<int>(packet.walk_style)
@@ -678,6 +714,12 @@ struct PlayerSpawnPacket {
   std::int16_t left_hand_item_instance{0};
   std::int16_t right_hand_item_instance{0};
   std::int16_t equipped_armor_instance{0};
+  std::int16_t equipped_helmet_instance{0};
+  std::int16_t equipped_shield_instance{0};
+  std::int16_t equipped_amulet_instance{0};
+  std::int16_t equipped_belt_instance{0};
+  std::int16_t equipped_ring_left_instance{0};
+  std::int16_t equipped_ring_right_instance{0};
   std::int16_t animation{0};
   std::string body_model;
   std::uint16_t body_texture{0};
@@ -742,6 +784,12 @@ void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value2b(packet.left_hand_item_instance);
   s.value2b(packet.right_hand_item_instance);
   s.value2b(packet.equipped_armor_instance);
+  s.value2b(packet.equipped_helmet_instance);
+  s.value2b(packet.equipped_shield_instance);
+  s.value2b(packet.equipped_amulet_instance);
+  s.value2b(packet.equipped_belt_instance);
+  s.value2b(packet.equipped_ring_left_instance);
+  s.value2b(packet.equipped_ring_right_instance);
   s.value2b(packet.animation);
   s.text1b(packet.body_model, 255);
   s.value2b(packet.body_texture);
@@ -780,7 +828,13 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerSpawnPacket& packe
      << ", " << packet.position.y << ", " << packet.position.z << ")"
      << ", normal: (" << packet.normal.x << ", " << packet.normal.y << ", " << packet.normal.z << ")"
      << ", left_hand_item_instance: " << packet.left_hand_item_instance << ", right_hand_item_instance: " << packet.right_hand_item_instance
-     << ", equipped_armor_instance: " << packet.equipped_armor_instance << ", animation: " << packet.animation
+     << ", equipped_armor_instance: " << packet.equipped_armor_instance
+     << ", equipped_helmet_instance: " << packet.equipped_helmet_instance
+     << ", equipped_shield_instance: " << packet.equipped_shield_instance
+     << ", equipped_amulet_instance: " << packet.equipped_amulet_instance
+     << ", equipped_belt_instance: " << packet.equipped_belt_instance
+     << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
+     << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance << ", animation: " << packet.animation
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture) 
      << ", walk_style: " << static_cast<int>(packet.walk_style)

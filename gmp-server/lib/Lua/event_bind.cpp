@@ -355,18 +355,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's amulet changes.
+* This event is triggered when a player's equipped amulet changes.
 *
 * @version  0.3.0
-* @name     onPlayerAmuletChange
+* @name     onPlayerEquipAmulet
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New amulet instance id (nil if none).
+* @param    (number|nil) instance   Equipped amulet instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerAmuletChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerAmuletChangeEvent amulet_event = std::any_cast<OnPlayerAmuletChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipAmuletName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipAmuletEvent amulet_event = std::any_cast<OnPlayerEquipAmuletEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = amulet_event.instance_id.has_value() ? sol::make_object(lua, amulet_event.instance_id.value()) : sol::lua_nil;
     args.callback(amulet_event.player_id, instance);
@@ -374,18 +374,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's armor changes.
+* This event is triggered when a player's equipped armor changes.
 *
 * @version  0.3.0
-* @name     onPlayerArmorChange
+* @name     onPlayerEquipArmor
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New armor instance id (nil if none).
+* @param    (number|nil) instance   Equipped armor instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerArmorChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerArmorChangeEvent armor_event = std::any_cast<OnPlayerArmorChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipArmorName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipArmorEvent armor_event = std::any_cast<OnPlayerEquipArmorEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = armor_event.instance_id.has_value() ? sol::make_object(lua, armor_event.instance_id.value()) : sol::lua_nil;
     args.callback(armor_event.player_id, instance);
@@ -393,18 +393,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's belt changes.
+* This event is triggered when a player's equipped belt changes.
 *
 * @version  0.3.0
-* @name     onPlayerBeltChange
+* @name     onPlayerEquipBelt
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New belt instance id (nil if none).
+* @param    (number|nil) instance   Equipped belt instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerBeltChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerBeltChangeEvent belt_event = std::any_cast<OnPlayerBeltChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipBeltName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipBeltEvent belt_event = std::any_cast<OnPlayerEquipBeltEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = belt_event.instance_id.has_value() ? sol::make_object(lua, belt_event.instance_id.value()) : sol::lua_nil;
     args.callback(belt_event.player_id, instance);
@@ -412,19 +412,19 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's hand item changes.
+* This event is triggered when a player's equipped hand item changes.
 *
 * @version  0.3.0
-* @name     onPlayerHandItemChange
+* @name     onPlayerEquipHandItem
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
 * @param    (number) hand           Hand id (0 = left, 1 = right).
-* @param    (number|nil) instance   New hand item instance id (nil if none).
+* @param    (number|nil) instance   Equipped hand item instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerHandItemChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerHandItemChangeEvent hand_item_event = std::any_cast<OnPlayerHandItemChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipHandItemName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipHandItemEvent hand_item_event = std::any_cast<OnPlayerEquipHandItemEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = hand_item_event.instance_id.has_value() ? sol::make_object(lua, hand_item_event.instance_id.value()) : sol::lua_nil;
     args.callback(hand_item_event.player_id, hand_item_event.hand, instance);
@@ -432,18 +432,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's helmet changes.
+* This event is triggered when a player's equipped helmet changes.
 *
 * @version  0.3.0
-* @name     onPlayerHelmetChange
+* @name     onPlayerEquipHelmet
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New helmet instance id (nil if none).
+* @param    (number|nil) instance   Equipped helmet instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerHelmetChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerHelmetChangeEvent helmet_event = std::any_cast<OnPlayerHelmetChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipHelmetName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipHelmetEvent helmet_event = std::any_cast<OnPlayerEquipHelmetEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = helmet_event.instance_id.has_value() ? sol::make_object(lua, helmet_event.instance_id.value()) : sol::lua_nil;
     args.callback(helmet_event.player_id, instance);
@@ -451,18 +451,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's melee weapon changes.
+* This event is triggered when a player's equipped melee weapon changes.
 *
 * @version  0.3.0
-* @name     onPlayerMeleeWeaponChange
+* @name     onPlayerEquipMeleeWeapon
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New melee weapon instance id (nil if none).
+* @param    (number|nil) instance   Equipped melee weapon instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerMeleeWeaponChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerMeleeWeaponChangeEvent melee_weapon_event = std::any_cast<OnPlayerMeleeWeaponChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipMeleeWeaponName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipMeleeWeaponEvent melee_weapon_event = std::any_cast<OnPlayerEquipMeleeWeaponEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = melee_weapon_event.instance_id.has_value() ? sol::make_object(lua, melee_weapon_event.instance_id.value()) : sol::lua_nil;
     args.callback(melee_weapon_event.player_id, instance);
@@ -470,18 +470,18 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's ranged weapon changes.
+* This event is triggered when a player's equipped ranged weapon changes.
 *
 * @version  0.3.0
-* @name     onPlayerRangedWeaponChange
+* @name     onPlayerEquipRangedWeapon
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New ranged weapon instance id (nil if none).
+* @param    (number|nil) instance   Equipped ranged weapon instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerRangedWeaponChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerRangedWeaponChangeEvent ranged_weapon_event = std::any_cast<OnPlayerRangedWeaponChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipRangedWeaponName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipRangedWeaponEvent ranged_weapon_event = std::any_cast<OnPlayerEquipRangedWeaponEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = ranged_weapon_event.instance_id.has_value() ? sol::make_object(lua, ranged_weapon_event.instance_id.value()) : sol::lua_nil;
     args.callback(ranged_weapon_event.player_id, instance);
@@ -489,38 +489,38 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player's ring changes.
+* This event is triggered when a player's equipped ring changes.
 *
 * @version  0.3.0
-* @name     onPlayerRingChange
+* @name     onPlayerEquipRing
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number) hand_id        Hand id (0 = left, 1 = right).
-* @param    (number|nil) instance   New ring instance id (nil if none).
+* @param    (number) ring_slot      Logical ring slot (0 or 1).
+* @param    (number|nil) instance   Equipped ring instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerRingChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerRingChangeEvent ring_event = std::any_cast<OnPlayerRingChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipRingName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipRingEvent ring_event = std::any_cast<OnPlayerEquipRingEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = ring_event.instance_id.has_value() ? sol::make_object(lua, ring_event.instance_id.value()) : sol::lua_nil;
-    args.callback(ring_event.player_id, ring_event.hand_id, instance);
+    args.callback(ring_event.player_id, ring_event.ring_slot, instance);
   }};
 
 /* luagmp (event)
 *
-* This event is triggered when a player's shield changes.
+* This event is triggered when a player's equipped shield changes.
 *
 * @version  0.3.0
-* @name     onPlayerShieldChange
+* @name     onPlayerEquipShield
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number|nil) instance   New shield instance id (nil if none).
+* @param    (number|nil) instance   Equipped shield instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerShieldChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerShieldChangeEvent shield_event = std::any_cast<OnPlayerShieldChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipShieldName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipShieldEvent shield_event = std::any_cast<OnPlayerEquipShieldEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object instance = shield_event.instance_id.has_value() ? sol::make_object(lua, shield_event.instance_id.value()) : sol::lua_nil;
     args.callback(shield_event.player_id, instance);
@@ -531,19 +531,19 @@ void RegisterProxies() {
 * This event is triggered when a player's active spell slot changes.
 *
 * @version  0.3.0
-* @name     onPlayerSpellSlotChange
+* @name     onPlayerEquipSpellSlot
 * @side     server
 * @category Player
 * @param    (number) player_id      Player id.
-* @param    (number) slot_id        Active spell slot id.
-* @param    (number|nil) instance   Spell instance id (nil if none).
+* @param    (number) slot_id        Active spell slot id (0 if none).
+* @param    (number|nil) instance   Active spell item instance id (nil if none).
 *
 */
-  kLuaEventProxies[kEventOnPlayerSpellSlotChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerSpellSlotChangeEvent spell_slot_event = std::any_cast<OnPlayerSpellSlotChangeEvent>(args.event);
+  kLuaEventProxies[kEventOnPlayerEquipSpellSlotName] = {[](LuaProxyArgs args) {
+    OnPlayerEquipSpellSlotEvent spell_event = std::any_cast<OnPlayerEquipSpellSlotEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
-    sol::object instance = spell_slot_event.instance_id.has_value() ? sol::make_object(lua, spell_slot_event.instance_id.value()) : sol::lua_nil;
-    args.callback(spell_slot_event.player_id, spell_slot_event.slot_id, instance);
+    sol::object instance = spell_event.instance_id.has_value() ? sol::make_object(lua, spell_event.instance_id.value()) : sol::lua_nil;
+    args.callback(spell_event.player_id, spell_event.slot_id, instance);
   }};
 
 /* luagmp (event)
