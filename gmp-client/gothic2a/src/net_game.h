@@ -57,8 +57,10 @@ public:
   bool IsConnected();
   bool Connect(std::string_view full_address);
   void JoinGame();
-  void SendDropItem(short Instance, short amount);
-  void SendTakeItem(short Instance);
+  void SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position,
+                    const glm::vec3& rotation, bool physics_enabled);
+  void SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id);
+  void SendPlayerWorldEnter(const std::string& world_name);
   void SendCastSpell(oCNpc* Target, short SpellId);
   void SendMessage(const char* msg);
   void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
@@ -137,6 +139,10 @@ public:
   void OnPlayerStandUp(std::uint64_t player_id) override;
   void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) override;
   void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) override;
+  void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
+                          bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) override;
+  void OnItemGroundDestroy(std::uint32_t item_ground_id) override;
+  void OnItemsGroundDestroy() override;
   void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) override;
   void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) override;

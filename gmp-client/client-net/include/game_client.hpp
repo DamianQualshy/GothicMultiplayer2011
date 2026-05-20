@@ -72,8 +72,11 @@ public:
   // Send methods
   void SendChatMessage(const std::string& msg);
   void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id);
-  void SendDropItem(std::uint16_t instance, std::uint16_t amount);
-  void SendTakeItem(std::uint16_t instance);
+  void SendDropItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
+                    const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled);
+  void SendTakeItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
+                    std::optional<std::uint32_t> item_ground_id);
+  void SendPlayerWorldEnter(const std::string& world_name);
   void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
@@ -127,6 +130,9 @@ private:
   void OnCastSpellOnTarget(Packet packet);
   void OnDropItem(Packet packet);
   void OnTakeItem(Packet packet);
+  void OnItemGroundCreate(Packet packet);
+  void OnItemGroundDestroy(Packet packet);
+  void OnItemsGroundDestroy(Packet packet);
   void OnGiveItem(Packet packet);
   void OnEquipItem(Packet packet);
   void OnUnequipItem(Packet packet);

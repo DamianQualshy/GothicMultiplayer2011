@@ -79,6 +79,7 @@ namespace {
 
 constexpr std::size_t kMaxWorldNameLength = 32;
 constexpr std::size_t kMaxPlayerNameLength = 64;
+constexpr std::uint32_t kItemGroundChannel = 14;
 constexpr const char* kBanListFileName = "bans.json";
 constexpr std::string_view kFrame = "-========================================-";
 
@@ -352,6 +353,10 @@ void BroadcastToRelevant(PlayerManager& player_manager, const PlayerManager::Pla
   }
 }
 
+bool CanSeeItemGround(const PlayerManager::Player& player, const ItemGroundManager::ItemGround& item_ground) {
+  return player.is_ingame && player.world == item_ground.world && player.virtual_world == item_ground.virtual_world;
+}
+
 void SendPlayerAttributeUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, PlayerAttributeId attribute_id,
                                std::int32_t value) {
   PlayerAttributeUpdatePacket packet{};
@@ -562,7 +567,8 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerTakeItemName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeHealthName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeManaName);
-  EventManager::Instance().RegisterEvent(kEventOnPlayerChangeWorldName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerWorldChangeName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerWorldEnterName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerWeaponModeChangeName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerEquipAmuletName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerEquipArmorName);
@@ -1027,6 +1033,9 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_TAKEITEM:
       HandleTakeItem(p);
       break;
+    case PT_PLAYER_WORLD_ENTER:
+      HandlePlayerWorldEnter(p);
+      break;
     case PT_GAME_INFO:  // na razie tylko czas
       HandleGameInfo(p);
       break;
@@ -1056,6 +1065,10 @@ unsigned char GameServer::GetPacketIdentifier(const Packet& p) {
 }
 
 void GameServer::DeleteFromPlayerList(PlayerId player_id) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (player_opt.has_value()) {
+    UnstreamGroundItemsFromPlayer(player_opt->get(), false);
+  }
   player_manager_.RemovePlayer(player_id);
 }
 
@@ -1491,16 +1504,34 @@ void GameServer::HandleDropItem(Packet p) {
   DropItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  packet.player_id = player.player_id;
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize DropItemPacket");
+    return;
+  }
 
-  EventManager::Instance().TriggerEvent(kEventOnPlayerDropItemName,
-                                        OnPlayerDropItemEvent{player.player_id, packet.item_instance, packet.item_amount});
+  auto instance = SanitizeServerText(packet.item_instance_name);
+  if (instance.empty()) {
+    SPDLOG_WARN("Player {} dropped item without an item instance name", player.player_id);
+    return;
+  }
 
-  player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
-    if (existing_player.player_id != player.player_id) {
-      SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
-    }
-  });
+  const auto amount = std::max<std::int32_t>(1, packet.item_amount);
+  ItemGroundManager::CreateOptions options;
+  options.instance = instance;
+  options.amount = amount;
+  options.physics_enabled = packet.physics_enabled;
+  options.position = packet.position;
+  options.rotation = packet.rotation;
+  options.world = player.world;
+  options.virtual_world = player.virtual_world;
+
+  const auto item_ground_id = CreateItemGround(std::move(options));
+  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerDropItemName,
+                                                       OnPlayerDropItemEvent{player.player_id, item_ground_id});
+  if (result.cancelled) {
+    DestroyItemGround(item_ground_id);
+    SendInventoryAddCorrection(player, instance, amount);
+  }
 }
 
 void GameServer::HandleTakeItem(Packet p) {
@@ -1513,15 +1544,243 @@ void GameServer::HandleTakeItem(Packet p) {
   TakeItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  packet.player_id = player.player_id;
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize TakeItemPacket");
+    return;
+  }
 
-  EventManager::Instance().TriggerEvent(kEventOnPlayerTakeItemName, OnPlayerTakeItemEvent{player.player_id, packet.item_instance});
+  if (!packet.item_ground_id.has_value()) {
+    SPDLOG_WARN("Player {} took item {} without an item ground id", player.player_id, packet.item_instance_name);
+    return;
+  }
 
-  player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
-    if (existing_player.player_id != player.player_id) {
-      SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
+  auto* item_ground = item_ground_manager_.Get(*packet.item_ground_id);
+  if (item_ground == nullptr) {
+    SPDLOG_WARN("Player {} tried to take missing item ground {}", player.player_id, *packet.item_ground_id);
+    return;
+  }
+
+  if (!CanSeeItemGround(player, *item_ground)) {
+    SPDLOG_WARN("Player {} tried to take item ground {} outside their world or virtual world", player.player_id,
+                *packet.item_ground_id);
+    return;
+  }
+
+  const auto instance = item_ground->instance;
+  const auto amount = item_ground->amount;
+  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerTakeItemName,
+                                                       OnPlayerTakeItemEvent{player.player_id, item_ground->id});
+  if (result.cancelled) {
+    SendItemGroundCreate(*item_ground, player.connection);
+    SendInventoryRemoveCorrection(player, instance, amount);
+    return;
+  }
+
+  DestroyItemGround(item_ground->id);
+}
+
+void GameServer::HandlePlayerWorldEnter(Packet p) {
+  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+  if (!player_opt.has_value() || !player_opt.value().get().is_ingame) {
+    return;
+  }
+
+  auto& player = player_opt.value().get();
+
+  PlayerWorldEnterPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize PlayerWorldEnterPacket");
+    return;
+  }
+
+  const auto entered_world = SanitizeWorldName(packet.world_name);
+  if (!entered_world.empty() && entered_world != player.world) {
+    SPDLOG_WARN("Player {} reported entering world '{}', but server state is '{}'", player.player_id, entered_world,
+                player.world);
+  }
+
+  EventManager::Instance().TriggerEvent(kEventOnPlayerWorldEnterName, OnPlayerWorldEnterEvent{player.player_id, player.world});
+  StreamRelevantGroundItemsToPlayer(player, true);
+}
+
+void GameServer::SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection) {
+  ItemGroundCreatePacket packet{};
+  packet.packet_type = PT_ITEM_GROUND_CREATE;
+  packet.item_ground_id = item_ground.id;
+  packet.item_instance = item_ground.instance;
+  packet.amount = item_ground.amount;
+  packet.physics_enabled = item_ground.physics_enabled;
+  packet.position = item_ground.position;
+  packet.rotation = item_ground.rotation;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+}
+
+void GameServer::SendItemGroundDestroy(std::uint32_t item_ground_id, Net::ConnectionHandle connection) {
+  ItemGroundDestroyPacket packet{};
+  packet.packet_type = PT_ITEM_GROUND_DESTROY;
+  packet.item_ground_id = item_ground_id;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+}
+
+void GameServer::SendItemGroundClear(Net::ConnectionHandle connection) {
+  ItemGroundClearPacket packet{};
+  packet.packet_type = PT_ITEM_GROUND_CLEAR;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+}
+
+void GameServer::StreamItemGroundToPlayer(ItemGroundManager::ItemGround& item_ground, Player& player, bool force) {
+  if (!CanSeeItemGround(player, item_ground)) {
+    return;
+  }
+
+  const bool newly_streamed = item_ground.streamed_to.insert(player.player_id).second;
+  if (newly_streamed || force) {
+    SendItemGroundCreate(item_ground, player.connection);
+  }
+}
+
+void GameServer::StreamRelevantGroundItemsToPlayer(Player& player, bool force) {
+  for (auto& [_, item_ground] : item_ground_manager_.Items()) {
+    StreamItemGroundToPlayer(item_ground, player, force);
+  }
+}
+
+void GameServer::UnstreamGroundItemsFromPlayer(Player& player, bool notify_client) {
+  bool had_streamed_items = false;
+  for (auto& [_, item_ground] : item_ground_manager_.Items()) {
+    had_streamed_items = item_ground.streamed_to.erase(player.player_id) > 0 || had_streamed_items;
+  }
+
+  if (notify_client && had_streamed_items && player.is_ingame) {
+    SendItemGroundClear(player.connection);
+  }
+}
+
+void GameServer::RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground) {
+  std::vector<PlayerId> stale_viewers;
+  stale_viewers.reserve(item_ground.streamed_to.size());
+
+  for (const auto player_id : item_ground.streamed_to) {
+    auto player_opt = player_manager_.GetPlayer(player_id);
+    if (!player_opt.has_value() || !CanSeeItemGround(player_opt->get(), item_ground)) {
+      stale_viewers.push_back(player_id);
+    } else {
+      SendItemGroundCreate(item_ground, player_opt->get().connection);
     }
-  });
+  }
+
+  for (const auto player_id : stale_viewers) {
+    item_ground.streamed_to.erase(player_id);
+    auto player_opt = player_manager_.GetPlayer(player_id);
+    if (player_opt.has_value() && player_opt->get().is_ingame) {
+      SendItemGroundDestroy(item_ground.id, player_opt->get().connection);
+    }
+  }
+
+  player_manager_.ForEachIngamePlayer([&](Player& player) { StreamItemGroundToPlayer(item_ground, player); });
+}
+
+void GameServer::SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount) {
+  if (instance.empty() || amount <= 0) {
+    return;
+  }
+
+  GiveItemPacket packet{};
+  packet.packet_type = PT_GIVEITEM;
+  packet.player_id = player.player_id;
+  packet.item_instance = instance;
+  packet.item_amount = amount;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+}
+
+void GameServer::SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount) {
+  if (instance.empty() || amount <= 0) {
+    return;
+  }
+
+  RemoveItemPacket packet{};
+  packet.packet_type = PT_REMOVEITEM;
+  packet.player_id = player.player_id;
+  packet.item_instance = instance;
+  packet.item_amount = amount;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+}
+
+std::uint32_t GameServer::CreateItemGround(ItemGroundManager::CreateOptions options) {
+  options.instance = SanitizeServerText(options.instance);
+  if (options.instance.size() > 255) {
+    options.instance.resize(255);
+  }
+  options.world = SanitizeWorldName(options.world.empty() ? server_world_ : options.world);
+  options.amount = std::max<std::int32_t>(1, options.amount);
+  options.virtual_world = std::clamp<std::int32_t>(options.virtual_world, 0, 65535);
+
+  auto& item_ground = item_ground_manager_.Create(std::move(options));
+  RefreshItemGroundStreaming(item_ground);
+  return item_ground.id;
+}
+
+bool GameServer::DestroyItemGround(std::uint32_t item_ground_id) {
+  auto* item_ground = item_ground_manager_.Get(item_ground_id);
+  if (item_ground == nullptr) {
+    return false;
+  }
+
+  const auto streamed_to = item_ground->streamed_to;
+  for (const auto player_id : streamed_to) {
+    auto player_opt = player_manager_.GetPlayer(player_id);
+    if (player_opt.has_value() && player_opt->get().is_ingame) {
+      SendItemGroundDestroy(item_ground_id, player_opt->get().connection);
+    }
+  }
+
+  return item_ground_manager_.Destroy(item_ground_id);
+}
+
+bool GameServer::SetItemGroundPosition(std::uint32_t item_ground_id, const glm::vec3& position) {
+  auto* item_ground = item_ground_manager_.Get(item_ground_id);
+  if (item_ground == nullptr) {
+    return false;
+  }
+
+  item_ground->position = position;
+  RefreshItemGroundStreaming(*item_ground);
+  return true;
+}
+
+bool GameServer::SetItemGroundRotation(std::uint32_t item_ground_id, const glm::vec3& rotation) {
+  auto* item_ground = item_ground_manager_.Get(item_ground_id);
+  if (item_ground == nullptr) {
+    return false;
+  }
+
+  item_ground->rotation = rotation;
+  RefreshItemGroundStreaming(*item_ground);
+  return true;
+}
+
+bool GameServer::SetItemGroundVirtualWorld(std::uint32_t item_ground_id, std::int32_t virtual_world) {
+  auto* item_ground = item_ground_manager_.Get(item_ground_id);
+  if (item_ground == nullptr) {
+    return false;
+  }
+
+  item_ground->virtual_world = std::clamp<std::int32_t>(virtual_world, 0, 65535);
+  RefreshItemGroundStreaming(*item_ground);
+  return true;
+}
+
+bool GameServer::SetItemGroundPhysicsEnabled(std::uint32_t item_ground_id, bool enabled) {
+  auto* item_ground = item_ground_manager_.Get(item_ground_id);
+  if (item_ground == nullptr) {
+    return false;
+  }
+
+  item_ground->physics_enabled = enabled;
+  RefreshItemGroundStreaming(*item_ground);
+  return true;
 }
 
 nlohmann::json GameServer::BuildMasterServerPayload() const {
@@ -1933,6 +2192,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   PopulatePlayerSpawnSnapshot(packet, player);
 
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+  StreamRelevantGroundItemsToPlayer(player, true);
 
   player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
     if (existing_player.player_id == player.player_id) {
@@ -2036,11 +2296,13 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   }
 
   if (world_changed) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeWorldName,
+    EventManager::Instance().TriggerEvent(kEventOnPlayerWorldChangeName,
                                           OnPlayerChangeWorldEvent{player.player_id, sanitized_world, start_point_name});
   }
 
   if (player.is_ingame && world_changed) {
+    UnstreamGroundItemsFromPlayer(player, true);
+
     DisconnectionInfoPacket left_packet;
     left_packet.packet_type = PT_LEFT_GAME;
     left_packet.disconnected_id = player.player_id;
@@ -2138,6 +2400,8 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   const bool virtual_world_changed = clamped_virtual_world != player.virtual_world;
 
   if (player.is_ingame && virtual_world_changed) {
+    UnstreamGroundItemsFromPlayer(player, true);
+
     DisconnectionInfoPacket left_packet;
     left_packet.packet_type = PT_LEFT_GAME;
     left_packet.disconnected_id = player.player_id;
@@ -2175,6 +2439,7 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   }
 
   SendExistingPlayersPacket(player);
+  StreamRelevantGroundItemsToPlayer(player);
 
   PlayerSpawnPacket spawn_packet;
   spawn_packet.packet_type = PT_PLAYER_SPAWN;

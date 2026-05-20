@@ -97,6 +97,10 @@ enum PacketID {
   PT_CASTSPELL,
   PT_CASTSPELLONTARGET,
   PT_VOICE,
+  PT_ITEM_GROUND_CREATE,
+  PT_ITEM_GROUND_DESTROY,
+  PT_ITEM_GROUND_CLEAR,
+  PT_PLAYER_WORLD_ENTER,
 };
 
 inline const char* PacketIDToString(PacketID id) {
@@ -221,6 +225,14 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_CASTSPELLONTARGET";
     case PT_VOICE:
       return "PT_VOICE";
+    case PT_ITEM_GROUND_CREATE:
+      return "PT_ITEM_GROUND_CREATE";
+    case PT_ITEM_GROUND_DESTROY:
+      return "PT_ITEM_GROUND_DESTROY";
+    case PT_ITEM_GROUND_CLEAR:
+      return "PT_ITEM_GROUND_CLEAR";
+    case PT_PLAYER_WORLD_ENTER:
+      return "PT_PLAYER_WORLD_ENTER";
   }
   return "UNKNOWN";
 }

@@ -1,6 +1,7 @@
 #include "spdlog_bind.h"
 
 #include <fmt/args.h>
+#include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
 #include "shared/event.h"
@@ -24,7 +25,11 @@ void log(std::string text, sol::variadic_args args) {
       store.push_back(arg.as<std::string>());
     }
   }
-  logFunc(fmt::vformat(text, store));
+  try {
+    logFunc(fmt::vformat(text, store));
+  } catch (const fmt::format_error& error) {
+    SPDLOG_ERROR("Lua log format error in '{}': {}", text, error.what());
+  }
 }
 
 void Bind_spdlog(sol::state& lua) {

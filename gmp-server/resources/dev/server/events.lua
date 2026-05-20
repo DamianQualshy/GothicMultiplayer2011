@@ -44,12 +44,12 @@ addEventHandler('onPlayerDeath', function(playerId, killerId)
     LOG_INFO("Player {} died (killer: {})", playerId, optionalIdToString(killerId))
 end)
 
-addEventHandler('onPlayerDropItem', function(playerId, itemInstance, amount)
-    LOG_INFO("Player {} dropped item {} x{}", playerId, itemInstance, amount)
+addEventHandler('onPlayerDropItem', function(playerId, itemGround)
+    LOG_INFO("Player {} dropped item ground {}: {} x{}", playerId, itemGround.id, itemGround.instance, itemGround.amount)
 end)
 
-addEventHandler('onPlayerTakeItem', function(playerId, itemInstance)
-    LOG_INFO("Player {} picked up item {}", playerId, itemInstance)
+addEventHandler('onPlayerTakeItem', function(playerId, itemGround)
+    LOG_INFO("Player {} picked up item ground {}: {} x{}", playerId, itemGround.id, itemGround.instance, itemGround.amount)
 end)
 
 addEventHandler('onPlayerWeaponModeChange', function(playerId, weaponModeOld, WeaponModeNew)
@@ -118,6 +118,14 @@ end)
 
 addEventHandler('onPlayerHit', function(attackerId, victimId, damage)
     LOG_INFO("{} hit {} for {} HP", optionalIdToString(attackerId), victimId, damage)
+end)
+
+addEventHandler("onPlayerWorldChange", function(playerId, world, waypoint)
+    LOG_INFO("Player {} requested world change to {} at {}", playerId, world, waypoint)
+end)
+
+addEventHandler("onPlayerWorldEnter", function(playerId, world)
+    LOG_INFO("Player {} entered world {}", playerId, world)
 end)
 
 

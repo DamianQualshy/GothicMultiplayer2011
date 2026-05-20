@@ -91,6 +91,9 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_CASTSPELLONTARGET] = [this](Packet p) { OnCastSpellOnTarget(p); };
   packet_handlers_[PT_DROPITEM] = [this](Packet p) { OnDropItem(p); };
   packet_handlers_[PT_TAKEITEM] = [this](Packet p) { OnTakeItem(p); };
+  packet_handlers_[PT_ITEM_GROUND_CREATE] = [this](Packet p) { OnItemGroundCreate(p); };
+  packet_handlers_[PT_ITEM_GROUND_DESTROY] = [this](Packet p) { OnItemGroundDestroy(p); };
+  packet_handlers_[PT_ITEM_GROUND_CLEAR] = [this](Packet p) { OnItemsGroundDestroy(p); };
   packet_handlers_[PT_GIVEITEM] = [this](Packet p) { OnGiveItem(p); };
   packet_handlers_[PT_EQUIPITEM] = [this](Packet p) { OnEquipItem(p); };
   packet_handlers_[PT_UNEQUIPITEM] = [this](Packet p) { OnUnequipItem(p); };
@@ -320,7 +323,7 @@ void GameClient::SendChatMessage(const std::string& msg) {
   packet.r = 255;
   packet.g = 255;
   packet.b = 255;
-  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE);
+  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE_ORDERED);
 }
 
 void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id) {
@@ -333,19 +336,35 @@ void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id) 
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
-void GameClient::SendDropItem(std::uint16_t instance, std::uint16_t amount) {
+void GameClient::SendDropItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
+                              const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled) {
   DropItemPacket packet;
   packet.packet_type = PT_DROPITEM;
   packet.item_instance = instance;
   packet.item_amount = amount;
+  packet.item_instance_name = instance_name;
+  packet.position = position;
+  packet.rotation = rotation;
+  packet.physics_enabled = physics_enabled;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
-void GameClient::SendTakeItem(std::uint16_t instance) {
+void GameClient::SendTakeItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
+                              std::optional<std::uint32_t> item_ground_id) {
   TakeItemPacket packet;
   packet.packet_type = PT_TAKEITEM;
   packet.item_instance = instance;
+  packet.item_amount = amount;
+  packet.item_instance_name = instance_name;
+  packet.item_ground_id = item_ground_id;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
+}
+
+void GameClient::SendPlayerWorldEnter(const std::string& world_name) {
+  PlayerWorldEnterPacket packet;
+  packet.packet_type = PT_PLAYER_WORLD_ENTER;
+  packet.world_name = world_name;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
 
 void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill) {
@@ -568,6 +587,43 @@ void GameClient::OnTakeItem(Packet p) {
   }
 
   event_observer_.OnItemTaken(*packet.player_id, packet.item_instance);
+}
+
+void GameClient::OnItemGroundCreate(Packet p) {
+  ItemGroundCreatePacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize ItemGroundCreatePacket");
+    return;
+  }
+
+  event_observer_.OnItemGroundCreate(packet.item_ground_id, packet.item_instance, packet.amount, packet.physics_enabled,
+                                     packet.position, packet.rotation);
+}
+
+void GameClient::OnItemGroundDestroy(Packet p) {
+  ItemGroundDestroyPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize ItemGroundDestroyPacket");
+    return;
+  }
+
+  event_observer_.OnItemGroundDestroy(packet.item_ground_id);
+}
+
+void GameClient::OnItemsGroundDestroy(Packet p) {
+  ItemGroundClearPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize ItemGroundClearPacket");
+    return;
+  }
+
+  event_observer_.OnItemsGroundDestroy();
 }
 
 void GameClient::OnGiveItem(Packet p) {

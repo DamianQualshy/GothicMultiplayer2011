@@ -922,6 +922,10 @@ struct DropItemPacket {
   std::uint8_t packet_type;
   std::int16_t item_instance;
   std::int16_t item_amount;
+  std::string item_instance_name;
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+  bool physics_enabled{true};
   std::optional<std::uint32_t> player_id;
 };
 
@@ -930,13 +934,20 @@ void serialize(S& s, DropItemPacket& packet) {
   s.value1b(packet.packet_type);
   s.value2b(packet.item_instance);
   s.value2b(packet.item_amount);
+  s.text1b(packet.item_instance_name, 255);
+  s.object(packet.position);
+  s.object(packet.rotation);
+  s.value1b(packet.physics_enabled);
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
 }
 
 inline std::ostream& operator<<(std::ostream& os, const DropItemPacket& packet) {
   os << "DropItemPacket {"
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_instance: " << packet.item_instance
-     << ", item_amount: " << packet.item_amount << " }";
+     << ", item_amount: " << packet.item_amount << ", item_instance_name: " << packet.item_instance_name
+     << ", position: (" << packet.position.x << ", " << packet.position.y << ", " << packet.position.z << ")"
+     << ", rotation: (" << packet.rotation.x << ", " << packet.rotation.y << ", " << packet.rotation.z << ")"
+     << ", physics_enabled: " << packet.physics_enabled << " }";
 
   if (packet.player_id) {
     os << ", player_id: " << *packet.player_id;
@@ -947,6 +958,9 @@ inline std::ostream& operator<<(std::ostream& os, const DropItemPacket& packet) 
 struct TakeItemPacket {
   std::uint8_t packet_type;
   std::int16_t item_instance;
+  std::int16_t item_amount{1};
+  std::string item_instance_name;
+  std::optional<std::uint32_t> item_ground_id;
   std::optional<std::uint32_t> player_id;
 };
 
@@ -954,16 +968,100 @@ template <typename S>
 void serialize(S& s, TakeItemPacket& packet) {
   s.value1b(packet.packet_type);
   s.value2b(packet.item_instance);
+  s.value2b(packet.item_amount);
+  s.text1b(packet.item_instance_name, 255);
+  s.ext4b(packet.item_ground_id, bitsery::ext::StdOptional{});
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
 }
 
 inline std::ostream& operator<<(std::ostream& os, const TakeItemPacket& packet) {
   os << "TakeItemPacket {"
-     << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_instance: " << packet.item_instance << " }";
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_instance: " << packet.item_instance
+     << ", item_amount: " << packet.item_amount << ", item_instance_name: " << packet.item_instance_name;
+
+  if (packet.item_ground_id) {
+    os << ", item_ground_id: " << *packet.item_ground_id;
+  }
+
+  os << " }";
 
   if (packet.player_id) {
     os << ", player_id: " << *packet.player_id;
   }
+  return os;
+}
+
+struct ItemGroundCreatePacket {
+  std::uint8_t packet_type;
+  std::uint32_t item_ground_id;
+  std::string item_instance;
+  std::int32_t amount{1};
+  bool physics_enabled{false};
+  glm::vec3 position{0.0f};
+  glm::vec3 rotation{0.0f};
+};
+
+template <typename S>
+void serialize(S& s, ItemGroundCreatePacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.item_ground_id);
+  s.text1b(packet.item_instance, 255);
+  s.value4b(packet.amount);
+  s.value1b(packet.physics_enabled);
+  s.object(packet.position);
+  s.object(packet.rotation);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const ItemGroundCreatePacket& packet) {
+  os << "ItemGroundCreatePacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_ground_id: " << packet.item_ground_id
+     << ", item_instance: " << packet.item_instance << ", amount: " << packet.amount
+     << ", physics_enabled: " << packet.physics_enabled << ", position: (" << packet.position.x << ", "
+     << packet.position.y << ", " << packet.position.z << "), rotation: (" << packet.rotation.x << ", "
+     << packet.rotation.y << ", " << packet.rotation.z << ") }";
+  return os;
+}
+
+struct ItemGroundDestroyPacket {
+  std::uint8_t packet_type;
+  std::uint32_t item_ground_id;
+};
+
+template <typename S>
+void serialize(S& s, ItemGroundDestroyPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.item_ground_id);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const ItemGroundDestroyPacket& packet) {
+  os << "ItemGroundDestroyPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", item_ground_id: " << packet.item_ground_id << " }";
+  return os;
+}
+
+struct ItemGroundClearPacket {
+  std::uint8_t packet_type;
+};
+
+template <typename S>
+void serialize(S& s, ItemGroundClearPacket& packet) {
+  s.value1b(packet.packet_type);
+}
+
+struct PlayerWorldEnterPacket {
+  std::uint8_t packet_type;
+  std::string world_name;
+};
+
+template <typename S>
+void serialize(S& s, PlayerWorldEnterPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.text1b(packet.world_name, 255);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerWorldEnterPacket& packet) {
+  os << "PlayerWorldEnterPacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", world_name: " << packet.world_name << " }";
   return os;
 }
 

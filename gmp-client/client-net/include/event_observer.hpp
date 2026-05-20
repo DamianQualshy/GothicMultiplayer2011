@@ -91,6 +91,10 @@ public:
   // Item events
   virtual void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {}
   virtual void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) {}
+  virtual void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
+                                  bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {}
+  virtual void OnItemGroundDestroy(std::uint32_t item_ground_id) {}
+  virtual void OnItemsGroundDestroy() {}
   virtual void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
   virtual void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {}
   virtual void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) {}

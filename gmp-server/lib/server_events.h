@@ -31,6 +31,8 @@ SOFTWARE.
 
 #include <glm/glm.hpp>
 
+#include "item_ground_manager.h"
+
 inline const std::string kEventOnTickName = "onTick";
 inline const std::string kEventOnClockUpdateName = "onClockUpdate";
 inline const std::string kEventOnPlayerConnectName = "onPlayerConnect";
@@ -45,7 +47,8 @@ inline const std::string kEventOnPlayerTakeItemName = "onPlayerTakeItem";
 inline const std::string kEventOnPlayerCastSpellName = "onPlayerCastSpell";
 inline const std::string kEventOnPlayerChangeHealthName = "onPlayerChangeHealth";
 inline const std::string kEventOnPlayerChangeManaName = "onPlayerChangeMana";
-inline const std::string kEventOnPlayerChangeWorldName = "onPlayerChangeWorld";
+inline const std::string kEventOnPlayerWorldChangeName = "onPlayerWorldChange";
+inline const std::string kEventOnPlayerWorldEnterName = "onPlayerWorldEnter";
 inline const std::string kEventOnPlayerWeaponModeChangeName = "onPlayerWeaponModeChange";
 inline const std::string kEventOnPlayerEquipAmuletName = "onPlayerEquipAmulet";
 inline const std::string kEventOnPlayerEquipArmorName = "onPlayerEquipArmor";
@@ -103,13 +106,12 @@ struct OnPlayerDeathEvent {
 
 struct OnPlayerDropItemEvent {
   std::uint64_t pid;
-  std::int16_t item_instance;
-  std::int16_t amount;
+  ItemGroundManager::ItemGroundId item_ground_id;
 };
 
 struct OnPlayerTakeItemEvent {
   std::uint64_t pid;
-  std::int16_t item_instance;
+  ItemGroundManager::ItemGroundId item_ground_id;
 };
 
 struct OnPlayerCastSpellEvent {
@@ -134,6 +136,11 @@ struct OnPlayerChangeWorldEvent {
   std::uint64_t player_id;
   std::string world;
   std::string waypoint;
+};
+
+struct OnPlayerWorldEnterEvent {
+  std::uint64_t player_id;
+  std::string world;
 };
 
 struct OnPlayerWeaponModeChangeEvent {

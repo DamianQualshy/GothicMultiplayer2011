@@ -34,6 +34,7 @@ SOFTWARE.
 #include <unordered_set>
 #include <vector>
 
+#include "item_ground.h"
 #include "net_game.h"
 #include "shared/event.h"
 #include "shared/lua_runtime/lua_value_codec.h"
@@ -340,12 +341,13 @@ void RegisterGothicEventProxies() {
 * @name     onDropItem
 * @side     client
 * @category Hero
-* @param    (string) item  Item instance.
+* @param    (string) item    Item instance.
+* @param    (number) amount  Item amount.
 *
 */
   g_gothic_event_proxies[kEventOnDropItemName] = [](LuaProxyArgs args) {
-    OnItemEvent event = std::any_cast<OnItemEvent>(args.event);
-    args.callback(event.item);
+    OnDropItemEvent event = std::any_cast<OnDropItemEvent>(args.event);
+    args.callback(event.item, event.amount);
   };
 
 /* luagmp (event)
@@ -358,11 +360,16 @@ void RegisterGothicEventProxies() {
 * @category Hero
 * @param    (string) item           Item instance.
 * @param    (boolean) synchronized  True when pickup is synchronized with the server.
+* @param    (number) amount         Item amount.
+* @param    (number) itemGroundId   Ground item id, or nil for non-server items.
 *
 */
   g_gothic_event_proxies[kEventOnTakeItemName] = [](LuaProxyArgs args) {
     OnTakeItemEvent event = std::any_cast<OnTakeItemEvent>(args.event);
-    args.callback(event.item, event.synchronized);
+    sol::state_view lua(args.callback.lua_state());
+    sol::object item_ground_id =
+        event.item_ground_id.has_value() ? sol::make_object(lua, *event.item_ground_id) : sol::make_object(lua, sol::lua_nil);
+    args.callback(event.item, event.synchronized, event.amount, item_ground_id);
   };
 
 /* luagmp (event)
@@ -382,6 +389,52 @@ void RegisterGothicEventProxies() {
   g_gothic_event_proxies[kEventOnUseItemName] = [](LuaProxyArgs args) {
     OnUseItemEvent event = std::any_cast<OnUseItemEvent>(args.event);
     args.callback(event.item, event.scheme, event.from, event.to);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when a server-side ground item is created for the client.
+*
+* @version  0.3.0
+* @name     onItemGroundCreate
+* @side     client
+* @category ItemGround
+* @param    (ItemGround) itemGround  Ground item object.
+*
+*/
+  g_gothic_event_proxies[kEventOnItemGroundCreateName] = [](LuaProxyArgs args) {
+    LuaItemGround event = std::any_cast<LuaItemGround>(args.event);
+    args.callback(event);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when a server-side ground item is destroyed for the client.
+*
+* @version  0.3.0
+* @name     onItemGroundDestroy
+* @side     client
+* @category ItemGround
+* @param    (ItemGround) itemGround  Ground item object.
+*
+*/
+  g_gothic_event_proxies[kEventOnItemGroundDestroyName] = [](LuaProxyArgs args) {
+    LuaItemGround event = std::any_cast<LuaItemGround>(args.event);
+    args.callback(event);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when all server-side ground items are destroyed during world or virtual-world changes.
+*
+* @version  0.3.0
+* @name     onItemsGroundDestroy
+* @side     client
+* @category ItemGround
+*
+*/
+  g_gothic_event_proxies[kEventOnItemsGroundDestroyName] = [](LuaProxyArgs args) {
+    args.callback();
   };
 
 /* luagmp (event)
@@ -541,6 +594,9 @@ void RegisterGothicEventsInManager() {
   EventManager::Instance().RegisterEvent(kEventOnDropItemName);
   EventManager::Instance().RegisterEvent(kEventOnTakeItemName);
   EventManager::Instance().RegisterEvent(kEventOnUseItemName);
+  EventManager::Instance().RegisterEvent(kEventOnItemGroundCreateName);
+  EventManager::Instance().RegisterEvent(kEventOnItemGroundDestroyName);
+  EventManager::Instance().RegisterEvent(kEventOnItemsGroundDestroyName);
   EventManager::Instance().RegisterEvent(kEventOnUnequipName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCreateName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDestroyName);

@@ -88,7 +88,7 @@ inline int script_exception_handler(lua_State* L, sol::optional<const std::excep
   if (maybe_exception) {
     SPDLOG_ERROR("(straight from the exception): ");
     const std::exception& ex = *maybe_exception;
-    SPDLOG_ERROR(ex.what());
+    SPDLOG_ERROR("{}", ex.what());
   } else {
     SPDLOG_ERROR("(from the description parameter): ");
     SPDLOG_ERROR("{}", description.data());

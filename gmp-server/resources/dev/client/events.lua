@@ -81,12 +81,12 @@ addEventHandler("onUnequip", function(item)
     LOG_INFO("onUnequip -> {} ", item)
 end)
 
-addEventHandler("onDropItem", function(item)
-    LOG_INFO("onDropItem -> {} ", item)
+addEventHandler("onDropItem", function(item, amount)
+    LOG_INFO("onDropItem -> {} x{}", item, amount)
 end)
 
-addEventHandler("onTakeItem", function(item)
-    LOG_INFO("onTakeItem -> {} ", item)
+addEventHandler("onTakeItem", function(item, synchronized, amount, itemGroundId)
+    LOG_INFO("onTakeItem -> {} x{} synchronized={} itemGroundId={}", item, amount, synchronized, itemGroundId)
 end)
 
 addEventHandler("onUseItem", function(item, scheme, from, to)

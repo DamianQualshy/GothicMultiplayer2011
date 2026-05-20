@@ -54,6 +54,9 @@ constexpr const char* kEventOnEquipName = "onEquip";
 constexpr const char* kEventOnDropItemName = "onDropItem";
 constexpr const char* kEventOnTakeItemName = "onTakeItem";
 constexpr const char* kEventOnUseItemName = "onUseItem";
+constexpr const char* kEventOnItemGroundCreateName = "onItemGroundCreate";
+constexpr const char* kEventOnItemGroundDestroyName = "onItemGroundDestroy";
+constexpr const char* kEventOnItemsGroundDestroyName = "onItemsGroundDestroy";
 constexpr const char* kEventOnUnequipName = "onUnequip";
 constexpr const char* kEventOnPlayerCreateName = "onPlayerCreate";
 constexpr const char* kEventOnPlayerDestroyName = "onPlayerDestroy";
@@ -110,9 +113,16 @@ struct OnItemEvent {
   std::string item;
 };
 
+struct OnDropItemEvent {
+  std::string item;
+  int amount;
+};
+
 struct OnTakeItemEvent {
   std::string item;
   bool synchronized;
+  int amount;
+  std::optional<std::uint32_t> item_ground_id;
 };
 
 struct OnUseItemEvent {

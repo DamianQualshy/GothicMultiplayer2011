@@ -55,6 +55,7 @@ struct Response;
 #include "common_structs.h"
 #include "config.h"
 #include "player_manager.h"
+#include "item_ground_manager.h"
 #include "resource_manager.h"
 #include "resource_server.h"
 #include "znet_server.h"
@@ -170,6 +171,18 @@ public:
   std::string GetPlayerIp(PlayerId player_id) const;
   std::string GetPlayerMacAddress(PlayerId player_id) const;
   std::string GetPlayerUUID(PlayerId player_id) const;
+  std::uint32_t CreateItemGround(ItemGroundManager::CreateOptions options);
+  bool DestroyItemGround(std::uint32_t item_ground_id);
+  bool SetItemGroundPosition(std::uint32_t item_ground_id, const glm::vec3& position);
+  bool SetItemGroundRotation(std::uint32_t item_ground_id, const glm::vec3& rotation);
+  bool SetItemGroundVirtualWorld(std::uint32_t item_ground_id, std::int32_t virtual_world);
+  bool SetItemGroundPhysicsEnabled(std::uint32_t item_ground_id, bool enabled);
+  ItemGroundManager& GetItemGroundManager() {
+    return item_ground_manager_;
+  }
+  const ItemGroundManager& GetItemGroundManager() const {
+    return item_ground_manager_;
+  }
 
   PlayerManager& GetPlayerManager() {
     return player_manager_;
@@ -185,6 +198,7 @@ private:
   void HandleCastSpell(Packet p, bool target);
   void HandleDropItem(Packet p);
   void HandleTakeItem(Packet p);
+  void HandlePlayerWorldEnter(Packet p);
   void HandleLuaEvent(Packet p);
   void HandleVoice(Packet p);
   void SomeoneJoinGame(Packet p);
@@ -206,6 +220,15 @@ private:
   void SendSkySettings(Net::ConnectionHandle connection);
   void SendExistingPlayersPacket(Player& target_player);
   bool RespawnPlayerInternal(Player& player);
+  void SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection);
+  void SendItemGroundDestroy(std::uint32_t item_ground_id, Net::ConnectionHandle connection);
+  void SendItemGroundClear(Net::ConnectionHandle connection);
+  void StreamItemGroundToPlayer(ItemGroundManager::ItemGround& item_ground, Player& player, bool force = false);
+  void StreamRelevantGroundItemsToPlayer(Player& player, bool force = false);
+  void UnstreamGroundItemsFromPlayer(Player& player, bool notify_client);
+  void RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground);
+  void SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount);
+  void SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount);
 
   std::unique_ptr<BanManager> ban_manager_;
   std::unique_ptr<LuaScript> lua_script_;
@@ -219,6 +242,7 @@ private:
   int serverPort;
   unsigned short maxConnections;
   PlayerManager player_manager_;
+  ItemGroundManager item_ground_manager_;
   bool allow_modification = false;
   Config config_;
   std::unique_ptr<GothicClock> clock_;

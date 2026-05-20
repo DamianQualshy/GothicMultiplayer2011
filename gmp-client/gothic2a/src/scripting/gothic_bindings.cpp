@@ -39,6 +39,7 @@ SOFTWARE.
 #include "patch.h"
 #include "gmp_core.h"
 #include "Interface.h"
+#include "item_ground.h"
 
 #include "lua_discord.h"
 #include "lua_draw.h"
@@ -2034,6 +2035,7 @@ void BindGothicSpecific(sol::state& lua) {
   BindWay(lua);
   BindSky(lua);
   BindInterface(lua);
+  BindItemGround(lua);
 
   lua["setTime"] = Function_SetTime;
   lua["getTime"] = Function_GetTime;

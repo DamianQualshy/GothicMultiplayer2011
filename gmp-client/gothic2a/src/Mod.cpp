@@ -25,6 +25,8 @@ SOFTWARE.
 
 #include "Mod.h"
 
+#include <algorithm>
+#include <cmath>
 #include <ctime>
 #include <memory>
 #include <optional>
@@ -45,6 +47,7 @@ SOFTWARE.
 #include "gmp_core.h"
 #include "hooking/AsmPatch.h"
 #include "hooking/MemoryPatch.h"
+#include "scripting/item_ground.h"
 #include "language.h"
 #include "main_menu.h"
 #include "net_game.h"
@@ -68,7 +71,8 @@ bool MultiplayerLaunched = false;
 namespace {
 
 constexpr DWORD kCastSpellHookAddress = 0x00485360;
-constexpr DWORD kDropItemHookAddress = 0x007538C0;
+// Hook DoDropVob, not EV_DropVob, so the dropped item has a world transform.
+constexpr DWORD kDropItemHookAddress = 0x00744DD0;
 constexpr DWORD kTakeItemHookAddress = 0x007534E0;
 constexpr DWORD kUseItemHookAddress = 0x00755620;
 constexpr DWORD kUseItemToStateHookAddress = 0x007558F0;
@@ -83,7 +87,7 @@ constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
 constexpr DWORD kOnDamageHitHookAddress = 0x00666610;
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
-using DropItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
+using DropItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
 using TakeItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
 using UseItemOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
 using UseItemToStateOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
@@ -169,8 +173,43 @@ std::string ResolveItemSchemeName(oCMsgManipulate* msg) {
   return msg->name.ToChar();
 }
 
+glm::vec3 ToGlmVec3(const zVEC3& vec) {
+  return glm::vec3(vec[VX], vec[VY], vec[VZ]);
+}
+
+bool IsZeroVector(const glm::vec3& vec) {
+  return std::abs(vec.x) < 0.001f && std::abs(vec.y) < 0.001f && std::abs(vec.z) < 0.001f;
+}
+
+glm::vec3 GetItemPosition(oCItem* item) {
+  if (!item) {
+    return glm::vec3{0.0f};
+  }
+
+  return ToGlmVec3(item->GetNewTrafoObjToWorld().GetTranslation());
+}
+
+glm::vec3 GetItemRotation(oCItem* item) {
+  if (!item) {
+    return glm::vec3{0.0f};
+  }
+
+  return ToGlmVec3(item->GetNewTrafoObjToWorld().GetEulerAngles());
+}
+
+glm::vec3 GetDropFallbackPosition(oCNpc* npc) {
+  if (!npc) {
+    return glm::vec3{0.0f};
+  }
+
+  glm::vec3 position = ToGlmVec3(npc->GetTrafoModelNodeToWorld("ZS_RIGHTHAND").GetTranslation());
+  if (IsZeroVector(position)) {
+    position = ToGlmVec3(npc->GetPositionWorld());
+  }
+  return position;
+}
+
 std::unordered_set<std::string> s_local_equipped_items;
-std::unordered_map<oCNpc*, const oCMsgManipulate*> s_last_drop_msg;
 std::unordered_map<oCNpc*, const oCMsgManipulate*> s_last_take_msg;
 
 struct LastUseState {
@@ -397,39 +436,65 @@ bool ShouldEmitMessageOnce(std::unordered_map<oCNpc*, const oCMsgManipulate*>& c
 const int DROP_ITEM_TIMEOUT = 200;
 
 // DROP & TAKE
-int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
-  oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
-  int result = g_originalDropItem ? g_originalDropItem(thisNpc, msg) : 0;
-
+int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, zCVob* vob) {
+  oCItem* item = vob ? zDYNAMIC_CAST<oCItem>(vob) : nullptr;
   if (thisNpc != player || !item) {
-    return result;
+    return g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
   }
 
   static int dropItemTimeout = 0;
-  if (global_ingame && dropItemTimeout < GetTickCount() && ShouldEmitMessageOnce(s_last_drop_msg, thisNpc, msg)) {
-    NetGame::Instance().SendDropItem(item->GetInstance(), item->amount);
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnDropItemName, gmp::gothic::OnItemEvent{ResolveItemInstanceName(item)});
+  if (global_ingame && dropItemTimeout < GetTickCount()) {
+    const auto instance_name = ResolveItemInstanceName(item);
+    const auto amount = static_cast<short>(std::max(1, item->amount));
+    auto event_result = EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnDropItemName,
+                                                               gmp::gothic::OnDropItemEvent{instance_name, amount});
+    if (event_result.cancelled) {
+      return 0;
+    }
+
+    const glm::vec3 fallback_position = GetDropFallbackPosition(thisNpc);
+    int result = g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
+    glm::vec3 position = GetItemPosition(item);
+    if (IsZeroVector(position) && !IsZeroVector(fallback_position)) {
+      position = fallback_position;
+    }
+
+    NetGame::Instance().SendDropItem(item->GetInstance(), amount, instance_name, position, GetItemRotation(item), item->physicsEnabled != 0);
+    item->RemoveVobFromWorld();
     dropItemTimeout = GetTickCount() + DROP_ITEM_TIMEOUT;
+    return result;
   }
 
-  return result;
+  return g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
 }
 
 int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
-  int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
-
   if (thisNpc != player) {
-    return result;
+    return g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
   }
 
   oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
   if (item && global_ingame && ShouldEmitMessageOnce(s_last_take_msg, thisNpc, msg)) {
-    NetGame::Instance().SendTakeItem(item->GetInstance());
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnTakeItemName,
-                                          gmp::gothic::OnTakeItemEvent{ResolveItemInstanceName(item), true});
+    const auto instance_name = ResolveItemInstanceName(item);
+    const auto instance_id = item->GetInstance();
+    const auto amount = static_cast<short>(std::max(1, item->amount));
+    const auto item_ground_id = gmp::gothic::ClientItemGroundManager::Instance().GetIdByItem(item);
+    auto event_result =
+        EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnTakeItemName,
+                                               gmp::gothic::OnTakeItemEvent{instance_name, true, amount, item_ground_id});
+    if (event_result.cancelled) {
+      return 0;
+    }
+
+    int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
+    if (item_ground_id.has_value()) {
+      gmp::gothic::ClientItemGroundManager::Instance().DetachItem(*item_ground_id);
+    }
+    NetGame::Instance().SendTakeItem(instance_id, amount, instance_name, item_ground_id);
+    return result;
   }
 
-  return result;
+  return g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
 }
 
 bool ShouldEmitUseItem(oCNpc* npc, oCMsgManipulate* msg) {

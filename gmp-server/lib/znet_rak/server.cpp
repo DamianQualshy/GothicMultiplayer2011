@@ -91,14 +91,16 @@ void RakNetServer::Pulse() {
 
 bool RakNetServer::Send(unsigned char* data, std::uint32_t size, PacketPriority packetPriority, PacketReliability packetReliability,
                         std::uint32_t channel, ConnectionHandle id) {
-  peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority), ToRakNetPacketReliability(packetReliability), 0,
-              RakNet::RakNetGUID(id), false);
+  const auto ordering_channel = static_cast<char>(std::min<std::uint32_t>(channel, 31));
+  peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority), ToRakNetPacketReliability(packetReliability),
+              ordering_channel, RakNet::RakNetGUID(id), false);
   return true;
 }
 bool RakNetServer::Send(const char* data, std::uint32_t size, PacketPriority packetPriority, PacketReliability packetReliability,
                         std::uint32_t channel, ConnectionHandle id) {
-  peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority), ToRakNetPacketReliability(packetReliability), 0,
-              RakNet::RakNetGUID(id), false);
+  const auto ordering_channel = static_cast<char>(std::min<std::uint32_t>(channel, 31));
+  peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority), ToRakNetPacketReliability(packetReliability),
+              ordering_channel, RakNet::RakNetGUID(id), false);
   return true;
 }
 

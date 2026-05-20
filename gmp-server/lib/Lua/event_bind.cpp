@@ -36,6 +36,7 @@ SOFTWARE.
 #include "../server_events.h"
 #include "../resource_manager.h"
 #include "lua.h"
+#include "lua_item_ground.h"
 #include "shared/event.h"
 #include "shared/lua_runtime/lua_value_codec.h"
 
@@ -235,13 +236,12 @@ void RegisterProxies() {
 * @side     server
 * @category Player
 * @param    (number) player_id        Player id who dropped the item.
-* @param    (number) item_instance    Item instance id.
-* @param    (number) amount           Amount dropped.
+* @param    (ItemGround) item_ground  Ground item object.
 *
 */
   kLuaEventProxies[kEventOnPlayerDropItemName] = {[](LuaProxyArgs args) {
     OnPlayerDropItemEvent drop_item_event = std::any_cast<OnPlayerDropItemEvent>(args.event);
-    args.callback(drop_item_event.pid, drop_item_event.item_instance, drop_item_event.amount);
+    args.callback(drop_item_event.pid, LuaItemGround(drop_item_event.item_ground_id));
   }};
 
 /* luagmp (event)
@@ -253,12 +253,12 @@ void RegisterProxies() {
 * @side     server
 * @category Player
 * @param    (number) player_id        Player id who took the item.
-* @param    (number) item_instance    Item instance id.
+* @param    (ItemGround) item_ground  Ground item object.
 *
 */
   kLuaEventProxies[kEventOnPlayerTakeItemName] = {[](LuaProxyArgs args) {
     OnPlayerTakeItemEvent take_item_event = std::any_cast<OnPlayerTakeItemEvent>(args.event);
-    args.callback(take_item_event.pid, take_item_event.item_instance);
+    args.callback(take_item_event.pid, LuaItemGround(take_item_event.item_ground_id));
   }};
 
 /* luagmp (event)
@@ -322,7 +322,7 @@ void RegisterProxies() {
 * This event is triggered when player tries to change the played world (ZEN).
 *
 * @version  0.3.0
-* @name     onPlayerChangeWorld
+* @name     onPlayerWorldChange
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player who tries to change the played world.
@@ -330,9 +330,26 @@ void RegisterProxies() {
 * @param    (string) waypoint     The name of the waypoint that the player will be teleported to.
 *
 */
-  kLuaEventProxies[kEventOnPlayerChangeWorldName] = {[](LuaProxyArgs args) {
+  kLuaEventProxies[kEventOnPlayerWorldChangeName] = {[](LuaProxyArgs args) {
     OnPlayerChangeWorldEvent world_event = std::any_cast<OnPlayerChangeWorldEvent>(args.event);
     args.callback(world_event.player_id, world_event.world, world_event.waypoint);
+  }};
+
+/* luagmp (event)
+*
+* This event is triggered when player entered the world and was spawned in it.
+*
+* @version  0.3.0
+* @name     onPlayerWorldEnter
+* @side     server
+* @category Player
+* @param    (number) player_id    The id of the player who entered the world.
+* @param    (string) world        The filename of the world.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerWorldEnterName] = {[](LuaProxyArgs args) {
+    OnPlayerWorldEnterEvent world_event = std::any_cast<OnPlayerWorldEnterEvent>(args.event);
+    args.callback(world_event.player_id, world_event.world);
   }};
 
 /* luagmp (event)

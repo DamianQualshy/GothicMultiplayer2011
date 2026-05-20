@@ -9,6 +9,7 @@ require('client.sound')
 require('client.font')
 require('client.events')
 require('client.functions')
+require('client.items')
 
 LOG_INFO('[Dev][Client] Client-side resources initialized from main.lua')
 

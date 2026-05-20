@@ -51,9 +51,11 @@ SOFTWARE.
 
 #include "CChat.h"
 #include "CIngame.h"
+#include "CActiveAniID.h"
 #include "Interface.h"
 #include "ZenGin/zGothicAPI.h"
 #include "config.h"
+#include "scripting/item_ground.h"
 #include "language.h"
 #include "net_enums.h"
 #include "packets.h"
@@ -551,8 +553,11 @@ void NetGame::UpdateClientEventState() {
     std::string world_name = ogame->GetGameWorld()->GetWorldFilename().ToChar();
     if (!world_name.empty() && world_name != last_world_name_) {
       EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldEnterName, gmp::gothic::OnWorldEnterEvent{world_name});
+      SendPlayerWorldEnter(world_name);
       last_world_name_ = world_name;
     }
+
+    gmp::gothic::ClientItemGroundManager::Instance().RefreshPending();
   }
 
   if (game_client && IsConnected()) {
@@ -644,6 +649,9 @@ void NetGame::JoinGame() {
 }
 
 void NetGame::SendMessage(const char* msg) {
+  if (IsInGame && player != nullptr && game_client && game_client->player_manager().HasLocalPlayer()) {
+    UpdatePlayerStats(static_cast<short>(CActiveAniID::GetInstance()->GetAniID()));
+  }
   game_client->SendChatMessage(msg);
 }
 
@@ -660,12 +668,20 @@ void NetGame::SendCastSpell(oCNpc* Target, short SpellId) {
   game_client->SendCastSpell(target_id, static_cast<std::uint16_t>(SpellId));
 }
 
-void NetGame::SendDropItem(short instance, short amount) {
-  game_client->SendDropItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount));
+void NetGame::SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position,
+                           const glm::vec3& rotation, bool physics_enabled) {
+  game_client->SendDropItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, position,
+                            rotation, physics_enabled);
 }
 
-void NetGame::SendTakeItem(short instance) {
-  game_client->SendTakeItem(static_cast<std::uint16_t>(instance));
+void NetGame::SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id) {
+  game_client->SendTakeItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, item_ground_id);
+}
+
+void NetGame::SendPlayerWorldEnter(const std::string& world_name) {
+  if (game_client && IsConnected()) {
+    game_client->SendPlayerWorldEnter(world_name);
+  }
 }
 
 void NetGame::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill) {
@@ -927,6 +943,9 @@ void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   players.insert(players.begin(), local_player);
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerCreateName, gmp::gothic::PlayerLifecycleEvent{player.id()});
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
+  if (ogame && ogame->GetGameWorld()) {
+    SendPlayerWorldEnter(ogame->GetGameWorld()->GetWorldFilename().ToChar());
+  }
 
 #ifndef NDEBUG
   // Spawn Quarhodron NPC near the player
@@ -1687,6 +1706,19 @@ void NetGame::OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) 
       }
     }
   }
+}
+
+void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
+                                 bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {
+  gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, item_instance, amount, physics_enabled, position, rotation);
+}
+
+void NetGame::OnItemGroundDestroy(std::uint32_t item_ground_id) {
+  gmp::gothic::ClientItemGroundManager::Instance().Destroy(item_ground_id, true);
+}
+
+void NetGame::OnItemsGroundDestroy() {
+  gmp::gothic::ClientItemGroundManager::Instance().Clear(true);
 }
 
 void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {
