@@ -61,7 +61,7 @@ public:
   void SendTakeItem(short Instance);
   void SendCastSpell(oCNpc* Target, short SpellId);
   void SendMessage(const char* msg);
-  void SendPlayerHit(std::uint32_t victim_id, std::int16_t health);
+  void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
@@ -133,6 +133,8 @@ public:
   void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) override;
   void OnPlayerDied(std::uint64_t player_id) override;
   void OnPlayerRespawned(std::uint64_t player_id) override;
+  void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) override;
+  void OnPlayerStandUp(std::uint64_t player_id) override;
   void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) override;
   void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) override;
   void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;

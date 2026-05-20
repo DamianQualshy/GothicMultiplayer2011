@@ -628,14 +628,15 @@ void RegisterProxies() {
 * @category Player
 * @param    (number) attacker_id  Optional attacker id (nil if none).
 * @param    (number) victim_id     Victim player id.
-* @param    (number) damage        Damage dealt.
+* @param    (number) damage        Damage to deal. Use eventValue(newDamage) to change it, or cancelEvent() to prevent it.
+* @param    (number) damageType    Gothic damage type/mode flags.
 *
 */
   kLuaEventProxies[kEventOnPlayerHitName] = {[](LuaProxyArgs args) {
     OnPlayerHitEvent player_hit_event = std::any_cast<OnPlayerHitEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object attacker = player_hit_event.attacker_id.has_value() ? sol::make_object(lua, player_hit_event.attacker_id.value()) : sol::lua_nil;
-    args.callback(attacker, player_hit_event.victim_id, player_hit_event.damage);
+    args.callback(attacker, player_hit_event.victim_id, player_hit_event.damage, player_hit_event.damage_type);
   }};
 }
 

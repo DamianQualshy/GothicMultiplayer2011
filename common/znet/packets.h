@@ -1172,34 +1172,42 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerRespawnInfoPacket&
 struct PlayerHitReportPacket {
   std::uint8_t packet_type;
   std::uint32_t victim_id;
-  std::int16_t health;
+  std::int32_t damage;
+  std::uint32_t damage_type{0};
+  bool dont_kill{false};
 };
 
 template <typename S>
 void serialize(S& s, PlayerHitReportPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.victim_id);
-  s.value2b(packet.health);
+  s.value4b(packet.damage);
+  s.value4b(packet.damage_type);
+  s.value1b(packet.dont_kill);
 }
 
 struct PlayerUnconsciousPacket {
   std::uint8_t packet_type;
+  std::uint32_t player_id{0};
   std::optional<std::uint32_t> attacker_id;
 };
 
 template <typename S>
 void serialize(S& s, PlayerUnconsciousPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
   s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
 }
 
 struct PlayerStandUpPacket {
   std::uint8_t packet_type;
+  std::uint32_t player_id{0};
 };
 
 template <typename S>
 void serialize(S& s, PlayerStandUpPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.player_id);
 }
 
 struct PlayerDeathReportPacket {

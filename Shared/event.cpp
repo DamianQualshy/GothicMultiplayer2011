@@ -58,11 +58,11 @@ bool EventManager::TriggerEvent(const std::string& eventName) {
 EventManager::EventDispatchResult EventManager::DispatchEvent(const std::string& eventName, const std::any& event) {
   auto it = events_.find(eventName);
   if (it == events_.end()) {
-    return {false, false};
+    return {false, false, std::nullopt};
   }
 
   if (!it->second.enabled) {
-    return {false, false};
+    return {false, false, std::nullopt};
   }
 
   context_stack_.emplace_back();
@@ -71,8 +71,9 @@ EventManager::EventDispatchResult EventManager::DispatchEvent(const std::string&
   }
 
   bool cancelled = context_stack_.back().cancelled;
+  auto value = context_stack_.back().value;
   context_stack_.pop_back();
-  return {true, cancelled};
+  return {true, cancelled, value};
 }
 
 bool EventManager::UnsubscribeFromEvent(const std::string& eventName, EventHandlerId handler_id) {

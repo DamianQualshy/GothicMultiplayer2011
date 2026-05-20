@@ -116,6 +116,8 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_ATTRIBUTE_UPDATE] = [this](Packet p) { OnPlayerAttributeUpdate(p); };
   packet_handlers_[PT_PLAYER_ATTRIBUTE_SNAPSHOT] = [this](Packet p) { OnPlayerAttributeSnapshot(p); };
   packet_handlers_[PT_PLAYER_WORLD_UPDATE] = [this](Packet p) { OnPlayerWorldUpdate(p); };
+  packet_handlers_[PT_PLAYER_UNCONSCIOUS] = [this](Packet p) { OnPlayerUnconscious(p); };
+  packet_handlers_[PT_PLAYER_STANDUP] = [this](Packet p) { OnPlayerStandUp(p); };
   packet_handlers_[PT_GAME_INFO] = [this](Packet p) { OnGameInfo(p); };
   packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
@@ -346,17 +348,20 @@ void GameClient::SendTakeItem(std::uint16_t instance) {
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
-void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int16_t health) {
+void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill) {
   PlayerHitReportPacket packet;
   packet.packet_type = PT_PLAYER_HIT;
   packet.victim_id = victim_id;
-  packet.health = health;
+  packet.damage = damage;
+  packet.damage_type = damage_type;
+  packet.dont_kill = dont_kill;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
 
 void GameClient::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id) {
   PlayerUnconsciousPacket packet;
   packet.packet_type = PT_PLAYER_UNCONSCIOUS;
+  packet.player_id = 0;
   packet.attacker_id = attacker_id;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
@@ -364,6 +369,7 @@ void GameClient::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id)
 void GameClient::SendPlayerStandUp() {
   PlayerStandUpPacket packet;
   packet.packet_type = PT_PLAYER_STANDUP;
+  packet.player_id = 0;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
 
@@ -485,6 +491,14 @@ void GameClient::OnDoDie(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
+  Player* player = player_manager_.GetPlayer(packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player) {
+    player->set_health(0);
+  }
+
   event_observer_.OnPlayerDied(packet.player_id);
 }
 
@@ -492,6 +506,14 @@ void GameClient::OnRespawn(Packet p) {
   PlayerRespawnInfoPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  Player* player = player_manager_.GetPlayer(packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player) {
+    player->set_health(player->max_health());
+  }
 
   event_observer_.OnPlayerRespawned(packet.player_id);
 }
@@ -1211,6 +1233,50 @@ void GameClient::OnPlayerWorldUpdate(Packet p) {
   SPDLOG_DEBUG("PlayerWorldUpdatePacket: {}", packet);
 
   event_observer_.OnPlayerWorldUpdate(packet.player_id, packet.world_name, packet.start_point);
+}
+
+void GameClient::OnPlayerUnconscious(Packet p) {
+  PlayerUnconsciousPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize PlayerUnconsciousPacket");
+    return;
+  }
+  if (packet.player_id == 0) {
+    SPDLOG_WARN("PlayerUnconsciousPacket missing player id");
+    return;
+  }
+
+  Player* player = player_manager_.GetPlayer(packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player) {
+    player->set_health(1);
+  }
+
+  std::optional<std::uint64_t> attacker_id;
+  if (packet.attacker_id.has_value()) {
+    attacker_id = packet.attacker_id.value();
+  }
+  event_observer_.OnPlayerUnconscious(packet.player_id, attacker_id);
+}
+
+void GameClient::OnPlayerStandUp(Packet p) {
+  PlayerStandUpPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize PlayerStandUpPacket");
+    return;
+  }
+  if (packet.player_id == 0) {
+    SPDLOG_WARN("PlayerStandUpPacket missing player id");
+    return;
+  }
+
+  event_observer_.OnPlayerStandUp(packet.player_id);
 }
 
 void GameClient::OnGameInfo(Packet p) {

@@ -42,6 +42,7 @@ public:
   struct EventDispatchResult {
     bool dispatched = false;
     bool cancelled = false;
+    std::optional<int> value;
   };
 
   EventManager() = default;

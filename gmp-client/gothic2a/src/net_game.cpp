@@ -668,8 +668,8 @@ void NetGame::SendTakeItem(short instance) {
   game_client->SendTakeItem(static_cast<std::uint16_t>(instance));
 }
 
-void NetGame::SendPlayerHit(std::uint32_t victim_id, std::int16_t health) {
-  game_client->SendPlayerHit(victim_id, health);
+void NetGame::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill) {
+  game_client->SendPlayerHit(victim_id, damage, damage_type, dont_kill);
 }
 
 void NetGame::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id) {
@@ -1609,6 +1609,52 @@ void NetGame::OnPlayerRespawned(std::uint64_t player_id) {
     cplayer->RespawnPlayer();
   }
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerRespawnName, gmp::gothic::PlayerLifecycleEvent{player_id});
+}
+
+void NetGame::OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  oCNpc* npc = cplayer->GetNpc();
+  if (npc->IsDead()) {
+    if (cplayer->IsLocalPlayer()) {
+      npc->RefreshNpc();
+      npc->SetMovLock(0);
+      npc->SetWeaponMode(NPC_WEAPON_NONE);
+    }
+    auto pos = npc->GetPositionWorld();
+    npc->ResetPos(pos);
+  }
+
+  cplayer->base_player().set_health(1);
+  cplayer->base_player().set_update_health_packet_counter(0);
+  cplayer->SetHealth(1);
+
+  if (npc->IsUnconscious()) {
+    return;
+  }
+
+  oCNpc* attacker = nullptr;
+  if (attacker_id.has_value()) {
+    if (Gothic2APlayer* attacker_player = GetPlayerById(attacker_id.value())) {
+      attacker = attacker_player->GetNpc();
+    }
+  }
+  npc->DropUnconscious(999999.0f, attacker);
+}
+
+void NetGame::OnPlayerStandUp(std::uint64_t player_id) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  if (!cplayer || !cplayer->GetNpc()) {
+    return;
+  }
+
+  oCNpc* npc = cplayer->GetNpc();
+  if (!npc->IsDead() && npc->IsUnconscious()) {
+    npc->StandUp(0, 0);
+  }
 }
 
 void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {

@@ -219,4 +219,5 @@ struct OnPlayerHitEvent {
   std::optional<std::uint64_t> attacker_id;
   std::uint64_t victim_id;
   std::int16_t damage;
+  std::uint32_t damage_type;
 };

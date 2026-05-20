@@ -74,7 +74,7 @@ public:
   void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id);
   void SendDropItem(std::uint16_t instance, std::uint16_t amount);
   void SendTakeItem(std::uint16_t instance);
-  void SendPlayerHit(std::uint32_t victim_id, std::int16_t health);
+  void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
@@ -152,6 +152,8 @@ private:
   void OnPlayerAttributeUpdate(Packet packet);
   void OnPlayerAttributeSnapshot(Packet packet);
   void OnPlayerWorldUpdate(Packet packet);
+  void OnPlayerUnconscious(Packet packet);
+  void OnPlayerStandUp(Packet packet);
   void OnGameInfo(Packet packet);
   void OnSkySettings(Packet packet);
   void OnLeftGame(Packet packet);

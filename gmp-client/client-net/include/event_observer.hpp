@@ -85,6 +85,8 @@ public:
   virtual void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) {}
   virtual void OnPlayerDied(std::uint64_t player_id) {}
   virtual void OnPlayerRespawned(std::uint64_t player_id) {}
+  virtual void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) {}
+  virtual void OnPlayerStandUp(std::uint64_t player_id) {}
   
   // Item events
   virtual void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {}

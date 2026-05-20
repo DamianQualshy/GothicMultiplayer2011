@@ -190,6 +190,8 @@ private:
   void SomeoneJoinGame(Packet p);
   void HandlePlayerUpdate(Packet p);
   void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
+  bool ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
+  bool MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id);
   void HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id);
   void HandleNormalMsg(Packet p);
   void HandleGameInfo(Packet p);
@@ -197,6 +199,8 @@ private:
   void SendDisconnectionInfo(PlayerId player_id);
   void SendDeathInfo(PlayerId player_id);
   void SendRespawnInfo(PlayerId player_id);
+  void SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId> attacker_id);
+  void SendStandUpInfo(PlayerId player_id);
   void BroadcastPlayerJoined(const Player& joining_player);
   void SendGameInfo(Net::ConnectionHandle connection);
   void SendSkySettings(Net::ConnectionHandle connection);

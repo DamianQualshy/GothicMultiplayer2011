@@ -284,14 +284,20 @@ void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDesc
       }
     }
   }
+  const int old_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
   if (g_originalOnDamageHit) {
     g_originalOnDamageHit(thisNpc, damageDesc);
   }
-  // All we're doing here is send a Hit notification for the server to deal with the damage logic.
+  // Report only the damage delta; the server decides whether and how to apply it.
   if (damageDesc.pNpcAttacker == player && thisNpc != player && NetGame::Instance().IsConnected()) {
     if (auto victim_id = NetGame::Instance().GetPlayerIdByNpc(thisNpc); victim_id.has_value()) {
-      NetGame::Instance().SendPlayerHit(static_cast<std::uint32_t>(victim_id.value()),
-                                        static_cast<std::int16_t>(thisNpc->attribute[NPC_ATR_HITPOINTS]));
+      const int new_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
+      const auto damage = static_cast<std::int32_t>(old_health - new_health);
+      if (damage > 0) {
+        NetGame::Instance().SendPlayerHit(static_cast<std::uint32_t>(victim_id.value()), damage,
+                                          static_cast<std::uint32_t>(damageDesc.enuModeDamage),
+                                          damageDesc.bDamageDontKill != 0);
+      }
     }
   }
 }

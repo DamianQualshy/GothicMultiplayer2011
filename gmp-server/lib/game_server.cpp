@@ -843,6 +843,7 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
   }
 
   SendRespawnInfo(player.player_id);
+  EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player.player_id, player.state.position});
   return true;
 }
 
@@ -946,25 +947,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if (!attacker.is_ingame || !victim.is_ingame || victim.tod != 0) {
         break;
       }
-      const auto old_health = victim.health;
-      const auto new_health = std::clamp<std::int32_t>(packet.health, 0, victim.max_health);
-      if (new_health >= old_health) {
-        break;
-      }
-      victim.health = static_cast<std::int16_t>(new_health);
-      victim.state.health_points = victim.health;
-      EventManager::Instance().TriggerEvent(
-          kEventOnPlayerChangeHealthName,
-          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
-      SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
-      const auto damage = static_cast<std::int32_t>(old_health) - static_cast<std::int32_t>(victim.health);
-      EventManager::Instance().TriggerEvent(
-          kEventOnPlayerHitName,
-          OnPlayerHitEvent{attacker.player_id, victim.player_id,
-                           static_cast<std::int16_t>(std::min<std::int32_t>(damage, std::numeric_limits<std::int16_t>::max()))});
-      if (victim.health <= 0) {
-        HandlePlayerDeath(victim, attacker.player_id);
-      }
+      ApplyPlayerDamage(victim, attacker.player_id, packet.damage, packet.damage_type, packet.dont_kill);
     } break;
     case PT_PLAYER_UNCONSCIOUS: {
       PlayerUnconsciousPacket packet;
@@ -982,18 +965,14 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if (player.tod != 0) {
         break;
       }
-      const bool was_unconscious = (player.flags & PlayerManager::PL_UNCONCIOUS) != 0;
-      player.flags |= PlayerManager::PL_UNCONCIOUS;
-      if (player.health > 1) {
-        SetPlayerHealth(player.player_id, 1);
-      }
-      if (!was_unconscious) {
-        std::optional<std::uint64_t> attacker;
-        if (packet.attacker_id.has_value()) {
+      std::optional<PlayerId> attacker;
+      if (packet.attacker_id.has_value()) {
+        auto attacker_opt = player_manager_.GetPlayer(packet.attacker_id.value());
+        if (attacker_opt.has_value() && attacker_opt->get().is_ingame) {
           attacker = packet.attacker_id.value();
         }
-        EventManager::Instance().TriggerEvent(kEventOnPlayerUnconsciousName, OnPlayerUnconsciousEvent{attacker, player.player_id});
       }
+      MakePlayerUnconscious(player, attacker);
     } break;
     case PT_PLAYER_STANDUP: {
       PlayerStandUpPacket packet;
@@ -1011,6 +990,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if ((player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
         player.flags &= ~PlayerManager::PL_UNCONCIOUS;
         EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
+        SendStandUpInfo(player.player_id);
       }
     } break;
     case PT_PLAYER_DIED: {
@@ -1028,7 +1008,16 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       auto& player = player_opt->get();
       std::optional<PlayerId> killer_id;
       if (packet.killer_id.has_value()) {
-        killer_id = packet.killer_id.value();
+        auto killer_opt = player_manager_.GetPlayer(packet.killer_id.value());
+        if (killer_opt.has_value() && killer_opt->get().is_ingame) {
+          killer_id = packet.killer_id.value();
+        }
+      }
+      if (killer_id.has_value()) {
+        if ((player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
+          MakePlayerUnconscious(player, killer_id);
+        }
+        break;
       }
       HandlePlayerDeath(player, killer_id);
     } break;
@@ -1081,6 +1070,90 @@ void GameServer::HandlePlayerDisconnect(Net::ConnectionHandle connection, std::i
     }
     DeleteFromPlayerList(player.player_id);
   }
+}
+
+bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type,
+                                   bool dont_kill) {
+  if (!victim.is_ingame || victim.tod != 0 || damage <= 0) {
+    return false;
+  }
+
+  const auto event_damage = static_cast<std::int16_t>(std::min<std::int32_t>(damage, std::numeric_limits<std::int16_t>::max()));
+  std::optional<std::uint64_t> event_attacker;
+  if (attacker_id.has_value()) {
+    event_attacker = attacker_id.value();
+  }
+  auto result = EventManager::Instance().DispatchEvent(
+      kEventOnPlayerHitName, std::any(OnPlayerHitEvent{event_attacker, victim.player_id, event_damage, damage_type}));
+  if (result.cancelled) {
+    return false;
+  }
+
+  if (result.value.has_value()) {
+    damage = result.value.value();
+  }
+  if (damage <= 0) {
+    return false;
+  }
+
+  const auto old_health = victim.health;
+  auto new_health = static_cast<std::int32_t>(old_health) - damage;
+  const bool player_damage = attacker_id.has_value();
+  const bool victim_was_unconscious = (victim.flags & PlayerManager::PL_UNCONCIOUS) != 0;
+
+  if (new_health <= 0) {
+    if (player_damage && !victim_was_unconscious) {
+      MakePlayerUnconscious(victim, attacker_id);
+      return false;
+    }
+    if (!player_damage && dont_kill && old_health > 0) {
+      new_health = 1;
+    } else {
+      HandlePlayerDeath(victim, attacker_id);
+      return true;
+    }
+  }
+  new_health = std::clamp<std::int32_t>(new_health, 0, victim.max_health);
+
+  victim.health = static_cast<std::int16_t>(new_health);
+  victim.state.health_points = victim.health;
+  if (old_health != victim.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
+    SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
+  }
+
+  return false;
+}
+
+bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id) {
+  if (!victim.is_ingame || victim.tod != 0) {
+    return false;
+  }
+
+  const bool was_unconscious = (victim.flags & PlayerManager::PL_UNCONCIOUS) != 0;
+  const auto old_health = victim.health;
+  victim.flags |= PlayerManager::PL_UNCONCIOUS;
+  victim.health = 1;
+  victim.state.health_points = 1;
+
+  if (old_health != victim.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
+    SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
+  }
+
+  if (was_unconscious) {
+    return false;
+  }
+
+  std::optional<std::uint64_t> event_attacker;
+  if (attacker_id.has_value()) {
+    event_attacker = attacker_id.value();
+  }
+  EventManager::Instance().TriggerEvent(kEventOnPlayerUnconsciousName, OnPlayerUnconsciousEvent{event_attacker, victim.player_id});
+  SendUnconsciousInfo(victim.player_id, attacker_id);
+  return true;
 }
 
 void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id) {
@@ -1201,28 +1274,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     bool died = false;
     const auto effective_health = requested_health > old_health ? static_cast<std::int32_t>(old_health) : requested_health;
 
-    if (effective_health <= 0 && old_health > 0) {
-      EventManager::Instance().TriggerEvent(
-          kEventOnPlayerHitName,
-          OnPlayerHitEvent{std::nullopt, updated_player.player_id, static_cast<std::int16_t>(std::min<std::int32_t>(old_health,
-                                                                                                                   std::numeric_limits<std::int16_t>::max()))});
-      HandlePlayerDeath(updated_player, std::nullopt);
-      died = true;
-    } else if (effective_health != old_health) {
-      updated_player.health = static_cast<std::int16_t>(effective_health);
-      if (old_health != updated_player.health) {
-        EventManager::Instance().TriggerEvent(
-            kEventOnPlayerChangeHealthName,
-            OnPlayerChangeHealthEvent{updated_player.player_id, old_health, updated_player.health});
-      }
-
-      const auto damage = static_cast<std::int32_t>(old_health) - static_cast<std::int32_t>(updated_player.health);
-      if (damage > 0) {
-        EventManager::Instance().TriggerEvent(
-            kEventOnPlayerHitName,
-            OnPlayerHitEvent{std::nullopt, updated_player.player_id, static_cast<std::int16_t>(std::min<std::int32_t>(
-                                                                    damage, std::numeric_limits<std::int16_t>::max()))});
-      }
+    if (effective_health < old_health && (updated_player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
+      died = ApplyPlayerDamage(updated_player, std::nullopt, static_cast<std::int32_t>(old_health) - effective_health, 0, false);
     }
 
     if (!died && requested_mana != old_mana) {
@@ -1691,6 +1744,23 @@ void GameServer::SendRespawnInfo(PlayerId respawned_player_id) {
   packet.player_id = respawned_player_id;
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE, player.connection, 13); });
+}
+
+void GameServer::SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId> attacker_id) {
+  PlayerUnconsciousPacket packet;
+  packet.packet_type = PT_PLAYER_UNCONSCIOUS;
+  packet.player_id = player_id;
+  packet.attacker_id = attacker_id;
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection); });
+}
+
+void GameServer::SendStandUpInfo(PlayerId player_id) {
+  PlayerStandUpPacket packet;
+  packet.packet_type = PT_PLAYER_STANDUP;
+  packet.player_id = player_id;
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection); });
 }
 
 void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
@@ -2234,6 +2304,11 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
   auto& player = player_opt->get();
   const auto old_health = player.health;
   player.max_health = static_cast<std::int16_t>(std::max<std::int32_t>(0, max_health));
+  SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_HEALTH, player.max_health);
+  if (player.tod == 0 && player.max_health <= 0) {
+    HandlePlayerDeath(player, std::nullopt);
+    return true;
+  }
   if (player.health > player.max_health) {
     player.health = player.max_health;
   }
@@ -2242,7 +2317,6 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
   player.state.health_points = player.health;
-  SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_HEALTH, player.max_health);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
   return true;
 }
@@ -2257,6 +2331,11 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(health, 0, player.max_health);
   const auto old_health = player.health;
+  if (player.tod == 0 && old_health > 0 && clamped <= 0) {
+    HandlePlayerDeath(player, std::nullopt);
+    return true;
+  }
+
   player.health = static_cast<std::int16_t>(clamped);
   if (old_health != player.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
