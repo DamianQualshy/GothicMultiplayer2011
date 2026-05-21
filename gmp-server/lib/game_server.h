@@ -55,6 +55,7 @@ struct Response;
 #include "common_structs.h"
 #include "config.h"
 #include "player_manager.h"
+#include "item_registry.h"
 #include "item_ground_manager.h"
 #include "resource_manager.h"
 #include "resource_server.h"
@@ -184,6 +185,10 @@ public:
     return item_ground_manager_;
   }
 
+  const ItemRegistry& GetItemRegistry() const {
+    return item_registry_;
+  }
+
   PlayerManager& GetPlayerManager() {
     return player_manager_;
   }
@@ -229,6 +234,9 @@ private:
   void RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground);
   void SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount);
   void SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount);
+  std::optional<std::string> ResolveItemInstance(std::string instance) const;
+  std::int16_t ResolveItemIndex(PlayerId player_id, std::int16_t index, const char* field_name) const;
+  void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
 
   std::unique_ptr<BanManager> ban_manager_;
   std::unique_ptr<LuaScript> lua_script_;
@@ -242,6 +250,7 @@ private:
   int serverPort;
   unsigned short maxConnections;
   PlayerManager player_manager_;
+  ItemRegistry item_registry_;
   ItemGroundManager item_ground_manager_;
   bool allow_modification = false;
   Config config_;

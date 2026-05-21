@@ -116,6 +116,15 @@ AINormalOriginalFn g_originalAINormal = nullptr;
 OnDamageAnimOriginalFn g_originalOnDamageAnim = nullptr;
 OnDamageHitOriginalFn g_originalOnDamageHit = nullptr;
 
+int GetInventoryAmount(oCNpc* npc, int instance_id) {
+  if (npc == nullptr || instance_id <= 0) {
+    return 0;
+  }
+
+  oCItem* item = npc->inventory2.IsIn(instance_id, 1);
+  return item ? std::max(0, item->amount) : 0;
+}
+
 }  // namespace
 
 // Hook: zCAICamera::AI_Normal - crashfix for null camVob pointer
@@ -479,6 +488,7 @@ int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* 
     const auto instance_id = item->GetInstance();
     const auto amount = static_cast<short>(std::max(1, item->amount));
     const auto item_ground_id = gmp::gothic::ClientItemGroundManager::Instance().GetIdByItem(item);
+    const int previous_amount = item_ground_id.has_value() ? GetInventoryAmount(thisNpc, instance_id) : 0;
     auto event_result =
         EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnTakeItemName,
                                                gmp::gothic::OnTakeItemEvent{instance_name, true, amount, item_ground_id});
@@ -488,6 +498,7 @@ int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* 
 
     int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
     if (item_ground_id.has_value()) {
+      gmp::gothic::ClientItemGroundManager::Instance().RememberPendingTake(instance_id, amount, previous_amount);
       gmp::gothic::ClientItemGroundManager::Instance().DetachItem(*item_ground_id);
     }
     NetGame::Instance().SendTakeItem(instance_id, amount, instance_name, item_ground_id);

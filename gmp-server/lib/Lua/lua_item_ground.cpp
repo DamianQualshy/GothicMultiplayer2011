@@ -30,6 +30,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include "../game_server.h"
+#include "lua_item.h"
 
 namespace lua {
 namespace bindings {
@@ -97,6 +98,15 @@ ItemGroundManager::ItemGroundId LuaItemGround::getId() const {
 std::string LuaItemGround::getInstance() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->instance : std::string{};
+}
+
+sol::object LuaItemGround::getItem(sol::this_state state) const {
+  sol::state_view lua(state);
+  auto* item_ground = GetItemGround(id_);
+  if (item_ground == nullptr) {
+    return sol::nil;
+  }
+  return MakeItemObject(lua, item_ground->instance);
 }
 
 std::int32_t LuaItemGround::getAmount() const {
@@ -185,6 +195,16 @@ void BindItemGround(sol::state& lua) {
 *
 */
   item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
+
+/* luagmp (property)
+*
+* Represents the read-only registry item definition for this ground item.
+*
+* @name     item
+* @return   (Item|nil)
+*
+*/
+  item_ground_type["item"] = sol::property([](const LuaItemGround& item_ground, sol::this_state state) { return item_ground.getItem(state); });
 
 /* luagmp (property)
 *

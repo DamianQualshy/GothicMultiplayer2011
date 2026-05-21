@@ -26,37 +26,47 @@ SOFTWARE.
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 
 #include <sol/sol.hpp>
-
-#include "../item_ground_manager.h"
 
 namespace lua {
 namespace bindings {
 
-class LuaItemGround {
+class LuaItem {
 public:
-  explicit LuaItemGround(ItemGroundManager::ItemGroundId id = 0);
+  explicit LuaItem(std::string instance = {});
 
-  ItemGroundManager::ItemGroundId getId() const;
   std::string getInstance() const;
-  sol::object getItem(sol::this_state state) const;
-  std::int32_t getAmount() const;
-  bool getPhysicsEnabled() const;
-  void setPhysicsEnabled(bool enabled);
-  std::string getWorld() const;
-  std::int32_t getVirtualWorld() const;
-  void setVirtualWorld(std::int32_t virtual_world);
-  sol::table getPosition(sol::this_state state) const;
-  void setPosition(float x, float y, float z);
-  sol::table getRotation(sol::this_state state) const;
-  void setRotation(float x, float y, float z);
+  std::int32_t getIndex() const;
+  std::int32_t getMainflag() const;
+  std::int32_t getFlags() const;
+  std::string getVisual() const;
+  std::int32_t getWear() const;
+  std::int32_t getRange() const;
+  std::int32_t getValue() const;
+  sol::object getDamage(sol::this_state state) const;
+  std::int32_t getDamageTotal() const;
+  std::int32_t getDamageTypes() const;
+  std::string getMunition() const;
+  sol::object getMunitionItem(sol::this_state state) const;
+  std::int32_t getSpell() const;
+  std::string getScemename() const;
+  std::int32_t getMagCircle() const;
+  sol::table getProtections(sol::this_state state) const;
+  sol::table getConditions(sol::this_state state) const;
+  std::int32_t getProtection(std::int32_t damage_type) const;
+  std::int32_t getCondAtr(std::int32_t index) const;
+  std::int32_t getCondValue(std::int32_t index) const;
 
 private:
-  ItemGroundManager::ItemGroundId id_{0};
+  std::string instance_;
 };
 
-void BindItemGround(sol::state& lua);
+sol::object MakeItemObject(sol::state_view lua, std::string_view instance);
+sol::object MakeItemObjectByIndex(sol::state_view lua, std::int32_t index);
+
+void BindItem(sol::state& lua);
 
 }  // namespace bindings
 }  // namespace lua

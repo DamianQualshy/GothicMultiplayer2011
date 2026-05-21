@@ -29,6 +29,7 @@ SOFTWARE.
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <unordered_set>
@@ -36,6 +37,7 @@ SOFTWARE.
 #include <vector>
 
 #include "CChat.h"
+#include "ZenGin/Gothic_II_Addon/API/zParser_Const.h"
 #include "ZenGin/zGothicAPI.h"
 #include "net_game.h"
 #include "nlohmann/json.hpp"
@@ -59,6 +61,33 @@ std::string BuildWayfileOutputPath(const std::string& world_name) {
   std::transform(file_stem.begin(), file_stem.end(), file_stem.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   return (std::filesystem::path("Multiplayer") / (file_stem + ".json")).string();
+}
+
+std::string BuildItemsOutputPath() {
+  return (std::filesystem::path("Multiplayer") / "items.json").string();
+}
+
+std::string ToString(const Gothic_II_Addon::zSTRING& value) {
+  const char* text = value.ToChar();
+  return text ? std::string(text) : std::string{};
+}
+
+std::optional<std::string> ResolveParserSymbolName(Gothic_II_Addon::zCParser* parser, int index) {
+  if (!parser || index <= 0) {
+    return std::nullopt;
+  }
+
+  Gothic_II_Addon::zCPar_Symbol* symbol = parser->GetSymbol(index);
+  if (!symbol) {
+    return std::nullopt;
+  }
+
+  std::string name = ToString(symbol->name);
+  if (name.empty()) {
+    return std::nullopt;
+  }
+
+  return name;
 }
 
 nlohmann::ordered_json MakePositionJson(const Gothic_II_Addon::zVEC3& position) {
@@ -245,6 +274,176 @@ bool ExportWayfileToJson(std::string& output_path) {
   return true;
 }
 
+void AddOptionalInt(nlohmann::ordered_json& json, const char* key, int value) {
+  if (value != 0) {
+    json[key] = value;
+  }
+}
+
+void AddOptionalString(nlohmann::ordered_json& json, const char* key, const Gothic_II_Addon::zSTRING& value) {
+  std::string text = ToString(value);
+  if (!text.empty()) {
+    json[key] = std::move(text);
+  }
+}
+
+void AddDamageJson(nlohmann::ordered_json& item_json, const Gothic_II_Addon::oCItem& item) {
+  if (item.damageTotal == 0 && item.damageTypes == 0) {
+    return;
+  }
+
+  nlohmann::ordered_json damage_json;
+  if (item.damageTotal != 0) {
+    damage_json["total"] = item.damageTotal;
+  }
+  if (item.damageTypes != 0) {
+    damage_json["types"] = item.damageTypes;
+  }
+  item_json["damage"] = std::move(damage_json);
+}
+
+void AddProtectionsJson(nlohmann::ordered_json& item_json, const Gothic_II_Addon::oCItem& item) {
+  nlohmann::ordered_json protections_json = nlohmann::ordered_json::array();
+  for (int i = 0; i < Gothic_II_Addon::oEDamageIndex_MAX; ++i) {
+    const int value = item.protection[i];
+    if (value == 0) {
+      continue;
+    }
+
+    protections_json.push_back(nlohmann::ordered_json{{"type", i}, {"value", value}});
+  }
+
+  if (!protections_json.empty()) {
+    item_json["protections"] = std::move(protections_json);
+  }
+}
+
+void AddConditionsJson(nlohmann::ordered_json& item_json, const Gothic_II_Addon::oCItem& item) {
+  nlohmann::ordered_json conditions_json = nlohmann::ordered_json::array();
+  for (int i = 0; i < Gothic_II_Addon::ITM_COND_MAX; ++i) {
+    const int attribute = item.cond_atr[i];
+    const int value = item.cond_value[i];
+    if (attribute == 0 || value == 0) {
+      continue;
+    }
+
+    conditions_json.push_back(nlohmann::ordered_json{{"attribute", attribute}, {"value", value}});
+  }
+
+  if (!conditions_json.empty()) {
+    item_json["conditions"] = std::move(conditions_json);
+  }
+}
+
+nlohmann::ordered_json MakeItemJson(Gothic_II_Addon::zCParser* parser, int index, Gothic_II_Addon::oCItem& item) {
+  nlohmann::ordered_json item_json;
+  item_json["instance"] = ResolveParserSymbolName(parser, index).value_or(ToString(item.GetInstanceName()));
+  item_json["index"] = index;
+  item_json["mainflag"] = item.mainflag;
+  item_json["flags"] = item.flags;
+
+  AddOptionalString(item_json, "visual", item.file);
+  AddOptionalInt(item_json, "wear", item.wear);
+  AddOptionalInt(item_json, "range", item.range);
+  AddOptionalInt(item_json, "value", item.value);
+  AddDamageJson(item_json, item);
+
+  if (item.munition != 0) {
+    if (std::optional<std::string> munition = ResolveParserSymbolName(parser, item.munition)) {
+      item_json["munition"] = *munition;
+    } else {
+      SPDLOG_WARN("Cannot resolve munition parser index {} for item {}", item.munition, item_json["instance"].get<std::string>());
+    }
+  }
+
+  AddOptionalInt(item_json, "spell", item.spell);
+  AddOptionalString(item_json, "scemename", item.scemeName);
+  AddOptionalInt(item_json, "mag_circle", item.mag_circle);
+  AddProtectionsJson(item_json, item);
+  AddConditionsJson(item_json, item);
+  return item_json;
+}
+
+bool CollectItemsJson(std::vector<nlohmann::ordered_json>& items_json) {
+  using namespace Gothic_II_Addon;
+
+  zCParser* parser = zCParser::GetParser();
+  if (!parser || !zfactory) {
+    SPDLOG_WARN("Cannot generate items: parser or object factory is not available.");
+    return false;
+  }
+
+  int item_class_index = parser->GetIndex("C_ITEM");
+  if (item_class_index < 0) {
+    item_class_index = parser->GetIndex("C_Item");
+  }
+  if (item_class_index < 0) {
+    SPDLOG_WARN("Cannot generate items: C_Item class was not found in the parser.");
+    return false;
+  }
+
+  std::unordered_set<int> exported_indexes;
+  const int symbol_count = parser->symtab.GetNumInList();
+  for (int index = 0; index < symbol_count; ++index) {
+    zCPar_Symbol* symbol = parser->GetSymbol(index);
+    if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || parser->GetBaseClass(symbol) != item_class_index) {
+      continue;
+    }
+    if (!exported_indexes.insert(index).second) {
+      continue;
+    }
+
+    oCItem* item = zfactory->CreateItem(index);
+    if (!item) {
+      SPDLOG_WARN("Cannot generate items: failed to create item instance '{}'.", ToString(symbol->name));
+      continue;
+    }
+
+    item->AddRef();
+    items_json.push_back(MakeItemJson(parser, index, *item));
+    item->Release();
+  }
+
+  std::sort(items_json.begin(), items_json.end(), [](const nlohmann::ordered_json& left, const nlohmann::ordered_json& right) {
+    const int left_index = left["index"].get<int>();
+    const int right_index = right["index"].get<int>();
+    if (left_index != right_index) {
+      return left_index < right_index;
+    }
+    return left["instance"].get<std::string>() < right["instance"].get<std::string>();
+  });
+
+  return true;
+}
+
+bool ExportItemsToJson(std::string& output_path) {
+  std::vector<nlohmann::ordered_json> items_json;
+  if (!CollectItemsJson(items_json)) {
+    return false;
+  }
+
+  nlohmann::ordered_json root;
+  root["schema"] = 1;
+  root["items"] = nlohmann::ordered_json::array();
+  for (nlohmann::ordered_json& item_json : items_json) {
+    root["items"].push_back(std::move(item_json));
+  }
+
+  output_path = BuildItemsOutputPath();
+  std::filesystem::create_directories(std::filesystem::path(output_path).parent_path());
+  std::ofstream output(output_path, std::ios::binary);
+  if (!output.is_open()) {
+    SPDLOG_ERROR("Cannot generate items: failed to open output file '{}'.", output_path);
+    return false;
+  }
+
+  output << root.dump(2);
+  output.close();
+
+  SPDLOG_INFO("Item catalog exported to {} ({} items)", std::filesystem::absolute(output_path).string(), items_json.size());
+  return true;
+}
+
 }  // namespace
 
 void ExecuteExternalConsoleCommand(const char* command) {
@@ -258,7 +457,7 @@ void ExecuteExternalConsoleCommand(const char* command) {
   std::transform(cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (cmd == "help") {
-    SPDLOG_INFO("Available commands: help, gmp_test, generate wayfile");
+    SPDLOG_INFO("Available commands: help, gmp_test, generate wayfile, generate items");
     return;
   }
 
@@ -275,14 +474,14 @@ void ExecuteExternalConsoleCommand(const char* command) {
 
   if (cmd == "generate") {
     if (args.size() != 2) {
-      SPDLOG_WARN("Usage: generate wayfile");
+      SPDLOG_WARN("Usage: generate wayfile|items");
       return;
     }
 
     std::string target = args[1];
     std::transform(target.begin(), target.end(), target.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (target != "wayfile") {
-      SPDLOG_WARN("Unsupported generate target: {}. Supported target: wayfile", args[1]);
+    if (target != "wayfile" && target != "items") {
+      SPDLOG_WARN("Unsupported generate target: {}. Supported targets: wayfile, items", args[1]);
       return;
     }
 
@@ -293,15 +492,29 @@ void ExecuteExternalConsoleCommand(const char* command) {
     }
 
     SPDLOG_INFO("Executing command generate {}", target);
-    game.task_scheduler->ScheduleOnMainThread([]() {
-      std::string output_path;
-      if (!ExportWayfileToJson(output_path)) {
-        return;
-      }
-      const std::string message = "Wayfile exported to " + output_path;
-      CChat::GetInstance()->WriteMessage(NORMAL, true, message.c_str());
-    });
-    return;
+    if (target == "wayfile") {
+      game.task_scheduler->ScheduleOnMainThread([]() {
+        std::string output_path;
+        if (!ExportWayfileToJson(output_path)) {
+          return;
+        }
+        const std::string message = "Wayfile exported to " + output_path;
+        CChat::GetInstance()->WriteMessage(NORMAL, true, message.c_str());
+      });
+      return;
+    }
+
+    if (target == "items") {
+      game.task_scheduler->ScheduleOnMainThread([]() {
+        std::string output_path;
+        if (!ExportItemsToJson(output_path)) {
+          return;
+        }
+        const std::string message = "Item catalog exported to " + output_path;
+        CChat::GetInstance()->WriteMessage(NORMAL, true, message.c_str());
+      });
+      return;
+    }
   }
 
   SPDLOG_WARN("Unknown debug console command: {}", command);

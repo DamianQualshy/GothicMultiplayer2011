@@ -187,3 +187,24 @@ addEventHandler("onPlayerTakeItem", function(playerId, itemGround)
 
     trackedGroundItems[itemGround.id] = nil
 end)
+
+local item = Item.getByInstance("ITMI_GOLD")
+if item then
+    LOG_INFO("item: instance {}", item.instance)
+    LOG_INFO("item: mainflag {}", item.mainflag)
+    LOG_INFO("item: flags {}", item.flags)
+    LOG_INFO("item: visual {}", item.visual)
+    LOG_INFO("item: wear {}", item.wear)
+    LOG_INFO("item: range {}", item.range)
+    LOG_INFO("item: value {}", item.value)
+    LOG_INFO("item: damage {}", item.damage)
+    LOG_INFO("item: damageTotal {}", item.damageTotal)
+    LOG_INFO("item: damageTypes {}", item.damageTypes)
+    LOG_INFO("item: munition {}", item.munition)
+    LOG_INFO("item: munitionItem {}", item.munitionItem)
+    LOG_INFO("item: spell {}", item.spell)
+    LOG_INFO("item: scemename {}", item.scemename)
+    LOG_INFO("item: mag_circle {}", item.mag_circle)
+    LOG_INFO("item: protections {}", item.protections)
+    LOG_INFO("item: conditions {}", item.conditions)
+end

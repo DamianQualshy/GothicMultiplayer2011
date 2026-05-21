@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <deque>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -62,6 +63,12 @@ public:
     std::uint8_t pending_physics_refreshes{0};
   };
 
+  struct PendingInventoryAdd {
+    std::int32_t instance_id{0};
+    std::int32_t amount{0};
+    std::int32_t previous_amount{0};
+  };
+
   static ClientItemGroundManager& Instance();
 
   void Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount, bool physics_enabled,
@@ -75,6 +82,8 @@ public:
   const ItemGround* GetById(std::uint32_t id) const;
   const std::unordered_map<std::uint32_t, ItemGround>& Items() const;
   std::optional<std::uint32_t> GetIdByItem(oCItem* item) const;
+  void RememberPendingTake(std::int32_t instance_id, std::int32_t amount, std::int32_t previous_amount);
+  std::optional<PendingInventoryAdd> ConsumePendingTake(std::int32_t instance_id);
 
 private:
   oCItem* FindExistingItem(const std::string& instance, const glm::vec3& position) const;
@@ -86,6 +95,7 @@ private:
 
   std::unordered_map<std::uint32_t, ItemGround> items_;
   std::unordered_map<oCItem*, std::uint32_t> ids_by_item_;
+  std::unordered_map<std::int32_t, std::deque<PendingInventoryAdd>> pending_takes_by_instance_;
 };
 
 void BindItemGround(sol::state& lua);

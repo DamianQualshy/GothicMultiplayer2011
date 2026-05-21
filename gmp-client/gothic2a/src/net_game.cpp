@@ -214,6 +214,15 @@ std::int16_t GetActiveSpellItemInstance(oCNpc* npc) {
   return 0;
 }
 
+int GetInventoryAmount(oCNpc* npc, int instance) {
+  if (npc == nullptr || instance <= 0) {
+    return 0;
+  }
+
+  oCItem* item = npc->inventory2.IsIn(instance, 1);
+  return item ? std::max(0, item->amount) : 0;
+}
+
 oCItem* GetOrCreateInventoryItem(oCNpc* npc, std::int16_t instance, int required_flag) {
   if (!npc || !IsNetworkItemInstance(instance)) {
     return nullptr;
@@ -1737,8 +1746,21 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
     return;
   }
 
+  std::int32_t amount_to_add = amount;
+  if (cplayer->IsLocalPlayer()) {
+    auto pending = gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(index);
+    if (pending.has_value()) {
+      const std::int32_t expected_amount = pending->previous_amount + amount;
+      const std::int32_t current_amount = GetInventoryAmount(cplayer->npc, index);
+      amount_to_add = std::max<std::int32_t>(0, expected_amount - current_amount);
+      if (amount_to_add == 0) {
+        return;
+      }
+    }
+  }
+
   if (oCItem* existing = cplayer->npc->inventory2.IsIn(index, 1)) {
-    existing->amount += amount;
+    existing->amount += amount_to_add;
     return;
   }
 
@@ -1748,7 +1770,7 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
     return;
   }
 
-  item->amount = amount;
+  item->amount = amount_to_add;
   cplayer->npc->inventory2.Insert(item);
 }
 
@@ -1828,6 +1850,10 @@ void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& item_ins
   if (index < 0) {
     SPDLOG_WARN("Could not find item instance {}", item_instance);
     return;
+  }
+
+  if (cplayer->IsLocalPlayer()) {
+    gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(index);
   }
 
   oCItem* item = cplayer->npc->inventory2.IsIn(index, 1);

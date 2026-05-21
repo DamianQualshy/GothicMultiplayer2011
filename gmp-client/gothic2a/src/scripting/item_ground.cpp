@@ -89,6 +89,29 @@ ClientItemGroundManager& ClientItemGroundManager::Instance() {
   return instance;
 }
 
+void ClientItemGroundManager::RememberPendingTake(std::int32_t instance_id, std::int32_t amount, std::int32_t previous_amount) {
+  if (instance_id <= 0 || amount <= 0) {
+    return;
+  }
+
+  pending_takes_by_instance_[instance_id].push_back(
+      PendingInventoryAdd{instance_id, amount, std::max<std::int32_t>(0, previous_amount)});
+}
+
+std::optional<ClientItemGroundManager::PendingInventoryAdd> ClientItemGroundManager::ConsumePendingTake(std::int32_t instance_id) {
+  auto it = pending_takes_by_instance_.find(instance_id);
+  if (it == pending_takes_by_instance_.end() || it->second.empty()) {
+    return std::nullopt;
+  }
+
+  PendingInventoryAdd pending = it->second.front();
+  it->second.pop_front();
+  if (it->second.empty()) {
+    pending_takes_by_instance_.erase(it);
+  }
+  return pending;
+}
+
 void ClientItemGroundManager::Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount,
                                      bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {
   if (id == 0 || instance.empty()) {
@@ -163,6 +186,7 @@ void ClientItemGroundManager::Clear(bool emit_event) {
   }
   items_.clear();
   ids_by_item_.clear();
+  pending_takes_by_instance_.clear();
 
   if (emit_event) {
     EventManager::Instance().TriggerEvent(kEventOnItemsGroundDestroyName, 0);
