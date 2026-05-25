@@ -302,7 +302,7 @@ void BindItemGround(sol::state& lua) {
 */
   sol::table manager = lua.create_table();
 
-/* luagmp (func)
+/* luagmp (method)
 *
 * Returns a ground item by id.
 *
@@ -316,7 +316,7 @@ void BindItemGround(sol::state& lua) {
 */
   manager["getById"] = [](ItemGroundManager::ItemGroundId id, sol::this_state state) { return MakeItemGroundObject(id, state); };
 
-/* luagmp (func)
+/* luagmp (method)
 *
 * Creates a synchronized ground item.
 *
@@ -357,7 +357,7 @@ void BindItemGround(sol::state& lua) {
     return g_server->CreateItemGround(std::move(options));
   };
 
-/* luagmp (func)
+/* luagmp (method)
 *
 * Destroys a synchronized ground item.
 *

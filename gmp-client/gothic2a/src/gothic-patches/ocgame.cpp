@@ -27,6 +27,7 @@ SOFTWARE.
 
 #include "hooking/MemoryPatch.h"
 #include "ZenGin/zGothicAPI.h"
+#include "hud_control.h"
 #include "patch_install.hpp"
 
 #define gLogStatistics *(int*)(0x008C2B50)
@@ -52,6 +53,65 @@ void* DisMember(size_t size, ...) {
 void InstalloCGamePatches() {
   CallPatch(0x006C89D8, (DWORD)DisMember(sizeof(void (oCGame::*)()), &oCGame::UpdatePlayerStatus), 0);
 };
+
+namespace gmp::gothic {
+namespace {
+bool g_hud_health_bar_enabled = true;
+bool g_hud_mana_bar_enabled = true;
+bool g_hud_swim_bar_enabled = true;
+bool g_hud_focus_bar_enabled = true;
+}  // namespace
+
+bool SetHudEnabled(std::int32_t hud_type, bool enabled) {
+  switch (hud_type) {
+    case kHudAll:
+      if (!Gothic_II_Addon::ogame) {
+        return false;
+      }
+      Gothic_II_Addon::ogame->SetShowPlayerStatus(enabled ? 1 : 0);
+      return true;
+    case kHudHealthBar:
+      g_hud_health_bar_enabled = enabled;
+      return true;
+    case kHudManaBar:
+      g_hud_mana_bar_enabled = enabled;
+      return true;
+    case kHudSwimBar:
+      g_hud_swim_bar_enabled = enabled;
+      return true;
+    case kHudFocusBar:
+      g_hud_focus_bar_enabled = enabled;
+      return true;
+    default:
+      return false;
+  }
+}
+
+std::optional<bool> GetHudEnabled(std::int32_t hud_type) {
+  switch (hud_type) {
+    case kHudAll:
+      if (!Gothic_II_Addon::ogame) {
+        return std::nullopt;
+      }
+      return Gothic_II_Addon::ogame->GetShowPlayerStatus() != 0;
+    case kHudHealthBar:
+      return g_hud_health_bar_enabled;
+    case kHudManaBar:
+      return g_hud_mana_bar_enabled;
+    case kHudSwimBar:
+      return g_hud_swim_bar_enabled;
+    case kHudFocusBar:
+      return g_hud_focus_bar_enabled;
+    default:
+      return std::nullopt;
+  }
+}
+
+bool IsHudTypeEnabled(std::int32_t hud_type) {
+  return GetHudEnabled(hud_type).value_or(false);
+}
+
+}  // namespace gmp::gothic
 
 namespace Gothic_II_Addon {
 
@@ -190,13 +250,15 @@ void oCGame::UpdatePlayerStatus() {
     return;
   }
 
-  screen->InsertItem(hpBar);
-  hpBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
-  hpBar->SetRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
-  hpBar->SetPreview(player->GetAttribute(NPC_ATR_HITPOINTS));
-  hpBar->SetValue(player->GetAttribute(NPC_ATR_HITPOINTS));
+  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudHealthBar)) {
+    screen->InsertItem(hpBar);
+    hpBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
+    hpBar->SetRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
+    hpBar->SetPreview(player->GetAttribute(NPC_ATR_HITPOINTS));
+    hpBar->SetValue(player->GetAttribute(NPC_ATR_HITPOINTS));
+  }
 
-  if (player->GetAnictrl() != nullptr) {
+  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudSwimBar) && player->GetAnictrl() != nullptr) {
     if (player->GetAnictrl()->wmode_last == ANI_WALKMODE_DIVE) {
       float swim_time_a, swim_time_b, swim_time_c;
       player->GetSwimDiveTime(swim_time_a, swim_time_b, swim_time_c);
@@ -210,7 +272,8 @@ void oCGame::UpdatePlayerStatus() {
     }
   }
 
-  if (player->inventory2.IsOpen() || player->GetWeaponMode() == NPC_WEAPON_MAG) {
+  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudManaBar) &&
+      (player->inventory2.IsOpen() || player->GetWeaponMode() == NPC_WEAPON_MAG)) {
     if (player->GetAttribute(NPC_ATR_MANAMAX) > 0) {
       screen->InsertItem(manaBar);
       manaBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_MANAMAX));
@@ -242,7 +305,7 @@ void oCGame::UpdatePlayerStatus() {
       return;
     }
 
-    if (focus_info->current_health > 0) {
+    if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudFocusBar) && focus_info->current_health > 0) {
       screen->InsertItem(focusBar);
       focusBar->SetMaxRange(0, focus_info->health_max);
       focusBar->SetRange(0, focus_info->health_max);

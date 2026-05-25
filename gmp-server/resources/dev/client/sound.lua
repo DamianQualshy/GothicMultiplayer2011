@@ -26,3 +26,6 @@ end
 function onResourceStop()
 	sfx = nil
 end
+
+local menu = Music.new(".\\Multiplayer\\Music\\main_menu_theme_2.mp3")
+menu:playLooped()

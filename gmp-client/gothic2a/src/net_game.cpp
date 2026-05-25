@@ -943,14 +943,19 @@ void NetGame::OnLocalPlayerJoined(gmp::client::Player& player) {
 void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   this->IsInGame = true;
 
-  Gothic2APlayer* local_player = new Gothic2APlayer(player, true);
+  Gothic2APlayer* local_player = GetPlayerById(player.id());
+  if (local_player == nullptr) {
+    local_player = new Gothic2APlayer(player, true);
+    players.insert(players.begin(), local_player);
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerCreateName, gmp::gothic::PlayerLifecycleEvent{player.id()});
+  }
+
   local_player->SetNpc(::player);
   zVEC3 pos(player.position().x, player.position().y, player.position().z);
 
   SPDLOG_INFO("Local player spawned at position ({}, {}, {})", player.position().x, player.position().y, player.position().z);
   local_player->SetPosition(pos);
-  players.insert(players.begin(), local_player);
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerCreateName, gmp::gothic::PlayerLifecycleEvent{player.id()});
+  local_player->base_player().set_enabled(true);
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
   if (ogame && ogame->GetGameWorld()) {
     SendPlayerWorldEnter(ogame->GetGameWorld()->GetWorldFilename().ToChar());
@@ -1001,8 +1006,17 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
 }
 
 void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {
-  for (size_t i = 1; i < this->players.size(); i++) {
+  for (size_t i = 0; i < this->players.size(); i++) {
     if (this->players[i]->base_player().id() == player_id) {
+      if (this->players[i]->IsLocalPlayer()) {
+        SPDLOG_INFO("Local player '{}' (id {}) was unspawned", this->players[i]->GetName(), player_id);
+        this->IsInGame = false;
+        this->players[i]->base_player().set_has_spawned(false);
+        this->players[i]->base_player().set_enabled(false);
+        EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDestroyName, gmp::gothic::PlayerLifecycleEvent{player_id});
+        break;
+      }
+
       SPDLOG_INFO("Player '{}' (id {}) disconnected from server", this->players[i]->GetName(), player_id);
       this->players[i]->LeaveGame();
       EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDestroyName, gmp::gothic::PlayerLifecycleEvent{player_id});

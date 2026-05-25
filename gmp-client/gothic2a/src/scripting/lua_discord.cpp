@@ -23,37 +23,9 @@ SOFTWARE.
 */
 
 #include "lua_discord.h"
-#include "discord_presence.h"
+#include "lua_helpers.h"
 
 namespace gmp::gothic {
-namespace {
-
-sol::optional<std::string> GetOptionalString(const sol::table& table, const char* lowerKey, const char* upperKey) {
-  if (auto value = table.get<sol::optional<std::string>>(lowerKey); value) {
-    return value;
-  }
-  return table.get<sol::optional<std::string>>(upperKey);
-}
-
-struct DiscordActivityState {
-  std::string state;
-  std::string details;
-  std::string large_image_key;
-  std::string large_image_text;
-  std::string small_image_key;
-  std::string small_image_text;
-};
-
-DiscordActivityState& GetDiscordActivityState() {
-  static DiscordActivityState state;
-  return state;
-}
-
-void ApplyDiscordActivityState(const DiscordActivityState& state) {
-  DiscordRichPresence::Instance().UpdateActivity(state.state, state.details, 0, 0, state.large_image_key, state.large_image_text,
-                                                 state.small_image_key, state.small_image_text);
-}
-} // namespace
 
 void BindDiscord(sol::state& lua) {
   /* luagmp (class)
@@ -79,28 +51,28 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("setActivity", [](const sol::table& params) {
-      auto& activity = GetDiscordActivityState();
+      auto& activity = lua_helpers::GetDiscordActivityState();
 
-      if (auto value = GetOptionalString(params, "state", "State"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "state", "State"); value) {
         activity.state = *value;
       }
-      if (auto value = GetOptionalString(params, "details", "Details"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "details", "Details"); value) {
         activity.details = *value;
       }
-      if (auto value = GetOptionalString(params, "largeImageKey", "LargeImageKey"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "largeImageKey", "LargeImageKey"); value) {
         activity.large_image_key = *value;
       }
-      if (auto value = GetOptionalString(params, "largeImageText", "LargeImageText"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "largeImageText", "LargeImageText"); value) {
         activity.large_image_text = *value;
       }
-      if (auto value = GetOptionalString(params, "smallImageKey", "SmallImageKey"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "smallImageKey", "SmallImageKey"); value) {
         activity.small_image_key = *value;
       }
-      if (auto value = GetOptionalString(params, "smallImageText", "SmallImageText"); value) {
+      if (auto value = lua_helpers::GetOptionalString(params, "smallImageText", "SmallImageText"); value) {
         activity.small_image_text = *value;
       }
 
-      ApplyDiscordActivityState(activity);
+      lua_helpers::ApplyDiscordActivityState(activity);
     });
 
   /* luagmp (method)
@@ -114,9 +86,9 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("setState", [](const std::string& state) {
-      auto& activity = GetDiscordActivityState();
+      auto& activity = lua_helpers::GetDiscordActivityState();
       activity.state = state;
-      ApplyDiscordActivityState(activity);
+      lua_helpers::ApplyDiscordActivityState(activity);
     });
 
   /* luagmp (method)
@@ -130,9 +102,9 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("setDetails", [](const std::string& details) {
-      auto& activity = GetDiscordActivityState();
+      auto& activity = lua_helpers::GetDiscordActivityState();
       activity.details = details;
-      ApplyDiscordActivityState(activity);
+      lua_helpers::ApplyDiscordActivityState(activity);
     });
 
   /* luagmp (method)
@@ -147,12 +119,12 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("setLargeImage", [](const std::string& key, const sol::optional<std::string>& text) {
-      auto& activity = GetDiscordActivityState();
+      auto& activity = lua_helpers::GetDiscordActivityState();
       activity.large_image_key = key;
       if (text) {
         activity.large_image_text = *text;
       }
-      ApplyDiscordActivityState(activity);
+      lua_helpers::ApplyDiscordActivityState(activity);
     });
 
   /* luagmp (method)
@@ -167,12 +139,12 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("setSmallImage", [](const std::string& key, const sol::optional<std::string>& text) {
-      auto& activity = GetDiscordActivityState();
+      auto& activity = lua_helpers::GetDiscordActivityState();
       activity.small_image_key = key;
       if (text) {
         activity.small_image_text = *text;
       }
-      ApplyDiscordActivityState(activity);
+      lua_helpers::ApplyDiscordActivityState(activity);
     });
 
   /* luagmp (method)
@@ -185,9 +157,7 @@ void BindDiscord(sol::state& lua) {
   *
   */
     discord.set_function("clearActivity", []() {
-      auto& activity = GetDiscordActivityState();
-      activity = DiscordActivityState{};
-      DiscordRichPresence::Instance().ClearActivity();
+      lua_helpers::ClearDiscordActivityState();
     });
 }
 

@@ -43,7 +43,9 @@ public:
   static void CleanupViews();
 
   void setPosition(int x, int y);
+  void setPositionValue(sol::object value);
   void setPositionPx(int x, int y);
+  void setPositionPxValue(sol::object value);
   sol::table getPosition(sol::this_state s);
   sol::table getPositionPx(sol::this_state s);
 
@@ -54,6 +56,7 @@ public:
   std::string getFont() const;
 
   void setColor(int r, int g, int b);
+  void setColorValue(sol::object value);
   sol::table getColor(sol::this_state s);
 
   void setAlpha(int a);

@@ -29,27 +29,12 @@ SOFTWARE.
 #include <utility>
 #include <vector>
 
+#include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
-namespace {
-
-zCRoute* FindRouteByName(const std::string& start_wp, const std::string& end_wp) {
-  if (!ogame) {
-    return nullptr;
-  }
-
-  zCWorld* world = ogame->GetGameWorld();
-  if (!world || !world->wayNet) {
-    return nullptr;
-  }
-
-  zSTRING start(start_wp.c_str());
-  zSTRING end(end_wp.c_str());
-  return world->wayNet->FindRoute(start, end, nullptr);
-}
 
 /* luagmp (func)
 *
@@ -69,164 +54,6 @@ void Function_ToggleDrawWaynet(bool enabled) {
 
   ogame->SetDrawWaynet(enabled);
 }
-
-zCWayNet* GetWayNet() {
-  if (!ogame) {
-    return nullptr;
-  }
-
-  zCWorld* world = ogame->GetGameWorld();
-  if (!world) {
-    return nullptr;
-  }
-
-  return world->wayNet;
-}
-
-zCWorld* GetGameWorld() {
-  if (!ogame) {
-    return nullptr;
-  }
-
-  return ogame->GetGameWorld();
-}
-
-sol::table MakeVec3Table(sol::state_view lua, const zVEC3& position) {
-  sol::table tbl = lua.create_table();
-  tbl["x"] = position[VX];
-  tbl["y"] = position[VY];
-  tbl["z"] = position[VZ];
-  return tbl;
-}
-
-float GetAngleDegreesFromDirection(const zVEC3& direction) {
-  const float x = direction[VX];
-  const float z = direction[VZ];
-
-  float angle = std::atan2(x, z) * DEGREE;
-  if (angle < 0.0f) {
-    angle += 360.0f;
-  }
-  return angle;
-}
-
-void AddAngle(sol::table& tbl, const zVEC3& direction) {
-  tbl["angle"] = GetAngleDegreesFromDirection(direction);
-}
-
-void AddWaypointAngle(sol::table& tbl, zCWaypoint* waypoint) {
-  if (!waypoint) {
-    return;
-  }
-
-  if (zCVobWaypoint* waypoint_vob = waypoint->GetVob()) {
-    AddAngle(tbl, waypoint_vob->GetAtVectorWorld());
-    return;
-  }
-
-  AddAngle(tbl, waypoint->dir);
-}
-
-sol::table MakeWaypointPositionTable(sol::state_view lua, zCWaypoint* waypoint) {
-  sol::table tbl = MakeVec3Table(lua, waypoint->GetPositionWorld());
-  AddWaypointAngle(tbl, waypoint);
-  return tbl;
-}
-
-sol::table MakeWaypointTable(sol::state_view lua, zCWaypoint* waypoint) {
-  sol::table tbl = MakeWaypointPositionTable(lua, waypoint);
-  tbl["name"] = waypoint->GetName().ToChar();
-  return tbl;
-}
-
-sol::table MakeFreepointPositionTable(sol::state_view lua, zCVobSpot* freepoint) {
-  sol::table tbl = MakeVec3Table(lua, freepoint->GetPositionWorld());
-  AddAngle(tbl, freepoint->GetAtVectorWorld());
-  return tbl;
-}
-
-sol::table MakeFreepointTable(sol::state_view lua, zCVobSpot* freepoint) {
-  sol::table tbl = MakeFreepointPositionTable(lua, freepoint);
-  tbl["name"] = freepoint->GetObjectName().ToChar();
-  return tbl;
-}
-
-std::vector<zCVobSpot*> GetFreepoints() {
-  std::vector<zCVobSpot*> freepoints;
-  zCWorld* world = GetGameWorld();
-  if (!world) {
-    return freepoints;
-  }
-
-  zCArray<zCVob*> freepoint_vobs;
-  world->SearchVobListByClass(zCVobSpot::classDef, freepoint_vobs, &world->globalVobTree);
-  freepoints.reserve(freepoint_vobs.GetNumInList());
-  for (int i = 0; i < freepoint_vobs.GetNumInList(); ++i) {
-    zCVob* vob = freepoint_vobs[i];
-    if (!vob) {
-      continue;
-    }
-
-    freepoints.push_back(static_cast<zCVobSpot*>(vob));
-  }
-
-  return freepoints;
-}
-
-zCVobSpot* FindFreepointByName(const std::string& freepoint_name) {
-  for (zCVobSpot* freepoint : GetFreepoints()) {
-    if (!freepoint) {
-      continue;
-    }
-
-    if (freepoint_name == freepoint->GetObjectName().ToChar()) {
-      return freepoint;
-    }
-  }
-
-  return nullptr;
-}
-
-std::pair<zCVobSpot*, zCVobSpot*> FindNearestFreepointPair(float x, float y, float z, float max_distance) {
-  const bool limit_distance = max_distance > 0.0f;
-  const float max_distance_sq = max_distance * max_distance;
-  zCVobSpot* nearest = nullptr;
-  zCVobSpot* second_nearest = nullptr;
-  float nearest_sq = std::numeric_limits<float>::max();
-  float second_nearest_sq = std::numeric_limits<float>::max();
-
-  for (zCVobSpot* freepoint : GetFreepoints()) {
-    if (!freepoint) {
-      continue;
-    }
-
-    const zVEC3 position = freepoint->GetPositionWorld();
-    const float dx = position[VX] - x;
-    const float dy = position[VY] - y;
-    const float dz = position[VZ] - z;
-    const float distance_sq = (dx * dx) + (dy * dy) + (dz * dz);
-    if (limit_distance && distance_sq > max_distance_sq) {
-      continue;
-    }
-
-    if (distance_sq < nearest_sq) {
-      second_nearest = nearest;
-      second_nearest_sq = nearest_sq;
-      nearest = freepoint;
-      nearest_sq = distance_sq;
-      continue;
-    }
-
-    if (distance_sq < second_nearest_sq) {
-      second_nearest = freepoint;
-      second_nearest_sq = distance_sq;
-    }
-  }
-
-  return {nearest, second_nearest};
-}
-
-}  // namespace
 
 /* luagmp (class)
 *
@@ -284,7 +111,7 @@ const std::string& LuaWay::getEnd() const {
 std::vector<std::string> LuaWay::getWaypoints() const {
   std::vector<std::string> result;
 
-  zCRoute* route = FindRouteByName(start_wp_, end_wp_);
+  zCRoute* route = lua_helpers::FindRouteByName(start_wp_, end_wp_);
   if (!route) {
     return result;
   }
@@ -317,7 +144,7 @@ std::vector<std::string> LuaWay::getWaypoints() const {
 *
 */
 int LuaWay::getCountWaypoints() const {
-  zCRoute* route = FindRouteByName(start_wp_, end_wp_);
+  zCRoute* route = lua_helpers::FindRouteByName(start_wp_, end_wp_);
   if (!route) {
     return 0;
   }
@@ -341,7 +168,7 @@ int LuaWay::getCountWaypoints() const {
 */
 sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
-  zCWayNet* way_net = GetWayNet();
+  zCWayNet* way_net = lua_helpers::GetWayNet();
   if (!way_net) {
     return sol::nil;
   }
@@ -352,7 +179,7 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeWaypointPositionTable(lua, waypoint));
+  return sol::make_object(lua, lua_helpers::MakeWaypointPositionTable(lua, waypoint));
 }
 
 /* luagmp (func)
@@ -369,12 +196,12 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
 */
 sol::object Function_GetFreepoint(const std::string& freepoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
-  zCVobSpot* freepoint = FindFreepointByName(freepoint_name);
+  zCVobSpot* freepoint = lua_helpers::FindFreepointByName(freepoint_name);
   if (!freepoint) {
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeFreepointPositionTable(lua, freepoint));
+  return sol::make_object(lua, lua_helpers::MakeFreepointPositionTable(lua, freepoint));
 }
 
 /* luagmp (func)
@@ -394,7 +221,7 @@ sol::object Function_GetFreepoint(const std::string& freepoint_name, sol::this_s
 */
 sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
-  zCWayNet* way_net = GetWayNet();
+  zCWayNet* way_net = lua_helpers::GetWayNet();
   if (!way_net) {
     return sol::nil;
   }
@@ -429,7 +256,7 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeWaypointTable(lua, nearest));
+  return sol::make_object(lua, lua_helpers::MakeWaypointTable(lua, nearest));
 }
 
 /* luagmp (func)
@@ -449,12 +276,12 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 */
 sol::object Function_GetNearestFreepoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
-  const auto [nearest, _] = FindNearestFreepointPair(x, y, z, distance.value_or(-1.0f));
+  const auto [nearest, _] = lua_helpers::FindNearestFreepointPair(x, y, z, distance.value_or(-1.0f));
   if (!nearest) {
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeFreepointTable(lua, nearest));
+  return sol::make_object(lua, lua_helpers::MakeFreepointTable(lua, nearest));
 }
 
 /* luagmp (func)
@@ -473,7 +300,7 @@ sol::object Function_GetNearestFreepoint(float x, float y, float z, sol::optiona
 */
 sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
-  zCWayNet* way_net = GetWayNet();
+  zCWayNet* way_net = lua_helpers::GetWayNet();
   if (!way_net) {
     return sol::nil;
   }
@@ -512,7 +339,7 @@ sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeWaypointTable(lua, second_nearest));
+  return sol::make_object(lua, lua_helpers::MakeWaypointTable(lua, second_nearest));
 }
 
 /* luagmp (func)
@@ -531,12 +358,12 @@ sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this
 */
 sol::object Function_GetNextNearestFreepoint(float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
-  const auto [_, second_nearest] = FindNearestFreepointPair(x, y, z, -1.0f);
+  const auto [_, second_nearest] = lua_helpers::FindNearestFreepointPair(x, y, z, -1.0f);
   if (!second_nearest) {
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeFreepointTable(lua, second_nearest));
+  return sol::make_object(lua, lua_helpers::MakeFreepointTable(lua, second_nearest));
 }
 
 /* luagmp (func)
@@ -553,7 +380,7 @@ sol::object Function_GetNextNearestFreepoint(float x, float y, float z, sol::thi
 sol::table Function_GetWaypoints(sol::this_state ts) {
   sol::state_view lua(ts);
   sol::table waypoints = lua.create_table();
-  zCWayNet* way_net = GetWayNet();
+  zCWayNet* way_net = lua_helpers::GetWayNet();
   if (!way_net) {
     return waypoints;
   }
@@ -565,7 +392,7 @@ sol::table Function_GetWaypoints(sol::this_state ts) {
       continue;
     }
 
-    waypoints[index++] = MakeWaypointTable(lua, waypoint);
+    waypoints[index++] = lua_helpers::MakeWaypointTable(lua, waypoint);
   }
 
   return waypoints;

@@ -400,6 +400,10 @@ void GameClient::SendPlayerDeath(std::optional<std::uint32_t> killer_id) {
 }
 
 void GameClient::UpdatePlayerStats(const PlayerState& state) {
+  if (!is_in_game_) {
+    return;
+  }
+
   PlayerStateUpdatePacket packet;
   packet.packet_type = PT_ACTUAL_STATISTICS;
   packet.state = state;
@@ -1356,6 +1360,15 @@ void GameClient::OnLeftGame(Packet p) {
   DisconnectionInfoPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.disconnected_id) {
+    auto& local_player = player_manager_.GetLocalPlayer();
+    local_player.set_has_spawned(false);
+    local_player.set_enabled(false);
+    is_in_game_ = false;
+    event_observer_.OnPlayerLeft(packet.disconnected_id, local_player.name());
+    return;
+  }
 
   // Get player name before removing
   Player* player = player_manager_.GetPlayer(packet.disconnected_id);

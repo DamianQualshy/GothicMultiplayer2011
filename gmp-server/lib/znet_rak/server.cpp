@@ -134,6 +134,14 @@ const char* RakNetServer::GetPlayerIp(ConnectionHandle id) {
   return address.ToString(false);
 }
 
+std::int32_t RakNetServer::GetPing(ConnectionHandle id) {
+  if (peer_ == nullptr) {
+    return -1;
+  }
+
+  return peer_->GetAveragePing(RakNet::RakNetGUID(id));
+}
+
 void RakNetServer::AddToBanList(ConnectionHandle id, std::uint32_t milliseconds) {
   auto address = peer_->GetSystemAddressFromGuid(RakNet::RakNetGUID(id));
   if (address != RakNet::UNASSIGNED_SYSTEM_ADDRESS) {

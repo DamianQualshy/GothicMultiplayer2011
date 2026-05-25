@@ -27,38 +27,12 @@ SOFTWARE.
 #include <algorithm>
 #include <utility>
 
-#include <fmt/format.h>
-
+#include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
-namespace gmp::gothic {
-namespace {
 using namespace Gothic_II_Addon;
 
-bool CanApplyVisual() {
-  return zresMan != nullptr;
-}
-
-lua::types::Mat4 ToLuaMat4(const zMAT4& mat) {
-  lua::types::Mat4 result;
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      result.mat_[col][row] = mat.v[row].n[col];
-    }
-  }
-  return result;
-}
-
-zMAT4 ToZenMat4(const lua::types::Mat4& mat) {
-  zMAT4 result;
-  for (int row = 0; row < 4; ++row) {
-    for (int col = 0; col < 4; ++col) {
-      result.v[row].n[col] = mat.mat_[col][row];
-    }
-  }
-  return result;
-}
-}  // namespace
+namespace gmp::gothic {
 
 LuaVob::VobInstance::~VobInstance() {
   if (owned && vob) {
@@ -138,15 +112,15 @@ std::string LuaVob::getObjectName() const {
 * @return   (Mat4)
 *
 */
-void LuaVob::setMatrix(const lua::types::Mat4& matrix) {
+void LuaVob::setMatrix(const ::lua::types::Mat4& matrix) {
   if (auto* handle = vob()) {
-    handle->SetTrafoObjToWorld(ToZenMat4(matrix));
+    handle->SetTrafoObjToWorld(lua_helpers::ToZenMat4(matrix));
   }
 }
 
-lua::types::Mat4 LuaVob::getMatrix() const {
+::lua::types::Mat4 LuaVob::getMatrix() const {
   if (auto* handle = vob()) {
-    return ToLuaMat4(handle->GetNewTrafoObjToWorld());
+    return lua_helpers::ToLuaMat4(handle->GetNewTrafoObjToWorld());
   }
   return {};
 }
@@ -198,7 +172,7 @@ sol::object LuaVob::getParent(sol::this_state ts) const {
     return sol::make_object(lua, sol::lua_nil);
   }
 
-  return sol::make_object(lua, fmt::format("{:X}", reinterpret_cast<std::uintptr_t>(parent_node->data)));
+  return sol::make_object(lua, LuaVob::FromExisting(parent_node->data));
 }
 
 /* luagmp (property)
@@ -447,7 +421,6 @@ void LuaVob::removeFromWorld() {
   if (auto* handle = vob()) {
     if (handle->GetHomeWorld()) {
       handle->RemoveVobFromWorld();
-      handle->Release();
     }
   }
 }
@@ -497,7 +470,7 @@ void LuaVob::floor() {
 
 void LuaVob::ApplyPendingVisual() {
   auto* handle = vob();
-  if (!handle || !instance_ || instance_->pending_visual.empty() || !CanApplyVisual()) {
+  if (!handle || !instance_ || instance_->pending_visual.empty() || !lua_helpers::CanApplyVisual()) {
     return;
   }
 

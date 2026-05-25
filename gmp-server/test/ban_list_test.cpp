@@ -50,6 +50,7 @@ public:
   MOCK_METHOD(void, RemoveFromBanList, (const char*), (override));
   MOCK_METHOD(bool, IsBanned, (const char*), (override));
   MOCK_METHOD(const char*, GetPlayerIp, (Net::ConnectionHandle), (override));
+  MOCK_METHOD(std::int32_t, GetPing, (Net::ConnectionHandle), (override));
   MOCK_METHOD(void, AddPacketHandler, (Net::PacketHandler&), (override));
   MOCK_METHOD(void, RemovePacketHandler, (Net::PacketHandler&), (override));
   MOCK_METHOD(std::uint32_t, GetPort, (), (const override));

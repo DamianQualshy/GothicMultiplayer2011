@@ -1286,6 +1286,9 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     return;
   }
   auto& updated_player = player_opt.value().get();
+  if (!updated_player.is_ingame) {
+    return;
+  }
 
   PlayerStateUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
@@ -2304,6 +2307,63 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   }
 
   EventManager::Instance().TriggerEvent(kEventOnPlayerSpawnName, OnPlayerSpawnEvent{player.player_id, player.state.position});
+  return true;
+}
+
+bool GameServer::UnspawnPlayer(PlayerId player_id) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("unspawnPlayer called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  if (!player.is_ingame) {
+    SPDLOG_WARN("unspawnPlayer called for already unspawned player {}", player_id);
+    return false;
+  }
+
+  UnstreamGroundItemsFromPlayer(player, true);
+
+  DisconnectionInfoPacket subject_left_packet;
+  subject_left_packet.packet_type = PT_LEFT_GAME;
+  subject_left_packet.disconnected_id = player.player_id;
+
+  const std::vector<PlayerId> viewers(player.streamed_by_players.begin(), player.streamed_by_players.end());
+  for (const auto viewer_id : viewers) {
+    auto viewer_opt = player_manager_.GetPlayer(viewer_id);
+    if (!viewer_opt.has_value()) {
+      continue;
+    }
+
+    auto& viewer = viewer_opt->get();
+    viewer.spawned_players.erase(player.player_id);
+    if (viewer.is_ingame) {
+      SerializeAndSend(subject_left_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
+    }
+  }
+
+  const std::vector<PlayerId> spawned_players(player.spawned_players.begin(), player.spawned_players.end());
+  for (const auto spawned_id : spawned_players) {
+    auto spawned_opt = player_manager_.GetPlayer(spawned_id);
+    if (!spawned_opt.has_value()) {
+      continue;
+    }
+
+    auto& spawned_player = spawned_opt->get();
+    spawned_player.streamed_by_players.erase(player.player_id);
+
+    DisconnectionInfoPacket spawned_left_packet;
+    spawned_left_packet.packet_type = PT_LEFT_GAME;
+    spawned_left_packet.disconnected_id = spawned_player.player_id;
+    SerializeAndSend(spawned_left_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+  }
+
+  SerializeAndSend(subject_left_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+
+  player.spawned_players.clear();
+  player.streamed_by_players.clear();
+  player.is_ingame = 0;
   return true;
 }
 
@@ -3571,6 +3631,19 @@ std::string GameServer::GetPlayerIp(PlayerId player_id) const {
   }
 
   return ip;
+}
+
+std::int32_t GameServer::GetPlayerPing(PlayerId player_id) const {
+  if (!g_net_server) {
+    return -1;
+  }
+
+  auto connection_opt = player_manager_.GetConnectionHandle(player_id);
+  if (!connection_opt.has_value()) {
+    return -1;
+  }
+
+  return g_net_server->GetPing(connection_opt.value());
 }
 
 std::string GameServer::GetPlayerMacAddress(PlayerId player_id) const {

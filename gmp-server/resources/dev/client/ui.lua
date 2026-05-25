@@ -62,6 +62,9 @@ addEventHandler("onExit", function()
 	logo = nil
 end)
 
+LOG_INFO("{}", isHudEnabled())
+enableHud(HUD_ALL, false)
+
 function onResourceStart()
 --[[ 	if tVisible then
 		print(string.format("title.position %d %d", posX, posY))

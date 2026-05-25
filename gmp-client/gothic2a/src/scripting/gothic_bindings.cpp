@@ -45,6 +45,7 @@ SOFTWARE.
 #include "lua_draw.h"
 #include "lua_texture.h"
 #include "lua_sound.h"
+#include "audio/lua_music.h"
 #include "lua_cursor.h"
 #include "lua_vob.h"
 #include "lua_sky.h"
@@ -109,6 +110,139 @@ oCNpc* GetNpcById(std::int64_t id) {
   }
 
   return nullptr;
+}
+
+enum class EquipmentSlot {
+  Armor,
+  MeleeWeapon,
+  RangedWeapon,
+  Helmet,
+  Shield,
+};
+
+std::optional<std::string> ItemInstanceNameByIndex(int index) {
+  if (index <= 0) {
+    return std::nullopt;
+  }
+
+  auto* parser = zCParser::GetParser();
+  if (!parser) {
+    return std::nullopt;
+  }
+
+  auto* symbol = parser->GetSymbol(index);
+  if (!symbol || symbol->name.IsEmpty()) {
+    return std::nullopt;
+  }
+
+  return std::string(symbol->name.ToChar());
+}
+
+std::optional<std::string> ItemInstanceName(oCItem* item) {
+  return item ? ItemInstanceNameByIndex(item->GetInstance()) : std::nullopt;
+}
+
+oCItem* GetNpcSlotItem(oCNpc* npc, const char* slot_name) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  zSTRING slot(slot_name);
+  return npc->GetSlotItem(slot);
+}
+
+oCItem* GetEquippedSlotItem(oCNpc* npc, EquipmentSlot slot) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return npc->GetEquippedArmor();
+    case EquipmentSlot::MeleeWeapon:
+      return npc->GetEquippedMeleeWeapon();
+    case EquipmentSlot::RangedWeapon:
+      return npc->GetEquippedRangedWeapon();
+    case EquipmentSlot::Helmet:
+      return GetNpcSlotItem(npc, NPC_NODE_HELMET);
+    case EquipmentSlot::Shield:
+      return GetNpcSlotItem(npc, NPC_NODE_SHIELD);
+  }
+
+  return nullptr;
+}
+
+std::optional<std::string> CachedEquipmentSlotInstance(Gothic2APlayer* player, EquipmentSlot slot) {
+  if (!player) {
+    return std::nullopt;
+  }
+
+  auto& base = player->base_player();
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return ItemInstanceNameByIndex(base.equipped_armor());
+    case EquipmentSlot::MeleeWeapon:
+      return ItemInstanceNameByIndex(base.melee_weapon());
+    case EquipmentSlot::RangedWeapon:
+      return ItemInstanceNameByIndex(base.ranged_weapon());
+    case EquipmentSlot::Helmet:
+      return ItemInstanceNameByIndex(base.equipped_helmet());
+    case EquipmentSlot::Shield:
+      return ItemInstanceNameByIndex(base.equipped_shield());
+  }
+
+  return std::nullopt;
+}
+
+std::optional<std::string> GetEquipmentSlotInstance(std::int64_t id, EquipmentSlot slot) {
+  if (auto* player = GetPlayerByIdSigned(id)) {
+    auto live_instance = ItemInstanceName(GetEquippedSlotItem(player->GetNpc(), slot));
+    return live_instance.has_value() ? live_instance : CachedEquipmentSlotInstance(player, slot);
+  }
+
+  return ItemInstanceName(GetEquippedSlotItem(GetNpcById(id), slot));
+}
+
+oCItem* FindInventoryItem(oCNpc* npc, const std::string& instance, bool create_one) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  auto* parser = zCParser::GetParser();
+  if (!parser) {
+    return nullptr;
+  }
+
+  zSTRING instance_name(instance.c_str());
+  const int instance_id = parser->GetIndex(instance_name);
+  if (instance_id < 0) {
+    return nullptr;
+  }
+
+  if (create_one) {
+    npc->CreateItems(instance_id, 1);
+  }
+
+  return npc->inventory2.IsIn(instance_id, 1);
+}
+
+bool EquipInventoryInstance(oCNpc* npc, const std::string& instance) {
+  if (auto* item = FindInventoryItem(npc, instance, true)) {
+    npc->EquipItem(item);
+    return true;
+  }
+
+  return false;
+}
+
+bool UnequipSlot(std::int64_t id, EquipmentSlot slot) {
+  auto* npc = GetNpcById(id);
+  if (auto* item = GetEquippedSlotItem(npc, slot)) {
+    npc->UnequipItem(item);
+    return true;
+  }
+
+  return false;
 }
 
 bool ReplaceStandaloneNpcInstance(oCNpc*& npc, int instance_id) {
@@ -1116,6 +1250,150 @@ sol::object Function_GetPlayerWeaponMode(std::int64_t id, sol::this_state ts) {
 
 /* luagmp (func)
 *
+* This function will return the active animation name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerAni
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Active animation name, or nil if unavailable.
+*
+*/
+sol::object Function_GetPlayerAni(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+
+  if (auto* npc = GetNpcById(id)) {
+    if (auto* model = npc->GetModel(); model && model->numActiveAnis > 0) {
+      if (auto* active = model->GetActiveAni(0); active && active->protoAni) {
+        return sol::make_object(lua, std::string(active->protoAni->GetAniName().ToChar()));
+      }
+    }
+  }
+
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
+* This function will return the active animation id for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerAniId
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (number)            Active animation id, or -1 if unavailable.
+*
+*/
+std::int32_t Function_GetPlayerAniId(std::int64_t id) {
+  if (auto* npc = GetNpcById(id)) {
+    if (auto* model = npc->GetModel(); model && model->numActiveAnis > 0) {
+      if (auto* active = model->GetActiveAni(0); active && active->protoAni) {
+        return active->protoAni->GetAniID();
+      }
+    }
+  }
+
+  if (auto* player = GetPlayerByIdSigned(id)) {
+    return player->base_player().animation();
+  }
+
+  return -1;
+}
+
+/* luagmp (func)
+*
+* This function will return the equipped armor instance name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerArmor
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Equipped armor instance, or nil if no armor is equipped.
+*
+*/
+sol::object Function_GetPlayerArmor(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto instance = GetEquipmentSlotInstance(id, EquipmentSlot::Armor);
+  return instance.has_value() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::lua_nil);
+}
+
+/* luagmp (func)
+*
+* This function will return the equipped melee weapon instance name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerMeleeWeapon
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Equipped melee weapon instance, or nil if none is equipped.
+*
+*/
+sol::object Function_GetPlayerMeleeWeapon(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto instance = GetEquipmentSlotInstance(id, EquipmentSlot::MeleeWeapon);
+  return instance.has_value() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::lua_nil);
+}
+
+/* luagmp (func)
+*
+* This function will return the equipped ranged weapon instance name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerRangedWeapon
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Equipped ranged weapon instance, or nil if none is equipped.
+*
+*/
+sol::object Function_GetPlayerRangedWeapon(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto instance = GetEquipmentSlotInstance(id, EquipmentSlot::RangedWeapon);
+  return instance.has_value() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::lua_nil);
+}
+
+/* luagmp (func)
+*
+* This function will return the equipped helmet instance name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerHelmet
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Equipped helmet instance, or nil if no helmet is equipped.
+*
+*/
+sol::object Function_GetPlayerHelmet(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto instance = GetEquipmentSlotInstance(id, EquipmentSlot::Helmet);
+  return instance.has_value() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::lua_nil);
+}
+
+/* luagmp (func)
+*
+* This function will return the equipped shield instance name for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerShield
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (string|nil)        Equipped shield instance, or nil if no shield is equipped.
+*
+*/
+sol::object Function_GetPlayerShield(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto instance = GetEquipmentSlotInstance(id, EquipmentSlot::Shield);
+  return instance.has_value() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::lua_nil);
+}
+
+/* luagmp (func)
+*
 * This function will apply an animation overlay on player (eg. "HUMANS_MILITIA.MDS").
 *
 * @version  0.3.0
@@ -1411,6 +1689,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 
   return sol::nil;
 }
+
 /* luagmp (func)
 *
 * This function will give an item to the player or NPC on the client.
@@ -1456,21 +1735,7 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
 *
 */
 bool Function_EquipItem(std::int64_t id, const std::string& instance) {
-  if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
-      zSTRING instance_name(instance.c_str());
-      const int instance_id = parser->GetIndex(instance_name);
-      if (instance_id >= 0) {
-        npc->CreateItems(instance_id, 1);
-        if (auto* item = npc->inventory2.IsIn(instance_id, 1)) {
-          npc->EquipItem(item);
-          return true;
-        }
-      }
-    }
-  }
-
-  return false;
+  return EquipInventoryInstance(GetNpcById(id), instance);
 }
 
 /* luagmp (func)
@@ -1500,6 +1765,171 @@ bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
   }
 
   return false;
+}
+
+/* luagmp (func)
+*
+* This function will equip an armor item for a player or NPC.
+*
+* @version  0.3.0
+* @name     equipArmor
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @param    (string) instance     Armor item instance name.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_EquipArmor(std::int64_t id, const std::string& instance) {
+  return EquipInventoryInstance(GetNpcById(id), instance);
+}
+
+/* luagmp (func)
+*
+* This function will unequip the current armor from a player or NPC.
+*
+* @version  0.3.0
+* @name     unequipArmor
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @return   (boolean)             True when an armor item was equipped and unequipped.
+*
+*/
+bool Function_UnequipArmor(std::int64_t id) {
+  return UnequipSlot(id, EquipmentSlot::Armor);
+}
+
+/* luagmp (func)
+*
+* This function will equip a melee weapon for a player or NPC.
+*
+* @version  0.3.0
+* @name     equipMeleeWeapon
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @param    (string) instance     Melee weapon item instance name.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_EquipMeleeWeapon(std::int64_t id, const std::string& instance) {
+  return EquipInventoryInstance(GetNpcById(id), instance);
+}
+
+/* luagmp (func)
+*
+* This function will unequip the current melee weapon from a player or NPC.
+*
+* @version  0.3.0
+* @name     unequipMeleeWeapon
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @return   (boolean)             True when a melee weapon was equipped and unequipped.
+*
+*/
+bool Function_UnequipMeleeWeapon(std::int64_t id) {
+  return UnequipSlot(id, EquipmentSlot::MeleeWeapon);
+}
+
+/* luagmp (func)
+*
+* This function will equip a ranged weapon for a player or NPC.
+*
+* @version  0.3.0
+* @name     equipRangedWeapon
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @param    (string) instance     Ranged weapon item instance name.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_EquipRangedWeapon(std::int64_t id, const std::string& instance) {
+  return EquipInventoryInstance(GetNpcById(id), instance);
+}
+
+/* luagmp (func)
+*
+* This function will unequip the current ranged weapon from a player or NPC.
+*
+* @version  0.3.0
+* @name     unequipRangedWeapon
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @return   (boolean)             True when a ranged weapon was equipped and unequipped.
+*
+*/
+bool Function_UnequipRangedWeapon(std::int64_t id) {
+  return UnequipSlot(id, EquipmentSlot::RangedWeapon);
+}
+
+/* luagmp (func)
+*
+* This function will equip a helmet item for a player or NPC.
+*
+* @version  0.3.0
+* @name     equipHelmet
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @param    (string) instance     Helmet item instance name.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_EquipHelmet(std::int64_t id, const std::string& instance) {
+  return EquipInventoryInstance(GetNpcById(id), instance);
+}
+
+/* luagmp (func)
+*
+* This function will unequip the current helmet from a player or NPC.
+*
+* @version  0.3.0
+* @name     unequipHelmet
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @return   (boolean)             True when a helmet item was equipped and unequipped.
+*
+*/
+bool Function_UnequipHelmet(std::int64_t id) {
+  return UnequipSlot(id, EquipmentSlot::Helmet);
+}
+
+/* luagmp (func)
+*
+* This function will equip a shield item for a player or NPC.
+*
+* @version  0.3.0
+* @name     equipShield
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @param    (string) instance     Shield item instance name.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_EquipShield(std::int64_t id, const std::string& instance) {
+  return EquipInventoryInstance(GetNpcById(id), instance);
+}
+
+/* luagmp (func)
+*
+* This function will unequip the current shield from a player or NPC.
+*
+* @version  0.3.0
+* @name     unequipShield
+* @side     client
+* @category Inventory
+* @param    (number) player_id    Target player or client NPC id.
+* @return   (boolean)             True when a shield item was equipped and unequipped.
+*
+*/
+bool Function_UnequipShield(std::int64_t id) {
+  return UnequipSlot(id, EquipmentSlot::Shield);
 }
 
 /* luagmp (func)
@@ -1589,6 +2019,61 @@ void Function_ClearInventory() {
   }
 
   player->inventory2.ClearInventory();
+}
+
+/* luagmp (func)
+*
+* This function will open the local player's inventory.
+*
+* @version  0.3.0
+* @name     openInventory
+* @side     client
+* @category Inventory
+* @return   (boolean)  True on success.
+*
+*/
+bool Function_OpenInventory() {
+  if (!player) {
+    return false;
+  }
+
+  player->OpenInventory(1);
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will close the local player's inventory.
+*
+* @version  0.3.0
+* @name     closeInventory
+* @side     client
+* @category Inventory
+* @return   (boolean)  True on success.
+*
+*/
+bool Function_CloseInventory() {
+  if (!player) {
+    return false;
+  }
+
+  player->CloseInventory();
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will check whether the local player's inventory is open.
+*
+* @version  0.3.0
+* @name     isInventoryOpen
+* @side     client
+* @category Inventory
+* @return   (boolean)  True when the inventory is open.
+*
+*/
+bool Function_IsInventoryOpen() {
+  return player && player->inventory2.IsOpen() != 0;
 }
 
 /* luagmp (func)
@@ -1792,6 +2277,237 @@ bool Function_UnspawnNpc(int npc_id) {
 
 /* luagmp (func)
 *
+* This function will check whether a player or client NPC object exists.
+*
+* @version  0.3.0
+* @name     isPlayerCreated
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean)           True when the object exists.
+*
+*/
+bool Function_IsPlayerCreated(std::int64_t id) {
+  if (id < 0) {
+    return g_client_npcs.find(static_cast<int>(id)) != g_client_npcs.end();
+  }
+
+  return GetPlayerByIdSigned(id) != nullptr;
+}
+
+/* luagmp (func)
+*
+* This function will check whether a player or client NPC is spawned into the world.
+*
+* @version  0.3.0
+* @name     isPlayerStreamed
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean|nil)       True when spawned, false when known but not spawned, nil if unknown.
+*
+*/
+sol::object Function_IsPlayerStreamed(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+
+  if (id < 0) {
+    auto it = g_client_npcs.find(static_cast<int>(id));
+    if (it == g_client_npcs.end()) {
+      return sol::nil;
+    }
+    return sol::make_object(lua, it->second.spawned && it->second.npc != nullptr);
+  }
+
+  auto* player = GetPlayerByIdSigned(id);
+  if (!player) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, player->base_player().has_spawned() && player->GetNpc() != nullptr);
+}
+
+/* luagmp (func)
+*
+* This function will check whether a player or NPC is dead.
+*
+* @version  0.3.0
+* @name     isPlayerDead
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean|nil)       Dead state, or nil if unavailable.
+*
+*/
+sol::object Function_IsPlayerDead(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (auto* npc = GetNpcById(id)) {
+    return sol::make_object(lua, npc->IsDead() != 0);
+  }
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
+* This function will check whether a player or NPC is unconscious.
+*
+* @version  0.3.0
+* @name     isPlayerUnconscious
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean|nil)       Unconscious state, or nil if unavailable.
+*
+*/
+sol::object Function_IsPlayerUnconscious(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (auto* npc = GetNpcById(id)) {
+    return sol::make_object(lua, npc->IsUnconscious() != 0);
+  }
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
+* This function will return the local player's current network ping.
+*
+* @version  0.3.0
+* @name     getPlayerPing
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (number)            Average of all ping times read for the local player, or -1 if unavailable.
+*
+*/
+std::int32_t Function_GetPlayerPing(std::int64_t id) {
+  auto& net_game = NetGame::Instance();
+  if (!net_game.game_client || !net_game.IsConnected() || !net_game.game_client->player_manager().HasLocalPlayer()) {
+    return -1;
+  }
+
+  const auto local_id = net_game.game_client->player_manager().GetLocalPlayer().id();
+  if (id != static_cast<std::int64_t>(local_id)) {
+    return -1;
+  }
+
+  return net_game.game_client->GetPing();
+}
+
+/* luagmp (func)
+*
+* This function will return the focused multiplayer player id for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerFocus
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (number)            Focused player id, or -1 if no multiplayer player is focused.
+*
+*/
+std::int32_t Function_GetPlayerFocus(std::int64_t id) {
+  auto* npc = GetNpcById(id);
+  if (!npc) {
+    return -1;
+  }
+
+  oCNpc* focus_npc = npc->GetFocusNpc();
+  if (!focus_npc) {
+    return -1;
+  }
+
+  auto focused_player_id = NetGame::Instance().GetPlayerIdByNpc(focus_npc);
+  return focused_player_id.has_value() ? static_cast<std::int32_t>(*focused_player_id) : -1;
+}
+
+/* luagmp (func)
+*
+* This function will return the multiplayer player type.
+*
+* @version  0.3.0
+* @name     getPlayerType
+* @side     client
+* @category Player
+* @param    (number) player_id  Target multiplayer player id.
+* @return   (number|nil)        Player type, or nil if unavailable.
+*
+*/
+sol::object Function_GetPlayerType(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (auto* player = GetPlayerByIdSigned(id)) {
+    return sol::make_object(lua, static_cast<int>(player->Type));
+  }
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
+* This function will place a player or NPC on the floor at its current position.
+*
+* @version  0.3.0
+* @name     setPlayerOnFloor
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_SetPlayerOnFloor(std::int64_t id) {
+  if (auto* npc = GetNpcById(id)) {
+    zVEC3 position = npc->GetPositionWorld();
+    npc->SetOnFloor(position);
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* This function will enable or disable collision and physics for a player or NPC.
+*
+* @version  0.3.0
+* @name     setPlayerCollision
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @param    (boolean) enabled   Collision state.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_SetPlayerCollision(std::int64_t id, bool enabled) {
+  if (auto* npc = GetNpcById(id)) {
+    npc->SetCollDet(enabled ? 1 : 0);
+    if (auto* anictrl = npc->GetAnictrl()) {
+      anictrl->SetPhysicsEnabled(enabled ? 1 : 0);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+/* luagmp (func)
+*
+* This function will return whether collision is enabled for a player or NPC.
+*
+* @version  0.3.0
+* @name     getPlayerCollision
+* @side     client
+* @category Player
+* @param    (number) player_id  Target player or client NPC id.
+* @return   (boolean|nil)       Collision state, or nil if unavailable.
+*
+*/
+sol::object Function_GetPlayerCollision(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (auto* npc = GetNpcById(id)) {
+    return sol::make_object(lua, npc->collDetectionStatic != 0 || npc->collDetectionDynamic != 0);
+  }
+  return sol::nil;
+}
+
+/* luagmp (func)
+*
 * This function will set the in-game world time (hour, minute).
 *
 * @version  0.3.0
@@ -1991,6 +2707,13 @@ void BindGothicSpecific(sol::state& lua) {
   lua["getPlayerScale"] = Function_GetPlayerScale;
   lua["setPlayerWeaponMode"] = Function_SetPlayerWeaponMode;
   lua["getPlayerWeaponMode"] = Function_GetPlayerWeaponMode;
+  lua["getPlayerAni"] = Function_GetPlayerAni;
+  lua["getPlayerAniId"] = Function_GetPlayerAniId;
+  lua["getPlayerArmor"] = Function_GetPlayerArmor;
+  lua["getPlayerMeleeWeapon"] = Function_GetPlayerMeleeWeapon;
+  lua["getPlayerRangedWeapon"] = Function_GetPlayerRangedWeapon;
+  lua["getPlayerHelmet"] = Function_GetPlayerHelmet;
+  lua["getPlayerShield"] = Function_GetPlayerShield;
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;
@@ -2007,9 +2730,22 @@ void BindGothicSpecific(sol::state& lua) {
   lua["giveItem"] = Function_GiveItem;
   lua["equipItem"] = Function_EquipItem;
   lua["unequipItem"] = Function_UnequipItem;
+  lua["equipArmor"] = Function_EquipArmor;
+  lua["unequipArmor"] = Function_UnequipArmor;
+  lua["equipMeleeWeapon"] = Function_EquipMeleeWeapon;
+  lua["unequipMeleeWeapon"] = Function_UnequipMeleeWeapon;
+  lua["equipRangedWeapon"] = Function_EquipRangedWeapon;
+  lua["unequipRangedWeapon"] = Function_UnequipRangedWeapon;
+  lua["equipHelmet"] = Function_EquipHelmet;
+  lua["unequipHelmet"] = Function_UnequipHelmet;
+  lua["equipShield"] = Function_EquipShield;
+  lua["unequipShield"] = Function_UnequipShield;
   lua["hasItem"] = Function_HasItem;
   lua["removeItem"] = Function_RemoveItem;
   lua["clearInventory"] = Function_ClearInventory;
+  lua["openInventory"] = Function_OpenInventory;
+  lua["closeInventory"] = Function_CloseInventory;
+  lua["isInventoryOpen"] = Function_IsInventoryOpen;
 
   lua["changeWorld"] = Function_ChangeWorld;
   lua["getWorld"] = Function_GetWorld;
@@ -2018,6 +2754,22 @@ void BindGothicSpecific(sol::state& lua) {
   lua["destroyNpc"] = Function_DestroyNpc;
   lua["spawnNpc"] = Function_SpawnNpc;
   lua["unspawnNpc"] = Function_UnspawnNpc;
+
+  lua["isPlayerCreated"] = Function_IsPlayerCreated;
+  lua["isPlayerStreamed"] = Function_IsPlayerStreamed;
+  lua["isPlayerDead"] = Function_IsPlayerDead;
+  lua["isPlayerUnconscious"] = Function_IsPlayerUnconscious;
+  lua["getPlayerPing"] = Function_GetPlayerPing;
+  lua["getPlayerFocus"] = Function_GetPlayerFocus;
+  lua["getPlayerType"] = Function_GetPlayerType;
+  lua["setPlayerOnFloor"] = Function_SetPlayerOnFloor;
+  lua["setPlayerCollision"] = Function_SetPlayerCollision;
+  lua["getPlayerCollision"] = Function_GetPlayerCollision;
+
+  lua["setTime"] = Function_SetTime;
+  lua["getTime"] = Function_GetTime;
+  lua["setDayLength"] = Function_SetDayLength;
+  lua["getDayLength"] = Function_GetDayLength;
 
   lua["exitGame"] = Function_ExitGame;
   lua["clearMultiplayerMessages"] = Function_ClearMultiplayerMessages;
@@ -2031,16 +2783,12 @@ void BindGothicSpecific(sol::state& lua) {
   BindDraw(lua);
   BindTexture(lua);
   BindSound(lua);
+  gmp::lua::BindMusic(lua);
   BindVob(lua);
   BindWay(lua);
   BindSky(lua);
   BindInterface(lua);
   BindItemGround(lua);
-
-  lua["setTime"] = Function_SetTime;
-  lua["getTime"] = Function_GetTime;
-  lua["setDayLength"] = Function_SetDayLength;
-  lua["getDayLength"] = Function_GetDayLength;
 
   // Constants
   lua["PLANET_SUN"] = 0;

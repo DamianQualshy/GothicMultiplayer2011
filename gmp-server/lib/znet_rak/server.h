@@ -58,6 +58,7 @@ public:
   bool IsBanned(const char* IP) override;
 
   const char* GetPlayerIp(ConnectionHandle id) override;
+  std::int32_t GetPing(ConnectionHandle id) override;
   std::uint32_t GetPort() const override;
   std::string GetAddress() const override;
 

@@ -22,20 +22,13 @@ SOFTWARE.
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
-#include <cstring>
+#include <cstddef>
+
+#include "lua_helpers.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
-namespace {
-constexpr float kMinSensitivity = 1.0f;
-constexpr float kMaxSensitivity = 10.0f;
-constexpr int kDefaultCursorSizePx = 96;
-constexpr uintptr_t kGothicMouseDeviceAddress = 0x008D1D70;
-constexpr std::array<int, 8> kMouseButtonCodes = {MOUSE_BUTTONLEFT, MOUSE_BUTTONRIGHT, MOUSE_BUTTONMID, MOUSE_XBUTTON1,
-                                                  MOUSE_XBUTTON2,   MOUSE_XBUTTON3,    MOUSE_XBUTTON4,  MOUSE_XBUTTON5};
-}  // namespace
 
 class LuaCursorView : public zCView {
 public:
@@ -64,11 +57,11 @@ LuaCursor::LuaCursor()
       attached_to_screen_(false),
       pos_x_(0.0f),
       pos_y_(0.0f),
-      width_(kDefaultCursorSizePx),
-      height_(kDefaultCursorSizePx),
+      width_(lua_helpers::kCursorDefaultSizePx),
+      height_(lua_helpers::kCursorDefaultSizePx),
       mouse_device_(nullptr) {
   EnsureView();
-  setSizePx(kDefaultCursorSizePx, kDefaultCursorSizePx);
+  setSizePx(lua_helpers::kCursorDefaultSizePx, lua_helpers::kCursorDefaultSizePx);
   setTexture(texture_name_);
 }
 
@@ -337,7 +330,7 @@ bool LuaCursor::isVisible() const {
 }
 
 void LuaCursor::setSensitivity(float sensitivity) {
-  sensitivity_ = std::clamp(sensitivity, kMinSensitivity, kMaxSensitivity);
+  sensitivity_ = std::clamp(sensitivity, lua_helpers::kCursorMinSensitivity, lua_helpers::kCursorMaxSensitivity);
 }
 
 float LuaCursor::getSensitivity() const {
@@ -345,11 +338,11 @@ float LuaCursor::getSensitivity() const {
 }
 
 bool LuaCursor::isButtonPressed(int button) const {
-  if (!zinput || button < 0 || static_cast<std::size_t>(button) >= kMouseButtonCodes.size()) {
+  if (!zinput || button < 0 || static_cast<std::size_t>(button) >= lua_helpers::kCursorMouseButtonCodes.size()) {
     return false;
   }
 
-  return zinput->KeyPressed(kMouseButtonCodes[button]) != 0;
+  return zinput->KeyPressed(lua_helpers::kCursorMouseButtonCodes[button]) != 0;
 }
 
 void LuaCursor::CleanupViews() {
@@ -365,7 +358,7 @@ void LuaCursor::CleanupViews() {
 
 bool LuaCursor::PollDirectInput(float& delta_x, float& delta_y, float& wheel) {
   if (!mouse_device_) {
-    auto device_ptr = reinterpret_cast<LPDIRECTINPUTDEVICE8A*>(kGothicMouseDeviceAddress);
+    auto device_ptr = reinterpret_cast<LPDIRECTINPUTDEVICE8A*>(lua_helpers::kCursorGothicMouseDeviceAddress);
     if (!device_ptr) {
       return false;
     }

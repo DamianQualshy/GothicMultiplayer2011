@@ -28,13 +28,9 @@ SOFTWARE.
 
 #include <algorithm>
 
+#include "lua_helpers.h"
+
 namespace gmp::gothic {
-namespace {
-constexpr float kMinVolume = 0.0f;
-constexpr float kMaxVolume = 1.0f;
-constexpr float kMinBalance = -1.0f;
-constexpr float kMaxBalance = 1.0f;
-}  // namespace
 
 /* luagmp (class)
 *
@@ -241,7 +237,7 @@ float LuaSound::getVolume() const {
 }
 
 void LuaSound::setVolume(float volume) {
-  volume_ = std::clamp(volume, kMinVolume, kMaxVolume);
+  volume_ = std::clamp(volume, lua_helpers::kSoundMinVolume, lua_helpers::kSoundMaxVolume);
   ApplyProperties();
 }
 
@@ -259,7 +255,7 @@ float LuaSound::getBalance() const {
 }
 
 void LuaSound::setBalance(float balance) {
-  balance_ = std::clamp(balance, kMinBalance, kMaxBalance);
+  balance_ = std::clamp(balance, lua_helpers::kSoundMinBalance, lua_helpers::kSoundMaxBalance);
   ApplyProperties();
 }
 

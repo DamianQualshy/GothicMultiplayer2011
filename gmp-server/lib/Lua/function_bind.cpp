@@ -118,6 +118,33 @@ std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std
   return player_opt;
 }
 
+sol::object EquipmentInstanceOrNil(std::int16_t index, sol::state_view lua) {
+  if (index <= 0) {
+    return sol::nil;
+  }
+
+  const auto* item = g_server->GetItemRegistry().FindByIndex(index);
+  if (!item) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, item->instance);
+}
+
+std::optional<std::string> FindItemInstanceByIndex(std::int16_t index, const char* action) {
+  if (index <= 0) {
+    return std::nullopt;
+  }
+
+  const auto* item = g_server->GetItemRegistry().FindByIndex(index);
+  if (!item) {
+    SPDLOG_WARN("{} found unknown equipped item index {}", action, index);
+    return std::nullopt;
+  }
+
+  return item->instance;
+}
+
 }  // namespace
 
 
@@ -238,6 +265,26 @@ bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
 
   auto position_override = ParseSpawnPosition(args);
   return g_server->SpawnPlayer(player_id, position_override);
+}
+
+/* luagmp (func)
+*
+* This function will unspawn the player without disconnecting him.
+*
+* @version  0.3.0
+* @name     unspawnPlayer
+* @side     server
+* @category Player
+* @param    (number) player_id    Player id to unspawn.
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_UnspawnPlayer(std::uint32_t player_id) {
+  if (!GetPlayerOrWarn(player_id, "unspawnPlayer")) {
+    return false;
+  }
+
+  return g_server->UnspawnPlayer(player_id);
 }
 
 /* luagmp (func)
@@ -400,6 +447,26 @@ sol::object Function_GetPlayerUUID(std::uint32_t player_id, sol::this_state ts) 
 
   sol::state_view lua(ts);
   return sol::make_object(lua, uuid);
+}
+
+/* luagmp (func)
+*
+* This function will return the player's current network ping.
+*
+* @version  0.3.0
+* @name     getPlayerPing
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (number)            Average of all ping times read, or -1 if unavailable.
+*
+*/
+std::int32_t Function_GetPlayerPing(std::uint32_t player_id) {
+  if (!GetPlayerOrWarn(player_id, "getPlayerPing")) {
+    return -1;
+  }
+
+  return g_server->GetPlayerPing(player_id);
 }
 
 /* luagmp (func)
@@ -1153,6 +1220,137 @@ sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_stat
 
 /* luagmp (func)
 *
+* This function will return the last reported player animation id.
+*
+* @version  0.3.0
+* @name     getPlayerAniId
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (number)            Animation id, or -1 if unavailable.
+*
+*/
+std::int32_t Function_GetPlayerAniId(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerAniId");
+  if (!player_opt.has_value()) {
+    return -1;
+  }
+
+  return player_opt->get().state.animation;
+}
+
+/* luagmp (func)
+*
+* This function will return the player's equipped armor instance name.
+*
+* @version  0.3.0
+* @name     getPlayerArmor
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Equipped armor instance, or nil if no armor is equipped.
+*
+*/
+sol::object Function_GetPlayerArmor(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerArmor");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return EquipmentInstanceOrNil(player_opt->get().state.equipped_armor_instance, lua);
+}
+
+/* luagmp (func)
+*
+* This function will return the player's equipped melee weapon instance name.
+*
+* @version  0.3.0
+* @name     getPlayerMeleeWeapon
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Equipped melee weapon instance, or nil if none is equipped.
+*
+*/
+sol::object Function_GetPlayerMeleeWeapon(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMeleeWeapon");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return EquipmentInstanceOrNil(player_opt->get().state.melee_weapon_instance, lua);
+}
+
+/* luagmp (func)
+*
+* This function will return the player's equipped ranged weapon instance name.
+*
+* @version  0.3.0
+* @name     getPlayerRangedWeapon
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Equipped ranged weapon instance, or nil if none is equipped.
+*
+*/
+sol::object Function_GetPlayerRangedWeapon(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerRangedWeapon");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return EquipmentInstanceOrNil(player_opt->get().state.ranged_weapon_instance, lua);
+}
+
+/* luagmp (func)
+*
+* This function will return the player's equipped helmet instance name.
+*
+* @version  0.3.0
+* @name     getPlayerHelmet
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Equipped helmet instance, or nil if no helmet is equipped.
+*
+*/
+sol::object Function_GetPlayerHelmet(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerHelmet");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return EquipmentInstanceOrNil(player_opt->get().state.equipped_helmet_instance, lua);
+}
+
+/* luagmp (func)
+*
+* This function will return the player's equipped shield instance name.
+*
+* @version  0.3.0
+* @name     getPlayerShield
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (string|nil)        Equipped shield instance, or nil if no shield is equipped.
+*
+*/
+sol::object Function_GetPlayerShield(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerShield");
+  if (!player_opt.has_value()) {
+    return sol::nil;
+  }
+
+  sol::state_view lua(ts);
+  return EquipmentInstanceOrNil(player_opt->get().state.equipped_shield_instance, lua);
+}
+
+/* luagmp (func)
+*
 * This function will apply animation overlay on the player.
 *
 * @version  0.3.0
@@ -1774,6 +1972,221 @@ bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) 
 
 /* luagmp (func)
 *
+* This function will equip an armor item for the player.
+*
+* @version  0.3.0
+* @name     equipArmor
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Armor item instance name.
+* @return   (boolean)             True when the equip packet was sent.
+*
+*/
+bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
+  if (!GetPlayerOrWarn(player_id, "equipArmor")) {
+    return false;
+  }
+
+  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+}
+
+/* luagmp (func)
+*
+* This function will unequip the player's current armor.
+*
+* @version  0.3.0
+* @name     unequipArmor
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @return   (boolean)             True when an equipped armor item was found and unequipped.
+*
+*/
+bool Function_UnequipArmor(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "unequipArmor");
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_armor_instance, "unequipArmor");
+  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will equip a melee weapon for the player.
+*
+* @version  0.3.0
+* @name     equipMeleeWeapon
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Melee weapon item instance name.
+* @return   (boolean)             True when the equip packet was sent.
+*
+*/
+bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& instance) {
+  if (!GetPlayerOrWarn(player_id, "equipMeleeWeapon")) {
+    return false;
+  }
+
+  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+}
+
+/* luagmp (func)
+*
+* This function will unequip the player's current melee weapon.
+*
+* @version  0.3.0
+* @name     unequipMeleeWeapon
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @return   (boolean)             True when an equipped melee weapon was found and unequipped.
+*
+*/
+bool Function_UnequipMeleeWeapon(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "unequipMeleeWeapon");
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  auto instance = FindItemInstanceByIndex(player_opt->get().state.melee_weapon_instance, "unequipMeleeWeapon");
+  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will equip a ranged weapon for the player.
+*
+* @version  0.3.0
+* @name     equipRangedWeapon
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Ranged weapon item instance name.
+* @return   (boolean)             True when the equip packet was sent.
+*
+*/
+bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& instance) {
+  if (!GetPlayerOrWarn(player_id, "equipRangedWeapon")) {
+    return false;
+  }
+
+  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+}
+
+/* luagmp (func)
+*
+* This function will unequip the player's current ranged weapon.
+*
+* @version  0.3.0
+* @name     unequipRangedWeapon
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @return   (boolean)             True when an equipped ranged weapon was found and unequipped.
+*
+*/
+bool Function_UnequipRangedWeapon(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "unequipRangedWeapon");
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  auto instance = FindItemInstanceByIndex(player_opt->get().state.ranged_weapon_instance, "unequipRangedWeapon");
+  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will equip a helmet item for the player.
+*
+* @version  0.3.0
+* @name     equipHelmet
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Helmet item instance name.
+* @return   (boolean)             True when the equip packet was sent.
+*
+*/
+bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) {
+  if (!GetPlayerOrWarn(player_id, "equipHelmet")) {
+    return false;
+  }
+
+  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+}
+
+/* luagmp (func)
+*
+* This function will unequip the player's current helmet.
+*
+* @version  0.3.0
+* @name     unequipHelmet
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @return   (boolean)             True when an equipped helmet item was found and unequipped.
+*
+*/
+bool Function_UnequipHelmet(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "unequipHelmet");
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_helmet_instance, "unequipHelmet");
+  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will equip a shield item for the player.
+*
+* @version  0.3.0
+* @name     equipShield
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @param    (string) instance     Shield item instance name.
+* @return   (boolean)             True when the equip packet was sent.
+*
+*/
+bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) {
+  if (!GetPlayerOrWarn(player_id, "equipShield")) {
+    return false;
+  }
+
+  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+}
+
+/* luagmp (func)
+*
+* This function will unequip the player's current shield.
+*
+* @version  0.3.0
+* @name     unequipShield
+* @side     server
+* @category Inventory
+* @param    (number) player_id    Target player id.
+* @return   (boolean)             True when an equipped shield item was found and unequipped.
+*
+*/
+bool Function_UnequipShield(std::uint32_t player_id) {
+  auto player_opt = GetPlayerOrWarn(player_id, "unequipShield");
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_shield_instance, "unequipShield");
+  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+}
+
+/* luagmp (func)
+*
 * This function will return the amount of a specific item in the player's inventory.
 *
 * @version  0.3.0
@@ -2018,12 +2431,14 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["sendPlayerMessageToPlayer"] = Function_SendPlayerMessageToPlayer;
 
   lua["spawnPlayer"] = Function_SpawnPlayer;
+  lua["unspawnPlayer"] = Function_UnspawnPlayer;
 
   lua["setPlayerInstance"] = Function_SetPlayerInstance;
   lua["getPlayerInstance"] = Function_GetPlayerInstance;
   lua["setPlayerName"] = Function_SetPlayerName;
   lua["getPlayerName"] = Function_GetPlayerName;
   lua["getPlayerIP"] = Function_GetPlayerIP;
+  lua["getPlayerPing"] = Function_GetPlayerPing;
   lua["getPlayerMacAddress"] = Function_GetPlayerMacAddress;
   lua["getPlayerUUID"] = Function_GetPlayerUUID;
   lua["setPlayerColor"] = Function_SetPlayerColor;
@@ -2060,6 +2475,12 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerScale"] = Function_GetPlayerScale;
   lua["setPlayerWeaponMode"] = Function_SetPlayerWeaponMode;
   lua["getPlayerWeaponMode"] = Function_GetPlayerWeaponMode;
+  lua["getPlayerAniId"] = Function_GetPlayerAniId;
+  lua["getPlayerArmor"] = Function_GetPlayerArmor;
+  lua["getPlayerMeleeWeapon"] = Function_GetPlayerMeleeWeapon;
+  lua["getPlayerRangedWeapon"] = Function_GetPlayerRangedWeapon;
+  lua["getPlayerHelmet"] = Function_GetPlayerHelmet;
+  lua["getPlayerShield"] = Function_GetPlayerShield;
   lua["applyPlayerOverlay"] = Function_ApplyPlayerOverlay;
   lua["getPlayerOverlays"] = Function_GetPlayerOverlays;
   lua["removePlayerOverlay"] = Function_RemovePlayerOverlay;
@@ -2090,6 +2511,16 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["giveItem"] = Function_GiveItem;
   lua["equipItem"] = Function_EquipItem;
   lua["unequipItem"] = Function_UnequipItem;
+  lua["equipArmor"] = Function_EquipArmor;
+  lua["unequipArmor"] = Function_UnequipArmor;
+  lua["equipMeleeWeapon"] = Function_EquipMeleeWeapon;
+  lua["unequipMeleeWeapon"] = Function_UnequipMeleeWeapon;
+  lua["equipRangedWeapon"] = Function_EquipRangedWeapon;
+  lua["unequipRangedWeapon"] = Function_UnequipRangedWeapon;
+  lua["equipHelmet"] = Function_EquipHelmet;
+  lua["unequipHelmet"] = Function_UnequipHelmet;
+  lua["equipShield"] = Function_EquipShield;
+  lua["unequipShield"] = Function_UnequipShield;
   lua["hasItem"] = Function_HasItem;
   lua["removeItem"] = Function_RemoveItem;
 

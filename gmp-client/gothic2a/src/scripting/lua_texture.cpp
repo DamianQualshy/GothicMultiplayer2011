@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <unordered_set>
 
+#include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
@@ -98,6 +99,14 @@ void LuaTexture::setPosition(int x, int y) {
   updateViewPos(x, y);
 }
 
+void LuaTexture::setPositionValue(sol::object value) {
+  int x = 0;
+  int y = 0;
+  if (lua_helpers::ReadVec2(value, x, y)) {
+    setPosition(x, y);
+  }
+}
+
 /* luagmp (method)
 *
 * This method will return the Texture position in virtual screen units.
@@ -135,6 +144,14 @@ void LuaTexture::setPositionPx(int x, int y) {
   updateViewPos(screen->anx(x), screen->any(y));
 }
 
+void LuaTexture::setPositionPxValue(sol::object value) {
+  int x = 0;
+  int y = 0;
+  if (lua_helpers::ReadVec2(value, x, y)) {
+    setPositionPx(x, y);
+  }
+}
+
 /* luagmp (method)
 *
 * This method will return the Texture position in pixel coordinates.
@@ -167,6 +184,14 @@ sol::table LuaTexture::getPositionPx(sol::this_state s) {
 */
 void LuaTexture::setSize(int width, int height) {
   updateViewSize(width, height);
+}
+
+void LuaTexture::setSizeValue(sol::object value) {
+  int width = 0;
+  int height = 0;
+  if (lua_helpers::ReadSize(value, width, height)) {
+    setSize(width, height);
+  }
 }
 
 /* luagmp (method)
@@ -204,6 +229,14 @@ void LuaTexture::setSizePx(int width, int height) {
     return;
   }
   updateViewSize(screen->anx(width), screen->any(height));
+}
+
+void LuaTexture::setSizePxValue(sol::object value) {
+  int width = 0;
+  int height = 0;
+  if (lua_helpers::ReadSize(value, width, height)) {
+    setSizePx(width, height);
+  }
 }
 
 /* luagmp (method)
@@ -256,6 +289,16 @@ void LuaTexture::setRect(int x, int y, int width, int height) {
   uvSize_[VY] = uvPos_[VY] + static_cast<float>(height) / virtualHeight;
 }
 
+void LuaTexture::setRectValue(sol::object value) {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  if (lua_helpers::ReadRect(value, x, y, width, height)) {
+    setRect(x, y, width, height);
+  }
+}
+
 /* luagmp (method)
 *
 * This method will return the Texture rectangle in virtual screen units.
@@ -272,8 +315,10 @@ sol::table LuaTexture::getRect(sol::this_state s) {
   if (view_) {
     view_->GetSize(width, height);
   }
-  rect["width"] = static_cast<int>(uvSize_[VX] * width);
-  rect["height"] = static_cast<int>(uvSize_[VY] * height);
+  rect["x"] = static_cast<int>(uvPos_[VX] * width);
+  rect["y"] = static_cast<int>(uvPos_[VY] * height);
+  rect["width"] = static_cast<int>((uvSize_[VX] - uvPos_[VX]) * width);
+  rect["height"] = static_cast<int>((uvSize_[VY] - uvPos_[VY]) * height);
   return rect;
 }
 
@@ -296,6 +341,16 @@ void LuaTexture::setRectPx(int x, int y, int width, int height) {
   setRect(screen->anx(x), screen->any(y), screen->anx(width), screen->any(height));
 }
 
+void LuaTexture::setRectPxValue(sol::object value) {
+  int x = 0;
+  int y = 0;
+  int width = 0;
+  int height = 0;
+  if (lua_helpers::ReadRect(value, x, y, width, height)) {
+    setRectPx(x, y, width, height);
+  }
+}
+
 /* luagmp (method)
 *
 * This method will return the Texture rectangle in pixel coordinates.
@@ -314,8 +369,10 @@ sol::table LuaTexture::getRectPx(sol::this_state s) {
     pixelWidth = screen->nax(pixelWidth);
     pixelHeight = screen->nay(pixelHeight);
   }
-  rect["width"] = static_cast<int>(uvSize_[VX] * pixelWidth);
-  rect["height"] = static_cast<int>(uvSize_[VY] * pixelHeight);
+  rect["x"] = static_cast<int>(uvPos_[VX] * pixelWidth);
+  rect["y"] = static_cast<int>(uvPos_[VY] * pixelHeight);
+  rect["width"] = static_cast<int>((uvSize_[VX] - uvPos_[VX]) * pixelWidth);
+  rect["height"] = static_cast<int>((uvSize_[VY] - uvPos_[VY]) * pixelHeight);
   return rect;
 }
 
@@ -338,7 +395,7 @@ void LuaTexture::setColor(unsigned char r, unsigned char g, unsigned char b) {
 * This method will return the Texture color.
 *
 * @name     getColor
-* @return   ({r, g, b})   Table containing color in RGB model.
+* @return   ({r, g, b, a}) Table containing color in RGBA model.
 *
 */
 sol::table LuaTexture::getColor(sol::this_state s) {
@@ -347,7 +404,19 @@ sol::table LuaTexture::getColor(sol::this_state s) {
   colorTable["r"] = color_.r;
   colorTable["g"] = color_.g;
   colorTable["b"] = color_.b;
+  colorTable["a"] = color_.alpha;
   return colorTable;
+}
+
+void LuaTexture::setColorValue(sol::object value) {
+  int r = color_.r;
+  int g = color_.g;
+  int b = color_.b;
+  int a = color_.alpha;
+  if (lua_helpers::ReadColor(value, r, g, b, a)) {
+    setColor(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
+    setAlpha(lua_helpers::ClampByte(a));
+  }
 }
 
 /* luagmp (method)
@@ -498,7 +567,7 @@ void LuaTexture::top() {
 * Represents the Texture color.
 *
 * @name     color
-* @return   ({r, g, b}) Table containing color in RGB model.
+* @return   ({r, g, b, a}) Table containing color in RGBA model.
 *
 */
 /* luagmp (property)
@@ -663,13 +732,13 @@ void BindTexture(sol::state& lua) {
   texture_type["render"] = &LuaTexture::render;
 
   // Properties (Lua table access)
-  texture_type["position"] = sol::property(&LuaTexture::getPosition, &LuaTexture::setPosition);
-  texture_type["positionPx"] = sol::property(&LuaTexture::getPositionPx, &LuaTexture::setPositionPx);
-  texture_type["size"] = sol::property(&LuaTexture::getSize, &LuaTexture::setSize);
-  texture_type["sizePx"] = sol::property(&LuaTexture::getSizePx, &LuaTexture::setSizePx);
-  texture_type["rect"] = sol::property(&LuaTexture::getRect, &LuaTexture::setRect);
-  texture_type["rectPx"] = sol::property(&LuaTexture::getRectPx, &LuaTexture::setRectPx);
-  texture_type["color"] = sol::property(&LuaTexture::getColor, &LuaTexture::setColor);
+  texture_type["position"] = sol::property(&LuaTexture::getPosition, &LuaTexture::setPositionValue);
+  texture_type["positionPx"] = sol::property(&LuaTexture::getPositionPx, &LuaTexture::setPositionPxValue);
+  texture_type["size"] = sol::property(&LuaTexture::getSize, &LuaTexture::setSizeValue);
+  texture_type["sizePx"] = sol::property(&LuaTexture::getSizePx, &LuaTexture::setSizePxValue);
+  texture_type["rect"] = sol::property(&LuaTexture::getRect, &LuaTexture::setRectValue);
+  texture_type["rectPx"] = sol::property(&LuaTexture::getRectPx, &LuaTexture::setRectPxValue);
+  texture_type["color"] = sol::property(&LuaTexture::getColor, &LuaTexture::setColorValue);
   texture_type["alpha"] = sol::property(&LuaTexture::getAlpha, &LuaTexture::setAlpha);
   texture_type["visible"] = sol::property(&LuaTexture::getVisible, &LuaTexture::setVisible);
   texture_type["file"] = sol::property(&LuaTexture::getFile, &LuaTexture::setFile);

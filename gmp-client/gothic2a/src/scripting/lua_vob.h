@@ -42,8 +42,8 @@ public:
   std::string getObjectName() const;
   void setObjectName(const std::string& name);
 
-  lua::types::Mat4 getMatrix() const;
-  void setMatrix(const lua::types::Mat4& matrix);
+  ::lua::types::Mat4 getMatrix() const;
+  void setMatrix(const ::lua::types::Mat4& matrix);
 
   sol::object getParent(sol::this_state ts) const;
   void setParent(sol::optional<LuaVob> parent);

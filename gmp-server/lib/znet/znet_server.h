@@ -63,6 +63,7 @@ public:
   virtual bool IsBanned(const char* IP) = 0;
 
   virtual const char* GetPlayerIp(ConnectionHandle id) = 0;
+  virtual std::int32_t GetPing(ConnectionHandle id) = 0;
 
   virtual void AddPacketHandler(PacketHandler& packetHandler) = 0;
   virtual void RemovePacketHandler(PacketHandler& packetHandler) = 0;

@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <unordered_set>
 
+#include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
@@ -125,6 +126,14 @@ void LuaDraw::setPosition(int x, int y) {
   }
 }
 
+void LuaDraw::setPositionValue(sol::object value) {
+  int x = posX_;
+  int y = posY_;
+  if (lua_helpers::ReadVec2(value, x, y)) {
+    setPosition(x, y);
+  }
+}
+
 /* luagmp (method)
 *
 * This function will return the draw position in virtual screen units.
@@ -160,6 +169,14 @@ void LuaDraw::setPositionPx(int x, int y) {
     return;
   }
   setPosition(screen->anx(x), screen->any(y));
+}
+
+void LuaDraw::setPositionPxValue(sol::object value) {
+  int x = 0;
+  int y = 0;
+  if (lua_helpers::ReadVec2(value, x, y)) {
+    setPositionPx(x, y);
+  }
 }
 
 /* luagmp (method)
@@ -256,7 +273,7 @@ void LuaDraw::setColor(int r, int g, int b) {
 * This function will return the current text color.
 *
 * @name     getColor
-* @return   ({r, g, b})     Table containing color in RGB model.
+* @return   ({r, g, b, a})  Table containing color in RGBA model.
 *
 */
 sol::table LuaDraw::getColor(sol::this_state s) {
@@ -265,7 +282,19 @@ sol::table LuaDraw::getColor(sol::this_state s) {
   color["r"] = color_.r;
   color["g"] = color_.g;
   color["b"] = color_.b;
+  color["a"] = color_.alpha;
   return color;
+}
+
+void LuaDraw::setColorValue(sol::object value) {
+  int r = color_.r;
+  int g = color_.g;
+  int b = color_.b;
+  int a = color_.alpha;
+  if (lua_helpers::ReadColor(value, r, g, b, a)) {
+    setColor(r, g, b);
+    setAlpha(a);
+  }
 }
 
 /* luagmp (method)
@@ -356,8 +385,7 @@ bool LuaDraw::getVisible() const {
 * Represents the draw's color.
 *
 * @name     color
-* @readonly
-* @return   ({r, g, b})    Table containing color in RGB model.
+* @return   ({r, g, b, a}) Table containing color in RGBA model.
 *
 */
 /* luagmp (property)
@@ -454,11 +482,11 @@ void BindDraw(sol::state& lua) {
   draw_type["render"] = &LuaDraw::render;
 
   // Properties (Lua table access)
-  draw_type["position"] = sol::property(&LuaDraw::getPosition, &LuaDraw::setPosition);
-  draw_type["positionPx"] = sol::property(&LuaDraw::getPositionPx, &LuaDraw::setPositionPx);
+  draw_type["position"] = sol::property(&LuaDraw::getPosition, &LuaDraw::setPositionValue);
+  draw_type["positionPx"] = sol::property(&LuaDraw::getPositionPx, &LuaDraw::setPositionPxValue);
   draw_type["text"] = sol::property(&LuaDraw::getText, &LuaDraw::setText);
   draw_type["font"] = sol::property(&LuaDraw::getFont, &LuaDraw::setFont);
-  draw_type["color"] = sol::property(&LuaDraw::getColor, &LuaDraw::setColor);
+  draw_type["color"] = sol::property(&LuaDraw::getColor, &LuaDraw::setColorValue);
   draw_type["alpha"] = sol::property(&LuaDraw::getAlpha, &LuaDraw::setAlpha);
   draw_type["visible"] = sol::property(&LuaDraw::getVisible, &LuaDraw::setVisible);
 }

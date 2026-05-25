@@ -398,7 +398,7 @@ void BindItemGround(sol::state& lua) {
 */
   sol::table manager = lua.create_table();
 
-/* luagmp (func)
+/* luagmp (method)
 *
 * Returns a synchronized ground item by id.
 *
@@ -418,7 +418,7 @@ void BindItemGround(sol::state& lua) {
     return sol::make_object(lua, LuaItemGround(id));
   };
 
-/* luagmp (func)
+/* luagmp (method)
 *
 * Returns the first synchronized ground item with the given item instance.
 *

@@ -26,10 +26,6 @@ SOFTWARE.
 #include "sky_utils.h"
 
 namespace gmp::gothic {
-namespace {
-
-} // namespace
-
 
 /* luagmp (func)
 *

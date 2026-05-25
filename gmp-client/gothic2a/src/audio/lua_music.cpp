@@ -28,6 +28,24 @@ SOFTWARE.
 
 namespace gmp::lua {
 
+/* luagmp (class)
+*
+* This class represents streamed music playback on the game client. It is unrelated to Zengin's implementation of Sound and Music.
+*
+* @version  0.3.0
+* @name     Music
+* @side     client
+* @category Game
+*
+*/
+/* luagmp (constructor)
+*
+* Creates a new Music object from a file path. Available formats are `OGG`, `MP3` and `WAV`.
+*
+* @note The file path is relative to Gothic installation directory, eg. `.\\Multiplayer\\Music\\main_menu_theme_1.mp3`.
+* @param    (string) file  Music file path.
+*
+*/
 LuaMusic::LuaMusic(const std::string& filepath)
     : player_(std::make_unique<audio::MusicPlayer>()), filepath_(filepath) {
   if (!filepath.empty()) {
@@ -43,12 +61,26 @@ LuaMusic::~LuaMusic() {
   }
 }
 
+/* luagmp (method)
+*
+* This method will start music playback using the current looping state.
+*
+* @name     play
+*
+*/
 void LuaMusic::play() {
   if (player_) {
     player_->Play(looping_);
   }
 }
 
+/* luagmp (method)
+*
+* This method will enable looping and start music playback.
+*
+* @name     playLooped
+*
+*/
 void LuaMusic::playLooped() {
   looping_ = true;
   if (player_) {
@@ -56,60 +88,163 @@ void LuaMusic::playLooped() {
   }
 }
 
+/* luagmp (method)
+*
+* This method will pause music playback.
+*
+* @name     pause
+*
+*/
 void LuaMusic::pause() {
   if (player_) {
     player_->Pause();
   }
 }
 
+/* luagmp (method)
+*
+* This method will resume paused music playback.
+*
+* @name     resume
+*
+*/
 void LuaMusic::resume() {
   if (player_) {
     player_->Resume();
   }
 }
 
+/* luagmp (method)
+*
+* This method will stop music playback.
+*
+* @name     stop
+*
+*/
 void LuaMusic::stop() {
   if (player_) {
     player_->Stop();
   }
 }
 
+/* luagmp (method)
+*
+* This method will return whether the music is currently playing.
+*
+* @name     isPlaying
+* @return   (boolean) True if music is playing.
+*
+*/
 bool LuaMusic::isPlaying() const {
   return player_ && player_->IsPlaying();
 }
 
+/* luagmp (method)
+*
+* This method will return whether the music is currently paused.
+*
+* @name     isPaused
+* @return   (boolean) True if music is paused.
+*
+*/
 bool LuaMusic::isPaused() const {
   return player_ && player_->IsPaused();
 }
 
+/* luagmp (property)
+*
+* Represents the music file path.
+*
+* @name     file
+* @return   (string) Music file path.
+*
+*/
 std::string LuaMusic::getFile() const {
   return filepath_;
 }
 
+/* luagmp (property)
+*
+* Represents the playback volume before options volume is applied.
+*
+* @name     volume
+* @return   (number) Volume level (0.0 - 1.0).
+*
+*/
 float LuaMusic::getVolume() const {
   return player_ ? player_->GetVolume() : 0.0f;
 }
 
+/* luagmp (property)
+*
+* Represents whether playback should loop.
+*
+* @name     looping
+* @return   (boolean) True if looping is enabled.
+*
+*/
 bool LuaMusic::getLooping() const {
   return looping_;
 }
 
+/* luagmp (property)
+*
+* Represents the current playback position in seconds.
+*
+* @name     position
+* @return   (number) Playback position in seconds.
+*
+*/
 float LuaMusic::getPosition() const {
   return player_ ? player_->GetPosition() : 0.0f;
 }
 
+/* luagmp (property)
+*
+* Represents the music duration in seconds.
+*
+* @name     duration
+* @readonly
+* @return   (number) Duration in seconds.
+*
+*/
 float LuaMusic::getDuration() const {
   return player_ ? player_->GetDuration() : 0.0f;
 }
 
+/* luagmp (property)
+*
+* Represents whether Gothic's original music should be muted while this music plays.
+*
+* @name     muteGothicMusic
+* @return   (boolean) True if Gothic music muting is enabled.
+*
+*/
 bool LuaMusic::getMuteGothic() const {
   return player_ ? player_->GetMuteGothicMusic() : true;
 }
 
+/* luagmp (property)
+*
+* Represents the current Gothic music options volume multiplier.
+*
+* @name     optionsVolume
+* @readonly
+* @return   (number) Options volume multiplier.
+*
+*/
 float LuaMusic::getOptionsVolume() const {
   return player_ ? player_->GetOptionsVolume() : 1.0f;
 }
 
+/* luagmp (property)
+*
+* Represents whether the Gothic music options volume should affect this music.
+*
+* @name     useOptionsVolume
+* @return   (boolean) True if options volume should be applied.
+*
+*/
 bool LuaMusic::getUseOptionsVolume() const {
   return player_ ? player_->GetUseOptionsVolume() : true;
 }

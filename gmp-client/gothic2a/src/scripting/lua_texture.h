@@ -21,24 +21,31 @@ public:
 
   sol::table getPosition(sol::this_state s);
   void setPosition(int x, int y);
+  void setPositionValue(sol::object value);
 
   sol::table getPositionPx(sol::this_state s);
   void setPositionPx(int x, int y);
+  void setPositionPxValue(sol::object value);
 
   sol::table getSize(sol::this_state s);
   void setSize(int width, int height);
+  void setSizeValue(sol::object value);
 
   sol::table getSizePx(sol::this_state s);
   void setSizePx(int width, int height);
+  void setSizePxValue(sol::object value);
 
   sol::table getRect(sol::this_state s);
   void setRect(int x, int y, int width, int height);
+  void setRectValue(sol::object value);
 
   sol::table getRectPx(sol::this_state s);
   void setRectPx(int x, int y, int width, int height);
+  void setRectPxValue(sol::object value);
 
   sol::table getColor(sol::this_state s);
   void setColor(unsigned char r, unsigned char g, unsigned char b);
+  void setColorValue(sol::object value);
 
   unsigned char getAlpha() const;
   void setAlpha(unsigned char alpha);

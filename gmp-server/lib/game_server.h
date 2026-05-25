@@ -101,6 +101,7 @@ public:
   void SendPlayerMessageToPlayer(PlayerId sender_id, PlayerId receiver_id, std::uint8_t r, std::uint8_t g,
                                  std::uint8_t b, const std::string& text);
   bool SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> position_override = std::nullopt);
+  bool UnspawnPlayer(PlayerId player_id);
   bool SetPlayerName(PlayerId player_id, const std::string& name);
   bool SetPlayerInstance(PlayerId player_id, const std::string& instance);
   bool SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b);
@@ -170,6 +171,7 @@ public:
   bool SetPlayerRespawnTime(PlayerId player_id, std::int32_t respawn_time_ms);
   std::optional<std::int32_t> GetPlayerRespawnTime(PlayerId player_id) const;
   std::string GetPlayerIp(PlayerId player_id) const;
+  std::int32_t GetPlayerPing(PlayerId player_id) const;
   std::string GetPlayerMacAddress(PlayerId player_id) const;
   std::string GetPlayerUUID(PlayerId player_id) const;
   std::uint32_t CreateItemGround(ItemGroundManager::CreateOptions options);
