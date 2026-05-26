@@ -27,6 +27,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <utility>
 
 #include "lua_helpers.h"
 
@@ -54,6 +55,39 @@ LuaSound::LuaSound(const std::string& filename) : file_(filename), volume_(1.0f)
   ReloadSound();
 }
 
+LuaSound::LuaSound(LuaSound&& other) noexcept
+    : file_(std::move(other.file_)),
+      volume_(other.volume_),
+      looping_(other.looping_),
+      balance_(other.balance_),
+      handle_(other.handle_),
+      sound_fx_(other.sound_fx_) {
+  other.handle_ = -1;
+  other.sound_fx_ = nullptr;
+}
+
+LuaSound& LuaSound::operator=(LuaSound&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+
+  StopIfNeeded();
+  if (sound_fx_) {
+    sound_fx_->Release();
+  }
+
+  file_ = std::move(other.file_);
+  volume_ = other.volume_;
+  looping_ = other.looping_;
+  balance_ = other.balance_;
+  handle_ = other.handle_;
+  sound_fx_ = other.sound_fx_;
+
+  other.handle_ = -1;
+  other.sound_fx_ = nullptr;
+  return *this;
+}
+
 LuaSound::~LuaSound() {
   StopIfNeeded();
 
@@ -77,8 +111,6 @@ void LuaSound::ReloadSound() {
     return;
   }
 
-  SPDLOG_INFO("Attempting to load sound: '{}'", file_);
-
   Gothic_II_Addon::zSTRING soundName = file_.c_str();
   sound_fx_ = zsound->LoadSoundFX(soundName);
   if (!sound_fx_) {
@@ -86,7 +118,6 @@ void LuaSound::ReloadSound() {
     return;
   }
 
-  SPDLOG_INFO("Successfully loaded sound: '{}'", file_);
   ApplyProperties();
 }
 
@@ -135,11 +166,7 @@ void LuaSound::play() {
   sound_fx_->SetVolume(volume_);
   sound_fx_->SetPan(balance_);
 
-  SPDLOG_INFO("Attempting to play sound: '{}' (vol={}, pan={}, loop={})", file_, volume_, balance_, looping_);
-
   handle_ = zsound->PlaySound(sound_fx_, 0, Gothic_II_Addon::zSND_FREQ_DEFAULT, volume_, balance_);
-
-  SPDLOG_INFO("PlaySound returned handle: {}", handle_);
 }
 
 /* luagmp (method)
@@ -161,8 +188,17 @@ void LuaSound::stop() {
 * @return   (boolean) True if the sound is playing.
 *
 */
-bool LuaSound::isPlaying() const {
-  return handle_ >= 0 && zsound && zsound->IsSoundActive(handle_) != 0;
+bool LuaSound::isPlaying() {
+  if (handle_ < 0 || !zsound) {
+    return false;
+  }
+
+  if (zsound->IsSoundActive(handle_) != 0) {
+    return true;
+  }
+
+  handle_ = -1;
+  return false;
 }
 
 /* luagmp (property)
@@ -246,8 +282,18 @@ bool LuaSound::getLooping() const {
 }
 
 void LuaSound::setLooping(bool looping) {
+  if (looping_ == looping) {
+    return;
+  }
+
+  const bool was_playing = isPlaying();
   looping_ = looping;
   ApplyProperties();
+
+  if (was_playing) {
+    StopIfNeeded();
+    play();
+  }
 }
 
 float LuaSound::getBalance() const {

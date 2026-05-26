@@ -62,8 +62,13 @@ addEventHandler("onExit", function()
 	logo = nil
 end)
 
-LOG_INFO("{}", isHudEnabled())
+--[[ LOG_INFO("{}", isHudEnabled())
 enableHud(HUD_ALL, false)
+LOG_INFO("{}", isHudEnabled()) ]]
+
+local draw3dTest = Draw3d.new(150.0, 0.0, 200.0, "Draw3d Test")
+draw3dTest:setColor(255, 0, 0)
+draw3dTest:setVisible(true)
 
 function onResourceStart()
 --[[ 	if tVisible then

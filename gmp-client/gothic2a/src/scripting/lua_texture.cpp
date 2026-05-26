@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <unordered_set>
+#include <utility>
 
 #include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
@@ -10,17 +11,33 @@ using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
 
+namespace {
+
+void RestoreFullViewport() {
+  if (zrenderer) {
+    zrenderer->SetViewport(0, 0, zrenderer->vid_xdim, zrenderer->vid_ydim);
+  }
+}
+
+}  // namespace
+
 class LuaTextureView : public zCView {
 public:
-  LuaTextureView(LuaTexture& owner, int x, int y, int width, int height) : zCView(x, y, x + width, y + height, VIEW_ITEM), owner_(owner) {
+  LuaTextureView(LuaTexture* owner, int x, int y, int width, int height) : zCView(x, y, x + width, y + height, VIEW_ITEM), owner_(owner) {
   }
 
   void Blit() override {
-    owner_.Blit();
+    if (owner_) {
+      owner_->Blit();
+    }
+  }
+
+  void SetOwner(LuaTexture* owner) {
+    owner_ = owner;
   }
 
 private:
-  LuaTexture& owner_;
+  LuaTexture* owner_;
 };
 
 std::unordered_set<LuaTexture*> LuaTexture::active_textures_;
@@ -59,7 +76,7 @@ LuaTexture::LuaTexture(int x, int y, int width, int height, const std::string& f
       fileName_(file),
       attached_to_screen_(false) {
   active_textures_.insert(this);
-  view_ = new LuaTextureView(*this, x, y, width, height);
+  view_ = new LuaTextureView(this, x, y, width, height);
 
   setFile(file);
 
@@ -69,7 +86,62 @@ LuaTexture::LuaTexture(int x, int y, int width, int height, const std::string& f
   }
 }
 
+LuaTexture::LuaTexture(LuaTexture&& other) noexcept
+    : view_(other.view_),
+      texture_(other.texture_),
+      uvPos_(other.uvPos_),
+      uvSize_(other.uvSize_),
+      color_(other.color_),
+      alphaFunc_(other.alphaFunc_),
+      fillZ_(other.fillZ_),
+      visible_(other.visible_),
+      fileName_(std::move(other.fileName_)),
+      attached_to_screen_(other.attached_to_screen_) {
+  active_textures_.erase(&other);
+  active_textures_.insert(this);
+  if (view_) {
+    view_->SetOwner(this);
+  }
+  other.view_ = nullptr;
+  other.texture_ = nullptr;
+  other.attached_to_screen_ = false;
+}
+
+LuaTexture& LuaTexture::operator=(LuaTexture&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+
+  Destroy();
+
+  view_ = other.view_;
+  texture_ = other.texture_;
+  uvPos_ = other.uvPos_;
+  uvSize_ = other.uvSize_;
+  color_ = other.color_;
+  alphaFunc_ = other.alphaFunc_;
+  fillZ_ = other.fillZ_;
+  visible_ = other.visible_;
+  fileName_ = std::move(other.fileName_);
+  attached_to_screen_ = other.attached_to_screen_;
+
+  active_textures_.erase(&other);
+  active_textures_.insert(this);
+  if (view_) {
+    view_->SetOwner(this);
+  }
+
+  other.view_ = nullptr;
+  other.texture_ = nullptr;
+  other.attached_to_screen_ = false;
+  return *this;
+}
+
 LuaTexture::~LuaTexture() {
+  Destroy();
+}
+
+void LuaTexture::Destroy() {
   if (screen && view_ && attached_to_screen_) {
     screen->RemoveItem(view_);
     attached_to_screen_ = false;
@@ -386,8 +458,8 @@ sol::table LuaTexture::getRectPx(sol::this_state s) {
 * @param    (number) b    The blue color component in RGB model.
 *
 */
-void LuaTexture::setColor(unsigned char r, unsigned char g, unsigned char b) {
-  color_.SetRGB(r, g, b);
+void LuaTexture::setColor(int r, int g, int b) {
+  color_.SetRGB(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
 }
 
 /* luagmp (method)
@@ -414,8 +486,8 @@ void LuaTexture::setColorValue(sol::object value) {
   int b = color_.b;
   int a = color_.alpha;
   if (lua_helpers::ReadColor(value, r, g, b, a)) {
-    setColor(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
-    setAlpha(lua_helpers::ClampByte(a));
+    setColor(r, g, b);
+    setAlpha(a);
   }
 }
 
@@ -427,8 +499,8 @@ void LuaTexture::setColorValue(sol::object value) {
 * @param    (number) alpha Opacity value (0-255).
 *
 */
-void LuaTexture::setAlpha(unsigned char alpha) {
-  color_.alpha = alpha;
+void LuaTexture::setAlpha(int alpha) {
+  color_.alpha = lua_helpers::ClampByte(alpha);
 }
 
 /* luagmp (method)
@@ -439,7 +511,7 @@ void LuaTexture::setAlpha(unsigned char alpha) {
 * @return   (number)      Opacity value (0-255).
 *
 */
-unsigned char LuaTexture::getAlpha() const {
+int LuaTexture::getAlpha() const {
   return color_.alpha;
 }
 
@@ -459,10 +531,7 @@ void LuaTexture::setFile(const std::string& file) {
 
   fileName_ = file;
   zSTRING fileString(file.c_str());
-  texture_ = zCTexture::Load(fileString, 0);
-  if (view_) {
-    view_->InsertBack(fileString);
-  }
+  texture_ = zCTexture::Load(fileString, zTEX_LOAD_FLAG_TILE);
 }
 
 /* luagmp (method)
@@ -487,6 +556,9 @@ std::string LuaTexture::getFile() const {
 */
 void LuaTexture::setVisible(bool visible) {
   visible_ = visible;
+  if (visible_) {
+    EnsureAttached();
+  }
 }
 
 /* luagmp (method)
@@ -509,6 +581,7 @@ bool LuaTexture::getVisible() const {
 *
 */
 void LuaTexture::top() {
+  EnsureAttached();
   if (view_) {
     view_->Top();
   }
@@ -595,12 +668,6 @@ void LuaTexture::top() {
 *
 */
 
-void LuaTexture::render() {
-  if (view_) {
-    view_->Blit();
-  }
-}
-
 void LuaTexture::CleanupViews() {
   if (!screen) {
     return;
@@ -610,6 +677,21 @@ void LuaTexture::CleanupViews() {
     if (texture && texture->view_ && texture->attached_to_screen_) {
       screen->RemoveItem(texture->view_);
       texture->attached_to_screen_ = false;
+    }
+  }
+}
+
+void LuaTexture::EnsureAttached() {
+  if (screen && view_ && visible_ && !attached_to_screen_) {
+    screen->InsertItem(view_);
+    attached_to_screen_ = true;
+  }
+}
+
+void LuaTexture::EnsureViewsAttached() {
+  for (auto* texture : active_textures_) {
+    if (texture) {
+      texture->EnsureAttached();
     }
   }
 }
@@ -661,7 +743,7 @@ void LuaTexture::Blit() {
   zrenderer->SetAlphaBlendFunc(alphaFunc_);
 
   zBOOL oldBilerpFilter = zrenderer->GetBilerpFilterEnabled();
-  zrenderer->SetBilerpFilterEnabled(oldBilerpFilter);
+  zrenderer->SetBilerpFilterEnabled(1);
 
   zREAL farZ;
   if (fillZ_) {
@@ -676,6 +758,7 @@ void LuaTexture::Blit() {
   zrenderer->SetAlphaBlendFunc(oldBlendFunc);
   zrenderer->SetZBufferWriteEnabled(oldzWrite);
   zrenderer->SetZBufferCompare(oldCmp);
+  RestoreFullViewport();
 }
 
 void LuaTexture::updateViewSize(int width, int height) {
@@ -728,8 +811,6 @@ void BindTexture(sol::state& lua) {
   texture_type["getFile"] = &LuaTexture::getFile;
   
   texture_type["top"] = &LuaTexture::top;
-
-  texture_type["render"] = &LuaTexture::render;
 
   // Properties (Lua table access)
   texture_type["position"] = sol::property(&LuaTexture::getPosition, &LuaTexture::setPositionValue);

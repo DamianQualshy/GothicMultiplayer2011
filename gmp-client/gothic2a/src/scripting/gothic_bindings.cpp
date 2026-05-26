@@ -43,8 +43,12 @@ SOFTWARE.
 
 #include "lua_discord.h"
 #include "lua_draw.h"
+#include "lua_draw3d.h"
 #include "lua_texture.h"
 #include "lua_sound.h"
+#include "lua_sound3d.h"
+#include "lua_music_theme.h"
+#include "lua_camera.h"
 #include "audio/lua_music.h"
 #include "lua_cursor.h"
 #include "lua_vob.h"
@@ -2781,10 +2785,14 @@ void BindGothicSpecific(sol::state& lua) {
   BindCursor(lua);
   BindDiscord(lua);
   BindDraw(lua);
+  BindDraw3d(lua);
   BindTexture(lua);
   BindSound(lua);
+  BindSound3d(lua);
   gmp::lua::BindMusic(lua);
+  BindMusicTheme(lua);
   BindVob(lua);
+  BindCamera(lua);
   BindWay(lua);
   BindSky(lua);
   BindInterface(lua);
@@ -2797,6 +2805,7 @@ void BindGothicSpecific(sol::state& lua) {
 
 void CleanupGothicViews() {
   LuaDraw::CleanupViews();
+  LuaDraw3d::CleanupViews();
   LuaTexture::CleanupViews();
   LuaCursor::CleanupViews();
 }

@@ -72,6 +72,9 @@ public:
   void removeFromWorld();
   void floor();
 
+  static LuaVob FromExisting(Gothic_II_Addon::zCVob* vob);
+  Gothic_II_Addon::zCVob* handle() const;
+
 private:
   struct VobInstance {
     Gothic_II_Addon::zCVob* vob{nullptr};
@@ -81,7 +84,6 @@ private:
   };
 
   explicit LuaVob(std::shared_ptr<VobInstance> instance);
-  static LuaVob FromExisting(Gothic_II_Addon::zCVob* vob);
 
   Gothic_II_Addon::zCVob* vob() const;
   void ApplyPendingVisual();

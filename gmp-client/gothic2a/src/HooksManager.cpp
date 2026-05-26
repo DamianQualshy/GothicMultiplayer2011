@@ -34,6 +34,9 @@ SOFTWARE.
 #include "renderer/d3d11/patches/D3D11Patches.h"
 #include "renderer/d3d9/D3D9Renderer.h"
 #include "renderer/d3d9/patches/D3D9Patches.h"
+#include "scripting/lua_camera.h"
+#include "scripting/lua_draw.h"
+#include "scripting/lua_texture.h"
 
 namespace {
 
@@ -374,10 +377,14 @@ void __fastcall HooksManager::OnRender(oCGame* gameInstance) {
   // Process deferred actions at frame start, BEFORE Gothic rendering.
   // This is the safe point for operations like ChangeLevel that invalidate world state.
   GMPCore::Instance().OnFrameStart();
+  gmp::gothic::LuaCamera::ApplyMovementLock();
+  gmp::gothic::LuaDraw::EnsureViewsAttached();
+  gmp::gothic::LuaTexture::EnsureViewsAttached();
 
   if (g_renderOriginal) {
     g_renderOriginal(gameInstance);
   }
+  gmp::gothic::LuaCamera::ApplyMovementLock();
 
   static bool logged = false;
   if (!logged) {

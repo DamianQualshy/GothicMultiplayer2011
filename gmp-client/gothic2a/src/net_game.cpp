@@ -64,6 +64,8 @@ SOFTWARE.
 #include "sky_utils.h"
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
+#include "scripting/lua_draw3d.h"
+#include "scripting/lua_sound3d.h"
 #include "scripting/process_input.h"
 #include "version.h"
 #include "shared/event.h"
@@ -526,6 +528,8 @@ void __stdcall NetGame::ProcessTaskScheduler() {
   if (zinput) {
     gmp::gothic::ProcessInput(zinput);
   }
+  gmp::gothic::LuaSound3d::UpdateActiveSounds();
+  gmp::gothic::LuaDraw3d::RenderActiveDraws();
   instance.UpdateClientEventState();
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnRenderName, 0);
 }

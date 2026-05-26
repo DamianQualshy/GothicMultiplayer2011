@@ -15,9 +15,14 @@ public:
   friend class LuaTextureView;
 
   LuaTexture(int x, int y, int width, int height, const std::string& file);
+  LuaTexture(const LuaTexture&) = delete;
+  LuaTexture& operator=(const LuaTexture&) = delete;
+  LuaTexture(LuaTexture&& other) noexcept;
+  LuaTexture& operator=(LuaTexture&& other) noexcept;
   ~LuaTexture();
 
   static void CleanupViews();
+  static void EnsureViewsAttached();
 
   sol::table getPosition(sol::this_state s);
   void setPosition(int x, int y);
@@ -44,11 +49,11 @@ public:
   void setRectPxValue(sol::object value);
 
   sol::table getColor(sol::this_state s);
-  void setColor(unsigned char r, unsigned char g, unsigned char b);
+  void setColor(int r, int g, int b);
   void setColorValue(sol::object value);
 
-  unsigned char getAlpha() const;
-  void setAlpha(unsigned char alpha);
+  int getAlpha() const;
+  void setAlpha(int alpha);
 
   std::string getFile() const;
   void setFile(const std::string& file);
@@ -74,6 +79,8 @@ private:
 
   static std::unordered_set<LuaTexture*> active_textures_;
 
+  void Destroy();
+  void EnsureAttached();
   void updateViewSize(int width, int height);
   void updateViewPos(int x, int y);
 };

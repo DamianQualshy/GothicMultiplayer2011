@@ -37,7 +37,7 @@ namespace gmp::gothic {
 LuaVob::VobInstance::~VobInstance() {
   if (owned && vob) {
     if (vob->GetHomeWorld()) {
-      vob->RemoveVobFromWorld();
+      vob->RemoveVobSubtreeFromWorld();
     }
     vob->Release();
   }
@@ -81,6 +81,10 @@ LuaVob LuaVob::FromExisting(zCVob* vob) {
 
 zCVob* LuaVob::vob() const {
   return instance_ ? instance_->vob : nullptr;
+}
+
+zCVob* LuaVob::handle() const {
+  return vob();
 }
 
 /* luagmp (property)
@@ -141,17 +145,13 @@ void LuaVob::setParent(sol::optional<LuaVob> parent) {
   }
 
   zCWorld* world = handle->GetHomeWorld();
-  if (!world && ogame) {
-    world = ogame->GetGameWorld();
-  }
-
   if (!world) {
     return;
   }
 
   if (parent) {
     auto* parent_handle = parent->vob();
-    if (parent_handle) {
+    if (parent_handle && parent_handle->GetHomeWorld() == world) {
       world->MoveVobSubtreeTo_novt(handle, parent_handle);
     }
     return;
@@ -274,7 +274,7 @@ void LuaVob::setVisualAlpha(float alpha) {
   if (auto* handle = vob()) {
     float clamped = std::clamp(alpha, 0.0f, 1.0f);
     handle->visualAlpha = clamped;
-    handle->visualAlphaEnabled = 1;
+    handle->visualAlphaEnabled = clamped < 1.0f ? 1 : 0;
   }
 }
 
@@ -388,26 +388,28 @@ void LuaVob::addToWorld(sol::optional<LuaVob> parent) {
     return;
   }
 
-  if (!ogame) {
-    return;
+  zCWorld* world = nullptr;
+  zCVob* parent_handle = nullptr;
+  if (parent) {
+    parent_handle = parent->vob();
+    if (!parent_handle) {
+      return;
+    }
+    world = parent_handle->GetHomeWorld();
+  } else if (ogame) {
+    world = ogame->GetGameWorld();
   }
 
-  zCWorld* world = ogame->GetGameWorld();
   if (!world) {
     return;
   }
 
-  if (parent) {
-    auto* parent_handle = parent->vob();
-    if (parent_handle) {
-      ApplyPendingVisual();
-      world->AddVobAsChild_novt(handle, parent_handle);
-      return;
-    }
-  }
-
   ApplyPendingVisual();
-  world->AddVob(handle);
+  if (parent_handle) {
+    world->AddVobAsChild_novt(handle, parent_handle);
+  } else {
+    world->AddVob(handle);
+  }
 }
 
 /* luagmp (method)

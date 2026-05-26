@@ -16,15 +16,26 @@ local menuEnabled = false
 addEventHandler('onKeyDown', function(key)
     LOG_INFO('onKeyDown (key={})', key)
     if key == KEY_N then
-        menuEnabled = not menuEnabled
+                --[[ menuEnabled = not menuEnabled
         enableGMPMenu(menuEnabled)
-        LOG_INFO('GMP Menu enabled: {}', menuEnabled)
+        LOG_INFO('GMP Menu enabled: {}', menuEnabled) ]]
+        LOG_INFO('{}', Camera.movementEnabled)
+        Camera.movementEnabled = not Camera.movementEnabled
+        LOG_INFO('{}', Camera.movementEnabled)
     end
     if key == KEY_M then
-        if(menuEnabled) then
+                --[[ if(menuEnabled) then
             openGMPMenu()
-        --[[ else
-            exitGame() ]]
+        else
+            exitGame()
+        end ]]
+        if(MusicTheme:loadTheme("XAR_DAY_STD")) then
+            LOG_INFO('Music theme loaded successfully.')
+                MusicTheme:playTheme()
+                LOG_INFO('{}', MusicTheme.activeTheme)
+        else
+            LOG_ERROR('Failed to load music theme.')
+                LOG_INFO('{}', MusicTheme.disabled)
         end
     end
 end)

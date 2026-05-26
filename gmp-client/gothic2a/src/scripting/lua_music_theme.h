@@ -26,52 +26,47 @@ SOFTWARE.
 
 #include <string>
 
-#include "ZenGin/zGothicAPI.h"
 #include "sol/sol.hpp"
 
 namespace gmp::gothic {
 
-class LuaSound {
+class LuaMusicTheme {
 public:
-  explicit LuaSound(const std::string& filename);
-  LuaSound(const LuaSound&) = delete;
-  LuaSound& operator=(const LuaSound&) = delete;
-  LuaSound(LuaSound&& other) noexcept;
-  LuaSound& operator=(LuaSound&& other) noexcept;
-  ~LuaSound();
+  static bool loadTheme(const std::string& file_name);
+  static bool playTheme();
+  static void stopTheme();
 
-  void play();
-  void stop();
-  bool isPlaying();
+  static std::string getFileName();
+  static void setFileName(const std::string& file_name);
 
-  std::string getFile() const;
-  void setFile(const std::string& filename);
+  static float getVolume();
+  static void setVolume(float volume);
 
-  float getPlayingTime() const;
+  static bool getLoop();
+  static void setLoop(bool loop);
 
-  float getVolume() const;
-  void setVolume(float volume);
+  static bool getDisabled();
+  static void setDisabled(bool disabled);
 
-  bool getLooping() const;
-  void setLooping(bool looping);
+  static sol::object getActiveTheme(sol::this_state ts);
+  static void setActiveTheme(sol::object value);
 
-  float getBalance() const;
-  void setBalance(float balance);
+  static float getReverbMix();
+  static void setReverbMix(float value);
 
-private:
-  void ReloadSound();
-  void ApplyProperties();
-  void StopIfNeeded();
+  static float getReverbTime();
+  static void setReverbTime(float value);
 
-  std::string file_;
-  float volume_;
-  bool looping_;
-  float balance_;
-  int handle_;
+  static int getTransType();
+  static void setTransType(int value);
 
-  Gothic_II_Addon::zCSoundFX* sound_fx_;
+  static int getTransSubType();
+  static void setTransSubType(int value);
+
+  static std::string getName();
+  static void setName(const std::string& name);
 };
 
-void BindSound(sol::state& lua);
+void BindMusicTheme(sol::state& lua);
 
 }  // namespace gmp::gothic

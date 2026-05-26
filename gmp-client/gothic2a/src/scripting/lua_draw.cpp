@@ -25,6 +25,7 @@ SOFTWARE.
 #include "lua_draw.h"
 
 #include <unordered_set>
+#include <utility>
 
 #include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
@@ -33,17 +34,33 @@ using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
 
+namespace {
+
+void RestoreFullViewport() {
+  if (zrenderer) {
+    zrenderer->SetViewport(0, 0, zrenderer->vid_xdim, zrenderer->vid_ydim);
+  }
+}
+
+}  // namespace
+
 class LuaDrawView : public zCView {
 public:
-  explicit LuaDrawView(LuaDraw& owner) : zCView(0, 0, 8192, 8192), owner_(owner) {
+  explicit LuaDrawView(LuaDraw* owner) : zCView(0, 0, 8192, 8192), owner_(owner) {
   }
 
   void Blit() override {
-    owner_.Blit();
+    if (owner_) {
+      owner_->Blit();
+    }
+  }
+
+  void SetOwner(LuaDraw* owner) {
+    owner_ = owner;
   }
 
 private:
-  LuaDraw& owner_;
+  LuaDraw* owner_;
 };
 
 std::unordered_set<LuaDraw*> LuaDraw::active_draws_;
@@ -97,7 +114,56 @@ LuaDraw::LuaDraw(int x, int y, const std::string& text)
   Initialize();
 }
 
+LuaDraw::LuaDraw(LuaDraw&& other) noexcept
+    : view_(other.view_),
+      text_(std::move(other.text_)),
+      fontName_(std::move(other.fontName_)),
+      posX_(other.posX_),
+      posY_(other.posY_),
+      color_(other.color_),
+      visible_(other.visible_),
+      attached_to_screen_(other.attached_to_screen_) {
+  active_draws_.erase(&other);
+  active_draws_.insert(this);
+  if (view_) {
+    view_->SetOwner(this);
+  }
+  other.view_ = nullptr;
+  other.attached_to_screen_ = false;
+}
+
+LuaDraw& LuaDraw::operator=(LuaDraw&& other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+
+  Destroy();
+
+  view_ = other.view_;
+  text_ = std::move(other.text_);
+  fontName_ = std::move(other.fontName_);
+  posX_ = other.posX_;
+  posY_ = other.posY_;
+  color_ = other.color_;
+  visible_ = other.visible_;
+  attached_to_screen_ = other.attached_to_screen_;
+
+  active_draws_.erase(&other);
+  active_draws_.insert(this);
+  if (view_) {
+    view_->SetOwner(this);
+  }
+
+  other.view_ = nullptr;
+  other.attached_to_screen_ = false;
+  return *this;
+}
+
 LuaDraw::~LuaDraw() {
+  Destroy();
+}
+
+void LuaDraw::Destroy() {
   if (screen && view_ && attached_to_screen_) {
     screen->RemoveItem(view_);
     attached_to_screen_ = false;
@@ -262,7 +328,7 @@ std::string LuaDraw::getFont() const {
 *
 */
 void LuaDraw::setColor(int r, int g, int b) {
-  color_.SetRGB(r, g, b);
+  color_.SetRGB(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
   if (view_) {
     view_->SetFontColor(color_);
   }
@@ -306,7 +372,7 @@ void LuaDraw::setColorValue(sol::object value) {
 *
 */
 void LuaDraw::setAlpha(int a) {
-  color_.alpha = a;
+  color_.alpha = lua_helpers::ClampByte(a);
   if (view_) {
     view_->SetFontColor(color_);
   }
@@ -334,6 +400,9 @@ int LuaDraw::getAlpha() const {
 */
 void LuaDraw::setVisible(bool visible) {
   visible_ = visible;
+  if (visible_) {
+    EnsureAttached();
+  }
 }
 
 /* luagmp (method)
@@ -405,15 +474,9 @@ bool LuaDraw::getVisible() const {
 *
 */
 
-void LuaDraw::render() {
-  if (view_) {
-    view_->Blit();
-  }
-}
-
 void LuaDraw::Initialize() {
   active_draws_.insert(this);
-  view_ = new LuaDrawView(*this);
+  view_ = new LuaDrawView(this);
   if (view_) {
     view_->SetFont(fontName_.c_str());
     view_->SetFontColor(color_);
@@ -422,6 +485,13 @@ void LuaDraw::Initialize() {
       screen->InsertItem(view_);
       attached_to_screen_ = true;
     }
+  }
+}
+
+void LuaDraw::EnsureAttached() {
+  if (screen && view_ && visible_ && !attached_to_screen_) {
+    screen->InsertItem(view_);
+    attached_to_screen_ = true;
   }
 }
 
@@ -438,6 +508,14 @@ void LuaDraw::CleanupViews() {
   }
 }
 
+void LuaDraw::EnsureViewsAttached() {
+  for (auto* draw : active_draws_) {
+    if (draw) {
+      draw->EnsureAttached();
+    }
+  }
+}
+
 void LuaDraw::Blit() {
   if (!visible_ || text_.empty()) {
     return;
@@ -447,6 +525,7 @@ void LuaDraw::Blit() {
     view_->ClrPrintwin();
     view_->Print(posX_, posY_, text_.c_str());
     view_->zCView::Blit();
+    RestoreFullViewport();
   }
 }
 
@@ -478,8 +557,6 @@ void BindDraw(sol::state& lua) {
 
   draw_type["setVisible"] = &LuaDraw::setVisible;
   draw_type["getVisible"] = &LuaDraw::getVisible;
-
-  draw_type["render"] = &LuaDraw::render;
 
   // Properties (Lua table access)
   draw_type["position"] = sol::property(&LuaDraw::getPosition, &LuaDraw::setPositionValue);

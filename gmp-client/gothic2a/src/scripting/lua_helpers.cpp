@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Gothic Multiplayer Team.
+Copyright (c) 2026 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -68,6 +68,42 @@ bool ReadVec2(sol::object value, int& x, int& y) {
 
   sol::table table = value.as<sol::table>();
   return ReadIntField(table, "x", 1, x) && ReadIntField(table, "y", 2, y);
+}
+
+bool ReadVec3(sol::object value, float& x, float& y, float& z) {
+  if (value.is<::lua::types::Vec3>()) {
+    const auto& vec = value.as<::lua::types::Vec3>();
+    x = vec.x;
+    y = vec.y;
+    z = vec.z;
+    return true;
+  }
+
+  if (!value.is<sol::table>()) {
+    return false;
+  }
+
+  sol::table table = value.as<sol::table>();
+  sol::optional<float> x_value = table["x"];
+  sol::optional<float> y_value = table["y"];
+  sol::optional<float> z_value = table["z"];
+  if (!x_value) {
+    x_value = table[1];
+  }
+  if (!y_value) {
+    y_value = table[2];
+  }
+  if (!z_value) {
+    z_value = table[3];
+  }
+  if (!x_value || !y_value || !z_value) {
+    return false;
+  }
+
+  x = *x_value;
+  y = *y_value;
+  z = *z_value;
+  return true;
 }
 
 bool ReadSize(sol::object value, int& width, int& height) {

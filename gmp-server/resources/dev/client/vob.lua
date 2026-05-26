@@ -38,6 +38,15 @@ print(string.format("Parent rotation: %.2f %.2f %.2f", parentRot.x, parentRot.y,
 print(child.parent)
 child:floor()
 
+
+local sfx3d = Sound3d.new("LEVELUP.WAV")
+
+sfx3d.volume  = 1.0
+sfx3d.looping = true
+sfx3d.radius = 10000.0
+sfx3d:setTargetVob(parent)
+sfx3d:play()
+
 function onResourceStart()
   --[[ print(parent.objectName)
   print(parent.parent)

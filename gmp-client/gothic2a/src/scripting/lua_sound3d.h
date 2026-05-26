@@ -24,25 +24,31 @@ SOFTWARE.
 
 #pragma once
 
+#include <cstdint>
 #include <string>
+#include <unordered_set>
 
 #include "ZenGin/zGothicAPI.h"
 #include "sol/sol.hpp"
 
+#include "lua_vob.h"
+
 namespace gmp::gothic {
 
-class LuaSound {
+class LuaSound3d {
 public:
-  explicit LuaSound(const std::string& filename);
-  LuaSound(const LuaSound&) = delete;
-  LuaSound& operator=(const LuaSound&) = delete;
-  LuaSound(LuaSound&& other) noexcept;
-  LuaSound& operator=(LuaSound&& other) noexcept;
-  ~LuaSound();
+  explicit LuaSound3d(const std::string& filename);
+  ~LuaSound3d();
 
   void play();
   void stop();
-  bool isPlaying();
+  bool isPlaying() const;
+  void update();
+
+  static void UpdateActiveSounds();
+
+  void setTargetVob(const LuaVob& vob);
+  bool setTargetPlayer(std::uint64_t player_id);
 
   std::string getFile() const;
   void setFile(const std::string& filename);
@@ -58,20 +64,45 @@ public:
   float getBalance() const;
   void setBalance(float balance);
 
+  float getObstruction() const;
+  void setObstruction(float obstruction);
+
+  float getRadius() const;
+  void setRadius(float radius);
+
+  float getConeAngle() const;
+  void setConeAngle(float angle);
+
+  float getReverbLevel() const;
+  void setReverbLevel(float level);
+
+  bool getAmbient() const;
+  void setAmbient(bool ambient);
+
+  float getPitchOffset() const;
+  void setPitchOffset(float pitch_offset);
+
+  sol::object getTargetVob(sol::this_state ts) const;
+  void setTargetVobValue(sol::object value);
+
 private:
   void ReloadSound();
-  void ApplyProperties();
   void StopIfNeeded();
+  void ApplyParams();
+  void ReplayIfNeeded(bool was_playing);
 
   std::string file_;
   float volume_;
   bool looping_;
   float balance_;
   int handle_;
-
+  Gothic_II_Addon::zCVob* target_vob_;
   Gothic_II_Addon::zCSoundFX* sound_fx_;
+  Gothic_II_Addon::zCSoundSystem::zTSound3DParams params_;
+
+  static std::unordered_set<LuaSound3d*> active_sounds_;
 };
 
-void BindSound(sol::state& lua);
+void BindSound3d(sol::state& lua);
 
 }  // namespace gmp::gothic

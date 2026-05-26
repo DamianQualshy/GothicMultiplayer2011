@@ -1,0 +1,635 @@
+/*
+MIT License
+
+Copyright (c) 2026 Gothic Multiplayer Team.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+#include "lua_camera.h"
+
+#include <cstddef>
+
+#include "ZenGin/zGothicAPI.h"
+#include "lua_helpers.h"
+#include "net_game.h"
+
+using namespace Gothic_II_Addon;
+
+namespace gmp::gothic {
+namespace {
+zCAICamera* AiCamera() {
+  return zCAICamera::GetCurrent();
+}
+
+zCCamera* RenderCamera() {
+  return zCCamera::activeCam;
+}
+
+zCVob* CameraVob() {
+  if (auto* ai = AiCamera()) {
+    if (ai->camVob) {
+      return ai->camVob;
+    }
+  }
+
+  if (auto* camera = RenderCamera()) {
+    return camera->connectedVob;
+  }
+
+  return nullptr;
+}
+
+void SetMatrixPosition(zMAT4& matrix, const zVEC3& position) {
+  matrix.SetTranslation(position);
+}
+
+void SetMatrixRotation(zMAT4& matrix, const zVEC3& rotation) {
+  const zVEC3 translation = matrix.GetTranslation();
+  matrix.SetByEulerAngles(rotation);
+  matrix.SetTranslation(translation);
+}
+
+struct MovementLockState {
+  bool initialized = false;
+  bool enabled = true;
+  int translate = 1;
+  int rotate = 1;
+  int collision = 1;
+  zMAT4 frozen_matrix;
+};
+
+MovementLockState& MovementLock() {
+  static MovementLockState state;
+  return state;
+}
+
+zMAT4 CurrentCameraTransform() {
+  if (auto* vob = CameraVob()) {
+    return vob->GetNewTrafoObjToWorld();
+  }
+
+  if (auto* camera = RenderCamera()) {
+    return camera->camMatrixInv;
+  }
+
+  zMAT4 matrix;
+  matrix.MakeIdentity();
+  return matrix;
+}
+
+void ApplyCameraTransform(const zMAT4& matrix) {
+  zCVob* vob = CameraVob();
+  if (vob) {
+    vob->SetTrafoObjToWorld(matrix);
+  }
+
+  if (auto* camera = RenderCamera()) {
+    if (camera->connectedVob && camera->connectedVob != vob) {
+      camera->connectedVob->SetTrafoObjToWorld(matrix);
+    }
+    camera->camMatrixInv = matrix;
+    camera->camMatrix = camera->camMatrixInv.Inverse();
+    zCCamera::activeCamPos = matrix.GetTranslation();
+    camera->Activate();
+  }
+}
+
+bool HasCameraTransformTarget() {
+  return CameraVob() || RenderCamera();
+}
+
+zMAT4 EditableCameraTransform() {
+  auto& state = MovementLock();
+  if (!state.enabled && state.initialized) {
+    return state.frozen_matrix;
+  }
+
+  return CurrentCameraTransform();
+}
+
+void StoreMovementStateForLock() {
+  auto& state = MovementLock();
+  if (!state.enabled) {
+    return;
+  }
+
+  if (auto* ai = AiCamera()) {
+    state.translate = ai->translate;
+    state.rotate = ai->rotate;
+    state.collision = ai->collision;
+  }
+}
+
+void DisableCameraAiForLock() {
+  if (auto* ai = AiCamera()) {
+    ai->translate = 0;
+    ai->rotate = 0;
+    ai->collision = 0;
+    if (ai->camVob && ai->camVob->callback_ai == static_cast<zCAIBase*>(ai)) {
+      ai->camVob->SetAI(nullptr);
+    }
+  }
+}
+
+void LockCameraTransform(const zMAT4& matrix) {
+  StoreMovementStateForLock();
+
+  auto& state = MovementLock();
+  state.frozen_matrix = matrix;
+  state.initialized = true;
+  state.enabled = false;
+
+  DisableCameraAiForLock();
+  ApplyCameraTransform(state.frozen_matrix);
+}
+
+void SetTarget(zCVob* vob) {
+  if (auto* ai = AiCamera()) {
+    ai->SetTarget(vob);
+    if (!vob) {
+      ai->ClearTargetList();
+    }
+  }
+}
+
+void SetModeChangeEnabledRaw(bool enabled) {
+  zCAICamera::bCamChanges = enabled ? 1 : 0;
+}
+
+bool GetModeChangeEnabledRaw() {
+  return zCAICamera::bCamChanges != 0;
+}
+
+bool GetMovementEnabledRaw() {
+  auto* ai = AiCamera();
+  return ai && ai->camVob && ai->camVob->callback_ai == static_cast<zCAIBase*>(ai);
+}
+
+void DisableCameraMovement() {
+  if (!HasCameraTransformTarget()) {
+    return;
+  }
+
+  LockCameraTransform(CurrentCameraTransform());
+}
+
+void EnableCameraMovement() {
+  auto& state = MovementLock();
+  auto* ai = AiCamera();
+  if (!ai || !ai->camVob) {
+    state.enabled = true;
+    state.initialized = false;
+    return;
+  }
+
+  if (state.initialized) {
+    ai->translate = state.translate;
+    ai->rotate = state.rotate;
+    ai->collision = state.collision;
+  }
+
+  ai->camVob->SetAI(static_cast<zCAIBase*>(ai));
+  state.enabled = true;
+  state.initialized = false;
+}
+
+zCVob* PlayerVob(std::uint64_t player_id) {
+  for (auto* player : NetGame::Instance().players) {
+    if (player && player->base_player().id() == player_id) {
+      return player->GetNpc();
+    }
+  }
+
+  return nullptr;
+}
+
+bool ReadStringArg(sol::variadic_args args, std::string& out) {
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    sol::object arg = args[i];
+    if (arg.is<std::string>()) {
+      out = arg.as<std::string>();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ReadNumberArg(sol::variadic_args args, float& out) {
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    sol::object arg = args[i];
+    if (arg.get_type() == sol::type::number) {
+      out = arg.as<float>();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ReadUIntArg(sol::variadic_args args, std::uint64_t& out) {
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    sol::object arg = args[i];
+    if (arg.get_type() == sol::type::number) {
+      out = arg.as<std::uint64_t>();
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ReadVec3Args(sol::variadic_args args, float& x, float& y, float& z) {
+  int found = 0;
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    sol::object arg = args[i];
+    if (arg.get_type() != sol::type::number) {
+      continue;
+    }
+
+    if (found == 0) {
+      x = arg.as<float>();
+    } else if (found == 1) {
+      y = arg.as<float>();
+    } else {
+      z = arg.as<float>();
+      return true;
+    }
+    ++found;
+  }
+  return false;
+}
+
+bool ReadVobArg(sol::variadic_args args, LuaVob& out) {
+  for (std::size_t i = 0; i < args.size(); ++i) {
+    sol::object arg = args[i];
+    if (arg.is<LuaVob>()) {
+      out = arg.as<LuaVob>();
+      return true;
+    }
+  }
+  return false;
+}
+}  // namespace
+
+/* luagmp (class)
+*
+* Static access to the active engine camera.
+*
+* @version  0.3.0
+* @name     Camera
+* @side     client
+* @category Game
+*
+*/
+
+/* luagmp (method)
+*
+* Sets the active camera mode.
+*
+* @name     setMode
+* @param    (string) mode    Camera mode name.
+* @return   (boolean)        True if an AI camera is available.
+*
+*/
+bool LuaCamera::setMode(const std::string& mode) {
+  auto* ai = AiCamera();
+  if (!ai) {
+    return false;
+  }
+
+  zCArray<zCVob*> target_list;
+  if (ai->target) {
+    target_list.InsertEnd(ai->target);
+  }
+
+  zSTRING camera_mode(mode.c_str());
+  ai->SetMode(camera_mode, target_list);
+  return true;
+}
+
+/* luagmp (method)
+*
+* Returns the active camera mode.
+*
+* @name     getMode
+* @return   (string) Camera mode name.
+*
+*/
+std::string LuaCamera::getMode() {
+  auto* ai = AiCamera();
+  if (!ai) {
+    return {};
+  }
+
+  return std::string(ai->GetMode().ToChar());
+}
+
+/* luagmp (method)
+*
+* Sets the active camera world position.
+* This puts the camera into manual movement mode until movementEnabled is set to true.
+*
+* @name     setPosition
+* @param    (number) x    X world position.
+* @param    (number) y    Y world position.
+* @param    (number) z    Z world position.
+*
+*/
+void LuaCamera::setPosition(float x, float y, float z) {
+  if (!HasCameraTransformTarget()) {
+    return;
+  }
+
+  zMAT4 matrix = EditableCameraTransform();
+  SetMatrixPosition(matrix, zVEC3(x, y, z));
+  LockCameraTransform(matrix);
+}
+
+void LuaCamera::setPositionValue(sol::object value) {
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  if (lua_helpers::ReadVec3(value, x, y, z)) {
+    setPosition(x, y, z);
+  }
+}
+
+/* luagmp (method)
+*
+* Returns the active camera world position.
+*
+* @name     getPosition
+* @return   ({x, y, z})   Table containing x,y,z world position.
+*
+*/
+sol::table LuaCamera::getPosition(sol::this_state ts) {
+  sol::state_view lua(ts);
+  zVEC3 position(0.0f, 0.0f, 0.0f);
+  if (auto* vob = CameraVob()) {
+    position = vob->GetPositionWorld();
+  } else if (auto* camera = RenderCamera()) {
+    camera->GetCamPos(position);
+  }
+
+  return lua_helpers::MakeVec3Table(lua, position);
+}
+
+/* luagmp (method)
+*
+* Sets the active camera Euler rotation.
+* This puts the camera into manual movement mode until movementEnabled is set to true.
+*
+* @name     setRotation
+* @param    (number) x    X rotation.
+* @param    (number) y    Y rotation.
+* @param    (number) z    Z rotation.
+*
+*/
+void LuaCamera::setRotation(float x, float y, float z) {
+  if (!HasCameraTransformTarget()) {
+    return;
+  }
+
+  zMAT4 matrix = EditableCameraTransform();
+  SetMatrixRotation(matrix, zVEC3(x, y, z));
+  LockCameraTransform(matrix);
+}
+
+void LuaCamera::setRotationValue(sol::object value) {
+  float x = 0.0f;
+  float y = 0.0f;
+  float z = 0.0f;
+  if (lua_helpers::ReadVec3(value, x, y, z)) {
+    setRotation(x, y, z);
+  }
+}
+
+/* luagmp (method)
+*
+* Returns the active camera Euler rotation.
+*
+* @name     getRotation
+* @return   ({x, y, z})   Table containing x,y,z rotation.
+*
+*/
+sol::table LuaCamera::getRotation(sol::this_state ts) {
+  sol::state_view lua(ts);
+  zVEC3 rotation(0.0f, 0.0f, 0.0f);
+  if (auto* vob = CameraVob()) {
+    rotation = vob->GetNewTrafoObjToWorld().GetEulerAngles();
+  } else if (auto* camera = RenderCamera()) {
+    rotation = camera->camMatrixInv.GetEulerAngles();
+  }
+
+  return lua_helpers::MakeVec3Table(lua, rotation);
+}
+
+/* luagmp (method)
+*
+* Sets a Vob as the active camera target.
+*
+* @name     setTargetVob
+* @param    (Vob) vob    Target Vob.
+* @return   (boolean)    True if the target was applied.
+*
+*/
+bool LuaCamera::setTargetVob(const LuaVob& vob) {
+  zCVob* handle = vob.handle();
+  if (!AiCamera() || !handle) {
+    return false;
+  }
+
+  SetTarget(handle);
+  return true;
+}
+
+/* luagmp (method)
+*
+* Sets a player or NPC as the active camera target.
+*
+* @name     setTargetPlayer
+* @param    (number) playerId    Player id.
+* @return   (boolean)            True if the player or NPC exists.
+*
+*/
+bool LuaCamera::setTargetPlayer(std::int64_t player_id) {
+  zCVob* handle = PlayerVob(player_id);
+  if (!AiCamera() || !handle) {
+    return false;
+  }
+
+  SetTarget(handle);
+  return true;
+}
+
+/* luagmp (method)
+*
+* Sets the active render camera field of view.
+*
+* @name     setFOV
+* @param    (number) fov    Field of view.
+*
+*/
+void LuaCamera::setFOV(float fov) {
+  if (auto* camera = RenderCamera()) {
+    camera->SetFOV(fov);
+  }
+}
+
+/* luagmp (method)
+*
+* Returns the active render camera field of view.
+*
+* @name     getFOV
+* @return   (number) Field of view.
+*
+*/
+float LuaCamera::getFOV() {
+  if (auto* camera = RenderCamera()) {
+    return camera->GetFOV();
+  }
+  return 0.0f;
+}
+
+/* luagmp (property)
+*
+* Represents whether scripted camera mode changes are enabled.
+*
+* @name     modeChangeEnabled
+* @return   (boolean) True if mode changes are enabled.
+*
+*/
+bool LuaCamera::getModeChangeEnabled() {
+  return GetModeChangeEnabledRaw();
+}
+
+void LuaCamera::setModeChangeEnabled(bool enabled) {
+  SetModeChangeEnabledRaw(enabled);
+}
+
+/* luagmp (property)
+*
+* Represents whether the camera is allowed to move.
+* Setting this to true restores engine camera AI after manual position or rotation changes.
+*
+* @name     movementEnabled
+* @return   (boolean) True if camera movement is enabled.
+*
+*/
+bool LuaCamera::getMovementEnabled() {
+  auto& state = MovementLock();
+  return state.enabled && GetMovementEnabledRaw();
+}
+
+void LuaCamera::setMovementEnabled(bool enabled) {
+  if (enabled) {
+    EnableCameraMovement();
+  } else {
+    DisableCameraMovement();
+  }
+}
+
+void LuaCamera::ApplyMovementLock() {
+  auto& state = MovementLock();
+  if (state.enabled || !state.initialized) {
+    return;
+  }
+
+  DisableCameraAiForLock();
+  ApplyCameraTransform(state.frozen_matrix);
+}
+
+/* luagmp (property)
+*
+* Represents the active camera target Vob.
+*
+* @name     targetVob
+* @return   (Vob|nil) Current target Vob.
+*
+*/
+sol::object LuaCamera::getTargetVob(sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto* ai = AiCamera();
+  if (!ai || !ai->target) {
+    return sol::make_object(lua, sol::lua_nil);
+  }
+
+  return sol::make_object(lua, LuaVob::FromExisting(ai->target));
+}
+
+void LuaCamera::setTargetVobValue(sol::object value) {
+  if (value.get_type() == sol::type::nil) {
+    SetTarget(nullptr);
+    return;
+  }
+
+  if (value.is<LuaVob>()) {
+    setTargetVob(value.as<LuaVob>());
+  }
+}
+
+void BindCamera(sol::state& lua) {
+  sol::usertype<LuaCamera> camera_type = lua.new_usertype<LuaCamera>("Camera", sol::no_constructor);
+
+  camera_type["setMode"] = [](sol::variadic_args args) {
+    std::string mode;
+    return ReadStringArg(args, mode) && LuaCamera::setMode(mode);
+  };
+  camera_type["getMode"] = [](sol::variadic_args) { return LuaCamera::getMode(); };
+  camera_type["setPosition"] = [](sol::variadic_args args) {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (ReadVec3Args(args, x, y, z)) {
+      LuaCamera::setPosition(x, y, z);
+    }
+  };
+  camera_type["getPosition"] = [](sol::this_state ts, sol::variadic_args) { return LuaCamera::getPosition(ts); };
+  camera_type["setRotation"] = [](sol::variadic_args args) {
+    float x = 0.0f;
+    float y = 0.0f;
+    float z = 0.0f;
+    if (ReadVec3Args(args, x, y, z)) {
+      LuaCamera::setRotation(x, y, z);
+    }
+  };
+  camera_type["getRotation"] = [](sol::this_state ts, sol::variadic_args) { return LuaCamera::getRotation(ts); };
+  camera_type["setTargetVob"] = [](sol::variadic_args args) {
+    LuaVob vob = LuaVob::FromExisting(nullptr);
+    return ReadVobArg(args, vob) && LuaCamera::setTargetVob(vob);
+  };
+  camera_type["setTargetPlayer"] = [](sol::variadic_args args) {
+    std::uint64_t player_id = 0;
+    return ReadUIntArg(args, player_id) && LuaCamera::setTargetPlayer(player_id);
+  };
+  camera_type["setFOV"] = [](sol::variadic_args args) {
+    float fov = 0.0f;
+    if (ReadNumberArg(args, fov)) {
+      LuaCamera::setFOV(fov);
+    }
+  };
+  camera_type["getFOV"] = [](sol::variadic_args) { return LuaCamera::getFOV(); };
+
+  camera_type["modeChangeEnabled"] = sol::property(&LuaCamera::getModeChangeEnabled, &LuaCamera::setModeChangeEnabled);
+  camera_type["movementEnabled"] = sol::property(&LuaCamera::getMovementEnabled, &LuaCamera::setMovementEnabled);
+  camera_type["targetVob"] = sol::property(&LuaCamera::getTargetVob, &LuaCamera::setTargetVobValue);
+
+  lua["Camera"] = LuaCamera();
+}
+
+}  // namespace gmp::gothic

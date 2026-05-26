@@ -24,54 +24,45 @@ SOFTWARE.
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 
-#include "ZenGin/zGothicAPI.h"
 #include "sol/sol.hpp"
+
+#include "lua_vob.h"
 
 namespace gmp::gothic {
 
-class LuaSound {
+class LuaCamera {
 public:
-  explicit LuaSound(const std::string& filename);
-  LuaSound(const LuaSound&) = delete;
-  LuaSound& operator=(const LuaSound&) = delete;
-  LuaSound(LuaSound&& other) noexcept;
-  LuaSound& operator=(LuaSound&& other) noexcept;
-  ~LuaSound();
+  static bool setMode(const std::string& mode);
+  static std::string getMode();
 
-  void play();
-  void stop();
-  bool isPlaying();
+  static void setPosition(float x, float y, float z);
+  static void setPositionValue(sol::object value);
+  static sol::table getPosition(sol::this_state ts);
 
-  std::string getFile() const;
-  void setFile(const std::string& filename);
+  static void setRotation(float x, float y, float z);
+  static void setRotationValue(sol::object value);
+  static sol::table getRotation(sol::this_state ts);
 
-  float getPlayingTime() const;
+  static bool setTargetVob(const LuaVob& vob);
+  static bool setTargetPlayer(std::int64_t player_id);
 
-  float getVolume() const;
-  void setVolume(float volume);
+  static void setFOV(float fov);
+  static float getFOV();
 
-  bool getLooping() const;
-  void setLooping(bool looping);
+  static bool getModeChangeEnabled();
+  static void setModeChangeEnabled(bool enabled);
 
-  float getBalance() const;
-  void setBalance(float balance);
+  static bool getMovementEnabled();
+  static void setMovementEnabled(bool enabled);
+  static void ApplyMovementLock();
 
-private:
-  void ReloadSound();
-  void ApplyProperties();
-  void StopIfNeeded();
-
-  std::string file_;
-  float volume_;
-  bool looping_;
-  float balance_;
-  int handle_;
-
-  Gothic_II_Addon::zCSoundFX* sound_fx_;
+  static sol::object getTargetVob(sol::this_state ts);
+  static void setTargetVobValue(sol::object value);
 };
 
-void BindSound(sol::state& lua);
+void BindCamera(sol::state& lua);
 
 }  // namespace gmp::gothic

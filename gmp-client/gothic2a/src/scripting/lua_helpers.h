@@ -54,6 +54,7 @@ unsigned char ClampByte(int value);
 
 bool ReadIntField(sol::table table, const char* key, int index, int& out);
 bool ReadVec2(sol::object value, int& x, int& y);
+bool ReadVec3(sol::object value, float& x, float& y, float& z);
 bool ReadSize(sol::object value, int& width, int& height);
 bool ReadRect(sol::object value, int& x, int& y, int& width, int& height);
 bool ReadColor(sol::object value, int& r, int& g, int& b, int& a);
