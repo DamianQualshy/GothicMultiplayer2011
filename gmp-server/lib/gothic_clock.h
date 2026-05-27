@@ -30,6 +30,7 @@ SOFTWARE.
 #include <cstdint>
 #include <memory>
 #include <toml.hpp>
+#include <vector>
 
 // This class is responsible for simulation of Gothic-like clock.
 class GothicClock {
@@ -59,7 +60,7 @@ public:
   double GetDayLengthMs() const;
 
   // Should be called from the main loop.
-  void RunClock();
+  std::vector<Time> RunClock();
 
 private:
   Time time_;

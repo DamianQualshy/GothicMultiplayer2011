@@ -36,11 +36,15 @@ struct RainStartTime {
 
 bool ApplyWeatherType(int weather_type);
 int GetWeatherType();
+bool SetRainWeight(float weight, int weather_type, bool render_lightning);
 bool SetRainStartTime(int hour, int min);
 std::optional<RainStartTime> GetRainStartTime();
+bool SetRainStopTime(int hour, int min);
+std::optional<RainStartTime> GetRainStopTime();
 bool SetWindScale(float wind_scale);
 float GetWindScale();
 bool SetDontRain(bool toggle);
+bool GetDontRain();
 bool SetFogColor(int id, int r, int g, int b);
 bool SetCloudsColor(int r, int g, int b);
 bool SetPlanetSize(int planet_id, float size);

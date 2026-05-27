@@ -78,3 +78,5 @@ local nearfp = getNearestFreepoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
 LOG_INFO("{} - x:{} y:{} z:{} a:{}", nearfp.name, nearfp.x, nearfp.y, nearfp.z, nearfp.angle)
 local nextnearfp = getNextNearestFreepoint("NEWWORLD\\NEWWORLD.ZEN", 0, 0, 0)
 LOG_INFO("{} - x:{} y:{} z:{} a:{}", nextnearfp.name, nextnearfp.x, nextnearfp.y, nextnearfp.z, nextnearfp.angle)
+
+Sky.disabled = true

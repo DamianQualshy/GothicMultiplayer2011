@@ -1408,6 +1408,9 @@ enum SkySettingsFlags : std::uint8_t {
   SKY_SETTING_RAIN_START = 1 << 1,
   SKY_SETTING_WIND_SCALE = 1 << 2,
   SKY_SETTING_DONT_RAIN = 1 << 3,
+  SKY_SETTING_RAIN_WEIGHT = 1 << 4,
+  SKY_SETTING_LIGHTNING = 1 << 5,
+  SKY_SETTING_RAIN_STOP = 1 << 6,
 };
 
 struct SkySettingsPacket {
@@ -1416,8 +1419,12 @@ struct SkySettingsPacket {
   std::int32_t weather_type{0};
   std::int16_t rain_start_hour{0};
   std::int16_t rain_start_min{0};
+  std::int16_t rain_stop_hour{0};
+  std::int16_t rain_stop_min{0};
   float wind_scale{0.0f};
   std::uint8_t dont_rain{0};
+  float rain_weight{0.0f};
+  std::uint8_t render_lightning{0};
 };
 
 template <typename S>
@@ -1427,8 +1434,12 @@ void serialize(S& s, SkySettingsPacket& packet) {
   s.value4b(packet.weather_type);
   s.value2b(packet.rain_start_hour);
   s.value2b(packet.rain_start_min);
+  s.value2b(packet.rain_stop_hour);
+  s.value2b(packet.rain_stop_min);
   s.value4b(packet.wind_scale);
   s.value1b(packet.dont_rain);
+  s.value4b(packet.rain_weight);
+  s.value1b(packet.render_lightning);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const SkySettingsPacket& packet) {
@@ -1436,7 +1447,9 @@ inline std::ostream& operator<<(std::ostream& os, const SkySettingsPacket& packe
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", flags: " << static_cast<int>(packet.flags)
      << ", weather_type: " << packet.weather_type
      << ", rain_start_hour: " << packet.rain_start_hour << ", rain_start_min: " << packet.rain_start_min
-     << ", wind_scale: " << packet.wind_scale << ", dont_rain: " << static_cast<int>(packet.dont_rain) << " }";
+     << ", rain_stop_hour: " << packet.rain_stop_hour << ", rain_stop_min: " << packet.rain_stop_min
+     << ", wind_scale: " << packet.wind_scale << ", dont_rain: " << static_cast<int>(packet.dont_rain)
+     << ", rain_weight: " << packet.rain_weight << ", render_lightning: " << static_cast<int>(packet.render_lightning) << " }";
   return os;
 }
 

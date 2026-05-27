@@ -2325,6 +2325,68 @@ std::vector<std::uint32_t> Function_GetStreamedPlayersByPlayer(std::uint32_t pla
 
 /* luagmp (func)
 *
+* This function sets the global player streaming radius.
+*
+* @version  0.3.0
+* @name     setStreamerRadius
+* @side     server
+* @category Streamer
+* @param    (number) radius   Streaming radius in world units.
+* @return   (boolean)         True if the value was accepted.
+*
+*/
+bool Function_SetStreamerRadius(int radius) {
+  return g_server->SetStreamerRadius(radius);
+}
+
+/* luagmp (func)
+*
+* This function returns the global player streaming radius.
+*
+* @version  0.3.0
+* @name     getStreamerRadius
+* @side     server
+* @category Streamer
+* @return   (number)          Streaming radius in world units.
+*
+*/
+int Function_GetStreamerRadius() {
+  return g_server->GetStreamerRadius();
+}
+
+/* luagmp (func)
+*
+* This function sets the global player streaming height. A value of 0 disables the vertical limit.
+*
+* @version  0.3.0
+* @name     setStreamerHeight
+* @side     server
+* @category Streamer
+* @param    (number) height   Streaming height in world units, or 0 for unlimited.
+* @return   (boolean)         True if the value was accepted.
+*
+*/
+bool Function_SetStreamerHeight(int height) {
+  return g_server->SetStreamerHeight(height);
+}
+
+/* luagmp (func)
+*
+* This function returns the global player streaming height.
+*
+* @version  0.3.0
+* @name     getStreamerHeight
+* @side     server
+* @category Streamer
+* @return   (number)          Streaming height in world units, or 0 for unlimited.
+*
+*/
+int Function_GetStreamerHeight() {
+  return g_server->GetStreamerHeight();
+}
+
+/* luagmp (func)
+*
 * This function will set the server time (hour, minute, optional day offset).
 *
 * @version  0.3.0
@@ -2530,6 +2592,10 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["findNearbyPlayers"] = Function_FindNearbyPlayers;
   lua["getSpawnedPlayersForPlayer"] = Function_GetSpawnedPlayersForPlayer;
   lua["getStreamedPlayersByPlayer"] = Function_GetStreamedPlayersByPlayer;
+  lua["setStreamerRadius"] = Function_SetStreamerRadius;
+  lua["getStreamerRadius"] = Function_GetStreamerRadius;
+  lua["setStreamerHeight"] = Function_SetStreamerHeight;
+  lua["getStreamerHeight"] = Function_GetStreamerHeight;
 
   lua["setTime"] = Function_SetTime;
   lua["getTime"] = Function_GetTime;

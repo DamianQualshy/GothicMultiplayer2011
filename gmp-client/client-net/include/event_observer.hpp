@@ -56,7 +56,9 @@ public:
   virtual void OnMapChange(const std::string& map_name) {}
   virtual void OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) {}
   virtual void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
-                                     std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) {}
+                                     std::int16_t rain_start_hour, std::int16_t rain_start_min,
+                                     std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
+                                     float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) {}
 
   // Player events
   virtual void OnLocalPlayerJoined(gmp::client::Player& player) {}

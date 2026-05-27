@@ -14,6 +14,14 @@ end
 
 addEventHandler('onClockUpdate', function(day, hour, minute)
     LOG_INFO("Clock update: Day {} Time {:02d}:{:02d}", day, hour, minute)
+
+    if(hour == 8 and minute == 10) then
+        Sky.weatherType = WEATHER_RAIN
+    elseif (hour == 8 and minute == 15) then
+        Sky.weatherType = WEATHER_SNOW
+    elseif (hour == 8 and minute == 20) then
+        Sky.dontRain = true
+    end
 end)
 
 addEventHandler('onPlayerConnect', function(playerId)

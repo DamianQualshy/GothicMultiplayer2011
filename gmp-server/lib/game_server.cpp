@@ -47,7 +47,6 @@ SOFTWARE.
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <optional>
-#include <random>
 #include <sstream>
 #include <stack>
 #include <string>
@@ -58,7 +57,6 @@ SOFTWARE.
 #include "Lua/event_bind.h"
 #include "net_enums.h"
 #include "packets.h"
-#include "shared/lua_runtime/lua_constants.h"
 #include "platform_depend.h"
 #include "server_events.h"
 #include "server_constants.h"
@@ -83,6 +81,27 @@ constexpr std::uint32_t kItemGroundChannel = 14;
 constexpr const char* kBanListFileName = "bans.json";
 constexpr const char* kItemRegistryPath = "instances/items.json";
 constexpr std::string_view kFrame = "-========================================-";
+constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
+                                                SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
+                                                SKY_SETTING_LIGHTNING;
+
+SkySettingsPacket MakeSkySettingsPacket(std::uint8_t flags, std::int32_t weather_type, std::int32_t rain_start_hour,
+                                        std::int32_t rain_start_min, std::int32_t rain_stop_hour, std::int32_t rain_stop_min,
+                                        float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) {
+  SkySettingsPacket packet{};
+  packet.packet_type = PT_SKY_SETTINGS;
+  packet.flags = flags;
+  packet.weather_type = weather_type;
+  packet.rain_start_hour = static_cast<std::int16_t>(rain_start_hour);
+  packet.rain_start_min = static_cast<std::int16_t>(rain_start_min);
+  packet.rain_stop_hour = static_cast<std::int16_t>(rain_stop_hour);
+  packet.rain_stop_min = static_cast<std::int16_t>(rain_stop_min);
+  packet.wind_scale = wind_scale;
+  packet.dont_rain = dont_rain ? 1 : 0;
+  packet.rain_weight = std::clamp(rain_weight, 0.0f, 1.0f);
+  packet.render_lightning = render_lightning ? 1 : 0;
+  return packet;
+}
 
 std::string FormatConnectionDetails(ConnectionHandle id) {
   const auto id_string = std::to_string(id);
@@ -237,6 +256,50 @@ void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager:
   }
 
   packet.overlays = player.overlays;
+}
+
+PlayerSpawnPacket MakePlayerSpawnPacket(const PlayerManager::Player& player) {
+  PlayerSpawnPacket packet{};
+  packet.packet_type = PT_PLAYER_SPAWN;
+  packet.player_id = player.player_id;
+  packet.player_name = player.name;
+  packet.position = player.state.position;
+  packet.normal = player.state.nrot;
+  packet.left_hand_item_instance = player.state.left_hand_item_instance;
+  packet.right_hand_item_instance = player.state.right_hand_item_instance;
+  packet.equipped_armor_instance = player.state.equipped_armor_instance;
+  packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
+  packet.equipped_shield_instance = player.state.equipped_shield_instance;
+  packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
+  packet.equipped_belt_instance = player.state.equipped_belt_instance;
+  packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
+  packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
+  packet.animation = player.state.animation;
+  packet.body_model = player.body_model;
+  packet.body_texture = player.body_texture;
+  packet.head_model = player.head_model;
+  packet.head_texture = player.head_texture;
+  packet.walk_style = player.walkstyle;
+  PopulatePlayerSpawnSnapshot(packet, player);
+  return packet;
+}
+
+bool IsSameVisibilityScope(const PlayerManager::Player& a, const PlayerManager::Player& b) {
+  return a.world == b.world && a.virtual_world == b.virtual_world;
+}
+
+bool IsInsideStreamRange(const PlayerManager::Player& viewer, const PlayerManager::Player& subject, float radius, float height) {
+  if (!IsSameVisibilityScope(viewer, subject)) {
+    return false;
+  }
+
+  const auto delta = subject.state.position - viewer.state.position;
+  if (height > 0.0f && std::abs(delta.y) > height) {
+    return false;
+  }
+
+  const auto radius_squared = radius * radius;
+  return delta.x * delta.x + delta.z * delta.z <= radius_squared;
 }
 
 std::string SanitizeWorldName(std::string world) {
@@ -676,6 +739,7 @@ bool GameServer::Init() {
 
   auto seconds_per_game_minute = config_.Get<std::int32_t>("seconds_per_game_minute");
   clock_ = std::make_unique<GothicClock>(GothicClock::Time{}, seconds_per_game_minute);
+  weather_.Initialize(clock_->GetTime());
   if (IsPublic() && !kMasterServerEndpoint.empty()) {
     public_list_http_thread_future_ = std::async(&GameServer::AddToPublicListHTTP, this);
     SPDLOG_INFO("Master Server heartbeat started.");
@@ -737,10 +801,9 @@ bool GameServer::Init() {
 }
 
 void GameServer::Run() {
-  constexpr double kRadius = 5000.0;
-
   g_net_server->Pulse();
-  clock_->RunClock();
+  const auto advanced_times = clock_->RunClock();
+  UpdateAuthoritativeWorldState(advanced_times);
 
   if (lua_script_) {
     lua_script_->ProcessTimers();
@@ -754,6 +817,8 @@ void GameServer::Run() {
   auto now = std::chrono::steady_clock::now();
   if (now - last_update_time_ > std::chrono::milliseconds(config_.Get<std::int32_t>("tick_rate_ms"))) {
     last_update_time_ = now;
+    const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
+    const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
 
     // Pre-filter active players
     std::vector<std::pair<PlayerId, const Player*>> active_players;
@@ -784,9 +849,18 @@ void GameServer::Run() {
     // Iteration over player pairs
     for (size_t i = 0; i < active_players.size(); ++i) {
       for (size_t j = i + 1; j < active_players.size(); ++j) {
+        if (!IsSameVisibilityScope(*active_players[i].second, *active_players[j].second)) {
+          continue;
+        }
+
+        const auto delta = active_players[i].second->state.position - active_players[j].second->state.position;
+        if (stream_height > 0.0f && std::abs(delta.y) > stream_height) {
+          continue;
+        }
+
         PlayersKey key{std::min(active_players[i].first, active_players[j].first), std::max(active_players[i].first, active_players[j].first)};
 
-        distances[key] = glm::distance(active_players[i].second->state.position, active_players[j].second->state.position);
+        distances[key] = std::sqrt(delta.x * delta.x + delta.z * delta.z);
       }
     }
 
@@ -798,10 +872,21 @@ void GameServer::Run() {
         continue;
       }
 
-      const auto& player_a = player_a_opt->get();
-      const auto& player_b = player_b_opt->get();
+      auto& player_a = player_a_opt->get();
+      auto& player_b = player_b_opt->get();
 
-      if (distance < kRadius) {
+      if (distance < stream_radius) {
+        const auto stream_subject_to_viewer = [](PlayerManager::Player& subject, PlayerManager::Player& viewer) {
+          if (subject.streamed_by_players.insert(viewer.player_id).second) {
+            viewer.spawned_players.insert(subject.player_id);
+            const auto spawn_packet = MakePlayerSpawnPacket(subject);
+            SerializeAndSend(spawn_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
+          }
+        };
+
+        stream_subject_to_viewer(player_a, player_b);
+        stream_subject_to_viewer(player_b, player_a);
+
         PlayerStateUpdatePacket player_a_update_packet;
         player_a_update_packet.packet_type = PT_ACTUAL_STATISTICS;
         player_a_update_packet.player_id = player_a.player_id;
@@ -1279,8 +1364,6 @@ void GameServer::SomeoneJoinGame(Packet p) {
 }
 
 void GameServer::HandlePlayerUpdate(Packet p) {
-  constexpr double kRadiusSquared = 5000.0 * 5000.0;
-
   auto player_opt = player_manager_.GetPlayerByConnection(p.id);
   if (!player_opt.has_value()) {
     return;
@@ -1944,9 +2027,13 @@ void GameServer::HandleGameInfo(Packet p) {
 
 // void GameServer::HandleGameInfo(Packet p){
 void GameServer::SendGameInfo(Net::ConnectionHandle who) {
+  SendGameInfo(who, clock_->GetTime());
+}
+
+void GameServer::SendGameInfo(Net::ConnectionHandle who, GothicClock::Time time) {
   GameInfoPacket packet;
   packet.packet_type = PT_GAME_INFO;
-  GothicClock::TimeUnion game_time = clock_->GetTime();
+  GothicClock::TimeUnion game_time = time;
   packet.raw_game_time = game_time.raw;
   packet.day_length_ms = static_cast<float>(clock_->GetDayLengthMs());
 
@@ -1958,20 +2045,49 @@ void GameServer::SendGameInfo(Net::ConnectionHandle who) {
 }
 
 void GameServer::SendSkySettings(Net::ConnectionHandle connection) {
-  if (sky_settings_flags_ == 0) {
+  const auto& state = weather_.GetState();
+  auto packet = MakeSkySettingsPacket(kFullSkySettingsFlags, state.weather_type, state.rain_start_hour, state.rain_start_min,
+                                      state.rain_stop_hour, state.rain_stop_min, state.wind_scale, state.dont_rain, state.rain_weight,
+                                      state.render_lightning);
+
+  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, connection);
+}
+
+void GameServer::BroadcastGameInfo() {
+  BroadcastGameInfo(clock_->GetTime());
+}
+
+void GameServer::BroadcastGameInfo(GothicClock::Time time) {
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SendGameInfo(player.connection, time); });
+}
+
+void GameServer::BroadcastSkySettings() {
+  const auto& state = weather_.GetState();
+  auto packet = MakeSkySettingsPacket(kFullSkySettingsFlags, state.weather_type, state.rain_start_hour, state.rain_start_min,
+                                      state.rain_stop_hour, state.rain_stop_min, state.wind_scale, state.dont_rain, state.rain_weight,
+                                      state.render_lightning);
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+}
+
+void GameServer::UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times) {
+  if (advanced_times.empty()) {
     return;
   }
 
-  SkySettingsPacket packet{};
-  packet.packet_type = PT_SKY_SETTINGS;
-  packet.flags = sky_settings_flags_;
-  packet.weather_type = weather_type_;
-  packet.rain_start_hour = static_cast<std::int16_t>(rain_start_hour_);
-  packet.rain_start_min = static_cast<std::int16_t>(rain_start_min_);
-  packet.wind_scale = wind_scale_;
-  packet.dont_rain = dont_rain_ ? 1 : 0;
+  for (const auto& current_time : advanced_times) {
+    const auto current_minute = GothicWeather::ToTotalGameMinutes(current_time);
+    if (current_minute == last_weather_update_minute_) {
+      continue;
+    }
 
-  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, connection);
+    last_weather_update_minute_ = current_minute;
+    BroadcastGameInfo(current_time);
+
+    if (weather_.Update(current_time)) {
+      BroadcastSkySettings();
+    }
+  }
 }
 
 void GameServer::HandleMapNameReq(Packet p) {
@@ -2146,11 +2262,19 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
     if (existing_player.player_id == joining_player.player_id) {
       return;
     }
+    if (!existing_player.is_ingame) {
+      return;
+    }
+    if (!IsSameVisibilityScope(existing_player, joining_player)) {
+      return;
+    }
     SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
   });
 }
 
 void GameServer::SendExistingPlayersPacket(Player& target_player) {
+  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
+  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
   std::vector<ExistingPlayerInfo> existing_players;
   player_manager_.ForEachPlayer([&](Player& existing_player) {
     if (existing_player.player_id == target_player.player_id) {
@@ -2161,8 +2285,14 @@ void GameServer::SendExistingPlayersPacket(Player& target_player) {
     if (existing_player.name.empty()) {
       return;
     }
+    if (!existing_player.is_ingame) {
+      return;
+    }
 
     if (existing_player.world != target_player.world || existing_player.virtual_world != target_player.virtual_world) {
+      return;
+    }
+    if (!IsInsideStreamRange(target_player, existing_player, stream_radius, stream_height)) {
       return;
     }
 
@@ -2265,34 +2395,18 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
 
   player.is_ingame = 1;
 
-  PlayerSpawnPacket packet;
-  packet.packet_type = PT_PLAYER_SPAWN;
-  packet.player_id = player.player_id;
-  packet.player_name = player.name;
-  packet.position = player.state.position;
-  packet.normal = player.state.nrot;
-  packet.left_hand_item_instance = player.state.left_hand_item_instance;
-  packet.right_hand_item_instance = player.state.right_hand_item_instance;
-  packet.equipped_armor_instance = player.state.equipped_armor_instance;
-  packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
-  packet.equipped_shield_instance = player.state.equipped_shield_instance;
-  packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
-  packet.equipped_belt_instance = player.state.equipped_belt_instance;
-  packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
-  packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
-  packet.animation = player.state.animation;
-  packet.body_model = player.body_model;
-  packet.body_texture = player.body_texture;
-  packet.head_model = player.head_model;
-  packet.head_texture = player.head_texture;
-  packet.walk_style = player.walkstyle;
-  PopulatePlayerSpawnSnapshot(packet, player);
+  const auto packet = MakePlayerSpawnPacket(player);
 
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
   StreamRelevantGroundItemsToPlayer(player, true);
 
+  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
+  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
   player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
     if (existing_player.player_id == player.player_id) {
+      return;
+    }
+    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
       return;
     }
 
@@ -2503,34 +2617,15 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
 
   SendExistingPlayersPacket(player);
 
-  PlayerSpawnPacket spawn_packet;
-  spawn_packet.packet_type = PT_PLAYER_SPAWN;
-  spawn_packet.player_id = player.player_id;
-  spawn_packet.player_name = player.name;
-  spawn_packet.position = player.state.position;
-  spawn_packet.normal = player.state.nrot;
-  spawn_packet.left_hand_item_instance = player.state.left_hand_item_instance;
-  spawn_packet.right_hand_item_instance = player.state.right_hand_item_instance;
-  spawn_packet.equipped_armor_instance = player.state.equipped_armor_instance;
-  spawn_packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
-  spawn_packet.equipped_shield_instance = player.state.equipped_shield_instance;
-  spawn_packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
-  spawn_packet.equipped_belt_instance = player.state.equipped_belt_instance;
-  spawn_packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
-  spawn_packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
-  spawn_packet.animation = player.state.animation;
-  spawn_packet.body_model = player.body_model;
-  spawn_packet.body_texture = player.body_texture;
-  spawn_packet.head_model = player.head_model;
-  spawn_packet.head_texture = player.head_texture;
-  spawn_packet.walk_style = player.walkstyle;
-  PopulatePlayerSpawnSnapshot(spawn_packet, player);
+  const auto spawn_packet = MakePlayerSpawnPacket(player);
+  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
+  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
 
   player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
     if (existing_player.player_id == player.player_id) {
       return;
     }
-    if (existing_player.world != player.world || existing_player.virtual_world != player.virtual_world) {
+    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
       return;
     }
 
@@ -2595,34 +2690,15 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   SendExistingPlayersPacket(player);
   StreamRelevantGroundItemsToPlayer(player);
 
-  PlayerSpawnPacket spawn_packet;
-  spawn_packet.packet_type = PT_PLAYER_SPAWN;
-  spawn_packet.player_id = player.player_id;
-  spawn_packet.player_name = player.name;
-  spawn_packet.position = player.state.position;
-  spawn_packet.normal = player.state.nrot;
-  spawn_packet.left_hand_item_instance = player.state.left_hand_item_instance;
-  spawn_packet.right_hand_item_instance = player.state.right_hand_item_instance;
-  spawn_packet.equipped_armor_instance = player.state.equipped_armor_instance;
-  spawn_packet.equipped_helmet_instance = player.state.equipped_helmet_instance;
-  spawn_packet.equipped_shield_instance = player.state.equipped_shield_instance;
-  spawn_packet.equipped_amulet_instance = player.state.equipped_amulet_instance;
-  spawn_packet.equipped_belt_instance = player.state.equipped_belt_instance;
-  spawn_packet.equipped_ring_left_instance = player.state.equipped_ring_left_instance;
-  spawn_packet.equipped_ring_right_instance = player.state.equipped_ring_right_instance;
-  spawn_packet.animation = player.state.animation;
-  spawn_packet.body_model = player.body_model;
-  spawn_packet.body_texture = player.body_texture;
-  spawn_packet.head_model = player.head_model;
-  spawn_packet.head_texture = player.head_texture;
-  spawn_packet.walk_style = player.walkstyle;
-  PopulatePlayerSpawnSnapshot(spawn_packet, player);
+  const auto spawn_packet = MakePlayerSpawnPacket(player);
+  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
+  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
 
   player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
     if (existing_player.player_id == player.player_id) {
       return;
     }
-    if (existing_player.world != player.world || existing_player.virtual_world != player.virtual_world) {
+    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
       return;
     }
 
@@ -3329,6 +3405,34 @@ std::vector<GameServer::PlayerId> GameServer::GetStreamedPlayersByPlayer(PlayerI
   return streaming_players;
 }
 
+bool GameServer::SetStreamerRadius(std::int32_t radius) {
+  if (radius < 0) {
+    SPDLOG_WARN("setStreamerRadius called with invalid radius {}", radius);
+    return false;
+  }
+
+  config_.Set<std::int32_t>("stream_radius", radius);
+  return true;
+}
+
+std::int32_t GameServer::GetStreamerRadius() const {
+  return config_.Get<std::int32_t>("stream_radius");
+}
+
+bool GameServer::SetStreamerHeight(std::int32_t height) {
+  if (height < 0) {
+    SPDLOG_WARN("setStreamerHeight called with invalid height {}", height);
+    return false;
+  }
+
+  config_.Set<std::int32_t>("stream_height", height);
+  return true;
+}
+
+std::int32_t GameServer::GetStreamerHeight() const {
+  return config_.Get<std::int32_t>("stream_height");
+}
+
 bool GameServer::SetTime(std::int32_t hour, std::int32_t min, std::int32_t day) {
   if (!clock_) {
     return false;
@@ -3346,7 +3450,12 @@ bool GameServer::SetTime(std::int32_t hour, std::int32_t min, std::int32_t day) 
 
   EventManager::Instance().TriggerEvent(kEventOnClockUpdateName, OnClockUpdateEvent{new_time.day_, new_time.hour_, new_time.min_});
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SendGameInfo(player.connection); });
+  BroadcastGameInfo();
+  weather_.ResetLastSkyTime(new_time);
+  last_weather_update_minute_ = -1;
+  if (weather_.Update(new_time)) {
+    BroadcastSkySettings();
+  }
   return true;
 }
 
@@ -3367,7 +3476,7 @@ bool GameServer::SetDayLength(float day_length_ms) {
     return false;
   }
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SendGameInfo(player.connection); });
+  BroadcastGameInfo();
   return true;
 }
 
@@ -3380,88 +3489,83 @@ float GameServer::GetDayLength() const {
 }
 
 bool GameServer::SetWeatherType(std::int32_t weather_type) {
-  if (weather_type < 0 || weather_type > WEATHER_RAIN) {
-    SPDLOG_WARN("setWeatherType called with invalid weather type {}", weather_type);
+  if (!weather_.SetWeatherType(weather_type)) {
+    SPDLOG_WARN("Sky.weatherType assigned invalid weather type {}", weather_type);
     return false;
   }
 
-  sky_settings_flags_ |= SKY_SETTING_WEATHER;
-  weather_type_ = weather_type;
-
-  SkySettingsPacket packet{};
-  packet.packet_type = PT_SKY_SETTINGS;
-  packet.flags = SKY_SETTING_WEATHER;
-  packet.weather_type = weather_type;
-
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  BroadcastSkySettings();
   return true;
 }
 
 std::int32_t GameServer::GetWeatherType() const {
-  return weather_type_;
+  return weather_.GetWeatherType();
 }
 
 bool GameServer::SetRainStartTime(std::int32_t hour, std::int32_t min) {
-  if (hour < 0 || hour > 23 || min < 0 || min > 59) {
-    SPDLOG_WARN("setRainStartTime called with invalid parameters: hour={}, min={}", hour, min);
+  if (!weather_.SetRainStartTime(hour, min)) {
+    SPDLOG_WARN("Sky.rainStartTime assigned invalid parameters: hour={}, min={}", hour, min);
     return false;
   }
 
-  sky_settings_flags_ |= SKY_SETTING_RAIN_START;
-  rain_start_hour_ = hour;
-  rain_start_min_ = min;
-
-  SkySettingsPacket packet{};
-  packet.packet_type = PT_SKY_SETTINGS;
-  packet.flags = SKY_SETTING_RAIN_START;
-  packet.rain_start_hour = static_cast<std::int16_t>(hour);
-  packet.rain_start_min = static_cast<std::int16_t>(min);
-
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  BroadcastSkySettings();
   return true;
 }
 
 std::pair<std::int32_t, std::int32_t> GameServer::GetRainStartTime() const {
-  return {rain_start_hour_, rain_start_min_};
+  return weather_.GetRainStartTime();
 }
 
-bool GameServer::SetWindScale(float wind_scale) {
-  if (!std::isfinite(wind_scale)) {
-    SPDLOG_WARN("setWindScale called with non-finite value {}", wind_scale);
+bool GameServer::SetRainStopTime(std::int32_t hour, std::int32_t min) {
+  if (!weather_.SetRainStopTime(hour, min)) {
+    SPDLOG_WARN("Sky.rainStopTime assigned invalid parameters: hour={}, min={}", hour, min);
     return false;
   }
 
-  sky_settings_flags_ |= SKY_SETTING_WIND_SCALE;
-  wind_scale_ = wind_scale;
+  BroadcastSkySettings();
+  return true;
+}
 
-  SkySettingsPacket packet{};
-  packet.packet_type = PT_SKY_SETTINGS;
-  packet.flags = SKY_SETTING_WIND_SCALE;
-  packet.wind_scale = wind_scale;
+std::pair<std::int32_t, std::int32_t> GameServer::GetRainStopTime() const {
+  return weather_.GetRainStopTime();
+}
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+bool GameServer::SetWindScale(float wind_scale) {
+  if (!weather_.SetWindScale(wind_scale)) {
+    SPDLOG_WARN("Sky.windScale assigned non-finite value {}", wind_scale);
+    return false;
+  }
+
+  BroadcastSkySettings();
   return true;
 }
 
 float GameServer::GetWindScale() const {
-  return wind_scale_;
+  return weather_.GetWindScale();
 }
 
 bool GameServer::SetDontRain(bool toggle) {
-  sky_settings_flags_ |= SKY_SETTING_DONT_RAIN;
-  dont_rain_ = toggle;
+  weather_.SetDontRain(toggle);
+  if (clock_) {
+    weather_.Update(clock_->GetTime());
+  }
 
-  SkySettingsPacket packet{};
-  packet.packet_type = PT_SKY_SETTINGS;
-  packet.flags = SKY_SETTING_DONT_RAIN;
-  packet.dont_rain = toggle ? 1 : 0;
-
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  BroadcastSkySettings();
   return true;
 }
 
 bool GameServer::GetDontRain() const {
-  return dont_rain_;
+  return weather_.GetDontRain();
+}
+
+bool GameServer::SetWeatherDisabled(bool toggle) {
+  weather_.SetDisabled(toggle);
+  BroadcastSkySettings();
+  return true;
+}
+
+bool GameServer::GetWeatherDisabled() const {
+  return weather_.GetDisabled();
 }
 
 bool GameServer::KickPlayer(PlayerId player_id, const std::string& reason) {

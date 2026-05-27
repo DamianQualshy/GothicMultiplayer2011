@@ -1353,7 +1353,8 @@ void GameClient::OnSkySettings(Packet p) {
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
   event_observer_.OnSkySettingsReceived(packet.flags, packet.weather_type, packet.rain_start_hour, packet.rain_start_min,
-                                        packet.wind_scale, packet.dont_rain != 0);
+                                        packet.rain_stop_hour, packet.rain_stop_min, packet.wind_scale, packet.dont_rain != 0,
+                                        packet.rain_weight, packet.render_lightning != 0);
 }
 
 void GameClient::OnLeftGame(Packet p) {

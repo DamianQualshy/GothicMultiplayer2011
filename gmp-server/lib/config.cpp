@@ -66,6 +66,8 @@ const std::unordered_map<std::string, std::variant<std::string, std::vector<std:
     {"scripts", std::vector<std::string>{std::string("main.lua")}},
     {"tick_rate_ms", 100},
     {"seconds_per_game_minute", 4},
+    {"stream_radius", 5000},
+    {"stream_height", 0},
 #ifndef WIN32
     {"daemon", true}
 #else
@@ -157,6 +159,15 @@ void Config::ValidateAndFixValues() {
     SPDLOG_WARN("Invalid log level in config: {}. Setting to default \"{}\"", log_level, default_log_level);
     values_["log_level"] = default_log_level;
   }
+
+  for (const auto* key : {"seconds_per_game_minute", "stream_radius", "stream_height"}) {
+    auto& value = std::get<std::int32_t>(values_.at(key));
+    if (value < 0) {
+      auto default_value = std::get<std::int32_t>(kDefault_Config_Values.at(key));
+      SPDLOG_WARN("Invalid {} in config: {}. Setting to default {}", key, value, default_value);
+      value = default_value;
+    }
+  }
 }
 
 void Config::LogConfigValues() const {
@@ -190,6 +201,9 @@ void Config::LogConfigValues() const {
   SPDLOG_INFO("-= Performance =-");
   SPDLOG_INFO("* {:<18}: {} ms", "Tick rate", Get<std::int32_t>("tick_rate_ms"));
   SPDLOG_INFO("* {:<18}: {} s", "Secs per game min", Get<std::int32_t>("seconds_per_game_minute"));
+  SPDLOG_INFO("* {:<18}: {}", "Stream radius", Get<std::int32_t>("stream_radius"));
+  const auto stream_height = Get<std::int32_t>("stream_height");
+  SPDLOG_INFO("* {:<18}: {}", "Stream height", stream_height == 0 ? std::string("unlimited") : std::to_string(stream_height));
 
 #ifndef WIN32
   const bool daemon = Get<bool>("daemon");

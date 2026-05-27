@@ -43,7 +43,7 @@ struct MD5Sum {
 };
 
 union STime {
-  int time;
+  std::uint32_t time;
   struct {
     unsigned short day;
     unsigned char hour, min;
@@ -108,7 +108,9 @@ public:
   void OnMapChange(const std::string& map_name) override;
   void OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) override;
   void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
-                             std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) override;
+                             std::int16_t rain_start_hour, std::int16_t rain_start_min,
+                             std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
+                             float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) override;
   void OnLocalPlayerJoined(gmp::client::Player& player) override;
   void OnLocalPlayerSpawned(gmp::client::Player& player) override;
   void OnPlayerJoined(gmp::client::Player& player) override;

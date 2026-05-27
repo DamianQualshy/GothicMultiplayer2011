@@ -25,131 +25,145 @@ SOFTWARE.
 #include "lua_sky.h"
 #include "game_server.h"
 
+#include <cstdint>
+#include <optional>
+#include <utility>
+
 namespace lua::bindings {
 namespace {
 
-} // namespace
+std::optional<std::pair<int, int>> ReadTimeTable(const sol::object& value) {
+  if (!value.is<sol::table>()) {
+    return std::nullopt;
+  }
 
-/* luagmp (func)
-*
-* This function will set the desired weather type immediately.
-*
-* @version  0.3.0
-* @name     setWeatherType
-* @side     server
-* @category Weather
-* @param    (number) weather_type     Weather type, for more information see [Weather Constants](../../shared-constants/Weather.md)
-*
-*/
-void Function_SetWeatherType(int weather_type) {
-  g_server->SetWeatherType(weather_type);
+  sol::table table = value.as<sol::table>();
+  sol::object hour = table["hour"];
+  sol::object min = table["min"];
+  if (!hour.is<int>() || !min.is<int>()) {
+    return std::nullopt;
+  }
+
+  return std::pair<int, int>{hour.as<int>(), min.as<int>()};
 }
 
-/* luagmp (func)
-*
-* This function will return the current weather type.
-*
-* @version  0.3.0
-* @name     getWeatherType
-* @side     server
-* @category Weather
-* @return   (number)      Current weather type.
-*
-*/
-int Function_GetWeatherType() {
-  return g_server->GetWeatherType();
-}
-
-/* luagmp (func)
-*
-* This function will set the sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     setRainStartTime
-* @side     server
-* @category Weather
-* @param    (number) hour   The sky weather raining start hour.
-* @param    (number) min    The sky weather raining start min.
-*
-*/
-void Function_SetRainStartTime(int hour, int min) {
-  g_server->SetRainStartTime(hour, min);
-}
-
-/* luagmp (func)
-*
-* This function will return the sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     getRainStartTime
-* @side     server
-* @category Weather
-* @return   ({hour, min})  The sky weather raining start time.
-*
-*/
-sol::object Function_GetRainStartTime(sol::this_state ts) {
+sol::object MakeTimeTable(sol::this_state ts, std::pair<std::int32_t, std::int32_t> time) {
   sol::state_view lua(ts);
-  auto time = g_server->GetRainStartTime();
   sol::table tbl = lua.create_table();
   tbl["hour"] = time.first;
   tbl["min"] = time.second;
-  return tbl;
+  return sol::make_object(lua, tbl);
 }
 
-/* luagmp (func)
+} // namespace
+
+
+/* luagmp (class)
 *
-* This function will change the wind scale used during raining/snowing.
+* Static sky controller for authoritative server weather.
 *
 * @version  0.3.0
-* @name     setWindScale
+* @name     Sky
 * @side     server
-* @category Weather
-* @param    (number) wind_scale    Wind scale value.
+* @category World
 *
 */
-void Function_SetWindScale(float wind_scale) {
-  g_server->SetWindScale(wind_scale);
-}
+class LuaSky {
+public:
 
-/* luagmp (func)
+/* luagmp (property)
 *
-* This function will return the current wind scale.
+* Current server weather type. When automatic weather is enabled, this can be overwritten on the next server game minute.
 *
-* @version  0.3.0
-* @name     getWindScale
-* @side     server
-* @category Weather
-* @return   (number)    Current wind scale.
+* @name     weatherType
+* @return   (number)
 *
 */
-float Function_GetWindScale() {
-  return g_server->GetWindScale();
-}
+  void SetWeatherType(int weather_type) const { g_server->SetWeatherType(weather_type); }
+  int GetWeatherType() const { return g_server->GetWeatherType(); }
 
-/* luagmp (func)
+/* luagmp (property)
 *
-* This function will enable/disable weather completely.
+* Rain start time: `{hour = number, min = number}`
 *
-* @version  0.3.0
-* @name     setDontRain
-* @side     server
-* @category Weather
-* @param    (boolean) toggle   True to disable weather, false to enable it.
+* @name     rainStartTime
+* @return   (table)
 *
 */
-bool Function_SetDontRain(bool toggle) {
-  return g_server->SetDontRain(toggle);
-}
+  void SetRainStartTime(const sol::object& value) const {
+    if (auto time = ReadTimeTable(value)) {
+      g_server->SetRainStartTime(time->first, time->second);
+    }
+  }
 
+  sol::object GetRainStartTime(sol::this_state ts) const {
+    return MakeTimeTable(ts, g_server->GetRainStartTime());
+  }
+
+/* luagmp (property)
+*
+* Rain stop time: `{hour = number, min = number}`
+*
+* @note     The stop time must be after `rainStartTime` in Gothic sky time.
+* @name     rainStopTime
+* @return   (table)
+*
+*/
+  void SetRainStopTime(const sol::object& value) const {
+    if (auto time = ReadTimeTable(value)) {
+      g_server->SetRainStopTime(time->first, time->second);
+    }
+  }
+
+  sol::object GetRainStopTime(sol::this_state ts) const {
+    return MakeTimeTable(ts, g_server->GetRainStopTime());
+  }
+
+/* luagmp (property)
+*
+* Wind scale used during precipitation.
+*
+* @name     windScale
+* @return   (number)
+*
+*/
+  void SetWindScale(float wind_scale) const { g_server->SetWindScale(wind_scale); }
+  float GetWindScale() const { return g_server->GetWindScale(); }
+
+/* luagmp (property)
+*
+* Disables rain and snow rendering while leaving automatic weather timing active.
+*
+* @name     dontRain
+* @return   (boolean)
+*
+*/
+  void SetDontRain(bool toggle) const { g_server->SetDontRain(toggle); }
+  bool GetDontRain() const { return g_server->GetDontRain(); }
+
+/* luagmp (property)
+*
+* Toggles the server automatic weather state machine. Set this to true before manually controlling weather.
+*
+* @name     disabled
+* @return   (boolean)
+*
+*/
+  void SetDisabled(bool toggle) const { g_server->SetWeatherDisabled(toggle); }
+  bool GetDisabled() const { return g_server->GetWeatherDisabled(); }
+};
 
 void BindSky(sol::state& lua) {
-  lua["setWeatherType"] = Function_SetWeatherType;
-  lua["getWeatherType"] = Function_GetWeatherType;
-  lua["setRainStartTime"] = Function_SetRainStartTime;
-  lua["getRainStartTime"] = Function_GetRainStartTime;
-  lua["setWindScale"] = Function_SetWindScale;
-  lua["getWindScale"] = Function_GetWindScale;
-  lua["setDontRain"] = Function_SetDontRain;
+  auto sky_type = lua.new_usertype<LuaSky>("Sky", sol::no_constructor);
+
+  sky_type["weatherType"] = sol::property(&LuaSky::GetWeatherType, &LuaSky::SetWeatherType);
+  sky_type["rainStartTime"] = sol::property(&LuaSky::GetRainStartTime, &LuaSky::SetRainStartTime);
+  sky_type["rainStopTime"] = sol::property(&LuaSky::GetRainStopTime, &LuaSky::SetRainStopTime);
+  sky_type["windScale"] = sol::property(&LuaSky::GetWindScale, &LuaSky::SetWindScale);
+  sky_type["dontRain"] = sol::property(&LuaSky::GetDontRain, &LuaSky::SetDontRain);
+  sky_type["disabled"] = sol::property(&LuaSky::GetDisabled, &LuaSky::SetDisabled);
+
+  lua["Sky"] = LuaSky{};
 }
 
 } // namespace lua::bindings

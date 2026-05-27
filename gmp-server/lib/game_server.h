@@ -29,6 +29,7 @@ SOFTWARE.
 #include <string.h>
 
 #include <atomic>
+#include <cstdint>
 #include <ctime>
 #include <filesystem>
 #include <functional>
@@ -61,6 +62,7 @@ struct Response;
 #include "resource_server.h"
 #include "znet_server.h"
 #include "gothic_clock.h"
+#include "gothic_weather.h"
 
 #define DEFAULT_ADMIN_PORT 0x404
 
@@ -147,6 +149,10 @@ public:
                                           std::int32_t virtual_world) const;
   std::vector<PlayerId> GetSpawnedPlayersForPlayer(PlayerId player_id) const;
   std::vector<PlayerId> GetStreamedPlayersByPlayer(PlayerId player_id) const;
+  bool SetStreamerRadius(std::int32_t radius);
+  std::int32_t GetStreamerRadius() const;
+  bool SetStreamerHeight(std::int32_t height);
+  std::int32_t GetStreamerHeight() const;
   bool SetTime(std::int32_t hour, std::int32_t min, std::int32_t day = 0);
   GothicClock::Time GetTime() const;
   bool SetDayLength(float day_length_ms);
@@ -155,10 +161,14 @@ public:
   std::int32_t GetWeatherType() const;
   bool SetRainStartTime(std::int32_t hour, std::int32_t min);
   std::pair<std::int32_t, std::int32_t> GetRainStartTime() const;
+  bool SetRainStopTime(std::int32_t hour, std::int32_t min);
+  std::pair<std::int32_t, std::int32_t> GetRainStopTime() const;
   bool SetWindScale(float wind_scale);
   float GetWindScale() const;
   bool SetDontRain(bool toggle);
   bool GetDontRain() const;
+  bool SetWeatherDisabled(bool toggle);
+  bool GetWeatherDisabled() const;
   bool TriggerClientEvent(const std::vector<PlayerId>& targets, const std::string& event_name, PlayerId source_element,
                           const std::string& payload);
   bool KickPlayer(PlayerId player_id, const std::string& reason);
@@ -224,7 +234,12 @@ private:
   void SendStandUpInfo(PlayerId player_id);
   void BroadcastPlayerJoined(const Player& joining_player);
   void SendGameInfo(Net::ConnectionHandle connection);
+  void SendGameInfo(Net::ConnectionHandle connection, GothicClock::Time time);
   void SendSkySettings(Net::ConnectionHandle connection);
+  void BroadcastGameInfo();
+  void BroadcastGameInfo(GothicClock::Time time);
+  void BroadcastSkySettings();
+  void UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times);
   void SendExistingPlayersPacket(Player& target_player);
   bool RespawnPlayerInternal(Player& player);
   void SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection);
@@ -257,13 +272,9 @@ private:
   bool allow_modification = false;
   Config config_;
   std::unique_ptr<GothicClock> clock_;
+  GothicWeather weather_;
   std::string server_world_;
-  std::uint8_t sky_settings_flags_{0};
-  std::int32_t weather_type_{0};
-  std::int32_t rain_start_hour_{0};
-  std::int32_t rain_start_min_{0};
-  float wind_scale_{0.0f};
-  bool dont_rain_{false};
+  std::int64_t last_weather_update_minute_{-1};
   std::future<void> public_list_http_thread_future_;
   std::chrono::time_point<std::chrono::steady_clock> last_update_time_{};
   std::thread main_thread;

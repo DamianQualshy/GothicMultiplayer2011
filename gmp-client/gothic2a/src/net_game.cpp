@@ -383,6 +383,34 @@ void WriteWorldTimerTicks(const WorldTimerTickValues& values) {
   MemoryPatch::WriteMemory(kTicksPerDayAddr, reinterpret_cast<PBYTE>(const_cast<float*>(&values.ticks_per_day)), sizeof(float));
 }
 
+float PositiveOrFallback(float value, float fallback) {
+  return value > 0.0f ? value : fallback;
+}
+
+void ApplyGameTimeToEngine(const STime& time) {
+  if (!ogame) {
+    return;
+  }
+
+  const int day = static_cast<int>(time.day);
+  const int hour = static_cast<int>(time.hour);
+  const int min = static_cast<int>(time.min);
+
+  auto* timer = ogame->GetWorldTimer();
+  if (!timer) {
+    ogame->SetTime(day, hour, min);
+    return;
+  }
+
+  const auto ticks = ReadWorldTimerTicks();
+  const float ticks_per_day = PositiveOrFallback(ticks.ticks_per_day, Gothic_II_Addon::WLD_TICKSPERDAY);
+  const float ticks_per_hour = PositiveOrFallback(ticks.ticks_per_hour, Gothic_II_Addon::WLD_TICKSPERHOUR);
+  const float ticks_per_minute = PositiveOrFallback(ticks.ticks_per_minute, Gothic_II_Addon::WLD_TICKSPERMIN);
+  const float full_time = static_cast<float>(day) * ticks_per_day + static_cast<float>(hour) * ticks_per_hour +
+                          static_cast<float>(min) * ticks_per_minute;
+  timer->SetFullTime(full_time);
+}
+
 void ApplyDayLengthToEngine(float day_length_ms) {
   static std::optional<WorldTimerTickValues> original_ticks;
 
@@ -905,35 +933,36 @@ void NetGame::OnMapChange(const std::string& map_name) {
 
 void NetGame::OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) {
   STime t;
-  t.time = static_cast<int>(raw_game_time);
-  if (ogame) {
-    if (auto* timer = ogame->GetWorldTimer()) {
-      const float full_time = (static_cast<float>(t.day) * 24.0f + static_cast<float>(t.hour)) * Gothic_II_Addon::WLD_TICKSPERHOUR +
-                              static_cast<float>(t.min) * Gothic_II_Addon::WLD_TICKSPERMIN;
-      timer->SetFullTime(full_time);
-    } else {
-      ogame->SetTime(static_cast<int>(t.day), static_cast<int>(t.hour), static_cast<int>(t.min));
-    }
-  }
+  t.time = raw_game_time;
 
   if (day_length_ms > 0.0f) {
     SetDayLengthMs(day_length_ms);
   }
+
+  ApplyGameTimeToEngine(t);
 
   oCGame::s_bUsePotionKeys = flags & 0x01;
   this->ForceHideMap = flags & 0x04;
 }
 
 void NetGame::OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
-                                    std::int16_t rain_start_hour, std::int16_t rain_start_min, float wind_scale, bool dont_rain) {
+                                    std::int16_t rain_start_hour, std::int16_t rain_start_min,
+                                    std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
+                                    float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) {
   if (flags & SKY_SETTING_WEATHER) {
     gmp::gothic::ApplyWeatherType(weather_type);
   }
   if (flags & SKY_SETTING_RAIN_START) {
     gmp::gothic::SetRainStartTime(rain_start_hour, rain_start_min);
   }
+  if (flags & SKY_SETTING_RAIN_STOP) {
+    gmp::gothic::SetRainStopTime(rain_stop_hour, rain_stop_min);
+  }
   if (flags & SKY_SETTING_WIND_SCALE) {
     gmp::gothic::SetWindScale(wind_scale);
+  }
+  if (flags & SKY_SETTING_RAIN_WEIGHT) {
+    gmp::gothic::SetRainWeight(rain_weight, weather_type, render_lightning);
   }
   if (flags & SKY_SETTING_DONT_RAIN) {
     gmp::gothic::SetDontRain(dont_rain);

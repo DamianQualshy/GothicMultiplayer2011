@@ -23,260 +23,330 @@ SOFTWARE.
 */
 
 #include "lua_sky.h"
+#include "net_game.h"
 #include "sky_utils.h"
 
+#include <optional>
+#include <string>
+
 namespace gmp::gothic {
+namespace {
 
-/* luagmp (func)
-*
-* This function will set the desired weather type immediately.
-*
-* @version  0.3.0
-* @name     setWeatherType
-* @side     client
-* @category Weather
-* @param    (number) weather_type     Weather type (WEATHER_SNOW/WEATHER_RAIN or 0 to disable precipitation).
-*
-*/
-void Function_SetWeatherType(int weather_type) {
-  ApplyWeatherType(weather_type);
+struct Color3 {
+  int r;
+  int g;
+  int b;
+};
+
+struct Color4 {
+  int r;
+  int g;
+  int b;
+  int a;
+};
+
+std::optional<RainStartTime> ReadTimeTable(const sol::object& value) {
+  if (!value.is<sol::table>()) {
+    return std::nullopt;
+  }
+
+  sol::table table = value.as<sol::table>();
+  sol::object hour = table["hour"];
+  sol::object min = table["min"];
+  if (!hour.is<int>() || !min.is<int>()) {
+    return std::nullopt;
+  }
+
+  return RainStartTime{hour.as<int>(), min.as<int>()};
 }
 
-/* luagmp (func)
-*
-* This function will return the current weather type.
-*
-* @version  0.3.0
-* @name     getWeatherType
-* @side     client
-* @category Weather
-* @return   (number)   Current weather type.
-*
-*/
-int Function_GetWeatherType() {
-  return GetWeatherType();
+std::optional<Color3> ReadColor3Table(const sol::table& table) {
+  sol::object r = table["r"];
+  sol::object g = table["g"];
+  sol::object b = table["b"];
+  if (!r.is<int>() || !g.is<int>() || !b.is<int>()) {
+    return std::nullopt;
+  }
+
+  return Color3{r.as<int>(), g.as<int>(), b.as<int>()};
 }
 
-/* luagmp (func)
-*
-* This function will set the sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     setRainStartTime
-* @side     client
-* @category Weather
-* @param    (number) hour   The sky weather raining start hour.
-* @param    (number) min    The sky weather raining start min.
-*
-*/
-void Function_SetRainStartTime(int hour, int min) {
-  SetRainStartTime(hour, min);
+std::optional<Color4> ReadColor4Table(const sol::table& table) {
+  auto color = ReadColor3Table(table);
+  sol::object a = table["a"];
+  if (!color.has_value() || !a.is<int>()) {
+    return std::nullopt;
+  }
+
+  return Color4{color->r, color->g, color->b, a.as<int>()};
 }
 
-/* luagmp (func)
-*
-* This function will return the configured sky weather time when it starts raining/snowing.
-*
-* @version  0.3.0
-* @name     getRainStartTime
-* @side     client
-* @category Weather
-* @return   ({hour, min})  The sky weather raining start time.
-*
-*/
-sol::object Function_GetRainStartTime(sol::this_state ts) {
+sol::object MakeTimeTable(sol::this_state ts, std::optional<RainStartTime> time) {
   sol::state_view lua(ts);
   sol::table tbl = lua.create_table();
-  auto time = GetRainStartTime();
-  if (time.has_value()) {
-    tbl["hour"] = time->hour;
-    tbl["min"] = time->min;
-  } else {
-    tbl["hour"] = 0;
-    tbl["min"] = 0;
-  }
+  tbl["hour"] = time.has_value() ? time->hour : 0;
+  tbl["min"] = time.has_value() ? time->min : 0;
   return sol::make_object(lua, tbl);
 }
 
-/* luagmp (func)
+}  // namespace
+
+/* luagmp (class)
 *
-* This function will change the wind scale used during raining/snowing.
+* Static sky controller for local and synchronized sky settings.
 *
 * @version  0.3.0
-* @name     setWindScale
+* @name     Sky
 * @side     client
-* @category Weather
-* @param    (number) wind_scale    Wind scale value.
+* @category World
 *
 */
-void Function_SetWindScale(float wind_scale) {
-  SetWindScale(wind_scale);
-}
+class LuaSky {
+public:
 
-/* luagmp (func)
+/* luagmp (property)
 *
-* This function will return the current wind scale.
+* Current local weather type. Use `refresh()` to pull the authoritative value from the server.
 *
-* @version  0.3.0
-* @name     getWindScale
-* @side     client
-* @category Weather
-* @return   (number)   Current wind scale.
+* @name     weatherType
+* @return   (number)
 *
 */
-float Function_GetWindScale() {
-  return GetWindScale();
-}
+  void SetWeatherType(int weather_type) const { ApplyWeatherType(weather_type); }
+  int GetWeatherType() const { return gmp::gothic::GetWeatherType(); }
 
-/* luagmp (func)
+/* luagmp (property)
 *
-* This function will enable/disable weather completely.
+* Rain start time: `{hour = number, min = number}`
 *
-* @version  0.3.0
-* @name     setDontRain
-* @side     client
-* @category Weather
-* @param    (boolean) toggle   True to disable weather, false to enable it.
-* @return   (boolean)          True on success.
+* @name     rainStartTime
+* @return   (table)
 *
 */
-bool Function_SetDontRain(bool toggle) {
-  return SetDontRain(toggle);
-}
+  void SetRainStartTime(const sol::object& value) const {
+    if (auto time = ReadTimeTable(value)) {
+      gmp::gothic::SetRainStartTime(time->hour, time->min);
+    }
+  }
 
-/* luagmp (func)
+  sol::object GetRainStartTime(sol::this_state ts) const {
+    return MakeTimeTable(ts, gmp::gothic::GetRainStartTime());
+  }
+
+/* luagmp (property)
 *
-* This function will set the sky fog color day variation.
+* Rain stop time: `{hour = number, min = number}`
+*
+* @name     rainStopTime
+* @return   (table)
+*
+*/
+  void SetRainStopTime(const sol::object& value) const {
+    if (auto time = ReadTimeTable(value)) {
+      gmp::gothic::SetRainStopTime(time->hour, time->min);
+    }
+  }
+
+  sol::object GetRainStopTime(sol::this_state ts) const {
+    return MakeTimeTable(ts, gmp::gothic::GetRainStopTime());
+  }
+
+/* luagmp (property)
+*
+* Wind scale used during precipitation.
+*
+* @name     windScale
+* @return   (number)
+*
+*/
+  void SetWindScale(float wind_scale) const { gmp::gothic::SetWindScale(wind_scale); }
+  float GetWindScale() const { return gmp::gothic::GetWindScale(); }
+
+/* luagmp (property)
+*
+* Toggles local rain and snow rendering.
+*
+* @name     dontRain
+* @return   (boolean)
+*
+*/
+  void SetDontRain(bool toggle) const { gmp::gothic::SetDontRain(toggle); }
+  bool GetDontRain() const { return gmp::gothic::GetDontRain(); }
+
+/* luagmp (property)
+*
+* Write-only fog color table: `{id = number, r = number, g = number, b = number}`
+*
+* @name     fogColor
+* @return   (table)
+*
+*/
+  void SetFogColor(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    sol::object id = (*table)["id"];
+    if (auto color = ReadColor3Table(*table); color.has_value() && id.is<int>()) {
+      gmp::gothic::SetFogColor(id.as<int>(), color->r, color->g, color->b);
+    }
+  }
+
+/* luagmp (property)
+*
+* Write-only cloud color table: `{r = number, g = number, b = number}`
+*
+* @name     cloudsColor
+* @return   (table)
+*
+*/
+  void SetCloudsColor(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    if (auto color = ReadColor3Table(*table)) {
+      gmp::gothic::SetCloudsColor(color->r, color->g, color->b);
+    }
+  }
+
+/* luagmp (property)
+*
+* Write-only planet size table: `{planetId = number, size = number}`
+*
+* @name     planetSize
+* @return   (table)
+*
+*/
+  void SetPlanetSize(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    sol::object planet_id = (*table)["planetId"];
+    sol::object size = (*table)["size"];
+    if (planet_id.is<int>() && size.is<float>()) {
+      gmp::gothic::SetPlanetSize(planet_id.as<int>(), size.as<float>());
+    }
+  }
+
+/* luagmp (property)
+*
+* Write-only planet color table: `{planetId = number, r = number, g = number, b = number, a = number}`
+*
+* @name     planetColor
+* @return   (table)
+*
+*/
+  void SetPlanetColor(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    sol::object planet_id = (*table)["planetId"];
+    if (auto color = ReadColor4Table(*table); color.has_value() && planet_id.is<int>()) {
+      gmp::gothic::SetPlanetColor(planet_id.as<int>(), color->r, color->g, color->b, color->a);
+    }
+  }
+
+/* luagmp (property)
+*
+* Write-only planet texture table: `{planetId = number, texture = string}`
+*
+* @name     planetTxt
+* @return   (table)
+*
+*/
+  void SetPlanetTxt(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    sol::object planet_id = (*table)["planetId"];
+    sol::object texture = (*table)["texture"];
+    if (planet_id.is<int>() && texture.is<std::string>()) {
+      gmp::gothic::SetPlanetTexture(planet_id.as<int>(), texture.as<std::string>());
+    }
+  }
+
+/* luagmp (property)
+*
+* Write-only lighting color table: `{r = number, g = number, b = number}`
+*
+* @name     lightingColor
+* @return   (table)
+*
+*/
+  void SetLightingColor(const sol::object& value) const {
+    auto table = ToTable(value);
+    if (!table.has_value()) {
+      return;
+    }
+
+    if (auto color = ReadColor3Table(*table)) {
+      gmp::gothic::SetLightingColor(color->r, color->g, color->b);
+    }
+  }
+
+/* luagmp (method)
+*
+* Requests authoritative time and sky settings from the server and applies them when the reply arrives.
 *
 * @version  0.3.0
-* @name     setFogColor
+* @name     refresh
 * @side     client
 * @category Sky
-* @param    (number) id   The id of fog color day variation.
-* @param    (number) r    The red color component in RGB model.
-* @param    (number) g    The green color component in RGB model.
-* @param    (number) b    The blue color component in RGB model.
+* @return   (boolean) True if the refresh request was sent.
 *
 */
-void Function_SetFogColor(int id, int r, int g, int b) {
-  SetFogColor(id, r, g, b);
-}
+  static bool Refresh() {
+    auto& net_game = NetGame::Instance();
+    if (!net_game.IsConnected()) {
+      return false;
+    }
 
-/* luagmp (func)
-*
-* This function will set the sky clouds color.
-*
-* @version  0.3.0
-* @name     setCloudsColor
-* @side     client
-* @category Sky
-* @param    (number) r    The red color component in RGB model.
-* @param    (number) g    The green color component in RGB model.
-* @param    (number) b    The blue color component in RGB model.
-*
-*/
-void Function_SetCloudsColor(int r, int g, int b) {
-  SetCloudsColor(r, g, b);
-}
+    net_game.SyncGameTime();
+    return true;
+  }
 
-/* luagmp (func)
-*
-* This function will set the planet size ratio.
-*
-* @version  0.3.0
-* @name     setPlanetSize
-* @side     client
-* @category Sky
-* @param    (number) planetId    The planet id, for more information see [Planet](../../client-constants/Sky.md) constants.
-* @param    (number) size        The size ratio.
-*
-*/
-void Function_SetPlanetSize(int planet_id, float size) {
-  SetPlanetSize(planet_id, size);
-}
+  sol::object GetWriteOnly(sol::this_state ts) const {
+    sol::state_view lua(ts);
+    return sol::object(lua, sol::in_place, sol::nil);
+  }
 
-/* luagmp (func)
-*
-* This function will set the planet color.
-*
-* @version  0.3.0
-* @name     setPlanetColor
-* @side     client
-* @category Sky
-* @param    (number) planetId  The planet id, for more information see [Planet](../../client-constants/Sky.md) constants.
-* @param    (number) r         The red color component in RGBA model.
-* @param    (number) g         The green color component in RGBA model.
-* @param    (number) b         The blue color component in RGBA model.
-* @param    (number) a         The alpha color component in RGBA model.
-*
-*/
-void Function_SetPlanetColor(int planet_id, int r, int g, int b, int a) {
-  SetPlanetColor(planet_id, r, g, b, a);
-}
+private:
+  static std::optional<sol::table> ToTable(const sol::object& value) {
+    if (!value.is<sol::table>()) {
+      return std::nullopt;
+    }
 
-/* luagmp (func)
-*
-* Set the planet texture.
-*
-* @version  0.3.0
-* @name     setPlanetTxt
-* @side     client
-* @category Sky
-* @param    (number) planetId   The planet id, for more information see [Planet](../../client-constants/Sky.md) constants.
-* @param    (string) texture Name of the texture.
-*
-*/
-void Function_SetPlanetTxt(int planet_id, const std::string& texture) {
-  SetPlanetTexture(planet_id, texture);
-}
-
-/* luagmp (func)
-*
-* This function will set the sky lighting color.
-*
-* @version  0.3.0
-* @name     setLightingColor
-* @side     client
-* @category Sky
-* @param    (number) r    The red color component in RGB model.
-* @param    (number) g    The green color component in RGB model.
-* @param    (number) b    The blue color component in RGB model.
-*
-*/
-void Function_SetLightingColor(int r, int g, int b) {
-  SetLightingColor(r, g, b);
-}
-
+    return value.as<sol::table>();
+  }
+};
 
 void BindSky(sol::state& lua) {
-  lua["setWeatherType"] = Function_SetWeatherType;
-  lua["getWeatherType"] = Function_GetWeatherType;
+  auto sky_type = lua.new_usertype<LuaSky>("Sky", sol::no_constructor);
 
-  lua["setRainStartTime"] = Function_SetRainStartTime;
-  lua["getRainStartTime"] = Function_GetRainStartTime;
+  sky_type["weatherType"] = sol::property(&LuaSky::GetWeatherType, &LuaSky::SetWeatherType);
+  sky_type["rainStartTime"] = sol::property(&LuaSky::GetRainStartTime, &LuaSky::SetRainStartTime);
+  sky_type["rainStopTime"] = sol::property(&LuaSky::GetRainStopTime, &LuaSky::SetRainStopTime);
+  sky_type["windScale"] = sol::property(&LuaSky::GetWindScale, &LuaSky::SetWindScale);
+  sky_type["dontRain"] = sol::property(&LuaSky::GetDontRain, &LuaSky::SetDontRain);
+  sky_type["fogColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetFogColor);
+  sky_type["cloudsColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetCloudsColor);
+  sky_type["planetSize"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetSize);
+  sky_type["planetColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetColor);
+  sky_type["planetTxt"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetTxt);
+  sky_type["lightingColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetLightingColor);
 
-  lua["setWindScale"] = Function_SetWindScale;
-  lua["getWindScale"] = Function_GetWindScale;
+  sky_type["refresh"] = &LuaSky::Refresh;
 
-  lua["setDontRain"] = Function_SetDontRain;
-
-  lua["setFogColor"] = Function_SetFogColor;
-  //lua["getFogColor"] = Function_GetFogColor;
-
-  lua["setCloudsColor"] = Function_SetCloudsColor;
-  //lua["getCloudsColor"] = Function_GetCloudsColor;
-
-  lua["setPlanetSize"] = Function_SetPlanetSize;
-  //lua["getPlanetSize"] = Function_GetPlanetSize;
-
-  lua["setPlanetColor"] = Function_SetPlanetColor;
-  //lua["getPlanetColor"] = Function_GetPlanetColor;
-
-  lua["setPlanetTxt"] = Function_SetPlanetTxt;
-  //lua["getPlanetTxt"] = Function_GetPlanetTxt;
-
-  lua["setLightingColor"] = Function_SetLightingColor;
-  //lua["getLightingColor"] = Function_GetLightingColor;
+  lua["Sky"] = LuaSky{};
 }
 
 } // namespace gmp::gothic

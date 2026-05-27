@@ -46,10 +46,12 @@ GothicClock::GothicClock(Time initial_time, double seconds_per_game_minute)
   }
 }
 
-void GothicClock::RunClock() {
+std::vector<GothicClock::Time> GothicClock::RunClock() {
+  std::vector<Time> advanced_times;
+
   // If seconds_per_game_minute is 0, time is frozen - do nothing
   if (seconds_per_game_minute_ == 0.0) {
-    return;
+    return advanced_times;
   }
 
   auto now = std::chrono::steady_clock::now();
@@ -69,11 +71,14 @@ void GothicClock::RunClock() {
 
     for (int i = 0; i < minutes_to_advance; ++i) {
       advance_minute();
+      advanced_times.push_back(time_);
       EventManager::Instance().TriggerEvent(kEventOnClockUpdateName, OnClockUpdateEvent{time_.day_, time_.hour_, time_.min_});
     }
 
     last_update_time_ += std::chrono::duration_cast<std::chrono::steady_clock::duration>(interval * minutes_to_advance);
   }
+
+  return advanced_times;
 }
 
 void GothicClock::UpdateTime(GothicClock::Time new_time) {

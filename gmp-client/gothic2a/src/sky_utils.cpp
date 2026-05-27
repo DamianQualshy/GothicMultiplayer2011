@@ -121,6 +121,32 @@ float g_overrideRainWeight = 0.0f;
 bool g_overrideInitialized = false;
 bool g_overrideLightning = false;
 bool g_hooksInitialized = false;
+std::optional<RainStartTime> g_rainStartTime;
+std::optional<RainStartTime> g_rainStopTime;
+
+float ToSkyTime(int hour, int min) {
+  const auto day_minutes = static_cast<float>(hour * 60 + min);
+  auto sky_time = day_minutes / (24.0f * 60.0f) + 0.5f;
+  while (sky_time > 1.0f) {
+    sky_time -= 1.0f;
+  }
+  return sky_time;
+}
+
+std::optional<RainStartTime> SkyTimeToClockTime(float sky_time) {
+  if (!std::isfinite(sky_time)) {
+    return std::nullopt;
+  }
+
+  sky_time = std::clamp(sky_time, 0.0f, 1.0f);
+  auto world_fraction = sky_time - 0.5f;
+  if (world_fraction < 0.0f) {
+    world_fraction += 1.0f;
+  }
+
+  auto total_minutes = static_cast<int>(std::round(world_fraction * 24.0f * 60.0f)) % (24 * 60);
+  return RainStartTime{total_minutes / 60, total_minutes % 60};
+}
 
 void __fastcall Hook_SetRainFXWeight(zCSkyControler_Outdoor* sky, void* /*edx*/, float weight, float duration) {
   if (!sky) {
@@ -413,6 +439,29 @@ int GetWeatherType() {
   return 0;
 }
 
+bool SetRainWeight(float weight, int weather_type, bool render_lightning) {
+  auto* sky = GetOutdoorSky();
+  if (!sky || !std::isfinite(weight)) {
+    return false;
+  }
+
+  InitWeatherHooks();
+
+  g_weatherOverrideActive = true;
+  g_overrideInitialized = false;
+  g_overrideRainWeight = std::clamp(weight, 0.0f, 1.0f);
+  g_overrideLightning = render_lightning && g_overrideRainWeight > 0.0f;
+  g_overrideWeather = weather_type == WEATHER_SNOW ? zTWEATHER_SNOW : zTWEATHER_RAIN;
+
+  ApplyWeatherOverride();
+  if (g_overrideRainWeight <= 0.0f && sky->rainFX.outdoorRainFX) {
+    sky->rainFX.outdoorRainFX->SetEffectWeight(0.0f, 0.0f);
+    sky->rainFX.outdoorRainFXWeight = 0.0f;
+  }
+
+  return true;
+}
+
 bool SetRainStartTime(int hour, int min) {
   auto* sky = GetOutdoorSky();
   if (!sky) {
@@ -423,29 +472,55 @@ bool SetRainStartTime(int hour, int min) {
     return false;
   }
 
-  sky->rainFX.timeStartRain = static_cast<float>(hour) + static_cast<float>(min) / 60.0f;
+  g_rainStartTime = RainStartTime{hour, min};
+  sky->rainFX.timeStartRain = ToSkyTime(hour, min);
   return true;
 }
 
 std::optional<RainStartTime> GetRainStartTime() {
+  if (g_rainStartTime.has_value()) {
+    return g_rainStartTime;
+  }
+
   auto* sky = GetOutdoorSky();
   if (!sky) {
     return std::nullopt;
   }
 
-  float time = sky->rainFX.timeStartRain;
-  if (!std::isfinite(time) || time < 0.0f) {
-    time = 0.0f;
+  return SkyTimeToClockTime(sky->rainFX.timeStartRain);
+}
+
+bool SetRainStopTime(int hour, int min) {
+  auto* sky = GetOutdoorSky();
+  if (!sky) {
+    return false;
   }
 
-  int hour = static_cast<int>(time) % 24;
-  int min = static_cast<int>(std::round((time - static_cast<float>(hour)) * 60.0f));
-  if (min >= 60) {
-    min -= 60;
-    hour = (hour + 1) % 24;
+  if (hour < 0 || hour > 23 || min < 0 || min > 59) {
+    return false;
   }
 
-  return RainStartTime{hour, min};
+  const auto stop_sky_time = ToSkyTime(hour, min);
+  if (g_rainStartTime.has_value() && stop_sky_time <= ToSkyTime(g_rainStartTime->hour, g_rainStartTime->min)) {
+    return false;
+  }
+
+  g_rainStopTime = RainStartTime{hour, min};
+  sky->rainFX.timeStopRain = stop_sky_time;
+  return true;
+}
+
+std::optional<RainStartTime> GetRainStopTime() {
+  if (g_rainStopTime.has_value()) {
+    return g_rainStopTime;
+  }
+
+  auto* sky = GetOutdoorSky();
+  if (!sky) {
+    return std::nullopt;
+  }
+
+  return SkyTimeToClockTime(sky->rainFX.timeStopRain);
 }
 
 bool SetWindScale(float wind_scale) {
@@ -493,6 +568,11 @@ bool SetDontRain(bool toggle) {
     sky->rainFX.outdoorRainFXWeight = 0.0f;
   }
   return true;
+}
+
+bool GetDontRain() {
+  auto* sky = GetOutdoorSky();
+  return sky && sky->m_bDontRain != FALSE;
 }
 
 bool SetFogColor(int id, int r, int g, int b) {
