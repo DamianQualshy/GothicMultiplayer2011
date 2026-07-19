@@ -61,7 +61,6 @@ CIngame::CIngame() {
     RecognizedMap = MAP_OLDWORLD;
   if (!memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21))
     RecognizedMap = MAP_KHORINIS;
-  PList = CPlayerList::GetInstance();
   global_ingame = this;
   HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)CIngame::Loop);
 }
@@ -70,7 +69,6 @@ CIngame::~CIngame() {
   delete Shrinker;
   delete Inventory;
   this->chat_interface = NULL;
-  this->PList = NULL;
   this->Shrinker = NULL;
   this->Inventory = NULL;
   global_ingame = NULL;
@@ -193,24 +191,17 @@ bool CIngame::PlayerExists(const char* PlayerName) {
 }
 
 void CIngame::HandleInput() {
+  if (chat_interface->IsInputActive()) {
+    chat_interface->HandleInput(false);
+    return;
+  }
+
   if ((zinput->KeyPressed(KEY_LCONTROL) || zinput->KeyPressed(KEY_RCONTROL)) && (zinput->KeyPressed(KEY_LALT) || zinput->KeyPressed(KEY_RALT)) &&
       zinput->KeyPressed(KEY_F8)) {
     if (NetGame::Instance().IsConnected()) {
       NetGame::Instance().Disconnect();
       CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "Disconnected!");
     }
-  }
-  // PLAYER LIST
-  if (zinput->KeyToggled(KEY_F1)) {
-    if (!PList->IsPlayerListOpen())
-      PList->OpenPlayerList();
-    else
-      PList->ClosePlayerList();
-  }
-  if (PList->IsPlayerListOpen()) {
-    if (zinput->KeyToggled(KEY_ESCAPE))
-      PList->ClosePlayerList();
-    PList->UpdatePlayerList();
   }
   // DEBUG TOOLS
   debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
@@ -233,8 +224,7 @@ void CIngame::HandleInput() {
     }
     CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "Spawned %d fire effects for stress test", spawnCount);
   }
-  const bool allow_chat_open = !PList->IsPlayerListOpen();
-  chat_interface->HandleInput(allow_chat_open);
+  chat_interface->HandleInput(true);
 }
 
 void CIngame::Draw() {

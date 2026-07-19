@@ -187,9 +187,6 @@ void LuaDraw::Destroy() {
 void LuaDraw::setPosition(int x, int y) {
   posX_ = x;
   posY_ = y;
-  if (view_) {
-    view_->SetPos(x, y);
-  }
 }
 
 void LuaDraw::setPositionValue(sol::object value) {
@@ -211,13 +208,8 @@ void LuaDraw::setPositionValue(sol::object value) {
 sol::table LuaDraw::getPosition(sol::this_state s) {
   sol::state_view lua(s);
   sol::table pos = lua.create_table();
-  int x = posX_;
-  int y = posY_;
-  if (view_) {
-    view_->GetPos(x, y);
-  }
-  pos["x"] = x;
-  pos["y"] = y;
+  pos["x"] = posX_;
+  pos["y"] = posY_;
   return pos;
 }
 
@@ -256,12 +248,9 @@ void LuaDraw::setPositionPxValue(sol::object value) {
 sol::table LuaDraw::getPositionPx(sol::this_state s) {
   sol::state_view lua(s);
   sol::table pos = lua.create_table();
-  int x = posX_;
-  int y = posY_;
-  if (view_ && screen) {
-    view_->GetPos(x, y);
-    pos["x"] = screen->nax(x);
-    pos["y"] = screen->nay(y);
+  if (screen) {
+    pos["x"] = screen->nax(posX_);
+    pos["y"] = screen->nay(posY_);
   }
   return pos;
 }
@@ -315,6 +304,39 @@ void LuaDraw::setFont(const std::string& fontName) {
 */
 std::string LuaDraw::getFont() const {
   return fontName_;
+}
+
+/* luagmp (method)
+*
+* This function returns the rendered text width in virtual screen units.
+*
+* @name     getWidth
+* @return   (number)    Text width.
+*
+*/
+int LuaDraw::getWidth() const {
+  if (!view_) {
+    return 0;
+  }
+
+  zSTRING text(text_.c_str());
+  return view_->FontSize(text);
+}
+
+/* luagmp (method)
+*
+* This function returns the rendered text height in virtual screen units.
+*
+* @name     getHeight
+* @return   (number)    Text height.
+*
+*/
+int LuaDraw::getHeight() const {
+  if (!view_) {
+    return 0;
+  }
+
+  return view_->FontY();
 }
 
 /* luagmp (method)
@@ -451,6 +473,22 @@ bool LuaDraw::getVisible() const {
 */
 /* luagmp (property)
 *
+* Represents the rendered text width in virtual screen units.
+*
+* @name     width
+* @return   (number)      Text width.
+*
+*/
+/* luagmp (property)
+*
+* Represents the rendered text height in virtual screen units.
+*
+* @name     height
+* @return   (number)      Text height.
+*
+*/
+/* luagmp (property)
+*
 * Represents the draw's color.
 *
 * @name     color
@@ -480,7 +518,6 @@ void LuaDraw::Initialize() {
   if (view_) {
     view_->SetFont(fontName_.c_str());
     view_->SetFontColor(color_);
-    view_->SetPos(posX_, posY_);
     if (screen) {
       screen->InsertItem(view_);
       attached_to_screen_ = true;
@@ -548,6 +585,8 @@ void BindDraw(sol::state& lua) {
 
   draw_type["setFont"] = &LuaDraw::setFont;
   draw_type["getFont"] = &LuaDraw::getFont;
+  draw_type["getWidth"] = &LuaDraw::getWidth;
+  draw_type["getHeight"] = &LuaDraw::getHeight;
 
   draw_type["setColor"] = &LuaDraw::setColor;
   draw_type["getColor"] = &LuaDraw::getColor;
@@ -563,6 +602,8 @@ void BindDraw(sol::state& lua) {
   draw_type["positionPx"] = sol::property(&LuaDraw::getPositionPx, &LuaDraw::setPositionPxValue);
   draw_type["text"] = sol::property(&LuaDraw::getText, &LuaDraw::setText);
   draw_type["font"] = sol::property(&LuaDraw::getFont, &LuaDraw::setFont);
+  draw_type["width"] = sol::property(&LuaDraw::getWidth);
+  draw_type["height"] = sol::property(&LuaDraw::getHeight);
   draw_type["color"] = sol::property(&LuaDraw::getColor, &LuaDraw::setColorValue);
   draw_type["alpha"] = sol::property(&LuaDraw::getAlpha, &LuaDraw::setAlpha);
   draw_type["visible"] = sol::property(&LuaDraw::getVisible, &LuaDraw::setVisible);

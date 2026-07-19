@@ -25,6 +25,7 @@ SOFTWARE.
 #include "gothic_bindings.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -42,6 +43,7 @@ SOFTWARE.
 #include "item_ground.h"
 
 #include "lua_discord.h"
+#include "lua_chat.h"
 #include "lua_draw.h"
 #include "lua_draw3d.h"
 #include "lua_texture.h"
@@ -1576,6 +1578,7 @@ bool Function_StopFaceAni(std::int64_t id, sol::optional<std::string> ani_name) 
 /* luagmp (func)
 *
 * This function will play a gesticulation animation on the player/npc character.
+* Calls for the same id are throttled to once every 3500 ms.
 *
 * @version  0.3.0
 * @name     playGesticulation
@@ -1585,8 +1588,17 @@ bool Function_StopFaceAni(std::int64_t id, sol::optional<std::string> ani_name) 
 *
 */
 bool Function_PlayGesticulation(std::int64_t id) {
+  static std::unordered_map<std::int64_t, std::chrono::steady_clock::time_point> next_allowed_by_player;
+
   if (auto* npc = GetNpcById(id); npc && !npc->IsDead() && !npc->IsUnconscious()) {
+    const auto now = std::chrono::steady_clock::now();
+    auto& next_allowed = next_allowed_by_player[id];
+    if (now < next_allowed) {
+      return false;
+    }
+
     npc->StartDialogAni();
+    next_allowed = now + std::chrono::milliseconds(3500);
     return true;
   }
 
@@ -2783,6 +2795,7 @@ void BindGothicSpecific(sol::state& lua) {
 
   BindInputConstants(lua);
   BindCursor(lua);
+  BindChat(lua);
   BindDiscord(lua);
   BindDraw(lua);
   BindDraw3d(lua);

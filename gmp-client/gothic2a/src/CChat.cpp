@@ -1,4 +1,3 @@
-
 /*
 MIT License
 
@@ -24,10 +23,13 @@ SOFTWARE.
 */
 
 /*****************************************************************************
-** ** *	File name:		Interface/CChat.cpp		   								** *
-*** *	Created by:		29/06/11	-	skejt23									** *
-*** *	Description:	Multiplayer chat functionallity	 						** *
-***
+**                                                                          **
+**  File name:      Interface/CChat.cpp                                     **
+**                                                                          **
+**  Created by:     29/06/11 - skejt23                                     **
+**                                                                          **
+**  Description:    Multiplayer chat input and message bridge                **
+**                                                                          **
 *****************************************************************************/
 
 #pragma warning(disable : 4018)
@@ -37,260 +39,355 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <cstdarg>
+#include <cstdint>
+#include <cstdio>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
 
+#include "config.h"
 #include "keyboard.h"
 #include "language.h"
 #include "net_game.h"
 #include "patch.h"
-#include "random_utils.h"
-#include "config.h"
+#include "scripting/gothic_events.h"
+#include "shared/event.h"
 
 using namespace Gothic_II_Addon;
+
 namespace {
-constexpr auto CHAT_FADE_DURATION = std::chrono::milliseconds(400);
-constexpr auto CHAT_CARET_BLINK = std::chrono::milliseconds(750);
+constexpr auto CHAT_INPUT_OPEN_DELAY = std::chrono::milliseconds(30);
+constexpr auto CHAT_CHARACTER_REPEAT = std::chrono::milliseconds(20);
 constexpr auto CHAT_BACKSPACE_REPEAT = std::chrono::milliseconds(150);
-constexpr int CHAT_INPUT_X = 0;
-constexpr int CHAT_INPUT_TEXT_X = 200;
-constexpr const char* CHAT_INPUT_ARROW = "->";
 
-void UpdateMessageAlpha(MsgStruct& message, const std::chrono::steady_clock::time_point& now) {
-  const unsigned char target_alpha = message.MsgColor.alpha;
-  if (!message.IsFadingIn) {
-    message.CurrentAlpha = target_alpha;
-    return;
+std::size_t ClampCaretPosition(int position, std::size_t text_size) {
+  if (position <= 0) {
+    return 0;
   }
 
-  if (target_alpha == 0) {
-    message.CurrentAlpha = 0;
-    message.IsFadingIn = false;
-    return;
+  return std::min(static_cast<std::size_t>(position), text_size);
+}
+
+std::optional<std::pair<std::string, std::string>> ParseCommand(std::string_view text) {
+  if (text.empty() || text.front() != '/') {
+    return std::nullopt;
   }
 
-  const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - message.FadeStart);
-  if (elapsed.count() >= CHAT_FADE_DURATION.count()) {
-    message.CurrentAlpha = target_alpha;
-    message.IsFadingIn = false;
-    return;
+  text.remove_prefix(1);
+  const auto command_start = text.find_first_not_of(' ');
+  if (command_start == std::string_view::npos) {
+    return std::nullopt;
   }
 
-  const float progress = static_cast<float>(elapsed.count()) / static_cast<float>(CHAT_FADE_DURATION.count());
-  const float alpha_value = std::min(progress, 1.0f) * static_cast<float>(target_alpha);
-  message.CurrentAlpha = static_cast<unsigned char>(alpha_value);
+  text.remove_prefix(command_start);
+  const auto space_pos = text.find(' ');
+  std::string command(text.substr(0, space_pos));
+  if (command.empty()) {
+    return std::nullopt;
+  }
+
+  std::string params;
+  if (space_pos != std::string_view::npos) {
+    const auto params_start = text.find_first_not_of(' ', space_pos);
+    if (params_start != std::string_view::npos) {
+      params.assign(text.substr(params_start));
+    }
+  }
+
+  return std::make_pair(std::move(command), std::move(params));
+}
+
+std::string FormatMessage(const char* format, va_list args) {
+  if (!format) {
+    return {};
+  }
+
+  char text[512] = {};
+  const int written = std::vsnprintf(text, sizeof(text), format, args);
+  if (written < 0) {
+    return {};
+  }
+
+  return std::string(text, std::min<std::size_t>(static_cast<std::size_t>(written), sizeof(text) - 1));
+}
+
+void DispatchSystemMessage(const zCOLOR& color, const std::string& text) {
+  EventManager::Instance().TriggerEvent(
+      gmp::gothic::kEventOnPlayerMessageName,
+      gmp::gothic::OnPlayerMessageEvent{std::nullopt,
+                                        static_cast<std::uint8_t>(color.r),
+                                        static_cast<std::uint8_t>(color.g),
+                                        static_cast<std::uint8_t>(color.b),
+                                        text});
+
+  if (Config::Instance().logchat) {
+    SPDLOG_INFO("{}", text);
+  }
 }
 }  // namespace
 
 extern zCOLOR Normal;
 
 CChat::CChat() {
-  tmpanimname = "NULL";
-  caret_toggle_time_ = std::chrono::steady_clock::now() + CHAT_CARET_BLINK;
+  next_character_time_ = std::chrono::steady_clock::now();
   next_backspace_time_ = std::chrono::steady_clock::now();
-};
+}
 
-CChat::~CChat() {
-  ChatMessages.clear();
-};
+CChat::~CChat() = default;
 
 bool CChat::IsInputActive() const {
   return input_active_;
 }
 
 void CChat::OpenInput() {
-  if (input_active_)
+  if (input_active_) {
     return;
+  }
 
-  zinput->ClearKeyBuffer();
+  if (zinput) {
+    zinput->ClearKeyBuffer();
+  }
   input_active_ = true;
-  caret_visible_ = true;
-  caret_toggle_time_ = std::chrono::steady_clock::now() + CHAT_CARET_BLINK;
-  next_backspace_time_ = std::chrono::steady_clock::now();
+  caret_position_ = std::min(caret_position_, current_text_.size());
+  const auto now = std::chrono::steady_clock::now();
+  next_character_time_ = now + CHAT_INPUT_OPEN_DELAY;
+  next_backspace_time_ = now;
   PrepareForInput();
 }
 
 void CChat::CloseInput(bool clear_text) {
-  if (!input_active_)
+  if (!input_active_) {
+    if (clear_text) {
+      ClearInput();
+    }
     return;
+  }
 
-  if (clear_text)
-    current_text_.clear();
+  if (clear_text) {
+    ClearInput();
+  }
 
   input_active_ = false;
-  zinput->ClearKeyBuffer();
+  if (zinput) {
+    zinput->ClearKeyBuffer();
+  }
   ClearAfterInput();
 }
 
-void CChat::PrepareForInput() {
-  player->GetAnictrl()->StopTurnAnis();
-  Patch::PlayerInterfaceEnabled(false);
+void CChat::ClearInput() {
+  current_text_.clear();
+  caret_position_ = 0;
 }
 
-void CChat::ClearAfterInput() {
-  if (player->IsMovLock())
-    player->SetMovLock(0);
-  Patch::PlayerInterfaceEnabled(true);
+void CChat::SubmitInput() {
+  if (!current_text_.empty()) {
+    SendCurrentMessage();
+  }
+
+  CloseInput(true);
+  if (!input_active_) {
+    ClearInput();
+  }
+}
+
+int CChat::GetInputCaretPosition() const {
+  return static_cast<int>(caret_position_);
+}
+
+void CChat::SetInputCaretPosition(int position) {
+  caret_position_ = ClampCaretPosition(position, current_text_.size());
+}
+
+const std::string& CChat::GetInputFont() const {
+  return input_font_;
+}
+
+void CChat::SetInputFont(const std::string& font) {
+  if (!font.empty()) {
+    input_font_ = font;
+  }
+}
+
+int CChat::GetInputX() const {
+  return input_x_;
+}
+
+int CChat::GetInputY() const {
+  if (input_position_custom_) {
+    return input_y_;
+  }
+
+  return static_cast<int>(Config::Instance().ChatLines) * 200;
+}
+
+void CChat::SetInputPosition(int x, int y) {
+  input_x_ = x;
+  input_y_ = y;
+  input_position_custom_ = true;
+}
+
+const std::string& CChat::GetInputText() const {
+  return current_text_;
+}
+
+void CChat::SetInputText(const std::string& text) {
+  current_text_ = text.substr(0, kMaxInputLength);
+  caret_position_ = current_text_.size();
 }
 
 void CChat::SendCurrentMessage() {
-  if (current_text_.empty())
+  if (current_text_.empty()) {
     return;
+  }
 
-  NetGame::Instance().SendMessage(current_text_.c_str());
+  const std::string message = current_text_;
+  if (auto command = ParseCommand(message)) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnCommandName,
+                                          gmp::gothic::OnCommandEvent{command->first, command->second});
+  }
+
+  NetGame::Instance().SendMessage(message.c_str());
 }
 
-void CChat::UpdateCaretBlink(const std::chrono::steady_clock::time_point& now) {
-  if (now < caret_toggle_time_)
+void CChat::InsertInputCharacter(char ch) {
+  if (current_text_.size() >= kMaxInputLength) {
     return;
+  }
 
-  caret_visible_ = !caret_visible_;
-  caret_toggle_time_ = now + CHAT_CARET_BLINK;
+  caret_position_ = std::min(caret_position_, current_text_.size());
+  current_text_.insert(current_text_.begin() + static_cast<std::ptrdiff_t>(caret_position_), ch);
+  ++caret_position_;
+}
+
+void CChat::DeleteInputCharacterBeforeCaret() {
+  if (current_text_.empty() || caret_position_ == 0) {
+    return;
+  }
+
+  caret_position_ = std::min(caret_position_, current_text_.size());
+  current_text_.erase(current_text_.begin() + static_cast<std::ptrdiff_t>(caret_position_ - 1));
+  --caret_position_;
+}
+
+void CChat::PrepareForInput() {
+  camera_mode_change_enabled_ = zCAICamera::bCamChanges != 0;
+  zCAICamera::bCamChanges = 0;
+
+  if (player && player->inventory2.IsOpen()) {
+    player->inventory2.Close();
+  }
+
+  Patch::PlayerInterfaceEnabled(false);
+  oCNpc::SetNpcAIDisabled(1);
+  KeepInputLocked();
+}
+
+void CChat::ClearAfterInput() {
+  if (player && player->IsMovLock()) {
+    player->SetMovLock(0);
+  }
+
+  oCNpc::SetNpcAIDisabled(0);
+  Patch::PlayerInterfaceEnabled(true);
+  zCAICamera::bCamChanges = camera_mode_change_enabled_ ? 1 : 0;
+}
+
+void CChat::KeepInputLocked() {
+  if (!player) {
+    return;
+  }
+
+  if (!player->IsMovLock()) {
+    player->SetMovLock(1);
+  }
+
+  if (auto* anictrl = player->GetAnictrl()) {
+    anictrl->StopTurnAnis();
+  }
 }
 
 void CChat::HandleInput(bool allow_open) {
-  if (!input_active_ && allow_open && zinput->KeyToggled(KEY_T))
-    OpenInput();
+  (void)allow_open;
 
-  if (!input_active_)
+  if (!input_active_) {
     return;
+  }
 
-  if (!player->IsMovLock())
-    player->SetMovLock(1);
+  KeepInputLocked();
 
-  const int random_anim = gmp::client::random::Int(1, 10);
-  StartChatAnimation(random_anim);
+  if (zinput && zinput->KeyPressed(KEY_RETURN)) {
+    SubmitInput();
+    return;
+  }
 
-  if (zinput->KeyToggled(KEY_ESCAPE)) {
+  if (zinput && zinput->KeyPressed(KEY_ESCAPE)) {
     CloseInput(true);
     return;
   }
 
   const auto now = std::chrono::steady_clock::now();
-  unsigned char key = static_cast<unsigned char>(GInput::GetCharacterFormKeyboard());
-
-  if (key == 0) {
-    if (zinput->KeyPressed(KEY_BACKSPACE) && now >= next_backspace_time_) {
-      if (!current_text_.empty())
-        current_text_.pop_back();
-      next_backspace_time_ = now + CHAT_BACKSPACE_REPEAT;
-    }
-    UpdateCaretBlink(now);
+  if (now < next_character_time_) {
     return;
   }
 
-  if (key == 0x0D) {
-    SendCurrentMessage();
-    CloseInput(true);
+  unsigned char key = static_cast<unsigned char>(GInput::GetCharacterFormKeyboard());
+  const bool ctrl_pressed = zinput && (zinput->KeyPressed(KEY_LCONTROL) || zinput->KeyPressed(KEY_RCONTROL));
+
+  if (key == 0) {
+    if (zinput && zinput->KeyPressed(KEY_BACKSPACE) && now >= next_backspace_time_) {
+      DeleteInputCharacterBeforeCaret();
+      next_backspace_time_ = now + CHAT_BACKSPACE_REPEAT;
+    }
+    if (zinput && zinput->KeyToggled(KEY_LEFTARROW) && caret_position_ > 0) {
+      --caret_position_;
+    }
+    if (zinput && zinput->KeyToggled(KEY_RIGHTARROW) && caret_position_ < current_text_.size()) {
+      ++caret_position_;
+    }
+    return;
+  }
+
+  if (ctrl_pressed && key != 0x08) {
     return;
   }
 
   if (key == 0x08) {
-    if (!current_text_.empty())
-      current_text_.pop_back();
+    DeleteInputCharacterBeforeCaret();
     next_backspace_time_ = now + CHAT_BACKSPACE_REPEAT;
   } else if ((key >= 0x20) || ((key & 0x80) && (Language::Instance().GetEncoding() != localization::LanguageEncoding::kNone))) {
-    if (current_text_.size() < kMaxInputLength)
-      current_text_.push_back(static_cast<char>(key));
+    InsertInputCharacter(static_cast<char>(key));
   }
-
-  UpdateCaretBlink(now);
-}
-
-void CChat::StartChatAnimation(int anim) {
-  if (player->IsDead() || player->GetAnictrl()->IsRunning() || player->GetAnictrl()->IsInWater() || player->GetAnictrl()->IsFallen()) {
-    return;
-  }
-  if (!player->GetModel()->IsAnimationActive(tmpanimname)) {
-    tmpanimname = fmt::format("T_DIALOGGESTURE_{:02}", anim).c_str();
-    player->GetModel()->StartAnimation(tmpanimname);
-  }
+  next_character_time_ = now + CHAT_CHARACTER_REPEAT;
 }
 
 void CChat::WriteMessage(MsgType type, bool PrintTimed, const zCOLOR& rgb, const char* format, ...) {
   (void)type;
-  if (strlen(format) > 512)
-    return;
-  char text[512];
+  (void)PrintTimed;
+
   va_list args;
   va_start(args, format);
-  vsprintf(text, format, args);
+  const std::string text = FormatMessage(format, args);
   va_end(args);
-  MsgStruct msg;
-  msg.Message = text;
-  msg.MsgColor = rgb;
-  msg.FadeStart = std::chrono::steady_clock::now();
-  msg.CurrentAlpha = 0;
-  msg.IsFadingIn = true;
-  if (PrintTimed) {
-    const auto font = Language::Instance().ApplyFontPrefix("FONT_DEFAULT.TGA");
-    ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font.c_str());
-    tmp = text;
-    ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, tmp, 3000.0f, 0);
-  }
-  ChatMessages.push_back(msg);
-  if (Config::Instance().logchat) {
-    SPDLOG_INFO("{}", text);
-  }
-};
+
+  DispatchSystemMessage(rgb, text);
+}
 
 void CChat::WriteMessage(MsgType type, bool PrintTimed, const char* format, ...) {
   (void)type;
-  if (strlen(format) > 512)
-    return;
-  char text[512];
+  (void)PrintTimed;
+
   va_list args;
   va_start(args, format);
-  vsprintf(text, format, args);
+  const std::string text = FormatMessage(format, args);
   va_end(args);
-  MsgStruct msg;
-  msg.Message = text;
-  msg.MsgColor = Normal;
-  msg.FadeStart = std::chrono::steady_clock::now();
-  msg.CurrentAlpha = 0;
-  msg.IsFadingIn = true;
-  if (PrintTimed) {
-    const auto font = Language::Instance().ApplyFontPrefix("FONT_DEFAULT.TGA");
-    ogame->array_view[oCGame::GAME_VIEW_SCREEN]->SetFont(font.c_str());
-    tmp = text;
-    ogame->array_view[oCGame::GAME_VIEW_SCREEN]->PrintTimed(3700, 2800, tmp, 3000.0f, 0);
-  }
-  ChatMessages.push_back(msg);
-  if (Config::Instance().logchat) {
-    SPDLOG_INFO("{}", text);
-  }
-};
+
+  DispatchSystemMessage(Normal, text);
+}
 
 void CChat::ClearChat() {
-  ChatMessages.clear();
-};
+}
 
 void CChat::PrintChat() {
-  const auto font = Language::Instance().ApplyFontPrefix("FONT_DEFAULT.TGA");
-  screen->SetFont(font.c_str());
-  const auto now = std::chrono::steady_clock::now();
-  if (ChatMessages.size() > Config::Instance().ChatLines)
-    ChatMessages.erase(ChatMessages.begin());
-  if (!ChatMessages.empty())
-    for (size_t v = 0; v < ChatMessages.size(); v++) {
-      UpdateMessageAlpha(ChatMessages[v], now);
-      zCOLOR color = ChatMessages[v].MsgColor;
-      color.alpha = ChatMessages[v].CurrentAlpha;
-      screen->SetFontColor(color);
-      screen->Print(0, static_cast<int>(v) * 200, ChatMessages[v].Message);
-      screen->SetFontColor(Normal);
-    }
-
-  if (input_active_) {
-    UpdateCaretBlink(now);
-    screen->SetFontColor(Normal);
-    const auto input_y = static_cast<int>(Config::Instance().ChatLines) * 200;
-    screen->Print(CHAT_INPUT_X, input_y, CHAT_INPUT_ARROW);
-
-    if (caret_visible_) {
-      std::string input_with_cursor = current_text_;
-      input_with_cursor += "_";
-      screen->Print(CHAT_INPUT_TEXT_X, input_y, input_with_cursor.c_str());
-    } else {
-      screen->Print(CHAT_INPUT_TEXT_X, input_y, current_text_.c_str());
-    }
-  }
-};
+}

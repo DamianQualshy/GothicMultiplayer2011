@@ -1943,16 +1943,13 @@ void NetGame::OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_
 }
 
 void NetGame::OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& message) {
-  zCOLOR color(r, g, b, 255);
-
   if (sender_id) {
     Gothic2APlayer* sender = GetPlayerById(*sender_id);
     if (sender) {
       SPDLOG_INFO("Message from player: {} ({}): {}", sender->npc->GetName().ToChar(), sender->GetName(), message);
-      //CChat::GetInstance()->WriteMessage(NORMAL, false, color, "%s", message.c_str());
     }
   } else {
-    CChat::GetInstance()->WriteMessage(NORMAL, false, color, "%s", message.c_str());
+    SPDLOG_INFO("System message: {}", message);
   }
 
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerMessageName, gmp::gothic::OnPlayerMessageEvent{sender_id, r, g, b, message});

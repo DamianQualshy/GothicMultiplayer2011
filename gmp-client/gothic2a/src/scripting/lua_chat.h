@@ -1,8 +1,7 @@
-
 /*
 MIT License
 
-Copyright (c) 2022 Gothic Multiplayer Team (pampi, skejt23, mecio)
+Copyright (c) 2025 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,24 +24,10 @@ SOFTWARE.
 
 #pragma once
 
-#include <string>
+#include "sol/sol.hpp"
 
-#include "ZenGin/zGothicAPI.h"
-#include "singleton.h"
+namespace gmp::gothic {
 
-class CPlayerList : public TSingleton<CPlayerList> {
-private:
-  std::string temp;
-  zCView* PlayerListBackground;
-  int x, y;
-  bool Opened;
-  short BeginIndex;
+void BindChat(sol::state& lua);
 
-public:
-  CPlayerList();
-  ~CPlayerList();
-  bool OpenPlayerList();
-  bool ClosePlayerList();
-  bool IsPlayerListOpen();
-  void UpdatePlayerList();
-};
+}  // namespace gmp::gothic

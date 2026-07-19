@@ -59,6 +59,8 @@ public:
 
   void setFont(const std::string& fontName);
   std::string getFont() const;
+  int getWidth() const;
+  int getHeight() const;
 
   void setColor(int r, int g, int b);
   void setColorValue(sol::object value);

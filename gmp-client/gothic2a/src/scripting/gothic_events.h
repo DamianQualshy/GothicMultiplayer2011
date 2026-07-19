@@ -41,6 +41,8 @@ constexpr const char* kEventOnTimeName = "onTime";
 constexpr const char* kEventOnWeatherChangeName = "onWeatherChange";
 constexpr const char* kEventOnKeyDownName = "onKeyDown";
 constexpr const char* kEventOnKeyUpName = "onKeyUp";
+constexpr const char* kEventOnPasteName = "onPaste";
+constexpr const char* kEventOnCommandName = "onCommand";
 constexpr const char* kEventOnMouseDownName = "onMouseDown";
 constexpr const char* kEventOnMouseUpName = "onMouseUp";
 constexpr const char* kEventOnMouseMoveName = "onMouseMove";
@@ -69,6 +71,15 @@ constexpr const char* kEventOnPlayerChangePingName = "onPlayerChangePing";
 // Gothic-specific event structs
 struct OnKeyEvent {
   int key;
+};
+
+struct OnPasteEvent {
+  std::string text;
+};
+
+struct OnCommandEvent {
+  std::string command;
+  std::string params;
 };
 
 struct OnMouseButtonEvent {

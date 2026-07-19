@@ -45,7 +45,6 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
   }
 
   resources_.reserve(payloads.size());
-  bool triggered_init = false;
 
   for (auto& payload : payloads) {
     auto instance = std::make_unique<ResourceInstance>();
@@ -93,15 +92,11 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
     }
     stored_instance.started = true;
 
-    if (!triggered_init) {
-      EventManager::Instance().TriggerEvent("onInit", 0);
-      triggered_init = true;
-    }
-
     const auto entrypoint_count = stored_instance.pack->GetManifest().entrypoints.size();
     SPDLOG_INFO("Loaded client resource '{}' ({} entrypoint(s))", stored_instance.name, entrypoint_count);
   }
 
+  EventManager::Instance().TriggerEvent("onInit", 0);
   return true;
 }
 

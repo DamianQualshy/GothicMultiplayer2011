@@ -1,8 +1,12 @@
 #include "process_input.h"
 
+#include <windows.h>
+
 #include <array>
 #include <cstring>
+#include <string>
 
+#include "CChat.h"
 #include "gothic_events.h"
 #include "shared/event.h"
 
@@ -19,6 +23,50 @@ namespace {
 constexpr std::array<int, 8> kMouseButtonCodes = {
     MOUSE_BUTTONLEFT, MOUSE_BUTTONRIGHT, MOUSE_BUTTONMID, MOUSE_XBUTTON1,
     MOUSE_XBUTTON2,  MOUSE_XBUTTON3,    MOUSE_XBUTTON4,  MOUSE_XBUTTON5};
+
+std::array<bool, kMaxTrackedCode + 1> s_prevRawPressed = {};
+std::array<bool, kMaxTrackedCode + 1> s_rawPressedThisFrame = {};
+
+std::string WideClipboardTextToAnsi(const wchar_t* text) {
+  if (!text) {
+    return {};
+  }
+
+  const int required_size = WideCharToMultiByte(CP_ACP, 0, text, -1, nullptr, 0, nullptr, nullptr);
+  if (required_size <= 1) {
+    return {};
+  }
+
+  std::string result(static_cast<std::size_t>(required_size - 1), '\0');
+  WideCharToMultiByte(CP_ACP, 0, text, -1, result.data(), required_size, nullptr, nullptr);
+  return result;
+}
+
+std::string ReadClipboardText() {
+  if (!OpenClipboard(nullptr)) {
+    return {};
+  }
+
+  std::string result;
+  if (IsClipboardFormatAvailable(CF_UNICODETEXT)) {
+    if (HANDLE handle = GetClipboardData(CF_UNICODETEXT)) {
+      if (auto* text = static_cast<const wchar_t*>(GlobalLock(handle))) {
+        result = WideClipboardTextToAnsi(text);
+        GlobalUnlock(handle);
+      }
+    }
+  } else if (IsClipboardFormatAvailable(CF_TEXT)) {
+    if (HANDLE handle = GetClipboardData(CF_TEXT)) {
+      if (auto* text = static_cast<const char*>(GlobalLock(handle))) {
+        result = text;
+        GlobalUnlock(handle);
+      }
+    }
+  }
+
+  CloseClipboard();
+  return result;
+}
 }  // namespace
 
 void ProcessInput(zCInput* zinput) {
@@ -28,8 +76,10 @@ void ProcessInput(zCInput* zinput) {
 
   std::memset(s_pressedThisFrame, 0, sizeof(s_pressedThisFrame));
   std::memset(s_toggledThisFrame, 0, sizeof(s_toggledThisFrame));
+  s_rawPressedThisFrame.fill(false);
   std::array<bool, kMaxTrackedCode + 1> processed_codes = {};
   processed_codes.fill(false);
+  const bool chat_input_active = CChat::GetInstance()->IsInputActive();
 
   // Process keyboard keys
   for (const auto& key : kKeyboardKeys) {
@@ -39,8 +89,10 @@ void ProcessInput(zCInput* zinput) {
     }
     processed_codes[code] = true;
     const bool is_disabled = code >= 0 && code <= kMaxTrackedCode && s_disabledKeys[code];
-    const bool is_pressed = !is_disabled && zinput->KeyPressed(code) != 0;
+    const bool raw_pressed = zinput->KeyPressed(code) != 0;
+    const bool is_pressed = !chat_input_active && !is_disabled && raw_pressed;
     const bool was_pressed = s_prevPressed[code];
+    s_rawPressedThisFrame[code] = raw_pressed;
 
     if (is_pressed != was_pressed) {
       s_toggledThisFrame[code] = true;
@@ -55,11 +107,21 @@ void ProcessInput(zCInput* zinput) {
     s_pressedThisFrame[code] = is_pressed;
   }
 
+  const bool ctrl_pressed =
+      (s_rawPressedThisFrame[KEY_LCONTROL] && !s_disabledKeys[KEY_LCONTROL]) ||
+      (s_rawPressedThisFrame[KEY_RCONTROL] && !s_disabledKeys[KEY_RCONTROL]);
+  const bool paste_pressed = s_rawPressedThisFrame[KEY_V] && !s_prevRawPressed[KEY_V] && !s_disabledKeys[KEY_V];
+  if (ctrl_pressed && paste_pressed) {
+    EventManager::Instance().TriggerEvent(kEventOnPasteName, OnPasteEvent{ReadClipboardText()});
+  }
+
   // Process mouse movement and buttons
   for (std::size_t i = 0; i < kMouseButtonCodes.size(); ++i) {
     const int code = kMouseButtonCodes[i];
-    const bool is_pressed = zinput->KeyPressed(code) != 0;
+    const bool raw_pressed = zinput->KeyPressed(code) != 0;
+    const bool is_pressed = !chat_input_active && raw_pressed;
     const bool was_pressed = s_prevPressed[code];
+    s_rawPressedThisFrame[code] = raw_pressed;
 
     if (is_pressed != was_pressed) {
       s_toggledThisFrame[code] = true;
@@ -79,15 +141,16 @@ void ProcessInput(zCInput* zinput) {
   float wheel = 0.0f;
   zinput->GetMousePos(dx, dy, wheel);
 
-  if (dx != 0.0f || dy != 0.0f) {
+  if (!chat_input_active && (dx != 0.0f || dy != 0.0f)) {
     EventManager::Instance().TriggerEvent(kEventOnMouseMoveName, OnMouseMoveEvent{dx, dy});
   }
 
-  if (wheel != 0.0f) {
+  if (!chat_input_active && wheel != 0.0f) {
     EventManager::Instance().TriggerEvent(kEventOnMouseWheelName, OnMouseWheelEvent{wheel});
   }
 
   std::memcpy(s_prevPressed, s_pressedThisFrame, sizeof(s_prevPressed));
+  s_prevRawPressed = s_rawPressedThisFrame;
 
   LuaCursor::Instance().UpdateFromInput(zinput);
 }

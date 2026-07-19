@@ -180,6 +180,39 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
+* This event is triggered when the user presses Ctrl+V.
+*
+* @version  0.3.0
+* @name     onPaste
+* @side     client
+* @category Input
+* @param    (string) text  Current clipboard text.
+*
+*/
+  g_gothic_event_proxies[kEventOnPasteName] = [](LuaProxyArgs args) {
+    OnPasteEvent event = std::any_cast<OnPasteEvent>(args.event);
+    args.callback(event.text);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when a slash command is submitted through chat input.
+*
+* @version  0.3.0
+* @name     onCommand
+* @side     client
+* @category Input
+* @param    (string) command  Command name without the leading slash.
+* @param    (string) params   Raw command parameters after the command name.
+*
+*/
+  g_gothic_event_proxies[kEventOnCommandName] = [](LuaProxyArgs args) {
+    OnCommandEvent event = std::any_cast<OnCommandEvent>(args.event);
+    args.callback(event.command, event.params);
+  };
+
+/* luagmp (event)
+*
 * This event is triggered when a mouse button is pressed.
 *
 * @version  0.3.0
@@ -581,6 +614,8 @@ void RegisterGothicEventsInManager() {
   EventManager::Instance().RegisterEvent(kEventOnWeatherChangeName);
   EventManager::Instance().RegisterEvent(kEventOnKeyDownName);
   EventManager::Instance().RegisterEvent(kEventOnKeyUpName);
+  EventManager::Instance().RegisterEvent(kEventOnPasteName);
+  EventManager::Instance().RegisterEvent(kEventOnCommandName);
   EventManager::Instance().RegisterEvent(kEventOnMouseDownName);
   EventManager::Instance().RegisterEvent(kEventOnMouseUpName);
   EventManager::Instance().RegisterEvent(kEventOnMouseMoveName);

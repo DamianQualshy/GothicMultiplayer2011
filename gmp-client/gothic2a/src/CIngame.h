@@ -30,8 +30,6 @@ SOFTWARE.
 #include "CChat.h"
 #include "CInterpolatePos.h"
 #include "CInventory.h"
-#include "language.h"
-#include "CPlayerList.h"
 #include "CShrinker.h"
 
 enum CURRENT_MAP { MAP_UNKNOWN, MAP_COLONY, MAP_OLDWORLD, MAP_KHORINIS, MAP_JARKENDAR };
@@ -59,6 +57,5 @@ private:
   zSTRING szPing;
   bool SwampLightsOn;
   clock_t last_player_update;
-  CPlayerList* PList;
   CChat* chat_interface;
 };
