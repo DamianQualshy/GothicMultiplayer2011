@@ -32,6 +32,7 @@ SOFTWARE.
 
 #include "MessageIdentifiers.h"
 #include "RakNetTypes.h"
+#include "RakNetStatistics.h"
 
 using namespace RakNet;
 
@@ -68,6 +69,7 @@ namespace {
 }  // namespace
 
 bool RakNetClient::Connect(const char* address, std::uint32_t port) {
+  packetReceived_ = 0;
   peer_ = RakPeerInterface::GetInstance();
   peer_->SetTimeoutTime(1500, UNASSIGNED_SYSTEM_ADDRESS);
   SocketDescriptor socketDescriptor(0, 0);
@@ -87,6 +89,7 @@ bool RakNetClient::Connect(const char* address, std::uint32_t port) {
 
   MessageID message = packet->data[0];
   serverAddress_ = packet->systemAddress;
+  ++packetReceived_;
   peer_->DeallocatePacket(packet);
   if (message != ID_CONNECTION_REQUEST_ACCEPTED) {
     SPDLOG_ERROR("Connection not accepted ({}).", message);
@@ -104,6 +107,7 @@ void RakNetClient::Disconnect() {
   isConnected_ = false;
   peer_->Shutdown(300, 0, ::IMMEDIATE_PRIORITY);
   RakNet::RakPeerInterface::DestroyInstance(peer_);
+  peer_ = nullptr;
 }
 
 bool RakNetClient::IsConnected() const {
@@ -120,6 +124,7 @@ bool RakNetClient::SendPacket(unsigned char* data, std::uint32_t size, PacketRel
 
 void RakNetClient::Pulse() {
   for (RakNet::Packet* packet = peer_->Receive(); packet; peer_->DeallocatePacket(packet), packet = peer_->Receive()) {
+    ++packetReceived_;
     std::for_each(packetHandlers_.begin(), packetHandlers_.end(),
                   [packet](auto& handler) { handler->HandlePacket(packet->data, packet->length); });
   }
@@ -135,6 +140,31 @@ void RakNetClient::RemovePacketHandler(PacketHandler& packetHandler) {
 
 std::uint32_t RakNetClient::GetPing() const {
   return peer_->GetAveragePing(serverAddress_);
+}
+
+NetworkStats RakNetClient::GetNetworkStats() const {
+  NetworkStats stats;
+  stats.packetReceived = packetReceived_;
+
+  if (!peer_ || !isConnected_) {
+    return stats;
+  }
+
+  RakNet::RakNetStatistics rak_stats;
+  if (!peer_->GetStatistics(0, &rak_stats)) {
+    return stats;
+  }
+
+  stats.packetlossTotal = rak_stats.packetlossTotal;
+  stats.packetlossLastSecond = rak_stats.packetlossLastSecond;
+  stats.messagesInResendBuffer = rak_stats.messagesInResendBuffer;
+  stats.messageInSendBuffer = rak_stats.messageInSendBuffer[::LOW_PRIORITY] + rak_stats.messageInSendBuffer[::MEDIUM_PRIORITY] +
+                              rak_stats.messageInSendBuffer[::HIGH_PRIORITY];
+  stats.bytesInResendBuffer = rak_stats.bytesInResendBuffer;
+  stats.bytesInSendBuffer = static_cast<std::uint64_t>(rak_stats.bytesInSendBuffer[::LOW_PRIORITY] +
+                                                       rak_stats.bytesInSendBuffer[::MEDIUM_PRIORITY] +
+                                                       rak_stats.bytesInSendBuffer[::HIGH_PRIORITY]);
+  return stats;
 }
 
 }  // namespace Net

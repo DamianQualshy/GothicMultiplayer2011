@@ -47,12 +47,14 @@ public:
   void AddPacketHandler(PacketHandler& packetHandler) override;
   void RemovePacketHandler(PacketHandler& packetHandler) override;
   std::uint32_t GetPing() const override;
+  NetworkStats GetNetworkStats() const override;
 
 private:
-  RakNet::RakPeerInterface* peer_;
+  RakNet::RakPeerInterface* peer_{nullptr};
   RakNet::SystemAddress serverAddress_;
   std::unordered_set<PacketHandler*> packetHandlers_;
   bool isConnected_{false};
+  std::uint64_t packetReceived_{0};
 };
 
 }  // namespace Net

@@ -13,6 +13,10 @@
 #include "Lua/lua_sky.h"
 #include "Lua/lua_way.h"
 
+namespace lua::bindings {
+void BindToml(sol::state& lua);
+}
+
 using namespace std;
 
 LuaScript::LuaScript() {
@@ -26,6 +30,7 @@ void LuaScript::BindDomainSpecific() {
   lua::bindings::BindItem(lua_);
   lua::bindings::BindItemGround(lua_);
   lua::bindings::BindJson(lua_);
+  lua::bindings::BindToml(lua_);
   lua::bindings::BindWay(lua_);
   lua::bindings::BindSky(lua_);
 }

@@ -63,6 +63,7 @@ public:
   ConnectionState GetConnectionState() const;
   std::string GetConnectionError() const;
   int GetPing();
+  Net::NetworkStats GetNetworkStats() const;
 
   // To be called after connecting to the server and receiving the initial info packet,
   // downloading all the required files, and loading the world.

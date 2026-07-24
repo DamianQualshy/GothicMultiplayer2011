@@ -32,6 +32,16 @@ SOFTWARE.
 
 namespace Net {
 
+struct NetworkStats {
+  std::uint64_t packetReceived{0};
+  float packetlossTotal{0.0f};
+  float packetlossLastSecond{0.0f};
+  std::uint32_t messagesInResendBuffer{0};
+  std::uint32_t messageInSendBuffer{0};
+  std::uint64_t bytesInResendBuffer{0};
+  std::uint64_t bytesInSendBuffer{0};
+};
+
 class NetClient {
 public:
   class PacketHandler {
@@ -55,6 +65,7 @@ public:
   virtual void RemovePacketHandler(PacketHandler& packetHandler) = 0;
 
   virtual std::uint32_t GetPing() const = 0;
+  virtual NetworkStats GetNetworkStats() const = 0;
 };
 
 }  // namespace Net

@@ -115,52 +115,6 @@ int Function_NAY(int virtuals) {
 
 /* luagmp (func)
 *
-* This function will return the current game resolution.
-*
-* @version  0.3.0
-* @name     getResolution
-* @side     client
-* @category Interface
-* @return   ({x, y})  Table containing width and height.
-*
-*/
-sol::object Function_GetResolution(sol::this_state ts) {
-  sol::state_view lua(ts);
-  sol::table resolution = lua.create_table();
-
-  int width = 800;
-  int height = 600;
-  if (zrenderer) {
-    width = zrenderer->vid_xdim;
-    height = zrenderer->vid_ydim;
-  }
-
-  resolution["x"] = width;
-  resolution["y"] = height;
-  return resolution;
-}
-
-/* luagmp (func)
-*
-* This function will return the current frame rate estimate.
-*
-* @version  0.3.0
-* @name     getFpsRate
-* @side     client
-* @category Interface
-* @return   (number)  Frames per second, or 0 if unavailable.
-*
-*/
-std::int32_t Function_GetFpsRate() {
-  if (!ztimer || ztimer->frameTimeFloatSecs <= 0.0f) {
-    return 0;
-  }
-
-  return static_cast<std::int32_t>(std::lround(1.0f / ztimer->frameTimeFloatSecs));
-}
-
-/* luagmp (func)
-*
 * This function will enable or disable the Gothic HUD.
 *
 * @version  0.3.0
@@ -219,8 +173,6 @@ void BindInterface(sol::state& lua) {
   lua["nax"] = Function_NAX;
   lua["nay"] = Function_NAY;
   
-  lua["getResolution"] = Function_GetResolution;
-  lua["getFpsRate"] = Function_GetFpsRate;
   lua["enableHud"] = Function_EnableHud;
   lua["isHudEnabled"] = Function_IsHudEnabled;
   lua["isConsoleOpen"] = Function_IsConsoleOpen;

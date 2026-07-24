@@ -238,6 +238,14 @@ int GameClient::GetPing() {
   return g_netclient->GetPing();
 }
 
+Net::NetworkStats GameClient::GetNetworkStats() const {
+  if (!g_netclient || !IsConnected()) {
+    return {};
+  }
+
+  return g_netclient->GetNetworkStats();
+}
+
 void GameClient::HandleNetwork() {
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);

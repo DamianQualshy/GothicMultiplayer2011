@@ -2615,6 +2615,86 @@ sol::object Function_GetDayLength(sol::this_state ts) {
 
 /* luagmp (func)
 *
+* This function will return the current game resolution.
+*
+* @version  0.3.0
+* @name     getResolution
+* @side     client
+* @category Game
+* @return   ({x, y})  Table containing width and height.
+*
+*/
+sol::object Function_GetResolution(sol::this_state ts) {
+  sol::state_view lua(ts);
+  sol::table resolution = lua.create_table();
+
+  int width = 800;
+  int height = 600;
+  if (zrenderer) {
+    width = zrenderer->vid_xdim;
+    height = zrenderer->vid_ydim;
+  }
+
+  resolution["x"] = width;
+  resolution["y"] = height;
+  return resolution;
+}
+
+/* luagmp (func)
+*
+* This function will return the current frame rate estimate.
+*
+* @version  0.3.0
+* @name     getFpsRate
+* @side     client
+* @category Game
+* @return   (number)  Frames per second, or 0 if unavailable.
+*
+*/
+std::int32_t Function_GetFpsRate() {
+  if (!ztimer || ztimer->frameTimeFloatSecs <= 0.0f) {
+    return 0;
+  }
+
+  return static_cast<std::int32_t>(std::lround(1.0f / ztimer->frameTimeFloatSecs));
+}
+
+/* luagmp (func)
+*
+* This function will return client network statistics.
+*
+* @version  0.3.0
+* @name     getNetworkStats
+* @side     client
+* @category Game
+* @note     Packet loss fields are ratios from 0.0 to 1.0.
+* @note     Send buffer fields aggregate low, medium, and high priority packets.
+* @return   ({packetReceived, packetlossTotal, packetlossLastSecond, messagesInResendBuffer, messageInSendBuffer, bytesInResendBuffer, bytesInSendBuffer})  Table containing current network statistics.
+*
+*/
+sol::object Function_GetNetworkStats(sol::this_state ts) {
+  sol::state_view lua(ts);
+
+  Net::NetworkStats stats;
+  auto& net_game = NetGame::Instance();
+  if (net_game.game_client) {
+    stats = net_game.game_client->GetNetworkStats();
+  }
+
+  sol::table tbl = lua.create_table();
+  tbl["packetReceived"] = stats.packetReceived;
+  tbl["packetlossTotal"] = stats.packetlossTotal;
+  tbl["packetlossLastSecond"] = stats.packetlossLastSecond;
+  tbl["messagesInResendBuffer"] = stats.messagesInResendBuffer;
+  tbl["messageInSendBuffer"] = stats.messageInSendBuffer;
+  tbl["bytesInResendBuffer"] = stats.bytesInResendBuffer;
+  tbl["bytesInSendBuffer"] = stats.bytesInSendBuffer;
+
+  return sol::make_object(lua, tbl);
+}
+
+/* luagmp (func)
+*
 * This function will close the game immediately.
 *
 * @version  0.3.0
@@ -2786,6 +2866,10 @@ void BindGothicSpecific(sol::state& lua) {
   lua["getTime"] = Function_GetTime;
   lua["setDayLength"] = Function_SetDayLength;
   lua["getDayLength"] = Function_GetDayLength;
+
+  lua["getResolution"] = Function_GetResolution;
+  lua["getFpsRate"] = Function_GetFpsRate;
+  lua["getNetworkStats"] = Function_GetNetworkStats;
 
   lua["exitGame"] = Function_ExitGame;
   lua["clearMultiplayerMessages"] = Function_ClearMultiplayerMessages;
