@@ -27,6 +27,7 @@ SOFTWARE.
 #include <gtest/gtest.h>
 #include <sodium.h>
 
+#include <any>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
@@ -39,10 +40,33 @@ SOFTWARE.
 #include <vector>
 
 #include "resource/packer.h"
+#include "shared/event.h"
 
 namespace {
 
 namespace fs = std::filesystem;
+
+struct GcProbe {
+  GcProbe() {
+    ++live_count;
+  }
+
+  GcProbe(const GcProbe&) {
+    ++live_count;
+  }
+
+  GcProbe(GcProbe&&) noexcept {
+    ++live_count;
+  }
+
+  ~GcProbe() {
+    --live_count;
+  }
+
+  static int live_count;
+};
+
+int GcProbe::live_count = 0;
 
 void EnsureSodiumInitialized() {
   static bool initialized = []() {
@@ -58,6 +82,7 @@ class ClientResourceRuntimeTest : public ::testing::Test {
 protected:
   void SetUp() override {
     EnsureSodiumInitialized();
+    EventManager::Instance().Reset();
 
     const auto unique = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
     base_dir_ = fs::temp_directory_path() / ("client_resource_runtime_test_" + unique);
@@ -69,6 +94,8 @@ protected:
   }
 
   void TearDown() override {
+    EventManager::Instance().Reset();
+
     std::error_code ec;
     fs::remove_all(base_dir_, ec);
   }
@@ -193,6 +220,123 @@ TEST_F(ClientResourceRuntimeTest, UnloadResourcesClearsExportsAndInvokesStop) {
 
   EXPECT_EQ(exports.get<int>("counter"), -1);
   EXPECT_FALSE(runtime.GetExports("lifecycle_test").has_value());
+}
+
+TEST_F(ClientResourceRuntimeTest, UnloadResourcesTriggersExitBeforeResourceStop) {
+  WriteFile("client/main.lua", R"(
+    function onResourceStop()
+      record("stop")
+    end
+  )");
+
+  std::vector<std::string> calls;
+  EventManager::Instance().RegisterEvent("onExit");
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent("onExit", [&](std::any) { calls.push_back("exit"); }));
+
+  auto payload = BuildPayload("ordering_test");
+
+  ClientResourceRuntime runtime;
+  runtime.GetLuaState().set_function("record", [&](const std::string& call) { calls.push_back(call); });
+
+  std::string error;
+  ASSERT_TRUE(runtime.LoadResources({payload}, error)) << error;
+
+  runtime.UnloadResources();
+
+  ASSERT_EQ(calls.size(), 2u);
+  EXPECT_EQ(calls[0], "exit");
+  EXPECT_EQ(calls[1], "stop");
+}
+
+TEST_F(ClientResourceRuntimeTest, RequiredModulesKeepDistinctLifecycleHooks) {
+  WriteFile("client/main.lua", R"(
+    local probe = GcProbe.new()
+
+    function onResourceStart()
+      record("main_start")
+    end
+
+    function onResourceStop()
+      record("main_stop")
+      probe = nil
+    end
+
+    require("client.module_a")
+    require("client.module_b")
+  )");
+
+  WriteFile("client/module_a.lua", R"(
+    local probe = GcProbe.new()
+
+    function onResourceStart()
+      record("a_start")
+    end
+
+    function onResourceStop()
+      record("a_stop")
+      probe = nil
+    end
+  )");
+
+  WriteFile("client/module_b.lua", R"(
+    local probe = GcProbe.new()
+
+    function onResourceStart()
+      record("b_start")
+    end
+
+    function onResourceStop()
+      record("b_stop")
+      probe = nil
+    end
+  )");
+
+  GcProbe::live_count = 0;
+  std::vector<std::string> calls;
+
+  auto payload = BuildPayload("module_lifecycle_test");
+
+  ClientResourceRuntime runtime;
+  runtime.GetLuaState().new_usertype<GcProbe>("GcProbe", sol::constructors<GcProbe()>());
+  runtime.GetLuaState().set_function("record", [&](const std::string& call) { calls.push_back(call); });
+
+  std::string error;
+  ASSERT_TRUE(runtime.LoadResources({payload}, error)) << error;
+  lua_gc(runtime.GetLuaState().lua_state(), LUA_GCCOLLECT, 0);
+
+  EXPECT_EQ(GcProbe::live_count, 3);
+  ASSERT_EQ(calls.size(), 3u);
+  EXPECT_EQ(calls[0], "main_start");
+  EXPECT_EQ(calls[1], "a_start");
+  EXPECT_EQ(calls[2], "b_start");
+
+  runtime.UnloadResources();
+
+  EXPECT_EQ(GcProbe::live_count, 0);
+  ASSERT_EQ(calls.size(), 6u);
+  EXPECT_EQ(calls[3], "b_stop");
+  EXPECT_EQ(calls[4], "a_stop");
+  EXPECT_EQ(calls[5], "main_stop");
+}
+
+TEST_F(ClientResourceRuntimeTest, UnloadResourcesCollectsResourceOwnedUserdata) {
+  GcProbe::live_count = 0;
+  WriteFile("client/main.lua", R"(
+    probe = GcProbe.new()
+  )");
+
+  auto payload = BuildPayload("gc_test");
+
+  ClientResourceRuntime runtime;
+  runtime.GetLuaState().new_usertype<GcProbe>("GcProbe", sol::constructors<GcProbe()>());
+
+  std::string error;
+  ASSERT_TRUE(runtime.LoadResources({payload}, error)) << error;
+  EXPECT_GT(GcProbe::live_count, 0);
+
+  runtime.UnloadResources();
+
+  EXPECT_EQ(GcProbe::live_count, 0);
 }
 
 TEST_F(ClientResourceRuntimeTest, LoadFailsWhenEntrypointThrows) {

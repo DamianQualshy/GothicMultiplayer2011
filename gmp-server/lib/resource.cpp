@@ -27,12 +27,23 @@ SOFTWARE.
 #include <algorithm>
 #include <filesystem>
 #include <spdlog/spdlog.h>
+#include <string_view>
 #include <vector>
 
 #include "Script.h"
 #include "shared/lua_runtime/timer_manager.h"
 
 namespace fs = std::filesystem;
+
+namespace {
+const void* GetFunctionIdentity(const sol::protected_function& function) {
+  lua_State* state = function.lua_state();
+  sol::stack::push(state, function);
+  const void* identity = lua_topointer(state, -1);
+  lua_pop(state, 1);
+  return identity;
+}
+}  // namespace
 
 Resource::Resource(std::string name) : name_(std::move(name)) {}
 
@@ -47,6 +58,10 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
   // Create isolated environment that inherits from lua.globals()
   auto& lua = lua_script.GetLuaState();
   env_ = sol::environment(lua, sol::create, lua.globals());
+  start_hooks_.clear();
+  stop_hooks_.clear();
+  start_hook_ids_.clear();
+  stop_hook_ids_.clear();
 
   const std::string base_path = "resources/" + name_;
 
@@ -65,6 +80,10 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
     timer_manager.KillTimersForResource(name_);
     env_ = sol::environment();
     exports_ = sol::nil;
+    start_hooks_.clear();
+    stop_hooks_.clear();
+    start_hook_ids_.clear();
+    stop_hook_ids_.clear();
     return false;
   }
 
@@ -74,6 +93,10 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
     timer_manager.KillTimersForResource(name_);
     env_ = sol::environment();
     exports_ = sol::nil;
+    start_hooks_.clear();
+    stop_hooks_.clear();
+    start_hook_ids_.clear();
+    stop_hook_ids_.clear();
     return false;
   }
 
@@ -112,6 +135,10 @@ void Resource::Unload(TimerManager& timer_manager) {
   // Clear environment and exports
   env_ = sol::environment();
   exports_ = sol::nil;
+  start_hooks_.clear();
+  stop_hooks_.clear();
+  start_hook_ids_.clear();
+  stop_hook_ids_.clear();
   loaded_ = false;
 
   SPDLOG_INFO("Resource '{}' unloaded", name_);
@@ -170,6 +197,7 @@ bool Resource::ExecuteScript(sol::state& lua, const std::string& scriptPath) {
       return false;
     }
 
+    CaptureLifecycleHooks();
     SPDLOG_DEBUG("  Loaded script '{}'", fs::path(scriptPath).filename().string());
     return true;
 
@@ -179,9 +207,32 @@ bool Resource::ExecuteScript(sol::state& lua, const std::string& scriptPath) {
   }
 }
 
+void Resource::CaptureLifecycleHooks() {
+  CaptureLifecycleHook("onResourceStart");
+  CaptureLifecycleHook("onResourceStop");
+}
+
+void Resource::CaptureLifecycleHook(const char* hook) {
+  sol::object fn = env_[hook];
+  if (!fn.valid() || fn.get_type() != sol::type::function) {
+    return;
+  }
+
+  sol::protected_function pf = fn;
+  const void* identity = GetFunctionIdentity(pf);
+
+  auto& hooks = std::string_view(hook) == "onResourceStart" ? start_hooks_ : stop_hooks_;
+  auto& hook_ids = std::string_view(hook) == "onResourceStart" ? start_hook_ids_ : stop_hook_ids_;
+  if (std::find(hook_ids.begin(), hook_ids.end(), identity) != hook_ids.end()) {
+    return;
+  }
+
+  hooks.emplace_back(std::move(pf));
+  hook_ids.push_back(identity);
+}
+
 void Resource::CallOnResourceStart() {
-  sol::object on_start = env_["onResourceStart"];
-  if (on_start.valid() && on_start.get_type() == sol::type::function) {
+  for (auto& on_start : start_hooks_) {
     try {
       sol::protected_function pf = on_start;
       sol::set_environment(env_, pf);
@@ -198,10 +249,9 @@ void Resource::CallOnResourceStart() {
 }
 
 void Resource::CallOnResourceStop() {
-  sol::object on_stop = env_["onResourceStop"];
-  if (on_stop.valid() && on_stop.get_type() == sol::type::function) {
+  for (auto it = stop_hooks_.rbegin(); it != stop_hooks_.rend(); ++it) {
     try {
-      sol::protected_function pf = on_stop;
+      sol::protected_function pf = *it;
       sol::set_environment(env_, pf);
       sol::protected_function_result result = pf();
 

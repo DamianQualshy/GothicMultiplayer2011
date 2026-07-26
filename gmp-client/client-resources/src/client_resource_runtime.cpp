@@ -30,9 +30,20 @@ SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <memory>
+#include <string_view>
 
 #include "shared/lua_runtime/shared_bind.h"
 #include "shared/event.h"
+
+namespace {
+const void* GetFunctionIdentity(const sol::protected_function& function) {
+  lua_State* state = function.lua_state();
+  sol::stack::push(state, function);
+  const void* identity = lua_topointer(state, -1);
+  lua_pop(state, 1);
+  return identity;
+}
+}  // namespace
 
 ClientResourceRuntime::ClientResourceRuntime() = default;
 ClientResourceRuntime::~ClientResourceRuntime() = default;
@@ -102,16 +113,18 @@ bool ClientResourceRuntime::LoadResources(std::vector<gmp::client::GameClient::R
 
 void ClientResourceRuntime::UnloadResources() {
   if (!resources_.empty()) {
-    bool triggered_exit = false;
+    const bool had_started_resource =
+        std::any_of(resources_.begin(), resources_.end(), [](const auto& resource) { return resource->started; });
+
+    if (had_started_resource) {
+      EventManager::Instance().TriggerEvent("onExit", 0);
+    }
+
     for (auto it = resources_.rbegin(); it != resources_.rend(); ++it) {
       if ((*it)->started) {
         std::string error_message;
         if (!InvokeLifecycle(**it, "onResourceStop", error_message)) {
           SPDLOG_WARN(error_message);
-        }
-        if (!triggered_exit) {
-          EventManager::Instance().TriggerEvent("onExit", 0);
-          triggered_exit = true;
         }
       }
     }
@@ -122,6 +135,7 @@ void ClientResourceRuntime::UnloadResources() {
   if (reset_callback_) {
     reset_callback_();
   }
+  lua_gc(script_.GetLuaState().lua_state(), LUA_GCCOLLECT, 0);
 }
 
 void ClientResourceRuntime::ProcessTimers() {
@@ -222,6 +236,8 @@ void ClientResourceRuntime::SetupRequire(ResourceInstance& instance) {
           throw sol::error(fmt::format("Resource '{}' has no pack loaded", instance_ref.name));
         }
 
+        CaptureLifecycleHooks(instance_ref);
+
         std::string normalized = module_name;
         std::replace(normalized.begin(), normalized.end(), '.', '/');
 
@@ -278,6 +294,7 @@ void ClientResourceRuntime::SetupRequire(ResourceInstance& instance) {
         }
 
         sol::object exported = result.get<sol::object>();
+        CaptureLifecycleHooks(instance_ref);
         if (!exported.valid() || exported.get_type() == sol::type::nil) {
           exported = sol::make_object(lua_state, true);
         }
@@ -339,24 +356,65 @@ bool ClientResourceRuntime::ExecuteEntryPoints(ResourceInstance& instance, std::
       error_message = fmt::format("Resource '{}': runtime error in '{}': {}", instance.name, entrypoint, err.what());
       return false;
     }
+    CaptureLifecycleHooks(instance);
   }
 
   return true;
 }
 
-bool ClientResourceRuntime::InvokeLifecycle(ResourceInstance& instance, const char* hook, std::string& error_message) {
+void ClientResourceRuntime::CaptureLifecycleHooks(ResourceInstance& instance) {
+  CaptureLifecycleHook(instance, "onResourceStart");
+  CaptureLifecycleHook(instance, "onResourceStop");
+}
+
+void ClientResourceRuntime::CaptureLifecycleHook(ResourceInstance& instance, const char* hook) {
   sol::object fn = instance.env[hook];
   if (!fn.valid() || fn.get_type() != sol::type::function) {
-    return true;
+    return;
   }
 
   sol::protected_function pf = fn;
-  // Function already has the correct environment captured from its creation
-  sol::protected_function_result result = pf();
-  if (!result.valid()) {
-    sol::error err = result;
-    error_message = fmt::format("Resource '{}': error in {}: {}", instance.name, hook, err.what());
-    return false;
+  const void* identity = GetFunctionIdentity(pf);
+
+  auto& hooks = std::string_view(hook) == "onResourceStart" ? instance.start_hooks : instance.stop_hooks;
+  auto& hook_ids = std::string_view(hook) == "onResourceStart" ? instance.start_hook_ids : instance.stop_hook_ids;
+  if (std::find(hook_ids.begin(), hook_ids.end(), identity) != hook_ids.end()) {
+    return;
+  }
+
+  hooks.emplace_back(std::move(pf));
+  hook_ids.push_back(identity);
+}
+
+bool ClientResourceRuntime::InvokeLifecycle(ResourceInstance& instance, const char* hook, std::string& error_message) {
+  const bool is_start = std::string_view(hook) == "onResourceStart";
+  auto& hooks = is_start ? instance.start_hooks : instance.stop_hooks;
+  if (hooks.empty()) {
+    return true;
+  }
+
+  auto invoke_hook = [&](sol::protected_function& pf) {
+    sol::protected_function_result result = pf();
+    if (!result.valid()) {
+      sol::error err = result;
+      error_message = fmt::format("Resource '{}': error in {}: {}", instance.name, hook, err.what());
+      return false;
+    }
+    return true;
+  };
+
+  if (is_start) {
+    for (auto& lifecycle_hook : hooks) {
+      if (!invoke_hook(lifecycle_hook)) {
+        return false;
+      }
+    }
+  } else {
+    for (auto it = hooks.rbegin(); it != hooks.rend(); ++it) {
+      if (!invoke_hook(*it)) {
+        return false;
+      }
+    }
   }
 
   return true;

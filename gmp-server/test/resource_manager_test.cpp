@@ -32,6 +32,7 @@ SOFTWARE.
 #include <string>
 #include <system_error>
 #include <thread>
+#include <vector>
 
 #include "Script.h"
 
@@ -178,6 +179,54 @@ TEST_F(ResourceManagerTest, UnloadsResourceSuccessfully) {
   auto resource_opt = manager.GetResource("test_resource");
   ASSERT_TRUE(resource_opt.has_value());
   EXPECT_FALSE(resource_opt->get().IsLoaded());
+}
+
+TEST_F(ResourceManagerTest, MultipleServerScriptsKeepDistinctLifecycleHooks) {
+  auto server_dir = test_resources_dir_ / "multi_hook_resource" / "server";
+  std::filesystem::create_directories(server_dir);
+
+  {
+    std::ofstream ofs(server_dir / "a.lua");
+    ASSERT_TRUE(ofs.good());
+    ofs << R"(
+      function onResourceStart()
+        __record('a_start')
+      end
+
+      function onResourceStop()
+        __record('a_stop')
+      end
+    )";
+  }
+
+  {
+    std::ofstream ofs(server_dir / "b.lua");
+    ASSERT_TRUE(ofs.good());
+    ofs << R"(
+      function onResourceStart()
+        __record('b_start')
+      end
+
+      function onResourceStop()
+        __record('b_stop')
+      end
+    )";
+  }
+
+  std::vector<std::string> calls;
+  lua_script.GetLuaState().set_function("__record", [&](const std::string& call) { calls.push_back(call); });
+
+  ASSERT_TRUE(manager.LoadResource("multi_hook_resource", lua_script));
+
+  ASSERT_EQ(calls.size(), 2u);
+  EXPECT_EQ(calls[0], "a_start");
+  EXPECT_EQ(calls[1], "b_start");
+
+  manager.UnloadResource("multi_hook_resource", lua_script);
+
+  ASSERT_EQ(calls.size(), 4u);
+  EXPECT_EQ(calls[2], "b_stop");
+  EXPECT_EQ(calls[3], "a_stop");
 }
 
 TEST_F(ResourceManagerTest, ReloadsResourceSuccessfully) {

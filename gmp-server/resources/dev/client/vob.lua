@@ -64,6 +64,11 @@ function onResourceStart()
 end
 
 function onResourceStop()
+  if sfx3d then
+    sfx3d:stop()
+    sfx3d = nil
+  end
+
   child:removeFromWorld()
   child = nil
   

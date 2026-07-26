@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <cstdint>
 #include <string>
+#include <vector>
 
 #include "sol/sol.hpp"
 
@@ -80,6 +81,11 @@ private:
   // Execute a single script file in the resource environment
   bool ExecuteScript(sol::state& lua, const std::string& scriptPath);
 
+  // Capture lifecycle hooks after each script so later files do not overwrite
+  // earlier resource-level hooks.
+  void CaptureLifecycleHooks();
+  void CaptureLifecycleHook(const char* hook);
+
   // Call lifecycle hooks
   void CallOnResourceStart();
   void CallOnResourceStop();
@@ -87,6 +93,10 @@ private:
   std::string name_;
   sol::environment env_;
   sol::table exports_;
+  std::vector<sol::protected_function> start_hooks_;
+  std::vector<sol::protected_function> stop_hooks_;
+  std::vector<const void*> start_hook_ids_;
+  std::vector<const void*> stop_hook_ids_;
   std::uint32_t generation_ = 0;
   bool loaded_ = false;
 };

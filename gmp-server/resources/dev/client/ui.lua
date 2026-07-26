@@ -55,10 +55,10 @@ addEventHandler("onInit", function()
 end)
 
 addEventHandler("onExit", function()
-	title.setVisible(false)
+	title:setVisible(false)
 	title = nil
 
-	logo.setVisible(false)
+	logo:setVisible(false)
 	logo = nil
 end)
 
@@ -91,4 +91,11 @@ function onResourceStart()
 		print(string.format("logo.alpha %d", la))
 		print(string.format("logo.file %s", currentFile))
 	end ]]
+end
+
+function onResourceStop()
+	if draw3dTest then
+		draw3dTest:setVisible(false)
+		draw3dTest = nil
+	end
 end

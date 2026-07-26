@@ -13,6 +13,9 @@ local bal         = sfx.balance
 local loopState   = sfx.looping
 local timePlayed  = sfx.playingTime
 
+local menu = Music.new(".\\Multiplayer\\Music\\main_menu_theme_2.mp3")
+menu:playLooped()
+
 function onResourceStart()
 	sfx:play()
 
@@ -24,8 +27,13 @@ function onResourceStart()
 end
 
 function onResourceStop()
-	sfx = nil
-end
+	if sfx then
+		sfx:stop()
+		sfx = nil
+	end
 
-local menu = Music.new(".\\Multiplayer\\Music\\main_menu_theme_2.mp3")
-menu:playLooped()
+	if menu then
+		menu:stop()
+		menu = nil
+	end
+end

@@ -422,7 +422,7 @@ void LuaVob::addToWorld(sol::optional<LuaVob> parent) {
 void LuaVob::removeFromWorld() {
   if (auto* handle = vob()) {
     if (handle->GetHomeWorld()) {
-      handle->RemoveVobFromWorld();
+      handle->RemoveVobSubtreeFromWorld();
     }
   }
 }
