@@ -25,6 +25,8 @@ SOFTWARE.
 
 #include "CIngame.h"
 
+#include <cstdint>
+#include <cstring>
 #include <time.h>
 
 #include "CActiveAniID.h"
@@ -45,22 +47,97 @@ constexpr const char* TURN = "TURN";
 extern zCOLOR Normal;
 zCOLOR COLOR_RED = zCOLOR(255, 0, 0, 255);
 
+namespace {
+std::int16_t GetCurrentAnimationId() {
+  CActiveAniID* active_ani_id = CActiveAniID::GetInstance();
+  if (!active_ani_id) {
+    return -1;
+  }
+
+  return static_cast<std::int16_t>(active_ani_id->GetAniID());
+}
+
+void TrackLocalActiveAnimations() {
+  if (!player) {
+    return;
+  }
+
+  CActiveAniID* active_ani_id = CActiveAniID::GetInstance();
+  if (!active_ani_id) {
+    return;
+  }
+
+  zCModel* model = player->GetModel();
+  if (!model || model->numActiveAnis <= 0) {
+    return;
+  }
+
+  zCModelAni* primary_ani = model->aniChannels[0] ? model->aniChannels[0]->protoAni : nullptr;
+  zCModelAni* secondary_ani =
+      (model->numActiveAnis > 1 && model->aniChannels[1]) ? model->aniChannels[1]->protoAni : nullptr;
+
+  if (!primary_ani) {
+    return;
+  }
+
+  if (primary_ani->GetAniName().Search(TURN) < 2) {
+    active_ani_id->AddAni(primary_ani->GetAniID());
+  }
+
+  if (secondary_ani && primary_ani->GetAniID() != secondary_ani->GetAniID() && secondary_ani->GetAniName().Search(TURN) < 2) {
+    active_ani_id->AddAni(secondary_ani->GetAniID());
+  }
+}
+
+void ApplyAimingDeathAnimationFix() {
+  if (!player || !player->GetAnictrl() || !player->GetModel()) {
+    return;
+  }
+
+  if (player->IsDead() && !player->GetAnictrl()->IsInWater()) {
+    if (player->GetWeaponMode() == NPC_WEAPON_BOW || player->GetWeaponMode() == NPC_WEAPON_MAG || player->GetWeaponMode() == NPC_WEAPON_CBOW) {
+      if (!player->GetModel()->IsAnimationActive(DEADB) && !player->GetModel()->IsAnimationActive(TDEADB) &&
+          !player->GetModel()->IsAnimationActive(DEAD2)) {
+        player->GetModel()->StartAnimation(TDEADB);
+        player->GetAnictrl()->StopTurnAnis();
+        oCItem* RHand = nullptr;
+        oCItem* LHand = nullptr;
+        if (player->GetRightHand()) {
+          RHand = dynamic_cast<oCItem*>(player->GetRightHand());
+        }
+        if (player->GetLeftHand()) {
+          LHand = dynamic_cast<oCItem*>(player->GetLeftHand());
+        }
+        player->DropAllInHand();
+        if (RHand)
+          RHand->RemoveVobFromWorld();
+        if (LHand)
+          LHand->RemoveVobFromWorld();
+      }
+    }
+  }
+}
+}  // namespace
+
 CIngame::CIngame() {
-  this->last_player_update = clock();
+  this->last_player_update = std::chrono::steady_clock::now();
   this->chat_interface = CChat::GetInstance();
   this->NextTimeSync = time(NULL) + 1;
   this->Shrinker = new CShrinker();
-  this->Inventory = new CInventory(&player->inventory2);
+  this->Inventory = player ? new CInventory(&player->inventory2) : nullptr;
   IgnoreFirstSync = true;
   SwampLightsOn = false;
   RecognizedMap = MAP_UNKNOWN;
-  if (!memcmp("OLDVALLEY.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 13) ||
-      !memcmp("COLONY.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 10))
-    RecognizedMap = MAP_COLONY;
-  if (!memcmp("OLDWORLD\\OLDWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21))
-    RecognizedMap = MAP_OLDWORLD;
-  if (!memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21))
-    RecognizedMap = MAP_KHORINIS;
+  if (ogame && ogame->GetGameWorld()) {
+    const char* world_filename = ogame->GetGameWorld()->GetWorldFilename().ToChar();
+    if (!std::strncmp("OLDVALLEY.ZEN", world_filename, 13) ||
+        !std::strncmp("COLONY.ZEN", world_filename, 10))
+      RecognizedMap = MAP_COLONY;
+    if (!std::strncmp("OLDWORLD\\OLDWORLD.ZEN", world_filename, 21))
+      RecognizedMap = MAP_OLDWORLD;
+    if (!std::strncmp("NEWWORLD\\NEWWORLD.ZEN", world_filename, 21))
+      RecognizedMap = MAP_KHORINIS;
+  }
   global_ingame = this;
   HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)CIngame::Loop);
 }
@@ -76,6 +153,10 @@ CIngame::~CIngame() {
 }
 
 void CIngame::CheckSwampLights() {
+  if (!ogame || !ogame->GetWorldTimer() || !ogame->GetGameWorld()) {
+    return;
+  }
+
   oCWorldTimer* Timer = ogame->GetWorldTimer();
   if (!SwampLightsOn) {
     if (Timer->IsTimeBetween(20, 00, 05, 00)) {
@@ -117,72 +198,40 @@ void CIngame::Loop() {
       }
     }
     // SENDING MY ANIMATION
-    zCModel* model = player->GetModel();
-    if (model && model->numActiveAnis > 0) {
-      zCModelAni* AniUnusual = model->numActiveAnis > 1 ? model->aniChannels[1]->protoAni : nullptr;  // TALK, TURNR ETC
-      zCModelAni* Ani = model->aniChannels[0] ? model->aniChannels[0]->protoAni : nullptr;            // ZWYKLE
-      if (Ani) {
-        if (Ani->GetAniName().Search(TURN) < 2) {
-          CActiveAniID::GetInstance()->AddAni(Ani->GetAniID());
-        }
-        if (AniUnusual && Ani->GetAniID() != AniUnusual->GetAniID()) {
-          if (AniUnusual->GetAniName().Search(TURN) < 2) {
-            CActiveAniID::GetInstance()->AddAni(AniUnusual->GetAniID());
-          }
-        }
-      }
-    }
+    TrackLocalActiveAnimations();
     // KINDA POSITION INTERPOLATION :C
     for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
-      if (global_ingame->Interpolation[i]->IsInterpolating)
+      if (global_ingame->Interpolation[i] && global_ingame->Interpolation[i]->IsInterpolating)
         global_ingame->Interpolation[i]->DoInterpolate();
     }
     // INVENTORY RENDER
     if (global_ingame->Inventory)
       global_ingame->Inventory->RenderInventory();
     // RUN SHRINKER
-    global_ingame->Shrinker->Loop();
+    if (global_ingame->Shrinker)
+      global_ingame->Shrinker->Loop();
     // CHECK FOR SWAMP LIGHTS STATE
     if (global_ingame->RecognizedMap == MAP_COLONY)
       global_ingame->CheckSwampLights();
     // DEATH BUG WHEN AIMING FIX
-    if (player->IsDead() && !player->GetAnictrl()->IsInWater()) {
-      if (player->GetWeaponMode() == NPC_WEAPON_BOW || player->GetWeaponMode() == NPC_WEAPON_MAG || player->GetWeaponMode() == NPC_WEAPON_CBOW) {
-        if (!player->GetModel()->IsAnimationActive(DEADB) && !player->GetModel()->IsAnimationActive(TDEADB) &&
-            !player->GetModel()->IsAnimationActive(DEAD2)) {
-          player->GetModel()->StartAnimation(TDEADB);
-          player->GetAnictrl()->StopTurnAnis();
-          if (player) {
-            oCItem* RHand = nullptr;
-            oCItem* LHand = nullptr;
-            if (player->GetRightHand()) {
-              RHand = dynamic_cast<oCItem*>(player->GetRightHand());
-            }
-            if (player->GetLeftHand()) {
-              LHand = dynamic_cast<oCItem*>(player->GetLeftHand());
-            }
-            player->DropAllInHand();
-            if (RHand)
-              RHand->RemoveVobFromWorld();
-            if (LHand)
-              LHand->RemoveVobFromWorld();
-          }
-        }
-      }
-    }
+    ApplyAimingDeathAnimationFix();
     // MAKING SURE THAT TEST MODE IS OFF FOREVER !
-    if (*(int*)((DWORD)ogame + 0x0B0) != 0)
+    if (ogame && *(int*)((DWORD)ogame + 0x0B0) != 0)
       *(int*)((DWORD)ogame + 0x0B0) = 0;
     global_ingame->HandleInput();
     global_ingame->Draw();
   }
 }
-
 bool CIngame::PlayerExists(const char* PlayerName) {
+  if (!PlayerName) {
+    return false;
+  }
+
   if (NetGame::Instance().players.size() > 1) {
+    const auto player_name_length = std::strlen(PlayerName);
     for (int i = 1; i < (int)NetGame::Instance().players.size(); i++) {
-      if (NetGame::Instance().players[i]->npc) {
-        if (!memcmp(NetGame::Instance().players[i]->npc->GetName().ToChar(), PlayerName, strlen(PlayerName)))
+      if (NetGame::Instance().players[i] && NetGame::Instance().players[i]->npc) {
+        if (!std::strncmp(NetGame::Instance().players[i]->npc->GetName().ToChar(), PlayerName, player_name_length))
           return true;
       }
     }
@@ -205,7 +254,7 @@ void CIngame::HandleInput() {
   }
   // DEBUG TOOLS
   debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
-  if (zinput->KeyToggled(KEY_F5) && !chat_interface->IsInputActive()) {
+  if (player && ogame && ogame->GetWorld() && zinput->KeyToggled(KEY_F5) && !chat_interface->IsInputActive()) {
     zVEC3 basePos = player->GetPositionWorld();
     int spawnCount = 0;
     // Spawn a 10x10 grid of fire effects (100 total)
@@ -257,14 +306,19 @@ void CIngame::Draw() {
 }
 
 void CIngame::CheckForUpdate() {
-  if (clock() - this->last_player_update > 80) {
-    NetGame::Instance().UpdatePlayerStats(static_cast<short>(CActiveAniID::GetInstance()->GetAniID()));
-    this->last_player_update = clock();
+  const auto now = std::chrono::steady_clock::now();
+  if (now - this->last_player_update > std::chrono::milliseconds(80)) {
+    NetGame::Instance().UpdatePlayerStats(GetCurrentAnimationId());
+    this->last_player_update = now;
   }
 }
 
 void CIngame::CheckForHPDiff() {
   for (size_t i = 0; i < NetGame::Instance().players.size(); i++) {
+    if (!NetGame::Instance().players[i] || !NetGame::Instance().players[i]->npc) {
+      continue;
+    }
+
     if (NetGame::Instance().players[i]->base_player().health() !=
         static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS])) {
       if (NetGame::Instance().players[i]->IsLocalPlayer()) {
@@ -272,28 +326,8 @@ void CIngame::CheckForHPDiff() {
             static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]));
         continue;
       }
-      if (!ValidatePlayerForHPDiff(NetGame::Instance().players[i])) {
-        if (NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS] <= 0) {
-          NetGame::Instance().players[i]->RespawnPlayer();
-        }
-      }
       NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS] =
           static_cast<int>(NetGame::Instance().players[i]->base_player().health());
     }
   }
-}
-
-bool CIngame::ValidatePlayerForHPDiff(Gothic2APlayer* player) {
-  if (oCNpc::player == player->npc) {
-    return true;
-  }
-  if (oCNpc::player->GetFocusNpc() == player->npc && oCNpc::player->GetWeaponMode() > NPC_WEAPON_NONE &&
-      oCNpc::player->GetWeaponMode() < NPC_WEAPON_MAG) {
-    return true;
-  }
-  if (oCNpc::player->GetWeaponMode() == NPC_WEAPON_BOW || oCNpc::player->GetWeaponMode() == NPC_WEAPON_CBOW ||
-      oCNpc::player->GetWeaponMode() == NPC_WEAPON_MAG) {
-    return oCNpc::player->GetDistanceToVob(*player->npc) < 5000.0f;
-  }
-  return false;
 }

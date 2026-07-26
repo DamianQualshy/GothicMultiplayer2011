@@ -50,11 +50,13 @@ using namespace Net;
 
 Net::NetClient* g_netclient = nullptr;
 
+constexpr std::uint32_t kPlayerStateChannel = 1;
+
 template <typename TContainer = std::vector<std::uint8_t>, typename Packet>
-static void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable) {
+static void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable, std::uint32_t channel = 0) {
   TContainer buffer;
   auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
-  g_netclient->SendPacket(buffer.data(), written_size, reliable, priority);
+  g_netclient->SendPacket(buffer.data(), written_size, reliable, priority, channel);
 }
 
 GameClient::GameClient(EventObserver& eventObserver, gmp::TaskScheduler& taskScheduler)
@@ -214,6 +216,7 @@ void GameClient::Disconnect() {
 
   if (was_connected) {
     is_in_game_ = false;
+    outgoing_state_sequence_ = 0;
     g_netclient->Disconnect();
     event_observer_.OnDisconnected();
   }
@@ -299,6 +302,7 @@ void GameClient::UpdatePlayerState(Player* player, const PlayerState& state) {
   player->set_equipped_ring_left(state.equipped_ring_left_instance);
   player->set_equipped_ring_right(state.equipped_ring_right_instance);
   player->set_animation(state.animation);
+  player->set_animation_name(state.animation_name);
   player->set_health(state.health_points);
   player->set_mana(state.mana_points);
   player->set_weapon_mode(state.weapon_mode);
@@ -414,8 +418,13 @@ void GameClient::UpdatePlayerStats(const PlayerState& state) {
 
   PlayerStateUpdatePacket packet;
   packet.packet_type = PT_ACTUAL_STATISTICS;
+  ++outgoing_state_sequence_;
+  if (outgoing_state_sequence_ == 0) {
+    ++outgoing_state_sequence_;
+  }
+  packet.state_sequence = outgoing_state_sequence_;
   packet.state = state;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(packet, IMMEDIATE_PRIORITY, UNRELIABLE_SEQUENCED, kPlayerStateChannel);
 }
 
 bool GameClient::SendLuaEventToServer(const std::string& event_name, std::uint32_t source_element, const std::string& payload) {
@@ -469,6 +478,7 @@ void GameClient::OnInitialInfo(Packet p) {
   resource_downloader_.AnnounceResources(std::move(packet.client_resources));
 
   auto local_player = player_manager_.CreateLocalPlayer(packet.player_id);
+  outgoing_state_sequence_ = 0;
   worlds_.clear();
   worlds_.emplace_back(packet.map_name);
 
@@ -495,8 +505,15 @@ void GameClient::OnActualStatistics(Packet p) {
     return;
   }
 
-  // Update the Player object with new state
   Player* player = player_manager_.GetPlayer(*packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == *packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player && !player->accept_state_sequence(packet.state_sequence)) {
+    SPDLOG_TRACE("Ignoring stale PlayerStateUpdatePacket for player {} with sequence {}", *packet.player_id, packet.state_sequence);
+    return;
+  }
+
   if (player) {
     UpdatePlayerState(player, packet.state);
   }
@@ -509,9 +526,26 @@ void GameClient::OnMapOnly(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerPositionUpdatePacket");
+    return;
+  }
+
   if (!packet.player_id) {
     SPDLOG_ERROR("PlayerPositionUpdatePacket: Player id is null");
     return;
+  }
+
+  Player* player = player_manager_.GetPlayer(*packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == *packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player && !player->accept_state_sequence(packet.state_sequence)) {
+    SPDLOG_TRACE("Ignoring stale PlayerPositionUpdatePacket for player {} with sequence {}", *packet.player_id, packet.state_sequence);
+    return;
+  }
+  if (player) {
+    player->set_position(packet.position.x, packet.position.y, packet.position.z);
   }
 
   event_observer_.OnPlayerPositionUpdate(*packet.player_id, packet.position.x, packet.position.y, packet.position.z);
@@ -521,6 +555,11 @@ void GameClient::OnDoDie(Packet p) {
   PlayerDeathInfoPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerDeathInfoPacket");
+    return;
+  }
 
   Player* player = player_manager_.GetPlayer(packet.player_id);
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
@@ -538,6 +577,11 @@ void GameClient::OnRespawn(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerRespawnInfoPacket");
+    return;
+  }
+
   Player* player = player_manager_.GetPlayer(packet.player_id);
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
@@ -553,6 +597,10 @@ void GameClient::OnCastSpell(Packet p) {
   CastSpellPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize CastSpellPacket");
+    return;
+  }
 
   if (!packet.caster_id) {
     SPDLOG_ERROR("CastSpellPacket Caster ID is null");
@@ -566,6 +614,10 @@ void GameClient::OnCastSpellOnTarget(Packet p) {
   CastSpellPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize CastSpellPacket");
+    return;
+  }
 
   if (!packet.caster_id || !packet.target_id) {
     SPDLOG_ERROR("Invalid CastSpellOnTarget packet. No caster or target id.");
@@ -579,6 +631,10 @@ void GameClient::OnDropItem(Packet p) {
   DropItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize DropItemPacket");
+    return;
+  }
 
   if (!packet.player_id) {
     SPDLOG_ERROR("Invalid DropItem packet. No player id.");
@@ -592,6 +648,10 @@ void GameClient::OnTakeItem(Packet p) {
   TakeItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize TakeItemPacket");
+    return;
+  }
 
   if (!packet.player_id) {
     SPDLOG_ERROR("Invalid TakeItem packet. No player id.");
@@ -642,6 +702,10 @@ void GameClient::OnGiveItem(Packet p) {
   GiveItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize GiveItemPacket");
+    return;
+  }
 
   event_observer_.OnItemGiven(packet.player_id, packet.item_instance, packet.item_amount);
 }
@@ -650,6 +714,10 @@ void GameClient::OnEquipItem(Packet p) {
   EquipItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize EquipItemPacket");
+    return;
+  }
 
   event_observer_.OnItemEquipped(packet.player_id, packet.item_instance, packet.slot_id);
 }
@@ -658,6 +726,10 @@ void GameClient::OnUnequipItem(Packet p) {
   UnequipItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize UnequipItemPacket");
+    return;
+  }
 
   event_observer_.OnItemUnequipped(packet.player_id, packet.item_instance);
 }
@@ -666,6 +738,10 @@ void GameClient::OnRemoveItem(Packet p) {
   RemoveItemPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize RemoveItemPacket");
+    return;
+  }
 
   event_observer_.OnItemRemoved(packet.player_id, packet.item_instance, packet.item_amount);
 }
@@ -674,6 +750,10 @@ void GameClient::OnMessage(Packet p) {
   MessagePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize MessagePacket");
+    return;
+  }
 
   Player* sender = packet.sender ? player_manager_.GetPlayer(*packet.sender) : nullptr;
   std::string sender_name = sender ? sender->name() : "";
@@ -691,12 +771,20 @@ void GameClient::OnExistingPlayers(Packet p) {
   ExistingPlayersPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize ExistingPlayersPacket");
+    return;
+  }
 
   for (const auto& existing_player : packet.existing_players) {
     SPDLOG_INFO("ExistingPlayerPacket packet: {}", existing_player);
 
-    // Create Player object and populate it
-    Player* player = player_manager_.CreatePlayer(existing_player.player_id);
+    // Create or refresh the cached Player object.
+    Player* player = player_manager_.GetPlayer(existing_player.player_id);
+    if (!player) {
+      player = player_manager_.CreatePlayer(existing_player.player_id);
+    }
+    player->set_state_sequence(existing_player.state_sequence);
     player->set_name(existing_player.player_name);
     player->set_instance(existing_player.instance);
     player->set_name_color(existing_player.name_color_r, existing_player.name_color_g, existing_player.name_color_b);
@@ -710,6 +798,8 @@ void GameClient::OnExistingPlayers(Packet p) {
     player->set_equipped_belt(existing_player.equipped_belt_instance);
     player->set_equipped_ring_left(existing_player.equipped_ring_left_instance);
     player->set_equipped_ring_right(existing_player.equipped_ring_right_instance);
+    player->set_animation(existing_player.animation);
+    player->set_animation_name(existing_player.animation_name);
     player->set_body_model(existing_player.body_model);
     player->set_body_texture(existing_player.body_texture);
     player->set_head_model(existing_player.head_model);
@@ -783,6 +873,10 @@ void GameClient::OnPlayerSpawn(Packet p) {
   PlayerSpawnPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerSpawnPacket");
+    return;
+  }
 
   SPDLOG_INFO("PlayerSpawn packet: {}", packet);
 
@@ -822,6 +916,7 @@ void GameClient::OnPlayerSpawn(Packet p) {
 
   if (is_local_spawn) {
     auto& local_player = player_manager_.GetLocalPlayer();
+    local_player.set_state_sequence(packet.state_sequence);
     local_player.set_name(packet.player_name);
     local_player.set_position(packet.position.x, packet.position.y, packet.position.z);
     local_player.set_rotation(packet.normal);
@@ -835,6 +930,7 @@ void GameClient::OnPlayerSpawn(Packet p) {
     local_player.set_equipped_ring_left(packet.equipped_ring_left_instance);
     local_player.set_equipped_ring_right(packet.equipped_ring_right_instance);
     local_player.set_animation(packet.animation);
+    local_player.set_animation_name(packet.animation_name);
     local_player.set_body_model(packet.body_model);
     local_player.set_body_texture(packet.body_texture);
     local_player.set_head_model(packet.head_model);
@@ -879,6 +975,10 @@ void GameClient::OnPlayerSpawn(Packet p) {
   }
 
   const bool was_spawned = player->has_spawned();
+  if (!player->accept_state_sequence(packet.state_sequence)) {
+    SPDLOG_TRACE("Ignoring stale PlayerSpawnPacket for player {} with sequence {}", packet.player_id, packet.state_sequence);
+    return;
+  }
 
   player->set_name(packet.player_name);
   player->set_position(packet.position.x, packet.position.y, packet.position.z);
@@ -893,6 +993,7 @@ void GameClient::OnPlayerSpawn(Packet p) {
   player->set_equipped_ring_left(packet.equipped_ring_left_instance);
   player->set_equipped_ring_right(packet.equipped_ring_right_instance);
   player->set_animation(packet.animation);
+  player->set_animation_name(packet.animation_name);
   player->set_body_model(packet.body_model);
   player->set_body_texture(packet.body_texture);
   player->set_head_model(packet.head_model);
@@ -936,6 +1037,10 @@ void GameClient::OnJoinGame(Packet p) {
   JoinGamePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize JoinGamePacket");
+    return;
+  }
 
   SPDLOG_INFO("JoinGame packet: {}", packet);
 
@@ -965,6 +1070,8 @@ void GameClient::OnJoinGame(Packet p) {
   player->set_equipped_belt(packet.equipped_belt_instance);
   player->set_equipped_ring_left(packet.equipped_ring_left_instance);
   player->set_equipped_ring_right(packet.equipped_ring_right_instance);
+  player->set_animation(packet.animation);
+  player->set_animation_name(packet.animation_name);
   player->set_body_model(packet.body_model);
   player->set_body_texture(packet.body_texture);
   player->set_head_model(packet.head_model);
@@ -980,6 +1087,10 @@ void GameClient::OnPlayerNameUpdate(Packet p) {
   PlayerNameUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerNameUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerNameUpdatePacket: {}", packet);
 
@@ -999,6 +1110,10 @@ void GameClient::OnPlayerInstanceUpdate(Packet p) {
   PlayerInstanceUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerInstanceUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerInstanceUpdatePacket: {}", packet);
 
@@ -1018,6 +1133,10 @@ void GameClient::OnPlayerColorUpdate(Packet p) {
   PlayerColorUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerColorUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerColorUpdatePacket: {}", packet);
 
@@ -1037,6 +1156,10 @@ void GameClient::OnPlayerSkillWeaponUpdate(Packet p) {
   PlayerSkillWeaponUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerSkillWeaponUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerSkillWeaponUpdatePacket: {}", packet);
 
@@ -1056,6 +1179,10 @@ void GameClient::OnPlayerTalentUpdate(Packet p) {
   PlayerTalentUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerTalentUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerTalentUpdatePacket: {}", packet);
 
@@ -1075,6 +1202,10 @@ void GameClient::OnPlayerVisualUpdate(Packet p) {
   PlayerVisualUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerVisualUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerVisualUpdatePacket: {}", packet);
 
@@ -1097,6 +1228,10 @@ void GameClient::OnPlayerFatnessUpdate(Packet p) {
   PlayerFatnessUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerFatnessUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerFatnessUpdatePacket: {}", packet);
 
@@ -1116,6 +1251,10 @@ void GameClient::OnPlayerScaleUpdate(Packet p) {
   PlayerScaleUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerScaleUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerScaleUpdatePacket: {}", packet);
 
@@ -1135,6 +1274,10 @@ void GameClient::OnPlayerOverlayUpdate(Packet p) {
   PlayerOverlayUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerOverlayUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerOverlayUpdatePacket: {}", packet);
 
@@ -1158,6 +1301,10 @@ void GameClient::OnPlayerAnimationPlay(Packet p) {
   PlayerAnimationPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerAnimationPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerAnimationPacket: {}", packet);
 
@@ -1168,6 +1315,10 @@ void GameClient::OnPlayerAnimationStop(Packet p) {
   PlayerAnimationStopPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerAnimationStopPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerAnimationStopPacket: {}", packet);
 
@@ -1178,6 +1329,10 @@ void GameClient::OnPlayerFaceAnimationPlay(Packet p) {
   PlayerFaceAnimationPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerFaceAnimationPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerFaceAnimationPacket: {}", packet);
 
@@ -1188,6 +1343,10 @@ void GameClient::OnPlayerFaceAnimationStop(Packet p) {
   PlayerFaceAnimationStopPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerFaceAnimationStopPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerFaceAnimationStopPacket: {}", packet);
 
@@ -1198,6 +1357,10 @@ void GameClient::OnPlayerGesticulation(Packet p) {
   PlayerGesticulationPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerGesticulationPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerGesticulationPacket: {}", packet);
 
@@ -1208,6 +1371,10 @@ void GameClient::OnPlayerAttributeUpdate(Packet p) {
   PlayerAttributeUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerAttributeUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerAttributeUpdatePacket: {}", packet);
 
@@ -1260,6 +1427,10 @@ void GameClient::OnPlayerAttributeSnapshot(Packet p) {
   PlayerAttributeSnapshotPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerAttributeSnapshotPacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerAttributeSnapshotPacket: {}", packet);
 
@@ -1297,6 +1468,10 @@ void GameClient::OnPlayerWorldUpdate(Packet p) {
   PlayerWorldUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerWorldUpdatePacket");
+    return;
+  }
 
   SPDLOG_DEBUG("PlayerWorldUpdatePacket: {}", packet);
 
@@ -1351,6 +1526,10 @@ void GameClient::OnGameInfo(Packet p) {
   GameInfoPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize GameInfoPacket");
+    return;
+  }
 
   event_observer_.OnGameInfoReceived(packet.raw_game_time, packet.day_length_ms, packet.flags);
 }
@@ -1359,6 +1538,10 @@ void GameClient::OnSkySettings(Packet p) {
   SkySettingsPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize SkySettingsPacket");
+    return;
+  }
 
   event_observer_.OnSkySettingsReceived(packet.flags, packet.weather_type, packet.rain_start_hour, packet.rain_start_min,
                                         packet.rain_stop_hour, packet.rain_stop_min, packet.wind_scale, packet.dont_rain != 0,
@@ -1369,6 +1552,10 @@ void GameClient::OnLeftGame(Packet p) {
   DisconnectionInfoPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize DisconnectionInfoPacket");
+    return;
+  }
 
   if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.disconnected_id) {
     auto& local_player = player_manager_.GetLocalPlayer();

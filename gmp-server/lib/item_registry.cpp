@@ -217,11 +217,6 @@ bool ItemRegistry::Load(const std::filesystem::path& path) {
       throw std::runtime_error("root must be an object");
     }
 
-    const auto schema = ReadOptionalInt32(root, "schema", "root").value_or(1);
-    if (schema != 1) {
-      throw std::runtime_error("unsupported schema version " + std::to_string(schema));
-    }
-
     const Json& items = RequireField(root, "items", "root");
     if (!items.is_array()) {
       throw std::runtime_error("root field 'items' must be an array");

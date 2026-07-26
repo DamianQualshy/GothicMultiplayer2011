@@ -33,6 +33,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <string>
 
 #include "ZenGin/zGothicAPI.h"
 #include "players.hpp"
@@ -84,6 +85,9 @@ public:
   void SetName(const char* Name);
   void SetNameColor(const zCOLOR& color);
   const zCOLOR& GetNameColor() const { return name_color_; }
+  void StopPositionInterpolation();
+  bool MarkAnimationHandled(const std::string& animation_name);
+  void ClearHandledAnimation();
   void SetNpc(oCNpc* npc);
   bool ReplaceNpcInstance(int instance_id);
   void SetNpcType(NpcType Type);
@@ -99,4 +103,5 @@ private:
   CInterpolatePos* InterPos;
   int ScriptInstance;
   zCOLOR name_color_{255, 255, 255, 255};
+  std::string last_handled_animation_name_;
 };

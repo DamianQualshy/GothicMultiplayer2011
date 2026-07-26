@@ -179,6 +179,7 @@ private:
   std::string server_ip_;
   std::uint32_t server_port_{0};
   std::uint32_t max_slots_{0};
+  std::uint32_t outgoing_state_sequence_{0};
   bool connection_lost_{false};
   bool is_in_game_{false};
 

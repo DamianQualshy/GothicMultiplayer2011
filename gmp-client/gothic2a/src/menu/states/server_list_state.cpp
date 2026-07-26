@@ -44,6 +44,7 @@ ServerListState::ServerListState(MenuContext& context)
     : context_(context),
       shouldReturnToMainMenu_(false),
       shouldConnectToServer_(false),
+      shouldExitMenuAfterConnection_(false),
       enteringCustomIP_(false),
       connectionAttemptInProgress_(false) {
 }
@@ -84,7 +85,7 @@ void ServerListState::OnExit() {
   SPDLOG_INFO("Exiting server list state");
 
   // Restore logo (unless we're connecting to a server)
-  if (context_.logoView && !shouldConnectToServer_) {
+  if (context_.logoView && !shouldExitMenuAfterConnection_) {
     context_.screen->InsertItem(context_.logoView);
   }
 }
@@ -118,7 +119,7 @@ StateResult ServerListState::Update() {
         ScheduleGameSetup();
         connectionAttemptInProgress_ = false;
         // Trigger transition to ExitMenuState
-        shouldConnectToServer_ = true;  // Reuse flag for transition
+        shouldExitMenuAfterConnection_ = true;
       }
       return StateResult::Continue;
     } else if (connState == gmp::client::GameClient::ConnectionState::Failed) {
@@ -152,8 +153,7 @@ MenuState* ServerListState::CheckTransition() {
     return new MainMenuLoopState(context_);
   }
 
-  // If we successfully connected, transition to exit state for cleanup
-  if (shouldConnectToServer_) {
+  if (shouldExitMenuAfterConnection_) {
     return new ExitMenuState(context_);
   }
 

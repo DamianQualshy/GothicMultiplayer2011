@@ -1611,7 +1611,7 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
   }
 
   const auto& nrot = player_opt->get().state.nrot;
-  const float angle_radians = std::atan2(-nrot.z, nrot.x);
+  const float angle_radians = std::atan2(nrot.x, nrot.z);
   const float angle_degrees = glm::degrees(angle_radians);
   sol::state_view lua(ts);
   return sol::make_object(lua, angle_degrees);

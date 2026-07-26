@@ -32,25 +32,62 @@ SOFTWARE.
 
 #include "CInterpolatePos.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include "CIngame.h"
 
 // Externs
 extern CIngame* global_ingame;
 
+namespace {
+constexpr float kInterpolationSnapDistance = 1.0f;
+constexpr float kInterpolationTeleportDistance = 400.0f;
+
+float DistanceBetween(const zVEC3& from, const zVEC3& to) {
+  const float x = to[VX] - from[VX];
+  const float y = to[VY] - from[VY];
+  const float z = to[VZ] - from[VZ];
+  return std::sqrt(x * x + y * y + z * z);
+}
+
+float InterpolationSpeedForDistance(float distance) {
+  if (distance < 70.0f) {
+    return 1200.0f;
+  }
+  if (distance < 100.0f) {
+    return 1600.0f;
+  }
+  if (distance < 200.0f) {
+    return 2200.0f;
+  }
+  if (distance < 300.0f) {
+    return 3000.0f;
+  }
+  return 3800.0f;
+}
+}  // namespace
+
 CInterpolatePos::CInterpolatePos(Gothic2APlayer* Player) {
   InterpolatingPlayer = Player;
   IsInterpolating = false;
-  global_ingame->Interpolation.push_back(this);
+  if (global_ingame) {
+    global_ingame->Interpolation.push_back(this);
+  }
   InterCount = 0;
+  LastUpdate = std::chrono::steady_clock::now();
 };
 
 CInterpolatePos::~CInterpolatePos() {
   IsInterpolating = false;
   InterCount = 0;
   InterpolatingPlayer = NULL;
-  for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
-    if (global_ingame->Interpolation[i] == this) {
-      global_ingame->Interpolation.erase(global_ingame->Interpolation.begin() + i);
+  if (global_ingame) {
+    for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
+      if (global_ingame->Interpolation[i] == this) {
+        global_ingame->Interpolation.erase(global_ingame->Interpolation.begin() + i);
+        break;
+      }
     }
   }
 };
@@ -58,88 +95,103 @@ CInterpolatePos::~CInterpolatePos() {
 void CInterpolatePos::DoInterpolate() {
   if (!IsInterpolating)
     return;
-  // trzeba bedzie wymyslic jakis lepszy pomysl na szybkosc interpolacji
-  if (IsDistanceSmallerThanRadius(70.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 0.5f);
-  else if (IsDistanceSmallerThanRadius(100.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 1);
-  else if (IsDistanceSmallerThanRadius(200.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 2, true);
-  else if (IsDistanceSmallerThanRadius(300.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 3, true);
-  else if (IsDistanceSmallerThanRadius(400.0f, InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo))
-    Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], 4, true);
-};
 
-void CInterpolatePos::Interpolate(float x, float y, float z, float value, bool NoCollideMode) {
-  if (!IsInterpolating)
-    return;
-  zVEC3 Pos = InterpolatingPlayer->npc->GetPositionWorld();
-  float PosX = Pos[VX];
-  float PosY = Pos[VY];
-  float PosZ = Pos[VZ];
-  if (PosX != x) {
-    if (x > PosX)
-      PosX += value;
-    if (x < PosX)
-      PosX -= value;
-  }
-  if (PosY != y) {
-    if (y > PosY)
-      PosY += value;
-    if (y < PosY)
-      PosY -= value;
-  }
-  if (PosZ != z) {
-    if (z > PosZ)
-      PosZ += value;
-    if (z < PosZ)
-      PosZ -= value;
-  }
-  Pos[VX] = PosX;
-  Pos[VY] = PosY;
-  Pos[VZ] = PosZ;
-  if (!NoCollideMode)
-    InterpolatingPlayer->npc->SetPositionWorld(Pos);
-  else
-    InterpolatingPlayer->SetPosition(Pos);
-  if (IsDistanceSmallerThanRadius(50.0f, PosX, PosY, PosZ, x, y, z)) {
+  if (!InterpolatingPlayer || !InterpolatingPlayer->npc) {
     IsInterpolating = false;
     InterCount = 0;
+    return;
   }
+
+  const float distance = DistanceBetween(InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo);
+  if (distance <= kInterpolationSnapDistance) {
+    InterpolatingPlayer->SetPosition(InterpolatingTo);
+    StopInterpolation();
+    return;
+  }
+
+  if (distance > kInterpolationTeleportDistance) {
+    InterpolatingPlayer->SetPosition(InterpolatingTo);
+    StopInterpolation();
+    return;
+  }
+
+  Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], InterpolationSpeedForDistance(distance));
+};
+
+void CInterpolatePos::Interpolate(float x, float y, float z, float value) {
+  if (!IsInterpolating)
+    return;
+
+  if (!InterpolatingPlayer || !InterpolatingPlayer->npc) {
+    IsInterpolating = false;
+    InterCount = 0;
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  const float delta_seconds =
+      std::clamp(std::chrono::duration<float>(now - LastUpdate).count(), 0.0f, 0.1f);
+  LastUpdate = now;
+
+  zVEC3 Pos = InterpolatingPlayer->npc->GetPositionWorld();
+  const float delta_x = x - Pos[VX];
+  const float delta_y = y - Pos[VY];
+  const float delta_z = z - Pos[VZ];
+  const float distance = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
+  const float max_step = value * delta_seconds;
+
+  zVEC3 target(x, y, z);
+  if (distance <= kInterpolationSnapDistance || distance <= max_step) {
+    InterpolatingPlayer->SetPosition(target);
+    StopInterpolation();
+    return;
+  } else if (distance > 0.0f) {
+    const float ratio = max_step / distance;
+    Pos[VX] += delta_x * ratio;
+    Pos[VY] += delta_y * ratio;
+    Pos[VZ] += delta_z * ratio;
+  }
+
+  if (IsDistanceSmallerThanRadius(kInterpolationSnapDistance, Pos, target)) {
+    InterpolatingPlayer->SetPosition(target);
+    StopInterpolation();
+    return;
+  }
+
+  InterpolatingPlayer->SetPosition(Pos);
   InterCount++;
   if (InterCount > 3000) {
     InterpolatingPlayer->SetPosition(x, y, z);
-    InterCount = 0;
-    IsInterpolating = false;
+    StopInterpolation();
   }
 };
 
 bool CInterpolatePos::IsDistanceSmallerThanRadius(float radius, float bX, float bY, float bZ, float rX, float rY, float rZ) {
-  float vector[3];
-  vector[0] = rX - bX;
-  vector[1] = rY - bY;
-  vector[2] = rZ - bZ;
-  if ((vector[0] < radius && vector[0] > -radius) && (vector[1] < radius && vector[1] > -radius) && (vector[2] < radius && vector[2] > -radius)) {
-    return true;
-  } else
-    return false;
+  const float x = rX - bX;
+  const float y = rY - bY;
+  const float z = rZ - bZ;
+  return (x * x + y * y + z * z) < (radius * radius);
 };
 
 bool CInterpolatePos::IsDistanceSmallerThanRadius(float radius, const zVEC3& Pos, const zVEC3& Pos1) {
-  float vector[3];
-  vector[0] = Pos1[VX] - Pos[VX];
-  vector[1] = Pos1[VY] - Pos[VY];
-  vector[2] = Pos1[VZ] - Pos[VZ];
-  if ((vector[0] < radius && vector[0] > -radius) && (vector[1] < radius && vector[1] > -radius) && (vector[2] < radius && vector[2] > -radius)) {
-    return true;
-  } else
-    return false;
+  const float x = Pos1[VX] - Pos[VX];
+  const float y = Pos1[VY] - Pos[VY];
+  const float z = Pos1[VZ] - Pos[VZ];
+  return (x * x + y * y + z * z) < (radius * radius);
 };
 
+void CInterpolatePos::StopInterpolation() {
+  IsInterpolating = false;
+  InterCount = 0;
+  LastUpdate = std::chrono::steady_clock::now();
+}
+
 void CInterpolatePos::UpdateInterpolation(float x, float y, float z) {
-  if (!IsInterpolating)
+  if (!IsInterpolating) {
     IsInterpolating = true;
+    InterCount = 0;
+    LastUpdate = std::chrono::steady_clock::now();
+  }
   InterpolatingTo[VX] = x;
   InterpolatingTo[VY] = y;
   InterpolatingTo[VZ] = z;

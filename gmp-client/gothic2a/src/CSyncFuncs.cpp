@@ -36,6 +36,9 @@ SOFTWARE.
 // Includes
 #include "CSyncFuncs.h"
 
+#include <cstdio>
+#include <cstring>
+
 #include "CIngame.h"
 #include "random_utils.h"
 
@@ -53,14 +56,16 @@ constexpr const char* UnDrawSoundWo = "UNDRAWSOUND_WO.WAV";
 void CSyncFuncs::RunSpellLogic(short SpellId, oCNpc* Caster, oCNpc* Target) {
   switch (SpellId) {
     case SPL_SLEEP:
-      if (!Target)
+      if (!Caster || !Target)
         return;
-      zCParser::GetParser()->SetInstance("SELF", Caster);
-      zCParser::GetParser()->SetInstance("OTHER", Target);
-      zCParser::GetParser()->CallFunc(zSTRING("SPELL_LOGIC_SLEEP"));
+      if (auto* parser = zCParser::GetParser()) {
+        parser->SetInstance("SELF", Caster);
+        parser->SetInstance("OTHER", Target);
+        parser->CallFunc(zSTRING("SPELL_LOGIC_SLEEP"));
+      }
       break;
     case SPL_SHRINK: {
-      if (!Target)
+      if (!Target || !global_ingame || !global_ingame->Shrinker)
         return;
       if (!global_ingame->Shrinker->IsShrinked(Target))
         global_ingame->Shrinker->ShrinkNpc(Target);
@@ -75,17 +80,22 @@ void CSyncFuncs::RunSpellLogic(short SpellId, oCNpc* Caster, oCNpc* Target) {
 void CSyncFuncs::RunSpellScript(const char* SpellName, oCNpc* Caster, oCNpc* Target) {
   if (!Caster || !SpellName)
     return;
+  zCParser* parser = zCParser::GetParser();
+  if (!parser) {
+    return;
+  }
+
   char buffer[128];
-  zCParser::GetParser()->SetInstance("SELF", Caster);
+  parser->SetInstance("SELF", Caster);
   if (!Target)
-    zCParser::GetParser()->SetInstance("OTHER", 0);
+    parser->SetInstance("OTHER", 0);
   else
-    zCParser::GetParser()->SetInstance("OTHER", Target);
-  sprintf(buffer, "SPELL_CAST_%s", SpellName);
+    parser->SetInstance("OTHER", Target);
+  std::snprintf(buffer, sizeof(buffer), "SPELL_CAST_%s", SpellName);
   zSTRING spellCastTemp = buffer;
   spellCastTemp.Upper();
-  if (memcmp(buffer, "SPELL_CAST_TRANSFORM", 19) != 0)
-    zCParser::GetParser()->CallFunc(spellCastTemp);
+  if (std::strncmp(buffer, "SPELL_CAST_TRANSFORM", 19) != 0)
+    parser->CallFunc(spellCastTemp);
 };
 
 // Sprawdzanie czy wielkosc pozycji nie jest wieksza niz dopuszcza radius, risen chcial to koniecznie
@@ -102,6 +112,10 @@ bool CSyncFuncs::GetVectorSurfaceSphere(float radius, float bX, float bY, float 
 
 // Sprawdzanie czy uzywany przedmiot daje jakies specjalne efekty
 void CSyncFuncs::CheckForSpecialEffects(oCItem* Item, oCNpc* Npc) {
+  if (!Item || !Npc) {
+    return;
+  }
+
   if (Item->GetInstance() == 6126)
     Npc->ApplyTimedOverlayMds(SPRINT, 120000);
   if (Item->GetInstance() == 7017)
@@ -112,6 +126,10 @@ void CSyncFuncs::CheckForSpecialEffects(oCItem* Item, oCNpc* Npc) {
 
 // Odgrywanie dzwieku przy wyciaganiu broni
 void CSyncFuncs::PlayDrawSound(oCItem* Item, oCNpc* Npc, bool Draw) {
+  if (!Item || !Npc || !zsound) {
+    return;
+  }
+
   if (oCItem::GetCategory(Item) != 1 || Item->mainflag != 2) {
     return;
   }

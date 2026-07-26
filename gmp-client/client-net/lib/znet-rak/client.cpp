@@ -61,6 +61,8 @@ namespace {
       return ::RELIABLE;
     case RELIABLE_ORDERED:
       return ::RELIABLE_ORDERED;
+    case UNRELIABLE_SEQUENCED:
+      return ::UNRELIABLE_SEQUENCED;
     case UNRELIABLE:
       return ::UNRELIABLE;
   }
@@ -115,10 +117,11 @@ bool RakNetClient::IsConnected() const {
 }
 
 bool RakNetClient::SendPacket(unsigned char* data, std::uint32_t size, PacketReliability packetReliability,
-                              PacketPriority packetPriority) {
+                              PacketPriority packetPriority, std::uint32_t channel) {
   // TODO: VALIDATION AND ENCRYPTION.
+  const auto ordering_channel = static_cast<char>(std::min<std::uint32_t>(channel, 31));
   peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority),
-              ToRakNetPacketReliability(packetReliability), 0, serverAddress_, false);
+              ToRakNetPacketReliability(packetReliability), ordering_channel, serverAddress_, false);
   return true;
 }
 

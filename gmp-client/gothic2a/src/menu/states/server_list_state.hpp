@@ -46,6 +46,7 @@ private:
 
   bool shouldReturnToMainMenu_;
   bool shouldConnectToServer_;
+  bool shouldExitMenuAfterConnection_;
   bool enteringCustomIP_;
   bool connectionAttemptInProgress_;
   std::chrono::steady_clock::time_point connectionStartTime_;

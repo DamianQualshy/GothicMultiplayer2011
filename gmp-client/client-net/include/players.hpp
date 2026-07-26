@@ -333,6 +333,13 @@ public:
     animation_ = anim;
   }
 
+  const std::string& animation_name() const {
+    return animation_name_;
+  }
+  void set_animation_name(const std::string& animation_name) {
+    animation_name_ = animation_name;
+  }
+
   std::uint8_t weapon_mode() const {
     return weapon_mode_;
   }
@@ -359,6 +366,19 @@ public:
   }
   void set_head_direction(std::uint8_t dir) {
     head_direction_ = dir;
+  }
+
+  void set_state_sequence(std::uint32_t sequence) {
+    state_sequence_ = sequence;
+    has_state_sequence_ = true;
+  }
+
+  bool accept_state_sequence(std::uint32_t sequence) {
+    if (!has_state_sequence_ || IsStateSequenceNewer(sequence, state_sequence_)) {
+      set_state_sequence(sequence);
+      return true;
+    }
+    return false;
   }
 
   bool is_enabled() const {
@@ -441,14 +461,23 @@ protected:
 
   // State
   std::uint16_t animation_{0};
+  std::string animation_name_;
   std::uint8_t weapon_mode_{0};
   std::uint8_t active_spell_nr_{0};
   std::uint16_t active_spell_instance_{0};
   std::uint8_t head_direction_{0};
+  std::uint32_t state_sequence_{0};
+  bool has_state_sequence_{false};
   bool enabled_{false};
   std::int16_t update_health_packet_{0};
   bool has_spawned_{false};
   bool has_joined_{false};
+
+private:
+  static bool IsStateSequenceNewer(std::uint32_t sequence, std::uint32_t previous_sequence) {
+    const auto delta = sequence - previous_sequence;
+    return delta != 0 && delta < 0x80000000u;
+  }
 };
 
 class LocalPlayer : public Player {

@@ -26,7 +26,7 @@ SOFTWARE.
 #pragma once
 
 namespace Net {
-enum PacketReliability { UNRELIABLE, RELIABLE, RELIABLE_ORDERED };
+enum PacketReliability { UNRELIABLE, UNRELIABLE_SEQUENCED, RELIABLE, RELIABLE_ORDERED };
 
 enum PacketPriority {
   IMMEDIATE_PRIORITY,

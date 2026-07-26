@@ -35,6 +35,8 @@ SOFTWARE.
 
 #pragma once
 
+#include <chrono>
+
 #include "ZenGin/zGothicAPI.h"
 #include "gothic2a_player.hpp"
 
@@ -45,12 +47,13 @@ private:
   Gothic2APlayer* InterpolatingPlayer;
   zVEC3 InterpolatingTo;
   int InterCount;
+  std::chrono::steady_clock::time_point LastUpdate;
 
 public:
   bool IsInterpolating;
 
 private:
-  void Interpolate(float x, float y, float z, float value, bool NoCollideMode = false);
+  void Interpolate(float x, float y, float z, float value);
 
 public:
   CInterpolatePos(Gothic2APlayer* Player);
@@ -58,5 +61,6 @@ public:
   void DoInterpolate();
   bool IsDistanceSmallerThanRadius(float radius, float bX, float bY, float bZ, float rX, float rY, float rZ);
   bool IsDistanceSmallerThanRadius(float radius, const zVEC3& Pos, const zVEC3& Pos1);
+  void StopInterpolation();
   void UpdateInterpolation(float x, float y, float z);
 };

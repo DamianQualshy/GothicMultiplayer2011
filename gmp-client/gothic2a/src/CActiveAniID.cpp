@@ -49,19 +49,30 @@ void CActiveAniID::AddAni(int id) {
 }
 
 void CActiveAniID::ValidateStack() {
-  if (this->animation_stack.size() > 100)
-    for (int i = 0; i < 100; i++) this->animation_stack.pop();
-func_validate_ani_start:
-  if (!this->animation_stack.empty())
-    if (!player->GetModel()->IsAnimationActive(player->GetModel()->GetAniFromAniID(this->animation_stack.top())->GetAniName())) {
+  while (this->animation_stack.size() > 100) {
+    this->animation_stack.pop();
+  }
+
+  zCModel* model = player ? player->GetModel() : nullptr;
+  if (!model) {
+    while (!this->animation_stack.empty()) {
       this->animation_stack.pop();
-      goto func_validate_ani_start;
     }
+    return;
+  }
+
+  while (!this->animation_stack.empty()) {
+    zCModelAni* animation = model->GetAniFromAniID(this->animation_stack.top());
+    if (animation && model->IsAnimationActive(animation->GetAniName())) {
+      return;
+    }
+    this->animation_stack.pop();
+  }
 }
 
 int CActiveAniID::GetAniID() {
   ValidateStack();
   if (this->animation_stack.empty())
-    return 265;
+    return -1;
   return this->animation_stack.top();
 }

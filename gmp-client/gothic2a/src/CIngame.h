@@ -25,6 +25,7 @@ SOFTWARE.
 
 #pragma once
 
+#include <chrono>
 #include <ctime>
 
 #include "CChat.h"
@@ -43,7 +44,6 @@ public:
   void HandleInput(void);
   void CheckForUpdate(void);
   void CheckForHPDiff(void);
-  bool ValidatePlayerForHPDiff(Gothic2APlayer*);
   void CheckSwampLights();
   bool IgnoreFirstSync;
   CURRENT_MAP RecognizedMap;
@@ -56,6 +56,6 @@ public:
 private:
   zSTRING szPing;
   bool SwampLightsOn;
-  clock_t last_player_update;
+  std::chrono::steady_clock::time_point last_player_update;
   CChat* chat_interface;
 };

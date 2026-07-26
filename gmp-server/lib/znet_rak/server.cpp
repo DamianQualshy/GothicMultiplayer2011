@@ -55,6 +55,8 @@ namespace {
       return ::RELIABLE;
     case RELIABLE_ORDERED:
       return ::RELIABLE_ORDERED;
+    case UNRELIABLE_SEQUENCED:
+      return ::UNRELIABLE_SEQUENCED;
     case UNRELIABLE:
       return ::UNRELIABLE;
   }

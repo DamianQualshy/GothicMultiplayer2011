@@ -51,6 +51,7 @@ struct Response;
 }  // namespace httplib
 
 #include "Script.h"
+#include "animation_registry.h"
 #include "ban_manager.h"
 #include "client_resource_packager.h"
 #include "common_structs.h"
@@ -267,6 +268,7 @@ private:
   int serverPort;
   unsigned short maxConnections;
   PlayerManager player_manager_;
+  AnimationRegistry animation_registry_;
   ItemRegistry item_registry_;
   ItemGroundManager item_ground_manager_;
   bool allow_modification = false;

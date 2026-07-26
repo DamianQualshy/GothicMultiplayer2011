@@ -78,8 +78,8 @@ public:
   virtual void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) {}
   virtual void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) {}
   virtual void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) {}
-  virtual void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
-  virtual void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) {}
+  virtual void OnPlayerAnimationStop(std::uint64_t player_id, std::int16_t animation) {}
   virtual void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
   virtual void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) {}
   virtual void OnPlayerGesticulation(std::uint64_t player_id) {}

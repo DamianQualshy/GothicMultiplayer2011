@@ -25,14 +25,18 @@ SOFTWARE.
 
 #pragma once
 
+#include <bitsery/traits/string.h>
 #include <fmt/ostream.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <glm/glm.hpp>
 #include <ostream>
 #include <string>
 
 using PlayerID = std::uint32_t;
+
+constexpr std::size_t kMaxPlayerAnimationNameLength = 128;
 
 enum PlayerAttributeId : std::uint8_t {
   ATTR_STRENGTH = 0,
@@ -49,6 +53,7 @@ enum PlayerAttributeId : std::uint8_t {
 
 struct PlayerState {
   glm::vec3 position{0.0f};
+  // Gothic forward/at vector on the horizontal plane.
   glm::vec3 nrot{0.0f};
   std::int16_t left_hand_item_instance{0};
   std::int16_t right_hand_item_instance{0};
@@ -59,7 +64,8 @@ struct PlayerState {
   std::int16_t equipped_belt_instance{0};
   std::int16_t equipped_ring_left_instance{0};
   std::int16_t equipped_ring_right_instance{0};
-  std::int16_t animation{0};
+  std::int16_t animation{-1};
+  std::string animation_name;
   std::int16_t health_points{0};
   std::int16_t mana_points{0};
   std::uint8_t weapon_mode{0};
@@ -84,6 +90,7 @@ void serialize(S& s, PlayerState& packet) {
   s.value2b(packet.equipped_ring_left_instance);
   s.value2b(packet.equipped_ring_right_instance);
   s.value2b(packet.animation);
+  s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.value2b(packet.health_points);
   s.value2b(packet.mana_points);
   s.value1b(packet.weapon_mode);
@@ -97,7 +104,7 @@ void serialize(S& s, PlayerState& packet) {
 inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_state) {
   os << "PlayerState {"
      << " position: (" << player_state.position.x << ", " << player_state.position.y << ", " << player_state.position.z << "),"
-     << " normal_rotation: (" << player_state.nrot.x << ", " << player_state.nrot.y << ", " << player_state.nrot.z << "),"
+     << " forward: (" << player_state.nrot.x << ", " << player_state.nrot.y << ", " << player_state.nrot.z << "),"
      << " left_hand_item_instance: " << player_state.left_hand_item_instance << ","
      << " right_hand_item_instance: " << player_state.right_hand_item_instance << ","
      << " equipped_armor_instance: " << player_state.equipped_armor_instance << ","
@@ -108,6 +115,7 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_stat
      << " equipped_ring_left_instance: " << player_state.equipped_ring_left_instance << ","
      << " equipped_ring_right_instance: " << player_state.equipped_ring_right_instance << ","
      << " animation: " << player_state.animation << ","
+     << " animation_name: " << player_state.animation_name << ","
      << " health_points: " << player_state.health_points << ","
      << " mana_points: " << player_state.mana_points << ","
      << " weapon_mode: " << static_cast<int>(player_state.weapon_mode) << ","

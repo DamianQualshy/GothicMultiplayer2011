@@ -110,6 +110,7 @@ public:
     std::time_t tod;  // time of death
     std::optional<std::int32_t> respawn_time_ms;
     PlayerState state;
+    std::uint32_t state_sequence{0};
   };
 
   PlayerManager() = default;

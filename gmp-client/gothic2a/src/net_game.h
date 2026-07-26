@@ -128,8 +128,8 @@ public:
   void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) override;
   void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) override;
   void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) override;
-  void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
-  void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) override;
+  void OnPlayerAnimationStop(std::uint64_t player_id, std::int16_t animation) override;
   void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
   void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) override;
   void OnPlayerGesticulation(std::uint64_t player_id) override;
@@ -165,12 +165,20 @@ private:
     int min;
   };
 
+  struct PendingLocalSpawnPosition {
+    std::uint64_t player_id;
+    zVEC3 position;
+    int remaining_frames;
+  };
+
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);
+  void ApplyPendingLocalSpawnPosition();
   void UpdateClientEventState();
 
   std::optional<GameTimeSnapshot> last_game_time_;
   std::optional<int> last_ping_;
+  std::optional<PendingLocalSpawnPosition> pending_local_spawn_position_;
   std::string last_world_name_;
   float day_length_ms_{0.0f};
 

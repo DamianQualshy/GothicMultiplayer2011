@@ -27,11 +27,16 @@ SOFTWARE.
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
+#include <system_error>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -67,9 +72,34 @@ std::string BuildItemsOutputPath() {
   return (std::filesystem::path("Multiplayer") / "items.json").string();
 }
 
+std::string BuildAnimsOutputPath() {
+  return (std::filesystem::path("Multiplayer") / "anims.json").string();
+}
+
 std::string ToString(const Gothic_II_Addon::zSTRING& value) {
   const char* text = value.ToChar();
   return text ? std::string(text) : std::string{};
+}
+
+std::string ToUpperAscii(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+  return value;
+}
+
+std::string NormalizePathSeparators(std::string value) {
+  std::replace(value.begin(), value.end(), '/', '\\');
+  return value;
+}
+
+std::string TrimLeadingDirectorySeparators(std::string value) {
+  while (!value.empty() && (value.front() == '\\' || value.front() == '/')) {
+    value.erase(value.begin());
+  }
+  return value;
+}
+
+bool HasMdsExtension(const std::string& path) {
+  return ToUpperAscii(std::filesystem::path(path).extension().string()) == ".MDS";
 }
 
 std::optional<std::string> ResolveParserSymbolName(Gothic_II_Addon::zCParser* parser, int index) {
@@ -423,7 +453,6 @@ bool ExportItemsToJson(std::string& output_path) {
   }
 
   nlohmann::ordered_json root;
-  root["schema"] = 1;
   root["items"] = nlohmann::ordered_json::array();
   for (nlohmann::ordered_json& item_json : items_json) {
     root["items"].push_back(std::move(item_json));
@@ -444,6 +473,429 @@ bool ExportItemsToJson(std::string& output_path) {
   return true;
 }
 
+struct RuntimeAnimationEntry {
+  std::string name;
+  int id{0};
+};
+
+struct RuntimeMdsEntry {
+  std::string name;
+  std::vector<RuntimeAnimationEntry> animations;
+};
+
+struct RuntimeAnimationRegistry {
+  std::vector<RuntimeMdsEntry> mds;
+  std::size_t prototype_count{0};
+};
+
+struct ForcedRuntimeMdsLoads {
+  std::vector<Gothic_II_Addon::zCModelPrototype*> references;
+  std::size_t discovered_count{0};
+  std::size_t loaded_count{0};
+  std::size_t failed_count{0};
+};
+
+class ScopedGothicCurrentDirectory {
+public:
+  ScopedGothicCurrentDirectory() {
+    saved_directory_.SetCurrentDir();
+  }
+
+  ~ScopedGothicCurrentDirectory() {
+    saved_directory_.ChangeDir(false);
+  }
+
+private:
+  Gothic_II_Addon::zFILE_FILE saved_directory_;
+};
+
+std::string GetRuntimeMdsName(Gothic_II_Addon::zCModelPrototype* prototype) {
+  if (!prototype) {
+    return {};
+  }
+
+  std::string name = ToString(prototype->GetModelProtoFileName());
+  if (name.empty()) {
+    name = ToString(prototype->modelProtoFileName);
+  }
+  if (name.empty()) {
+    name = ToString(prototype->modelProtoName);
+  }
+  if (name.empty()) {
+    return {};
+  }
+
+  const std::filesystem::path path(name);
+  const std::string filename = path.filename().string();
+  return ToUpperAscii(filename.empty() ? name : filename);
+}
+
+std::string GetMdsStem(std::string mds_name) {
+  mds_name = NormalizePathSeparators(std::move(mds_name));
+  return ToUpperAscii(std::filesystem::path(mds_name).stem().string());
+}
+
+std::string NormalizeMdsCandidatePath(std::string path) {
+  path = NormalizePathSeparators(std::move(path));
+  while (path.starts_with(".\\")) {
+    path.erase(0, 2);
+  }
+  return ToUpperAscii(TrimLeadingDirectorySeparators(std::move(path)));
+}
+
+void AddMdsCandidate(std::vector<std::string>& candidates, std::unordered_set<std::string>& seen_files, std::string path) {
+  path = NormalizeMdsCandidatePath(std::move(path));
+  if (path.empty() || !HasMdsExtension(path)) {
+    return;
+  }
+
+  const std::string filename = std::filesystem::path(path).filename().string();
+  if (filename.empty()) {
+    return;
+  }
+
+  if (seen_files.insert(ToUpperAscii(filename)).second) {
+    candidates.push_back(std::move(path));
+  }
+}
+
+void AddPhysicalMdsRoot(std::vector<std::filesystem::path>& roots, std::unordered_set<std::string>& seen_roots,
+                        const std::filesystem::path& root) {
+  std::error_code error;
+  if (!std::filesystem::exists(root, error) || !std::filesystem::is_directory(root, error)) {
+    return;
+  }
+
+  std::filesystem::path absolute_root = std::filesystem::absolute(root, error);
+  if (error) {
+    absolute_root = root;
+  }
+  absolute_root = absolute_root.lexically_normal();
+  if (seen_roots.insert(ToUpperAscii(absolute_root.string())).second) {
+    roots.push_back(std::move(absolute_root));
+  }
+}
+
+void CollectMdsCandidatesFromPhysicalFilesystem(std::vector<std::string>& candidates, std::unordered_set<std::string>& seen_files) {
+  using namespace Gothic_II_Addon;
+
+  if (!zoptions) {
+    return;
+  }
+
+  const std::string anims_directory = NormalizePathSeparators(ToString(zoptions->GetDirString(DIR_ANIMS)));
+  if (anims_directory.empty()) {
+    return;
+  }
+
+  std::vector<std::filesystem::path> roots;
+  std::unordered_set<std::string> seen_roots;
+  AddPhysicalMdsRoot(roots, seen_roots, std::filesystem::path(anims_directory));
+
+  std::error_code error;
+  const std::filesystem::path current_path = std::filesystem::current_path(error);
+  if (!error) {
+    AddPhysicalMdsRoot(roots, seen_roots, current_path / anims_directory);
+    AddPhysicalMdsRoot(roots, seen_roots, current_path / TrimLeadingDirectorySeparators(anims_directory));
+  }
+
+  for (const std::filesystem::path& root : roots) {
+    std::error_code iterator_error;
+    std::filesystem::recursive_directory_iterator iterator(root, std::filesystem::directory_options::skip_permission_denied,
+                                                          iterator_error);
+    const std::filesystem::recursive_directory_iterator end;
+    while (!iterator_error && iterator != end) {
+      const std::filesystem::directory_entry& entry = *iterator;
+      std::error_code status_error;
+      if (entry.is_regular_file(status_error) && HasMdsExtension(entry.path().string())) {
+        std::filesystem::path relative_path = std::filesystem::relative(entry.path(), root, status_error);
+        AddMdsCandidate(candidates, seen_files, status_error ? entry.path().filename().string() : relative_path.string());
+      }
+      iterator.increment(iterator_error);
+    }
+  }
+}
+
+std::vector<std::string> DiscoverRuntimeMdsCandidates() {
+  std::vector<std::string> candidates;
+  std::unordered_set<std::string> seen_files;
+  CollectMdsCandidatesFromPhysicalFilesystem(candidates, seen_files);
+  std::sort(candidates.begin(), candidates.end());
+  return candidates;
+}
+
+Gothic_II_Addon::zCModelPrototype* FindDefaultBaseModelPrototype() {
+  using namespace Gothic_II_Addon;
+
+  if (!player) {
+    return nullptr;
+  }
+
+  zCModel* model = player->GetModel();
+  if (!model || model->modelProtoList.GetNumInList() <= 0) {
+    return nullptr;
+  }
+
+  return model->modelProtoList[0];
+}
+
+bool ShouldLoadMdsAsOverlayForBase(const std::string& candidate, const std::string& base_mds) {
+  const std::string base_stem = GetMdsStem(base_mds);
+  const std::string candidate_stem = GetMdsStem(candidate);
+  if (base_stem.empty() || candidate_stem.empty() || candidate_stem == base_stem) {
+    return false;
+  }
+
+  return candidate_stem.starts_with(base_stem + "_");
+}
+
+ForcedRuntimeMdsLoads ForceLoadDiscoveredMdsCandidates(const std::vector<std::string>& candidates) {
+  using namespace Gothic_II_Addon;
+
+  ForcedRuntimeMdsLoads loads;
+  loads.discovered_count = candidates.size();
+  if (candidates.empty()) {
+    return loads;
+  }
+
+  zCModelPrototype* base_model_prototype = FindDefaultBaseModelPrototype();
+  const std::string base_mds = GetRuntimeMdsName(base_model_prototype);
+  ScopedGothicCurrentDirectory current_directory_restore;
+  for (const std::string& candidate : candidates) {
+    zCModelPrototype* overlay_base =
+        ShouldLoadMdsAsOverlayForBase(candidate, base_mds) ? base_model_prototype : nullptr;
+    zCModelPrototype* prototype = zCModelPrototype::Load(zSTRING(candidate.c_str()), overlay_base);
+    if (!prototype) {
+      ++loads.failed_count;
+      SPDLOG_DEBUG("Cannot load discovered MDS '{}' while generating animation catalog.", candidate);
+      continue;
+    }
+
+    loads.references.push_back(prototype);
+    ++loads.loaded_count;
+  }
+
+  return loads;
+}
+
+void ReleaseForcedMdsLoads(ForcedRuntimeMdsLoads& loads) {
+  for (Gothic_II_Addon::zCModelPrototype* prototype : loads.references) {
+    if (prototype) {
+      prototype->Release();
+    }
+  }
+  loads.references.clear();
+}
+
+bool IsValidRuntimeAnimationId(int id) {
+  return id >= 0 && id <= std::numeric_limits<std::int16_t>::max();
+}
+
+void AddPrototypeIfNew(Gothic_II_Addon::zCModelPrototype* prototype, std::vector<Gothic_II_Addon::zCModelPrototype*>& prototypes,
+                       std::unordered_set<Gothic_II_Addon::zCModelPrototype*>& seen) {
+  if (!prototype || !seen.insert(prototype).second) {
+    return;
+  }
+
+  prototypes.push_back(prototype);
+}
+
+void AddModelPrototypes(Gothic_II_Addon::zCModel* model, std::vector<Gothic_II_Addon::zCModelPrototype*>& prototypes,
+                        std::unordered_set<Gothic_II_Addon::zCModelPrototype*>& seen) {
+  if (!model) {
+    return;
+  }
+
+  for (int i = 0; i < model->modelProtoList.GetNumInList(); ++i) {
+    AddPrototypeIfNew(model->modelProtoList[i], prototypes, seen);
+  }
+}
+
+std::string FindDefaultRuntimeMds() {
+  using namespace Gothic_II_Addon;
+
+  if (!player) {
+    return {};
+  }
+
+  zCModel* model = player->GetModel();
+  if (!model) {
+    return {};
+  }
+
+  for (int i = 0; i < model->modelProtoList.GetNumInList(); ++i) {
+    std::string mds_name = GetRuntimeMdsName(model->modelProtoList[i]);
+    if (!mds_name.empty()) {
+      return mds_name;
+    }
+  }
+
+  return {};
+}
+
+std::vector<Gothic_II_Addon::zCModelPrototype*> CollectRuntimeModelPrototypes() {
+  using namespace Gothic_II_Addon;
+
+  std::vector<zCModelPrototype*> prototypes;
+  std::unordered_set<zCModelPrototype*> seen;
+  if (player) {
+    AddModelPrototypes(player->GetModel(), prototypes, seen);
+  }
+
+  std::unordered_set<zCModelPrototype*> walked_root_list;
+  constexpr std::size_t kMaxPrototypeRootWalk = 4096;
+  for (zCModelPrototype* prototype = zCModelPrototype::s_modelRoot; prototype; prototype = prototype->next) {
+    if (!walked_root_list.insert(prototype).second) {
+      break;
+    }
+    if (walked_root_list.size() > kMaxPrototypeRootWalk) {
+      SPDLOG_WARN("Stopping animation prototype scan after {} entries to avoid walking a corrupt runtime list.", kMaxPrototypeRootWalk);
+      break;
+    }
+
+    AddPrototypeIfNew(prototype, prototypes, seen);
+  }
+
+  return prototypes;
+}
+
+void AddAnimationsFromPrototype(Gothic_II_Addon::zCModelPrototype* prototype, RuntimeAnimationRegistry& registry,
+                                std::unordered_map<std::string, std::size_t>& mds_indexes,
+                                std::unordered_map<std::string, std::unordered_map<std::string, int>>& seen_animations_by_mds) {
+  if (!prototype) {
+    return;
+  }
+
+  const std::string mds_name = GetRuntimeMdsName(prototype);
+  if (mds_name.empty()) {
+    SPDLOG_WARN("Cannot export animations for a loaded model prototype with an empty MDS name.");
+    return;
+  }
+
+  std::vector<RuntimeAnimationEntry> new_animations;
+  auto& seen_animations = seen_animations_by_mds[mds_name];
+  for (int i = 0; i < prototype->protoAnis.GetNumInList(); ++i) {
+    Gothic_II_Addon::zCModelAni* animation = prototype->protoAnis[i];
+    if (!animation) {
+      continue;
+    }
+
+    std::string animation_name = ToString(animation->GetAniName());
+    if (animation_name.empty()) {
+      continue;
+    }
+
+    const int animation_id = animation->GetAniID();
+    if (!IsValidRuntimeAnimationId(animation_id)) {
+      SPDLOG_WARN("Skipping animation '{}' from {}: runtime id {} is outside the network id range.", animation_name, mds_name, animation_id);
+      continue;
+    }
+
+    const std::string normalized_name = ToUpperAscii(animation_name);
+    const auto [seen_it, inserted] = seen_animations.emplace(normalized_name, animation_id);
+    if (!inserted) {
+      if (seen_it->second != animation_id) {
+        SPDLOG_WARN("Skipping duplicate animation '{}' from {}: id {} conflicts with already exported id {}.",
+                    animation_name, mds_name, animation_id, seen_it->second);
+      }
+      continue;
+    }
+
+    new_animations.push_back(RuntimeAnimationEntry{std::move(animation_name), animation_id});
+  }
+
+  if (new_animations.empty()) {
+    return;
+  }
+
+  const auto [mds_it, inserted] = mds_indexes.emplace(mds_name, registry.mds.size());
+  if (inserted) {
+    registry.mds.push_back(RuntimeMdsEntry{mds_name, {}});
+  }
+
+  auto& animations = registry.mds[mds_it->second].animations;
+  animations.insert(animations.end(), std::make_move_iterator(new_animations.begin()), std::make_move_iterator(new_animations.end()));
+}
+
+bool CollectRuntimeAnimations(RuntimeAnimationRegistry& registry) {
+  registry = {};
+
+  const std::vector<Gothic_II_Addon::zCModelPrototype*> prototypes = CollectRuntimeModelPrototypes();
+  registry.prototype_count = prototypes.size();
+  if (prototypes.empty()) {
+    SPDLOG_WARN("Cannot generate anims: no runtime model prototypes are loaded.");
+    return false;
+  }
+
+  std::unordered_map<std::string, std::size_t> mds_indexes;
+  std::unordered_map<std::string, std::unordered_map<std::string, int>> seen_animations_by_mds;
+  for (Gothic_II_Addon::zCModelPrototype* prototype : prototypes) {
+    AddAnimationsFromPrototype(prototype, registry, mds_indexes, seen_animations_by_mds);
+  }
+
+  if (registry.mds.empty()) {
+    SPDLOG_WARN("Cannot generate anims: loaded runtime model prototypes contain no exportable animations.");
+    return false;
+  }
+
+  std::sort(registry.mds.begin(), registry.mds.end(), [](const RuntimeMdsEntry& left, const RuntimeMdsEntry& right) {
+    return left.name < right.name;
+  });
+  for (RuntimeMdsEntry& mds : registry.mds) {
+    std::sort(mds.animations.begin(), mds.animations.end(), [](const RuntimeAnimationEntry& left, const RuntimeAnimationEntry& right) {
+      if (left.id != right.id) {
+        return left.id < right.id;
+      }
+      return left.name < right.name;
+    });
+  }
+
+  return true;
+}
+
+bool ExportAnimsToJson(std::string& output_path) {
+  const std::vector<std::string> discovered_mds_candidates = DiscoverRuntimeMdsCandidates();
+  ForcedRuntimeMdsLoads forced_loads = ForceLoadDiscoveredMdsCandidates(discovered_mds_candidates);
+  SPDLOG_INFO("generate anims discovered {} MDS candidates; {} loaded/shared, {} failed.",
+              forced_loads.discovered_count, forced_loads.loaded_count, forced_loads.failed_count);
+
+  RuntimeAnimationRegistry registry;
+  const bool collected = CollectRuntimeAnimations(registry);
+  ReleaseForcedMdsLoads(forced_loads);
+  if (!collected) {
+    return false;
+  }
+
+  std::size_t animation_count = 0;
+  nlohmann::ordered_json root;
+  root["mds"] = nlohmann::ordered_json::array();
+  for (RuntimeMdsEntry& mds_entry : registry.mds) {
+    nlohmann::ordered_json mds_json;
+    mds_json["name"] = std::move(mds_entry.name);
+    mds_json["animations"] = nlohmann::ordered_json::array();
+    for (RuntimeAnimationEntry& animation_entry : mds_entry.animations) {
+      mds_json["animations"].push_back(nlohmann::ordered_json{{"id", animation_entry.id}, {"name", std::move(animation_entry.name)}});
+      ++animation_count;
+    }
+    root["mds"].push_back(std::move(mds_json));
+  }
+
+  output_path = BuildAnimsOutputPath();
+  std::filesystem::create_directories(std::filesystem::path(output_path).parent_path());
+  std::ofstream output(output_path, std::ios::binary);
+  if (!output.is_open()) {
+    SPDLOG_ERROR("Cannot generate anims: failed to open output file '{}'.", output_path);
+    return false;
+  }
+
+  output << root.dump(2);
+  output.close();
+
+  SPDLOG_INFO("Animation catalog exported to {} ({} model prototypes, {} MDS files, {} animations)",
+              std::filesystem::absolute(output_path).string(), registry.prototype_count, registry.mds.size(), animation_count);
+  return true;
+}
+
 }  // namespace
 
 void ExecuteExternalConsoleCommand(const char* command) {
@@ -457,7 +909,7 @@ void ExecuteExternalConsoleCommand(const char* command) {
   std::transform(cmd.begin(), cmd.end(), cmd.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (cmd == "help") {
-    SPDLOG_INFO("Available commands: help, gmp_test, generate wayfile, generate items");
+    SPDLOG_INFO("Available commands: help, gmp_test, generate wayfile, generate items, generate anims");
     return;
   }
 
@@ -474,14 +926,14 @@ void ExecuteExternalConsoleCommand(const char* command) {
 
   if (cmd == "generate") {
     if (args.size() != 2) {
-      SPDLOG_WARN("Usage: generate wayfile|items");
+      SPDLOG_WARN("Usage: generate wayfile|items|anims");
       return;
     }
 
     std::string target = args[1];
     std::transform(target.begin(), target.end(), target.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    if (target != "wayfile" && target != "items") {
-      SPDLOG_WARN("Unsupported generate target: {}. Supported targets: wayfile, items", args[1]);
+    if (target != "wayfile" && target != "items" && target != "anims") {
+      SPDLOG_WARN("Unsupported generate target: {}. Supported targets: wayfile, items, anims", args[1]);
       return;
     }
 
@@ -511,6 +963,18 @@ void ExecuteExternalConsoleCommand(const char* command) {
           return;
         }
         const std::string message = "Item catalog exported to " + output_path;
+        CChat::GetInstance()->WriteMessage(NORMAL, true, message.c_str());
+      });
+      return;
+    }
+
+    if (target == "anims") {
+      game.task_scheduler->ScheduleOnMainThread([]() {
+        std::string output_path;
+        if (!ExportAnimsToJson(output_path)) {
+          return;
+        }
+        const std::string message = "Animation catalog exported to " + output_path;
         CChat::GetInstance()->WriteMessage(NORMAL, true, message.c_str());
       });
       return;

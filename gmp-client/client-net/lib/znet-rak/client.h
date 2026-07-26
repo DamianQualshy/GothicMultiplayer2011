@@ -42,7 +42,7 @@ public:
   void Disconnect() override;
   bool IsConnected() const override;
   bool SendPacket(unsigned char* data, std::uint32_t size, PacketReliability packetReliability,
-                  PacketPriority packetPriority) override;
+                  PacketPriority packetPriority, std::uint32_t channel = 0) override;
 
   void AddPacketHandler(PacketHandler& packetHandler) override;
   void RemovePacketHandler(PacketHandler& packetHandler) override;

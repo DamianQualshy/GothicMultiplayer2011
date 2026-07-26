@@ -59,7 +59,8 @@ public:
   virtual void Disconnect() = 0;
   virtual bool IsConnected() const = 0;
 
-  virtual bool SendPacket(unsigned char* data, std::uint32_t size, PacketReliability packetReliability, PacketPriority packetPriority) = 0;
+  virtual bool SendPacket(unsigned char* data, std::uint32_t size, PacketReliability packetReliability, PacketPriority packetPriority,
+                          std::uint32_t channel = 0) = 0;
 
   virtual void AddPacketHandler(PacketHandler& packetHandler) = 0;
   virtual void RemovePacketHandler(PacketHandler& packetHandler) = 0;
