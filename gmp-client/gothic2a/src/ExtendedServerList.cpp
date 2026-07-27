@@ -45,8 +45,11 @@ SOFTWARE.
 #include <Icmpapi.h>
 #include <winsock2.h>
 #include <algorithm>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
+#include <string>
 
 #include <nlohmann/json.hpp>
 
@@ -66,6 +69,26 @@ std::filesystem::path ResolveFavoritesPath(const char* file) {
     return std::filesystem::path(file);
   }
   return std::filesystem::path("Multiplayer") / "Favorites.json";
+}
+
+bool HasSameEndpoint(const ServerInfo& server, const FavoriteServerEndpoint& favorite) {
+  return server.ip == favorite.ip && server.port == static_cast<int>(favorite.port);
+}
+
+bool HasSameEndpoint(const ServerInfo& lhs, const ServerInfo& rhs) {
+  return lhs.ip == rhs.ip && lhs.port == rhs.port;
+}
+
+ServerInfo MakeFavoritePlaceholder(const FavoriteServerEndpoint& favorite) {
+  ServerInfo server{};
+  server.ip = favorite.ip;
+  server.port = favorite.port;
+  server.name = favorite.ip + ":" + std::to_string(favorite.port);
+  server.map = "Unknown";
+  server.num_of_players = -1;
+  server.max_players = -1;
+  server.ping = -1;
+  return server;
 }
 }  // namespace
 
@@ -114,6 +137,7 @@ ExtendedServerList::ExtendedServerList(CServerList& server_list)
 	srvList_access = CreateMutex(NULL, FALSE, NULL);    
 
   loadFav(kDefaultFavoritesFile);
+  fillTables();
 }
 
 void ExtendedServerList::loadFav(const char* file) {
@@ -159,8 +183,25 @@ void ExtendedServerList::loadFav(const char* file) {
 
 
 bool ExtendedServerList::getSelectedServer(void * buffer, int size){
-	ServerInfo & si = srvList.at(SelectedServer);
-	int ret =_snprintf((char *)buffer, size, "%s:%hu\0", si.ip.c_str(), si.port);
+	if (buffer == nullptr || size <= 0) {
+	        return false;
+	}
+
+	DWORD wait_result = WaitForSingleObject(srvList_access, INFINITE);
+	if (wait_result != WAIT_OBJECT_0) {
+	        return false;
+	}
+
+	const auto& active_servers = GetActiveServerList();
+	if (SelectedServer < 0 || static_cast<size_t>(SelectedServer) >= active_servers.size()) {
+	        ReleaseMutex(srvList_access);
+	        return false;
+	}
+
+	const ServerInfo si = active_servers[SelectedServer];
+	ReleaseMutex(srvList_access);
+
+	int ret =_snprintf((char *)buffer, size, "%s:%d", si.ip.c_str(), si.port);
 	if(ret > 0) return true;
 	else return false;
 }
@@ -171,12 +212,13 @@ void ExtendedServerList::addSelectedToFav(){
 	        return;
 	}
 
-	if (SelectedServer < 0 || static_cast<size_t>(SelectedServer) >= srvList.size()) {
+	const auto& active_servers = GetActiveServerList();
+	if (SelectedServer < 0 || static_cast<size_t>(SelectedServer) >= active_servers.size()) {
 	        ReleaseMutex(srvList_access);
 	        return;
 	}
 
-	const ServerInfo selected_server = srvList[SelectedServer];
+	const ServerInfo selected_server = active_servers[SelectedServer];
 	ReleaseMutex(srvList_access);
 
 	if (selected_server.port <= 0 || selected_server.port > static_cast<int>(std::numeric_limits<std::uint16_t>::max())) {
@@ -251,24 +293,35 @@ void ExtendedServerList::HandleInput(){
 	if(zinput->KeyToggled(KEY_R)){
 		this->RefreshList();
 	}
-	if(zinput->KeyToggled(KEY_DOWN) && (srvList.size())) {
-		list_all->scrollDown(1);
-		if((srvList.size()-1)>(size_t)SelectedServer){
-			SelectedServer++;
+
+	DWORD wait_result = WaitForSingleObject(srvList_access, INFINITE);
+	if (wait_result == WAIT_OBJECT_0) {
+		auto& active_servers = GetActiveServerList();
+		auto* active_table = GetActiveTable();
+		if(zinput->KeyToggled(KEY_DOWN) && !active_servers.empty()) {
+			active_table->scrollDown(1);
+			if((active_servers.size()-1)>(size_t)SelectedServer){
+				SelectedServer++;
+			}
 		}
-	}
-	if(zinput->KeyToggled(KEY_UP)) {
-		list_all->scrollUp(1);
-		if(SelectedServer>0){
-			SelectedServer--;
+		if(zinput->KeyToggled(KEY_UP) && !active_servers.empty()) {
+			active_table->scrollUp(1);
+			if(SelectedServer>0){
+				SelectedServer--;
+			}
 		}
+		ClampSelectedServer();
+		ReleaseMutex(srvList_access);
 	}
+
 	if(zinput->KeyToggled(KEY_A)){
 		addSelectedToFav();
 	}
 }
 
 bool ExtendedServerList::RefreshList(){
+  loadFav(kDefaultFavoritesFile);
+
   if (!server_list_.ReceiveListHttp()) {
     if (const char* error_message = server_list_.GetLastError()) {
                         SPDLOG_ERROR("Failed to refresh server list: {}", error_message);
@@ -307,7 +360,7 @@ bool ExtendedServerList::RefreshList(){
   }
 
   if (SelectedServer >= static_cast<int>(srvList.size())) {
-    SelectedServer = srvList.empty() ? 0 : static_cast<int>(srvList.size()) - 1;
+    ClampSelectedServer();
   }
 
   fillTables();
@@ -319,22 +372,33 @@ ExtendedServerList::~ExtendedServerList(void){
 	delete tab_all;
 	delete tab_fav;
 	delete list_all;
+	delete list_fav;
+	if (srvList_access != NULL) {
+		CloseHandle(srvList_access);
+		srvList_access = NULL;
+	}
 }
 
 void ExtendedServerList::fillTables() {
     list_all->clear();
 	list_fav->clear();
+	const auto previous_favorites = favorite_server_list_;
+	favorite_server_list_.clear();
 
 	const auto build_row = [](const ServerInfo& server) {
 	        std::vector<std::string> row;
 	        row.push_back(server.name);
 	        row.push_back(server.map);
 	        char buff[128];
-	        sprintf(buff, "%hu/%hu", server.num_of_players, server.max_players);
-	        row.push_back(buff);
+	        if (server.num_of_players >= 0 && server.max_players >= 0) {
+	                sprintf(buff, "%d/%d", server.num_of_players, server.max_players);
+	                row.push_back(buff);
+	        } else {
+	                row.push_back("?");
+	        }
 
 	        if(server.ping >= 0){
-	                sprintf(buff, "%hu", server.ping);
+	                sprintf(buff, "%d", server.ping);
 	                row.push_back(buff);
             } else {
                     row.push_back("?");
@@ -348,25 +412,34 @@ void ExtendedServerList::fillTables() {
 	        list_all->addRow(tr);
 	}
 
-	for (const auto& server : srvList) {
-	        const bool is_favorite = std::any_of(
-	                favorite_servers_.begin(), favorite_servers_.end(),
-	                [&server](const FavoriteServerEndpoint& favorite) {
-	                        return favorite.ip == server.ip &&
-	                               favorite.port == static_cast<std::uint16_t>(server.port);
-	                });
+	for (const auto& favorite : favorite_servers_) {
+	        auto public_server = std::find_if(srvList.begin(), srvList.end(),
+	                                         [&favorite](const ServerInfo& server) {
+	                                                 return HasSameEndpoint(server, favorite);
+	                                         });
 
-	        if (!is_favorite) {
-	                continue;
+	        ServerInfo favorite_server = public_server != srvList.end() ? *public_server : MakeFavoritePlaceholder(favorite);
+	        if (public_server == srvList.end()) {
+	                auto previous_server = std::find_if(previous_favorites.begin(), previous_favorites.end(),
+	                                                   [&favorite_server](const ServerInfo& server) {
+	                                                           return HasSameEndpoint(server, favorite_server);
+	                                                   });
+	                if (previous_server != previous_favorites.end()) {
+	                        favorite_server.ping = previous_server->ping;
+	                }
 	        }
 
-	        TableRow tr = {build_row(server), false};
+	        favorite_server_list_.push_back(favorite_server);
+	        TableRow tr = {build_row(favorite_server), false};
 	        list_fav->addRow(tr);
 	}
+
+	ClampSelectedServer();
 }
 
 void ExtendedServerList::SelectServer(int index){
 	this->SelectedServer = index;	
+	ClampSelectedServer();
 }
 
 void ExtendedServerList::nextTab(){
@@ -381,11 +454,13 @@ void ExtendedServerList::selectTab(int index){
 			tab_all->highlight = true;
 			tab_fav->highlight = false;
 			SelectedTab = index;
+			ClampSelectedServer();
 			break;
 		case TAB_FAV:
 			tab_all->highlight = false;
 			tab_fav->highlight = true;
 			SelectedTab = index;
+			ClampSelectedServer();
 			break;
 		default:
 			//Nie ma takiej zakladki
@@ -414,20 +489,13 @@ void ExtendedServerList::Draw(){
 
 	tab_all->render();
 	tab_fav->render();
-	if(SelectedTab == TAB_ALL){
-		list_all->unHighlightAll();
-		if (!list_all->rows.empty())
-		{
-			list_all->rows[SelectedServer].highlight = true;
-		}
-		list_all->render();
-	}
-	else
+	auto* active_table = GetActiveTable();
+	active_table->unHighlightAll();
+	if (!active_table->rows.empty() && SelectedServer >= 0 && static_cast<size_t>(SelectedServer) < active_table->rows.size())
 	{
-		list_fav->unHighlightAll();
-		//list_fav->rows[SelectedServer].highlight = true;
-		list_fav->render();
+		active_table->rows[SelectedServer].highlight = true;
 	}
+	active_table->render();
 	
 	DWORD res = WaitForSingleObject(srvList_access, NULL);
 	if(res == WAIT_OBJECT_0) {
@@ -438,6 +506,47 @@ void ExtendedServerList::Draw(){
 void ExtendedServerList::updatePings(){
 	for(unsigned int i=0; i<srvList.size(); i++){
 		srvList[i].updatePing();
+	}
+
+	for (auto& favorite_server : favorite_server_list_) {
+		auto public_server = std::find_if(srvList.begin(), srvList.end(),
+		                                  [&favorite_server](const ServerInfo& server) {
+		                                          return HasSameEndpoint(server, favorite_server);
+		                                  });
+		if (public_server != srvList.end()) {
+			favorite_server.ping = public_server->ping;
+		} else {
+			favorite_server.updatePing();
+		}
+	}
+}
+
+std::vector<ServerInfo>& ExtendedServerList::GetActiveServerList() {
+	return SelectedTab == TAB_FAV ? favorite_server_list_ : srvList;
+}
+
+const std::vector<ServerInfo>& ExtendedServerList::GetActiveServerList() const {
+	return SelectedTab == TAB_FAV ? favorite_server_list_ : srvList;
+}
+
+G2W::Table* ExtendedServerList::GetActiveTable() {
+	return SelectedTab == TAB_FAV ? list_fav : list_all;
+}
+
+void ExtendedServerList::ClampSelectedServer() {
+	const auto& active_servers = GetActiveServerList();
+	if (active_servers.empty()) {
+		SelectedServer = 0;
+		return;
+	}
+
+	if (SelectedServer < 0) {
+		SelectedServer = 0;
+		return;
+	}
+
+	if (static_cast<size_t>(SelectedServer) >= active_servers.size()) {
+		SelectedServer = static_cast<int>(active_servers.size()) - 1;
 	}
 }
 
@@ -454,11 +563,14 @@ DWORD WINAPI ExtendedServerList::pingThreadProc(ExtendedServerList * esl){
 
 
 ServerInfo::ServerInfo(){
-	this->ping = 0;
+	this->max_players = 0;
+	this->num_of_players = 0;
+	this->port = 0;
+	this->ping = -1;
 }
 
 void ServerInfo::updatePing(){
-	int ret = 0;
+	int ret = -1;
 	WSADATA wsaData;
 	WSAStartup(0x0202, &wsaData);
 	hostent* remoteHost;

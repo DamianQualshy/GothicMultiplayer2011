@@ -34,7 +34,6 @@ SOFTWARE.
 
 #include <algorithm>
 #include <array>
-#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <dylib.hpp>
@@ -51,10 +50,10 @@ SOFTWARE.
 #include <stack>
 #include <string>
 #include <string_view>
-#include <system_error>
 
 #include "gothic_clock.h"
 #include "Lua/event_bind.h"
+#include "master_server_endpoint.h"
 #include "net_enums.h"
 #include "packets.h"
 #include "platform_depend.h"
@@ -135,76 +134,6 @@ constexpr std::string_view kMasterServerEndpoint = MASTER_SERVER_ENDPOINT;
 #else
 constexpr std::string_view kMasterServerEndpoint{};
 #endif
-
-struct MasterServerEndpointInfo {
-  std::string host;
-  std::string path{"/"};
-  int port{80};
-  bool use_https{false};
-};
-
-std::optional<MasterServerEndpointInfo> ParseMasterServerEndpoint(std::string_view endpoint) {
-  if (endpoint.empty()) {
-    return std::nullopt;
-  }
-
-  MasterServerEndpointInfo info;
-  std::string_view remainder = endpoint;
-  auto scheme_pos = remainder.find("://");
-  if (scheme_pos != std::string_view::npos) {
-    auto scheme = remainder.substr(0, scheme_pos);
-    if (scheme == "http") {
-      info.use_https = false;
-    } else if (scheme == "https") {
-      info.use_https = true;
-      info.port = 443;
-    } else {
-      return std::nullopt;
-    }
-    remainder.remove_prefix(scheme_pos + 3);
-  }
-
-  if (remainder.empty()) {
-    return std::nullopt;
-  }
-
-  auto path_pos = remainder.find('/');
-  std::string_view host_port = remainder;
-  if (path_pos != std::string_view::npos) {
-    host_port = remainder.substr(0, path_pos);
-    auto path = remainder.substr(path_pos);
-    info.path.assign(path.begin(), path.end());
-    if (info.path.empty()) {
-      info.path = "/";
-    }
-  }
-
-  if (host_port.empty()) {
-    return std::nullopt;
-  }
-
-  auto port_pos = host_port.rfind(':');
-  if (port_pos != std::string_view::npos) {
-    auto port_view = host_port.substr(port_pos + 1);
-    int port_value = 0;
-    auto result = std::from_chars(port_view.data(), port_view.data() + port_view.size(), port_value);
-    if (result.ec != std::errc{}) {
-      return std::nullopt;
-    }
-    info.port = port_value;
-    host_port.remove_suffix(host_port.size() - port_pos);
-  } else if (!info.use_https) {
-    info.port = 80;
-  }
-
-  info.host.assign(host_port.begin(), host_port.end());
-
-  if (info.host.empty()) {
-    return std::nullopt;
-  }
-
-  return info;
-}
 
 std::string FormatCurrentDateTime() {
   auto now = std::time(nullptr);
@@ -334,7 +263,7 @@ std::string SanitizeWorldName(std::string world) {
   return world;
 }
 
-std::unique_ptr<httplib::Client> CreateMasterServerClient(const MasterServerEndpointInfo& info) {
+std::unique_ptr<httplib::Client> CreateMasterServerClient(const master_server::EndpointInfo& info) {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
   if (info.use_https) {
     auto client = std::make_unique<httplib::SSLClient>(info.host, info.port);
@@ -846,7 +775,7 @@ bool GameServer::Init() {
   clock_ = std::make_unique<GothicClock>(GothicClock::Time{}, seconds_per_game_minute);
   weather_.Initialize(clock_->GetTime());
   if (IsPublic() && !kMasterServerEndpoint.empty()) {
-    public_list_http_thread_future_ = std::async(&GameServer::AddToPublicListHTTP, this);
+    public_list_http_thread_future_ = std::async(std::launch::async, &GameServer::AddToPublicListHTTP, this);
     SPDLOG_INFO("Master Server heartbeat started.");
   } else if (IsPublic()) {
     SPDLOG_WARN("Server marked as public, but no Master Server endpoint is configured. Skipping registration.");
@@ -2091,21 +2020,26 @@ nlohmann::json GameServer::BuildMasterServerPayload() const {
   const auto port = g_net_server ? g_net_server->GetPort() : static_cast<std::uint32_t>(config_.Get<std::int32_t>("port"));
   const auto ip_address = g_net_server ? g_net_server->GetAddress() : std::string{};
 
+  const auto name = SanitizeServerText(config_.Get<std::string>("name"));
+  const auto player_count = static_cast<std::uint32_t>(player_manager_.GetPlayerCount());
+  const auto max_slots = static_cast<std::uint32_t>(config_.Get<std::int32_t>("slots"));
+  const auto map = SanitizeServerText(config_.Get<std::string>("map"));
+
   return nlohmann::json{{"server_seed", config_.Get<std::string>("server_identity_seed")},
                         {"ip_address", ip_address},
                         {"port", port},
-                        {"name", SanitizeServerText(config_.Get<std::string>("name"))},
-                        {"current_players", static_cast<std::uint32_t>(player_manager_.GetPlayerCount())},
-                        {"max_slots", static_cast<std::uint32_t>(config_.Get<std::int32_t>("slots"))},
-                        {"map", SanitizeServerText(config_.Get<std::string>("map"))}};
+                        {"name", name},
+                        {"current_players", player_count},
+                        {"max_slots", max_slots},
+                        {"map", map}};
 }
 
 void GameServer::AddToPublicListHTTP() {
   using namespace std::chrono_literals;
 
-  auto endpoint_info_opt = ParseMasterServerEndpoint(kMasterServerEndpoint);
+  auto endpoint_info_opt = master_server::ParseEndpoint(kMasterServerEndpoint);
   if (!endpoint_info_opt) {
-    SPDLOG_WARN("Master server endpoint is not configured. Skipping public list updates.");
+    SPDLOG_WARN("Master server endpoint '{}' has an invalid format. Skipping public list updates.", kMasterServerEndpoint);
     return;
   }
 

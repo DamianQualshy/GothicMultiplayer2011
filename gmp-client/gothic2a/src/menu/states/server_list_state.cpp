@@ -211,9 +211,11 @@ void ServerListState::HandleCommonInput() {
         if (context_.extendedServerList && context_.extendedServerList->getSelectedServer(buffer, sizeof(buffer))) {
           context_.selectedServerIP += buffer;
           SPDLOG_INFO("Connecting to selected server: {}", context_.selectedServerIP.ToChar());
+          shouldConnectToServer_ = true;
+        } else {
+          SPDLOG_WARN("Cannot connect: no server is selected");
         }
       }
-      shouldConnectToServer_ = true;
     }
     return;
   }

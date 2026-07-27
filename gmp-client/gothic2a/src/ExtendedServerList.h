@@ -25,6 +25,9 @@ SOFTWARE.
 
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 #include "CServerList.h"
 #include "G2W.h"
 #include "ZenGin/zGothicAPI.h"
@@ -70,11 +73,16 @@ public:
 
 private:
   static DWORD WINAPI pingThreadProc(ExtendedServerList* esl);
+  std::vector<ServerInfo>& GetActiveServerList();
+  const std::vector<ServerInfo>& GetActiveServerList() const;
+  G2W::Table* GetActiveTable();
+  void ClampSelectedServer();
 
   G2W::Button *tab_all, *tab_fav;
   G2W::Table *list_all, *list_fav;
   std::vector<FavoriteServerEndpoint> favorite_servers_;
   std::vector<ServerInfo> srvList;
+  std::vector<ServerInfo> favorite_server_list_;
   int SelectedTab;
   int SelectedServer;
   CServerList& server_list_;

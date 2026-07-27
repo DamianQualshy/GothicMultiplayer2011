@@ -26,6 +26,7 @@ SOFTWARE.
 #pragma warning(disable : 4101)
 
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <memory>
@@ -39,6 +40,7 @@ SOFTWARE.
 #include <nlohmann/json.hpp>
 
 #include "CServerList.h"
+#include "master_server_endpoint.h"
 
 namespace {
 
@@ -48,78 +50,7 @@ constexpr std::string_view kMasterServerEndpoint = MASTER_SERVER_ENDPOINT;
 constexpr std::string_view kMasterServerEndpoint{};
 #endif
 
-struct MasterServerEndpointInfo {
-  std::string host;
-  std::string path{"/"};
-  int port{80};
-  bool use_https{false};
-};
-
-std::optional<MasterServerEndpointInfo> ParseMasterServerEndpoint(std::string_view endpoint) {
-  if (endpoint.empty()) {
-    return std::nullopt;
-  }
-
-  MasterServerEndpointInfo info;
-  std::string_view remainder = endpoint;
-
-  auto scheme_pos = remainder.find("://");
-  if (scheme_pos != std::string_view::npos) {
-    auto scheme = remainder.substr(0, scheme_pos);
-    if (scheme == "http") {
-      info.use_https = false;
-    } else if (scheme == "https") {
-      info.use_https = true;
-      info.port = 443;
-    } else {
-      return std::nullopt;
-    }
-    remainder.remove_prefix(scheme_pos + 3);
-  }
-
-  if (remainder.empty()) {
-    return std::nullopt;
-  }
-
-  auto path_pos = remainder.find('/');
-  std::string_view host_port = remainder;
-  if (path_pos != std::string_view::npos) {
-    host_port = remainder.substr(0, path_pos);
-    auto path = remainder.substr(path_pos);
-    info.path.assign(path.begin(), path.end());
-    if (info.path.empty()) {
-      info.path = "/";
-    }
-  }
-
-  if (host_port.empty()) {
-    return std::nullopt;
-  }
-
-  auto port_pos = host_port.rfind(':');
-  if (port_pos != std::string_view::npos) {
-    auto port_view = host_port.substr(port_pos + 1);
-    int port_value = 0;
-    auto result = std::from_chars(port_view.data(), port_view.data() + port_view.size(), port_value);
-    if (result.ec != std::errc{}) {
-      return std::nullopt;
-    }
-    info.port = port_value;
-    host_port.remove_suffix(host_port.size() - port_pos);
-  } else if (!info.use_https) {
-    info.port = 80;
-  }
-
-  info.host.assign(host_port.begin(), host_port.end());
-
-  if (info.host.empty()) {
-    return std::nullopt;
-  }
-
-  return info;
-}
-
-std::unique_ptr<httplib::Client> CreateMasterServerClient(const MasterServerEndpointInfo& info) {
+std::unique_ptr<httplib::Client> CreateMasterServerClient(const master_server::EndpointInfo& info) {
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
   if (info.use_https) {
     auto client = std::make_unique<httplib::SSLClient>(info.host, info.port);
@@ -145,39 +76,71 @@ unsigned short ClampToUint16(int value) {
   return static_cast<unsigned short>(value);
 }
 
-int ParseIntegerField(const nlohmann::json& object, const char* key, int default_value = 0) {
+int ClampToInt(std::int64_t value) {
+  if (value < std::numeric_limits<int>::min()) {
+    return std::numeric_limits<int>::min();
+  }
+  if (value > std::numeric_limits<int>::max()) {
+    return std::numeric_limits<int>::max();
+  }
+  return static_cast<int>(value);
+}
+
+int ClampToInt(std::uint64_t value) {
+  if (value > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+    return std::numeric_limits<int>::max();
+  }
+  return static_cast<int>(value);
+}
+
+std::optional<int> TryParseIntegerField(const nlohmann::json& object, const char* key) {
   auto it = object.find(key);
   if (it == object.end() || it->is_null()) {
-    return default_value;
-  }
-
-  if (it->is_number_integer()) {
-    return static_cast<int>(it->get<std::int64_t>());
+    return std::nullopt;
   }
 
   if (it->is_number_unsigned()) {
-    auto value = it->get<std::uint64_t>();
-    if (value > static_cast<std::uint64_t>(std::numeric_limits<int>::max())) {
+    return ClampToInt(it->get<std::uint64_t>());
+  }
+
+  if (it->is_number_integer()) {
+    return ClampToInt(it->get<std::int64_t>());
+  }
+
+  if (it->is_number_float()) {
+    const auto value = it->get<double>();
+    if (!std::isfinite(value)) {
+      return std::nullopt;
+    }
+    if (value < static_cast<double>(std::numeric_limits<int>::min())) {
+      return std::numeric_limits<int>::min();
+    }
+    if (value > static_cast<double>(std::numeric_limits<int>::max())) {
       return std::numeric_limits<int>::max();
     }
     return static_cast<int>(value);
   }
 
-  if (it->is_number_float()) {
-    return static_cast<int>(it->get<double>());
-  }
-
   if (it->is_string()) {
     const auto& str = it->get_ref<const std::string&>();
-    int parsed_value = default_value;
+    int parsed_value = 0;
     auto result = std::from_chars(str.data(), str.data() + str.size(), parsed_value);
-    if (result.ec == std::errc{}) {
+    if (result.ec == std::errc{} && result.ptr == str.data() + str.size()) {
       return parsed_value;
     }
   }
 
-  return default_value;
+  return std::nullopt;
 }
+
+int ParseIntegerField(const nlohmann::json& object, const char* key, int default_value = 0) {
+  return TryParseIntegerField(object, key).value_or(default_value);
+}
+
+bool IsValidPort(int value) {
+  return value > 0 && value <= std::numeric_limits<unsigned short>::max();
+}
+
 std::string SanitizeDisplayText(std::string text) {
   for (auto& ch : text) {
     unsigned char value = static_cast<unsigned char>(ch);
@@ -198,12 +161,12 @@ std::string ParseStringField(const nlohmann::json& object, const char* key) {
     return it->get<std::string>();
   }
 
-  if (it->is_number_integer()) {
-    return std::to_string(it->get<std::int64_t>());
-  }
-
   if (it->is_number_unsigned()) {
     return std::to_string(it->get<std::uint64_t>());
+  }
+
+  if (it->is_number_integer()) {
+    return std::to_string(it->get<std::int64_t>());
   }
 
   if (it->is_number_float()) {
@@ -266,30 +229,21 @@ void CServerList::Parse() {
           continue;
         }
 
-        auto ip = ParseStringField(entry, "ip");
-        if (ip.empty()) {
-          ip = ParseStringField(entry, "address");
-        }
+        auto ip = ParseStringField(entry, "ip_address");
 
         const auto port_value = ParseIntegerField(entry, "port", 0);
-        if (ip.empty() || port_value <= 0) {
+        if (ip.empty() || !IsValidPort(port_value)) {
           continue;
         }
 
         SServerInfo tmp_sv_inf{};
         tmp_sv_inf.Clear();
 
-        tmp_sv_inf.port = ClampToUint16(port_value);
+        tmp_sv_inf.port = static_cast<unsigned short>(port_value);
 
-        auto name = ParseStringField(entry, "servername");
-        if (name.empty()) {
-          name = ParseStringField(entry, "name");
-        }
+        auto name = ParseStringField(entry, "name");
 
-        auto gamemode = ParseStringField(entry, "gamemode");
-        if (gamemode.empty()) {
-          gamemode = ParseStringField(entry, "map");
-        }
+        auto gamemode = ParseStringField(entry, "map");
 
         auto description = ParseStringField(entry, "description");
 
@@ -302,8 +256,8 @@ void CServerList::Parse() {
         tmp_sv_inf.map = gamemode.c_str();
         tmp_sv_inf.server_website = description.c_str();
 
-        tmp_sv_inf.num_of_players = ClampToUint16(ParseIntegerField(entry, "players", 0));
-        tmp_sv_inf.max_players = ClampToUint16(ParseIntegerField(entry, "maxslots", 0));
+        tmp_sv_inf.num_of_players = ClampToUint16(ParseIntegerField(entry, "current_players", 0));
+        tmp_sv_inf.max_players = ClampToUint16(ParseIntegerField(entry, "max_slots", 0));
         tmp_sv_inf.ping = ClampToUint16(ParseIntegerField(entry, "ping", 0));
 
         server_vector.push_back(tmp_sv_inf);
@@ -331,7 +285,7 @@ bool CServerList::ReceiveListHttp() {
     return false;
   }
 
-  auto endpoint_info_opt = ParseMasterServerEndpoint(kMasterServerEndpoint);
+  auto endpoint_info_opt = master_server::ParseEndpoint(kMasterServerEndpoint);
   if (!endpoint_info_opt) {
     SetError(ErrorCode::kInvalidEndpoint, "Master server endpoint has an invalid format.");
     return false;
