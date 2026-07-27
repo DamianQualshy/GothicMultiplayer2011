@@ -2391,21 +2391,16 @@ sol::object Function_IsPlayerUnconscious(std::int64_t id, sol::this_state ts) {
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (number)            Average of all ping times read for the local player, or -1 if unavailable.
+* @return   (number)            Player ping replicated by the server, or -1 if unavailable.
 *
 */
 std::int32_t Function_GetPlayerPing(std::int64_t id) {
   auto& net_game = NetGame::Instance();
-  if (!net_game.game_client || !net_game.IsConnected() || !net_game.game_client->player_manager().HasLocalPlayer()) {
+  if (!net_game.game_client || !net_game.IsConnected() || id < 0) {
     return -1;
   }
 
-  const auto local_id = net_game.game_client->player_manager().GetLocalPlayer().id();
-  if (id != static_cast<std::int64_t>(local_id)) {
-    return -1;
-  }
-
-  return net_game.game_client->GetPing();
+  return net_game.game_client->GetPlayerPing(static_cast<std::uint64_t>(id));
 }
 
 /* luagmp (func)

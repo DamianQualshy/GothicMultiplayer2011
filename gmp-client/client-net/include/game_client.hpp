@@ -63,6 +63,7 @@ public:
   ConnectionState GetConnectionState() const;
   std::string GetConnectionError() const;
   int GetPing();
+  std::int32_t GetPlayerPing(std::uint64_t player_id);
   Net::NetworkStats GetNetworkStats() const;
 
   // To be called after connecting to the server and receiving the initial info packet,
@@ -163,6 +164,7 @@ private:
   void OnPlayerStandUp(Packet packet);
   void OnGameInfo(Packet packet);
   void OnSkySettings(Packet packet);
+  void OnPlayerPingUpdate(Packet packet);
   void OnLeftGame(Packet packet);
   void OnLuaEvent(Packet packet);
   void OnDisconnectOrLostConnection(Packet packet);

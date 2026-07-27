@@ -29,6 +29,7 @@ SOFTWARE.
 #include <string.h>
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <ctime>
 #include <filesystem>
@@ -240,6 +241,7 @@ private:
   void BroadcastGameInfo();
   void BroadcastGameInfo(GothicClock::Time time);
   void BroadcastSkySettings();
+  void BroadcastPlayerPings();
   void UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times);
   void SendExistingPlayersPacket(Player& target_player);
   bool RespawnPlayerInternal(Player& player);
@@ -277,6 +279,7 @@ private:
   GothicWeather weather_;
   std::string server_world_;
   std::int64_t last_weather_update_minute_{-1};
+  std::chrono::time_point<std::chrono::steady_clock> last_ping_update_time_{};
   std::future<void> public_list_http_thread_future_;
   std::chrono::time_point<std::chrono::steady_clock> last_update_time_{};
   std::thread main_thread;

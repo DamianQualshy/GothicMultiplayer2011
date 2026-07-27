@@ -125,6 +125,7 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_STANDUP] = [this](Packet p) { OnPlayerStandUp(p); };
   packet_handlers_[PT_GAME_INFO] = [this](Packet p) { OnGameInfo(p); };
   packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
+  packet_handlers_[PT_PLAYER_PING_UPDATE] = [this](Packet p) { OnPlayerPingUpdate(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
   packet_handlers_[PT_LUA_EVENT] = [this](Packet p) { OnLuaEvent(p); };
   packet_handlers_[Net::ID_DISCONNECTION_NOTIFICATION] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
@@ -239,6 +240,16 @@ std::string GameClient::GetConnectionError() const {
 
 int GameClient::GetPing() {
   return g_netclient->GetPing();
+}
+
+std::int32_t GameClient::GetPlayerPing(std::uint64_t player_id) {
+  if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == player_id) {
+    const auto ping = player_manager_.GetLocalPlayer().ping();
+    return ping >= 0 ? ping : GetPing();
+  }
+
+  Player* player = player_manager_.GetPlayer(player_id);
+  return player ? player->ping() : -1;
 }
 
 Net::NetworkStats GameClient::GetNetworkStats() const {
@@ -1546,6 +1557,34 @@ void GameClient::OnSkySettings(Packet p) {
   event_observer_.OnSkySettingsReceived(packet.flags, packet.weather_type, packet.rain_start_hour, packet.rain_start_min,
                                         packet.rain_stop_hour, packet.rain_stop_min, packet.wind_scale, packet.dont_rain != 0,
                                         packet.rain_weight, packet.render_lightning != 0);
+}
+
+void GameClient::OnPlayerPingUpdate(Packet p) {
+  PlayerPingUpdatePacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize PlayerPingUpdatePacket");
+    return;
+  }
+
+  for (const auto& entry : packet.pings) {
+    Player* player = nullptr;
+    if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == entry.player_id) {
+      player = &player_manager_.GetLocalPlayer();
+    } else {
+      player = player_manager_.GetPlayer(entry.player_id);
+    }
+
+    if (!player) {
+      continue;
+    }
+
+    if (player->ping() != entry.ping) {
+      player->set_ping(entry.ping);
+      event_observer_.OnPlayerPingUpdate(entry.player_id, entry.ping);
+    }
+  }
 }
 
 void GameClient::OnLeftGame(Packet p) {

@@ -82,6 +82,7 @@ constexpr const char* kBanListFileName = "bans.json";
 constexpr const char* kItemRegistryPath = "instances/items.json";
 constexpr const char* kAnimationRegistryPath = "instances/anims.json";
 constexpr std::string_view kFrame = "-========================================-";
+constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
                                                 SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
                                                 SKY_SETTING_LIGHTNING;
@@ -889,6 +890,7 @@ bool GameServer::Init() {
   }
 
   last_update_time_ = std::chrono::steady_clock::now();
+  last_ping_update_time_ = last_update_time_;
 
   main_thread_running.store(true, std::memory_order_release);
   main_thread = std::thread([this]() {
@@ -913,12 +915,17 @@ void GameServer::Run() {
     lua_script_->ProcessTimers();
   }
 
+  auto now = std::chrono::steady_clock::now();
+  if (now - last_ping_update_time_ > kPlayerPingUpdateInterval) {
+    last_ping_update_time_ = now;
+    BroadcastPlayerPings();
+  }
+
   ProcessRespawns();
 
   EventManager::Instance().TriggerEvent(kEventOnTickName, OnTickEvent{});
 
   // Send updates to all players.
-  auto now = std::chrono::steady_clock::now();
   if (now - last_update_time_ > std::chrono::milliseconds(config_.Get<std::int32_t>("tick_rate_ms"))) {
     last_update_time_ = now;
     const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
@@ -2185,6 +2192,24 @@ void GameServer::BroadcastSkySettings() {
                                       state.render_lightning);
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+}
+
+void GameServer::BroadcastPlayerPings() {
+  PlayerPingUpdatePacket packet;
+  packet.packet_type = PT_PLAYER_PING_UPDATE;
+  packet.pings.reserve(player_manager_.GetPlayerCount());
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) {
+    packet.pings.push_back(PlayerPingEntry{player.player_id, GetPlayerPing(player.player_id)});
+  });
+
+  if (packet.pings.empty()) {
+    return;
+  }
+
+  player_manager_.ForEachIngamePlayer([&](const Player& player) {
+    SerializeAndSend(packet, LOW_PRIORITY, UNRELIABLE, player.connection);
+  });
 }
 
 void GameServer::UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times) {

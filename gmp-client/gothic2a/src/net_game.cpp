@@ -761,17 +761,6 @@ void NetGame::UpdateClientEventState() {
     gmp::gothic::ClientItemGroundManager::Instance().RefreshPending();
   }
 
-  if (game_client && IsConnected()) {
-    int ping = game_client->GetPing();
-    if (!last_ping_.has_value() || ping != *last_ping_) {
-      if (game_client->player_manager().HasLocalPlayer()) {
-        const auto& local_player = game_client->player_manager().GetLocalPlayer();
-        EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName,
-                                              gmp::gothic::OnPlayerPingEvent{local_player.id(), ping});
-      }
-      last_ping_ = ping;
-    }
-  }
 }
 
 bool NetGame::Connect(std::string_view full_address) {
@@ -1956,6 +1945,11 @@ void NetGame::OnPlayerStandUp(std::uint64_t player_id) {
     cplayer->ClearHandledAnimation();
     npc->StandUp(0, 0);
   }
+}
+
+void NetGame::OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName,
+                                        gmp::gothic::OnPlayerPingEvent{player_id, ping});
 }
 
 void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {

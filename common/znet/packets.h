@@ -1479,6 +1479,37 @@ inline std::ostream& operator<<(std::ostream& os, const SkySettingsPacket& packe
 template <>
 struct fmt::formatter<SkySettingsPacket> : ostream_formatter {};
 
+struct PlayerPingEntry {
+  std::uint32_t player_id{0};
+  std::int32_t ping{-1};
+};
+
+template <typename S>
+void serialize(S& s, PlayerPingEntry& entry) {
+  s.value4b(entry.player_id);
+  s.value4b(entry.ping);
+}
+
+struct PlayerPingUpdatePacket {
+  std::uint8_t packet_type{0};
+  std::vector<PlayerPingEntry> pings;
+};
+
+template <typename S>
+void serialize(S& s, PlayerPingUpdatePacket& packet) {
+  s.value1b(packet.packet_type);
+  s.container(packet.pings, 400);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const PlayerPingUpdatePacket& packet) {
+  os << "PlayerPingUpdatePacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", pings: " << packet.pings.size() << " }";
+  return os;
+}
+
+template <>
+struct fmt::formatter<PlayerPingUpdatePacket> : ostream_formatter {};
+
 constexpr std::size_t kMaxLuaEventPayloadSize = 8192;
 
 struct LuaEventPacket {

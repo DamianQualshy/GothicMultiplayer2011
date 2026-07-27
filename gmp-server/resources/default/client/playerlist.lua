@@ -109,10 +109,6 @@ local function isLocalPlayer(playerId)
 end
 
 local function getPingText(playerId)
-  if not isLocalPlayer(playerId) then
-    return '-'
-  end
-
   local ping = tonumber(getPlayerPing(playerId))
   if ping == nil or ping < 0 then
     return '-'

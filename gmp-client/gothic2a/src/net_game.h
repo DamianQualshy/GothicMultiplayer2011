@@ -139,6 +139,7 @@ public:
   void OnPlayerRespawned(std::uint64_t player_id) override;
   void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) override;
   void OnPlayerStandUp(std::uint64_t player_id) override;
+  void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
   void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) override;
   void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) override;
   void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
@@ -177,7 +178,6 @@ private:
   void UpdateClientEventState();
 
   std::optional<GameTimeSnapshot> last_game_time_;
-  std::optional<int> last_ping_;
   std::optional<PendingLocalSpawnPosition> pending_local_spawn_position_;
   std::string last_world_name_;
   float day_length_ms_{0.0f};

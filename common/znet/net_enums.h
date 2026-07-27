@@ -101,6 +101,7 @@ enum PacketID {
   PT_ITEM_GROUND_DESTROY,
   PT_ITEM_GROUND_CLEAR,
   PT_PLAYER_WORLD_ENTER,
+  PT_PLAYER_PING_UPDATE,
 };
 
 inline const char* PacketIDToString(PacketID id) {
@@ -233,6 +234,8 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_ITEM_GROUND_CLEAR";
     case PT_PLAYER_WORLD_ENTER:
       return "PT_PLAYER_WORLD_ENTER";
+    case PT_PLAYER_PING_UPDATE:
+      return "PT_PLAYER_PING_UPDATE";
   }
   return "UNKNOWN";
 }

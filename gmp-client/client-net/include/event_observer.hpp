@@ -89,6 +89,7 @@ public:
   virtual void OnPlayerRespawned(std::uint64_t player_id) {}
   virtual void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) {}
   virtual void OnPlayerStandUp(std::uint64_t player_id) {}
+  virtual void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {}
   
   // Item events
   virtual void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {}

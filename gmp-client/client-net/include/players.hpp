@@ -233,6 +233,13 @@ public:
     dexterity_ = value;
   }
 
+  std::int32_t ping() const {
+    return ping_;
+  }
+  void set_ping(std::int32_t value) {
+    ping_ = value;
+  }
+
   const std::unordered_map<std::int32_t, std::int32_t>& weapon_skills() const {
     return weapon_skills_;
   }
@@ -443,6 +450,7 @@ protected:
   std::int32_t learn_points_{0};
   std::int32_t strength_{0};
   std::int32_t dexterity_{0};
+  std::int32_t ping_{-1};
   std::unordered_map<std::int32_t, std::int32_t> weapon_skills_;
   std::unordered_map<std::int32_t, std::int32_t> talents_;
 
