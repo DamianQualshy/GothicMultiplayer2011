@@ -210,7 +210,7 @@ local function cmdGiveItem(playerId, params)
     return
   end
 
-  local id, instance, amount = args[1], args[2], args[3]
+  local id, instance, amount = args[1], string.upper(args[2]), args[3]
   if not isPlayerSpawned(id) then
     sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: You cannot give item to unconnected or unspawned player!')
     return
@@ -220,7 +220,7 @@ local function cmdGiveItem(playerId, params)
     amount = 1
   end
 
-  giveItem(id, string.upper(instance), amount)
+  giveItem(id, instance, amount)
 
   sendMessageToPlayer(playerId, 0, 255, 0, string.format('ACP: You gave item %s amount: %d to %s', instance, amount, playerName(id)))
   sendMessageToPlayer(id, 0, 255, 0, string.format('Received item %s amount: %d from %s', instance, amount, playerName(playerId)))
@@ -356,13 +356,13 @@ local function cmdInstance(playerId, params)
     return
   end
 
-  local id, instance = args[1], args[2]
+  local id, instance = args[1], string.upper(args[2])
   if not isPlayerSpawned(id) then
     sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: You cannot change instance of unconnected or unspawned player!')
     return
   end
 
-  setPlayerInstance(id, string.upper(instance))
+  setPlayerInstance(id, instance)
 
   sendMessageToPlayer(playerId, 0, 255, 0, string.format('ACP: You changed %s instance to %s', playerName(id), instance))
   sendMessageToPlayer(id, 0, 255, 0, string.format('Changing instance to %s by %s', instance, playerName(playerId)))

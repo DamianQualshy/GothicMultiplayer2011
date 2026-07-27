@@ -1467,7 +1467,7 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
   zVEC3 pos(new_player.position().x, new_player.position().y, new_player.position().z);
   int instance_id = player ? player->GetInstance() : -1;
   if (!new_player.instance().empty()) {
-    if (auto parsed_instance_id = FindParserIndex(new_player.instance().c_str())) {
+    if (auto parsed_instance_id = FindParserIndex(new_player.instance().c_str()); parsed_instance_id.has_value() && *parsed_instance_id > 0) {
       instance_id = *parsed_instance_id;
     } else {
       SPDLOG_WARN("Remote player '{}' has unknown instance '{}'; using local fallback instance.", new_player.name(), new_player.instance());
@@ -1546,13 +1546,18 @@ void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string&
     return;
   }
 
-  if (auto* parser = zCParser::GetParser()) {
-    zSTRING instance_name(instance.c_str());
-    const int instance_id = parser->GetIndex(instance_name);
-    if (instance_id >= 0 && cplayer->ReplaceNpcInstance(instance_id)) {
-      cplayer->base_player().set_instance(instance);
-    }
+  const auto instance_id = FindParserIndex(instance.c_str());
+  if (!instance_id.has_value() || *instance_id <= 0) {
+    SPDLOG_WARN("Unknown NPC instance '{}' for player {}", instance, player_id);
+    return;
   }
+
+  if (!cplayer->ReplaceNpcInstance(*instance_id)) {
+    SPDLOG_WARN("Failed to replace NPC instance '{}' for player {}", instance, player_id);
+    return;
+  }
+
+  cplayer->base_player().set_instance(instance);
 }
 
 void NetGame::OnPlayerColorUpdate(std::uint64_t player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {

@@ -64,6 +64,60 @@ void CloseSpellBook(oCNpc* npc) {
     spell_book->Close(1);
   }
 }
+
+oCNpc* CreateNpcAtPosition(int instance_id, zVEC3 position) {
+  if (!zfactory || instance_id <= 0) {
+    return nullptr;
+  }
+
+  oCNpc* npc = zfactory->CreateNpc(instance_id);
+  if (!npc) {
+    return nullptr;
+  }
+
+  npc->Enable(position);
+  npc->SetPositionWorld(position);
+  return npc;
+}
+
+void SetLocalHero(oCNpc* npc) {
+  Gothic_II_Addon::player = npc;
+  if (auto* camera = zCAICamera::GetCurrent()) {
+    camera->SetTarget(npc);
+  }
+}
+
+void RemoveNpcFromWorld(oCNpc* npc) {
+  if (!npc || !ogame || !ogame->GetGameWorld()) {
+    return;
+  }
+
+  ogame->GetGameWorld()->RemoveVob(npc);
+}
+
+void ApplyPlayerAppearance(oCNpc* npc, gmp::client::Player& player) {
+  if (!npc) {
+    return;
+  }
+
+  if (npc->IsHuman()) {
+    if (!player.body_model().empty() || !player.head_model().empty()) {
+      zSTRING body(player.body_model().c_str());
+      zSTRING head(player.head_model().c_str());
+      npc->SetAdditionalVisuals(body, player.body_texture(), 0, head, player.head_texture(), 0, -1);
+    }
+    npc->SetFatness(player.fatness());
+  }
+
+  for (const auto& overlay : player.overlays()) {
+    zSTRING overlay_name(overlay.c_str());
+    npc->ApplyOverlay(overlay_name);
+  }
+
+  const auto& scale = player.scale();
+  npc->SetModelScale(zVEC3{scale.x, scale.y, scale.z});
+}
+
 }  // namespace
 
 // NPC INSTANCES
@@ -287,42 +341,32 @@ void Gothic2APlayer::SetNpc(oCNpc* Npc) {
 };
 
 bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
-  if (!npc || !zfactory || !ogame || !ogame->GetSpawnManager()) {
+  if (!npc || !zfactory || !ogame || !ogame->GetGameWorld()) {
     return false;
   }
 
-  oCNpc* old_npc = npc;
-  oCNpc* new_npc = zfactory->CreateNpc(instance_id);
-  if (!new_npc) {
-    return false;
-  }
-
-  new_npc->idx = -1;
-
+  oCNpc* old_npc = IsLocalPlayer() && Gothic_II_Addon::player ? Gothic_II_Addon::player : npc;
   zVEC3 position = old_npc->GetPositionWorld();
   zVEC3 heading = old_npc->GetAtVectorWorld();
   zSTRING name = old_npc->GetName();
 
-  if (!IsLocalPlayer()) {
-    new_npc->startAIState = 0;
+  oCNpc* new_npc = CreateNpcAtPosition(instance_id, position);
+  if (!new_npc) {
+    return false;
   }
 
-  new_npc->Enable(position);
+  SetNpc(new_npc);
   new_npc->SetHeadingYWorld(position + heading);
-  new_npc->SetAnimationsEnabled(true);
   new_npc->name[0] = name;
 
   if (IsLocalPlayer()) {
-    new_npc->SetAsPlayer();
+    SetLocalHero(new_npc);
   }
+  RemoveNpcFromWorld(old_npc);
+  ApplyPlayerAppearance(new_npc, base_player_);
 
   StopPositionInterpolation();
   ClearHandledAnimation();
-  SetNpc(new_npc);
-  old_npc->Disable();
-  old_npc->RemoveVobFromWorld();
-  old_npc->Release();
-  old_npc = nullptr;
   return true;
 }
 

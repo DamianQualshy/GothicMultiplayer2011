@@ -81,6 +81,21 @@ bool HasSpawnPrerequisites() {
   return HasFactoryAndParser() && ogame && GetSpawnManager();
 }
 
+std::optional<int> ResolveScriptInstance(const std::string& instance) {
+  auto* parser = zCParser::GetParser();
+  if (!parser) {
+    return std::nullopt;
+  }
+
+  zSTRING instance_name(instance.c_str());
+  const int instance_id = parser->GetIndex(instance_name);
+  if (instance_id <= 0) {
+    return std::nullopt;
+  }
+
+  return instance_id;
+}
+
 Gothic2APlayer* GetPlayerById(std::uint64_t id) {
   auto& players = NetGame::Instance().players;
   auto it = std::find_if(players.begin(), players.end(), [id](Gothic2APlayer* player) {
@@ -251,39 +266,39 @@ bool UnequipSlot(std::int64_t id, EquipmentSlot slot) {
   return false;
 }
 
-bool ReplaceStandaloneNpcInstance(oCNpc*& npc, int instance_id) {
-  if (!npc || !zfactory || !ogame) {
+bool ReplaceStandaloneNpcInstance(ClientNpc& entry, int instance_id) {
+  if (!entry.npc || !zfactory || instance_id <= 0) {
     return false;
   }
 
-  auto* spawn_manager = GetSpawnManager();
-  if (!spawn_manager) {
+  oCNpc* old_npc = entry.npc;
+  const bool was_spawned = old_npc->GetHomeWorld() != nullptr;
+  if (was_spawned && (!ogame || !ogame->GetGameWorld())) {
     return false;
   }
 
-  oCNpc* old_npc = npc;
   oCNpc* new_npc = zfactory->CreateNpc(instance_id);
   if (!new_npc) {
     return false;
   }
-  
-  new_npc->idx = -1;
 
-  zVEC3 position = old_npc->GetPositionWorld();
-  zVEC3 heading = old_npc->GetAtVectorWorld();
   zSTRING name = old_npc->GetName();
-
-  new_npc->startAIState = 0;
-  new_npc->Enable(position);
-  new_npc->SetHeadingYWorld(heading);
-  new_npc->SetAnimationsEnabled(true);
   new_npc->name[0] = name;
 
-  new_npc->SetAsPlayer();
-  old_npc->Disable();
-  old_npc->RemoveVobFromWorld();
-  old_npc->Release();
-  old_npc = nullptr;
+  if (was_spawned) {
+    zVEC3 position = old_npc->GetPositionWorld();
+    zVEC3 heading = old_npc->GetAtVectorWorld();
+    entry.npc = new_npc;
+    new_npc->Enable(position);
+    new_npc->SetHeadingYWorld(position + heading);
+    new_npc->SetPositionWorld(position);
+    ogame->GetGameWorld()->RemoveVob(old_npc);
+  } else {
+    old_npc->Release();
+    entry.npc = new_npc;
+  }
+
+  entry.spawned = new_npc->GetHomeWorld() != nullptr;
   return true;
 }
 
@@ -324,29 +339,27 @@ oCMenu_Status* GetStatusMenu() {
 *
 */
 bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
-  if (auto* parser = zCParser::GetParser()) {
-    zSTRING instance_name(instance.c_str());
-    const int instance_id = parser->GetIndex(instance_name);
-    if (instance_id < 0) {
-      return false;
-    }
-
-    if (auto* player = GetPlayerByIdSigned(id)) {
-      if (player->ReplaceNpcInstance(instance_id)) {
-        player->base_player().set_instance(instance);
-        return true;
-      }
-      return false;
-    }
-
-    if (id < 0) {
-      auto it = g_client_npcs.find(static_cast<int>(id));
-      if (it == g_client_npcs.end()) {
-        return false;
-      }
-      return ReplaceStandaloneNpcInstance(it->second.npc, instance_id);
-    }
+  const auto instance_id = ResolveScriptInstance(instance);
+  if (!instance_id.has_value()) {
+    return false;
   }
+
+  if (auto* player = GetPlayerByIdSigned(id)) {
+    if (player->ReplaceNpcInstance(*instance_id)) {
+      player->base_player().set_instance(instance);
+      return true;
+    }
+    return false;
+  }
+
+  if (id < 0) {
+    auto it = g_client_npcs.find(static_cast<int>(id));
+    if (it == g_client_npcs.end()) {
+      return false;
+    }
+    return ReplaceStandaloneNpcInstance(it->second, *instance_id);
+  }
+
   return false;
 }
 
