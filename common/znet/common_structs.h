@@ -51,6 +51,12 @@ enum PlayerAttributeId : std::uint8_t {
   ATTR_MAX_MANA,
 };
 
+enum PlayerLifeState : std::uint8_t {
+  PLAYER_LIFE_ALIVE = 0,
+  PLAYER_LIFE_UNCONSCIOUS = 1,
+  PLAYER_LIFE_DEAD = 2,
+};
+
 struct PlayerState {
   glm::vec3 position{0.0f};
   // Gothic forward/at vector on the horizontal plane.
@@ -68,6 +74,7 @@ struct PlayerState {
   std::string animation_name;
   std::int16_t health_points{0};
   std::int16_t mana_points{0};
+  std::uint8_t life_state{PLAYER_LIFE_ALIVE};
   std::uint8_t weapon_mode{0};
   std::uint8_t active_spell_nr{0};
   std::int16_t active_spell_instance{0};
@@ -93,6 +100,7 @@ void serialize(S& s, PlayerState& packet) {
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.value2b(packet.health_points);
   s.value2b(packet.mana_points);
+  s.value1b(packet.life_state);
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
   s.value2b(packet.active_spell_instance);
@@ -118,6 +126,7 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_stat
      << " animation_name: " << player_state.animation_name << ","
      << " health_points: " << player_state.health_points << ","
      << " mana_points: " << player_state.mana_points << ","
+     << " life_state: " << static_cast<int>(player_state.life_state) << ","
      << " weapon_mode: " << static_cast<int>(player_state.weapon_mode) << ","
      << " active_spell_nr: " << static_cast<int>(player_state.active_spell_nr) << ","
      << " active_spell_instance: " << player_state.active_spell_instance << ","

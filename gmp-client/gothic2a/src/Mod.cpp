@@ -230,6 +230,7 @@ struct LastUseState {
 
 std::unordered_map<oCNpc*, LastUseState> s_last_use_state;
 bool s_suppress_local_equip_events = false;
+bool s_suppress_local_lifecycle_events = false;
 
 void SetSuppressLocalEquipEvents(bool suppress) {
   s_suppress_local_equip_events = suppress;
@@ -237,6 +238,14 @@ void SetSuppressLocalEquipEvents(bool suppress) {
 
 bool ShouldSuppressLocalEquipEvents() {
   return s_suppress_local_equip_events;
+}
+
+void SetSuppressLocalLifecycleEvents(bool suppress) {
+  s_suppress_local_lifecycle_events = suppress;
+}
+
+bool ShouldSuppressLocalLifecycleEvents() {
+  return s_suppress_local_lifecycle_events;
 }
 
 // Helper to clear items from NPC hands after death/unconscious
@@ -258,7 +267,7 @@ void __fastcall OnDoDie(oCNpc* thisNpc, void* /*edx*/, oCNpc* attacker) {
     g_originalDoDie(thisNpc, attacker);
   }
   ClearNpcHands(thisNpc);
-  if (thisNpc == player && NetGame::Instance().IsConnected()) {
+  if (thisNpc == player && NetGame::Instance().IsConnected() && !ShouldSuppressLocalLifecycleEvents()) {
     std::optional<std::uint32_t> killer_id;
     if (auto attacker_id = NetGame::Instance().GetPlayerIdByNpc(attacker); attacker_id.has_value()) {
       killer_id = static_cast<std::uint32_t>(attacker_id.value());
@@ -273,7 +282,7 @@ void __fastcall OnDropUnconscious(oCNpc* thisNpc, void* /*edx*/, float duration,
     g_originalDropUnconscious(thisNpc, duration, attacker);
   }
   ClearNpcHands(thisNpc);
-  if (thisNpc == player && NetGame::Instance().IsConnected()) {
+  if (thisNpc == player && NetGame::Instance().IsConnected() && !ShouldSuppressLocalLifecycleEvents()) {
     std::optional<std::uint32_t> attacker_id;
     if (auto id = NetGame::Instance().GetPlayerIdByNpc(attacker); id.has_value()) {
       attacker_id = static_cast<std::uint32_t>(id.value());
@@ -288,7 +297,7 @@ void __fastcall OnStandUp(oCNpc* thisNpc, void* /*edx*/, int param1, int param2)
   if (g_originalStandUp) {
     g_originalStandUp(thisNpc, param1, param2);
   }
-  if (thisNpc == player && was_unconscious && NetGame::Instance().IsConnected()) {
+  if (thisNpc == player && was_unconscious && NetGame::Instance().IsConnected() && !ShouldSuppressLocalLifecycleEvents()) {
     NetGame::Instance().SendPlayerStandUp();
   }
 }

@@ -148,6 +148,26 @@ std::string FormatCurrentDateTime() {
   return oss.str();
 }
 
+std::uint8_t GetPlayerLifeState(const PlayerManager::Player& player) {
+  if (player.tod != 0) {
+    return PLAYER_LIFE_DEAD;
+  }
+  if ((player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
+    return PLAYER_LIFE_UNCONSCIOUS;
+  }
+  return PLAYER_LIFE_ALIVE;
+}
+
+void ClearTransientCombatState(PlayerManager::Player& player) {
+  player.state.left_hand_item_instance = 0;
+  player.state.right_hand_item_instance = 0;
+  player.state.animation = -1;
+  player.state.animation_name.clear();
+  player.state.weapon_mode = 0;
+  player.state.active_spell_nr = 0;
+  player.state.active_spell_instance = 0;
+}
+
 void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager::Player& player) {
   packet.instance = player.instance;
   packet.name_color_r = player.name_color_r;
@@ -164,6 +184,7 @@ void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager:
   packet.max_health = player.max_health;
   packet.mana = player.mana;
   packet.max_mana = player.max_mana;
+  packet.life_state = GetPlayerLifeState(player);
 
   packet.fatness = player.fatness;
   packet.scale = player.scale;
@@ -205,6 +226,7 @@ PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const PlayerManager::Player&
   packet.state = player.state;
   packet.state.health_points = player.health;
   packet.state.mana_points = player.mana;
+  packet.state.life_state = GetPlayerLifeState(player);
   return packet;
 }
 
@@ -983,6 +1005,8 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
   player.mana = player.max_mana;
   player.state.health_points = player.health;
   player.state.mana_points = player.mana;
+  player.state.life_state = GetPlayerLifeState(player);
+  ClearTransientCombatState(player);
   AdvancePlayerStateSequence(player);
   if (old_health != player.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
@@ -1138,8 +1162,19 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       }
       auto& player = player_opt->get();
       if (player.is_ingame && player.tod == 0 && (player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
+        const auto old_health = player.health;
         player.flags &= ~PlayerManager::PL_UNCONCIOUS;
+        if (player.health <= 0) {
+          player.health = 1;
+        }
+        player.state.health_points = player.health;
+        player.state.life_state = GetPlayerLifeState(player);
         AdvancePlayerStateSequence(player);
+        if (old_health != player.health) {
+          EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                                OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+          SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
+        }
         EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
         SendStandUpInfo(player.player_id);
       }
@@ -1279,6 +1314,7 @@ bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attac
 
   victim.health = static_cast<std::int16_t>(new_health);
   victim.state.health_points = victim.health;
+  victim.state.life_state = GetPlayerLifeState(victim);
   AdvancePlayerStateSequence(victim);
   if (old_health != victim.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
@@ -1299,6 +1335,8 @@ bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> a
   victim.flags |= PlayerManager::PL_UNCONCIOUS;
   victim.health = 1;
   victim.state.health_points = 1;
+  victim.state.life_state = GetPlayerLifeState(victim);
+  ClearTransientCombatState(victim);
   AdvancePlayerStateSequence(victim);
 
   if (old_health != victim.health) {
@@ -1330,6 +1368,8 @@ void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> kille
   victim.state.health_points = 0;
   victim.flags &= ~PlayerManager::PL_UNCONCIOUS;
   victim.tod = time(NULL);
+  victim.state.life_state = GetPlayerLifeState(victim);
+  ClearTransientCombatState(victim);
   AdvancePlayerStateSequence(victim);
   if (old_health != victim.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
@@ -1444,6 +1484,9 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   updated_player.state.melee_weapon_instance = packet.state.melee_weapon_instance;
   updated_player.state.ranged_weapon_instance = packet.state.ranged_weapon_instance;
   ResolvePlayerStateItemIndexes(updated_player.player_id, updated_player.state);
+  if (updated_player.tod != 0 || (updated_player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
+    ClearTransientCombatState(updated_player);
+  }
 
   if (updated_player.tod == 0) {
     const auto requested_health = std::clamp<std::int32_t>(packet.state.health_points, 0, updated_player.max_health);
@@ -1466,6 +1509,7 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 
   updated_player.state.health_points = updated_player.health;
   updated_player.state.mana_points = updated_player.mana;
+  updated_player.state.life_state = GetPlayerLifeState(updated_player);
   AdvancePlayerStateSequence(updated_player);
 
   if (old_state.weapon_mode != updated_player.state.weapon_mode) {
@@ -2412,6 +2456,7 @@ void GameServer::SendExistingPlayersPacket(Player& target_player) {
     player_packet.max_health = existing_player.max_health;
     player_packet.mana = existing_player.mana;
     player_packet.max_mana = existing_player.max_mana;
+    player_packet.life_state = GetPlayerLifeState(existing_player);
 
     player_packet.fatness = existing_player.fatness;
     player_packet.scale = existing_player.scale;
@@ -2472,6 +2517,8 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   player.mana = player.max_mana;
   player.state.health_points = player.health;
   player.state.mana_points = player.mana;
+  player.state.life_state = GetPlayerLifeState(player);
+  ClearTransientCombatState(player);
   AdvancePlayerStateSequence(player);
 
   player.is_ingame = 1;
@@ -2805,6 +2852,7 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
   player.state.health_points = player.health;
+  player.state.life_state = GetPlayerLifeState(player);
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
   return true;
@@ -2820,9 +2868,18 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(health, 0, player.max_health);
   const auto old_health = player.health;
+  if (player.tod != 0 && clamped > 0) {
+    SPDLOG_WARN("setPlayerHealth called with positive health for dead player {}; use respawnPlayer instead", player_id);
+    return false;
+  }
   if (player.tod == 0 && old_health > 0 && clamped <= 0) {
     HandlePlayerDeath(player, std::nullopt);
     return true;
+  }
+
+  const bool should_stand_up = player.tod == 0 && (player.flags & PlayerManager::PL_UNCONCIOUS) != 0 && clamped > 1;
+  if (should_stand_up) {
+    player.flags &= ~PlayerManager::PL_UNCONCIOUS;
   }
 
   player.health = static_cast<std::int16_t>(clamped);
@@ -2831,8 +2888,13 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
   player.state.health_points = player.health;
+  player.state.life_state = GetPlayerLifeState(player);
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
+  if (should_stand_up) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
+    SendStandUpInfo(player.player_id);
+  }
   return true;
 }
 

@@ -30,3 +30,5 @@ SOFTWARE.
 void Initialize(void);
 void SetSuppressLocalEquipEvents(bool suppress);
 bool ShouldSuppressLocalEquipEvents();
+void SetSuppressLocalLifecycleEvents(bool suppress);
+bool ShouldSuppressLocalLifecycleEvents();

@@ -326,6 +326,10 @@ void CIngame::CheckForHPDiff() {
             static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]));
         continue;
       }
+      const auto life_state = NetGame::Instance().players[i]->base_player().life_state();
+      if (life_state == PLAYER_LIFE_DEAD || life_state == PLAYER_LIFE_UNCONSCIOUS) {
+        continue;
+      }
       NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS] =
           static_cast<int>(NetGame::Instance().players[i]->base_player().health());
     }

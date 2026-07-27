@@ -174,6 +174,7 @@ private:
 
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);
+  void ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id, bool trigger_event);
   void ApplyPendingLocalSpawnPosition();
   void UpdateClientEventState();
 

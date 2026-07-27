@@ -89,6 +89,100 @@ oCMenu_Status* GetStatusMenu() {
   return dynamic_cast<oCMenu_Status*>(zCMenu::GetByName(fallback_name));
 }
 
+class ScopedLocalLifecycleEventSuppression {
+public:
+  ScopedLocalLifecycleEventSuppression() : previous_(ShouldSuppressLocalLifecycleEvents()) {
+    SetSuppressLocalLifecycleEvents(true);
+  }
+
+  ~ScopedLocalLifecycleEventSuppression() {
+    SetSuppressLocalLifecycleEvents(previous_);
+  }
+
+private:
+  bool previous_;
+};
+
+std::uint8_t NormalizeLifeState(std::uint8_t life_state, std::int32_t health) {
+  switch (life_state) {
+    case PLAYER_LIFE_DEAD:
+    case PLAYER_LIFE_UNCONSCIOUS:
+      return life_state;
+    case PLAYER_LIFE_ALIVE:
+      return health <= 0 ? PLAYER_LIFE_DEAD : PLAYER_LIFE_ALIVE;
+    default:
+      break;
+  }
+
+  return health <= 0 ? PLAYER_LIFE_DEAD : PLAYER_LIFE_ALIVE;
+}
+
+bool IsTerminalLifeState(std::uint8_t life_state) {
+  return life_state == PLAYER_LIFE_DEAD || life_state == PLAYER_LIFE_UNCONSCIOUS;
+}
+
+void CloseSpellBook(oCNpc* npc) {
+  if (!npc) {
+    return;
+  }
+
+  if (auto* spell_book = npc->GetSpellBook()) {
+    spell_book->Close(1);
+  }
+}
+
+void ClearNpcHandsForLifecycle(oCNpc* npc) {
+  if (!npc) {
+    return;
+  }
+
+  oCItem* right_hand = dynamic_cast<oCItem*>(npc->GetRightHand());
+  oCItem* left_hand = dynamic_cast<oCItem*>(npc->GetLeftHand());
+  npc->DropAllInHand();
+  if (right_hand) {
+    right_hand->RemoveVobFromWorld();
+  }
+  if (left_hand && left_hand != right_hand) {
+    left_hand->RemoveVobFromWorld();
+  }
+}
+
+void SetNpcHealth(oCNpc* npc, int health) {
+  if (npc) {
+    npc->SetAttribute(NPC_ATR_HITPOINTS, health);
+  }
+}
+
+int ClampAliveHealth(oCNpc* npc, int health) {
+  if (!npc) {
+    return std::max(1, health);
+  }
+
+  const int max_health = std::max(1, npc->GetAttribute(NPC_ATR_HITPOINTSMAX));
+  return std::clamp(health, 1, max_health);
+}
+
+void StartWoundedStandTransition(oCNpc* npc) {
+  if (!npc) {
+    return;
+  }
+
+  zCModel* model = npc->GetModel();
+  if (!model) {
+    return;
+  }
+
+  zSTRING wounded_back("S_WOUNDEDB");
+  zSTRING wounded_front("S_WOUNDED");
+  if (model->IsAnimationActive(wounded_back)) {
+    zSTRING transition("T_WOUNDEDB_2_STAND");
+    model->StartAnimation(transition);
+  } else if (model->IsAnimationActive(wounded_front)) {
+    zSTRING transition("T_WOUNDED_2_STAND");
+    model->StartAnimation(transition);
+  }
+}
+
 bool StopModelAnimationById(zCModel* model, std::int16_t animation) {
   if (!model) {
     return false;
@@ -827,6 +921,112 @@ std::optional<std::uint64_t> NetGame::GetPlayerIdByNpc(oCNpc* npc) {
   return std::nullopt;
 }
 
+void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id,
+                                   bool trigger_event) {
+  Gothic2APlayer* cplayer = GetPlayerById(player_id);
+  const auto normalized_life_state = NormalizeLifeState(life_state, cplayer ? cplayer->base_player().health() : 0);
+  if (!cplayer || !cplayer->GetNpc()) {
+    if (trigger_event && normalized_life_state == PLAYER_LIFE_DEAD) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+    }
+    return;
+  }
+
+  oCNpc* npc = cplayer->GetNpc();
+  cplayer->base_player().set_life_state(normalized_life_state);
+
+  oCNpc* actor = nullptr;
+  if (actor_id.has_value()) {
+    if (Gothic2APlayer* actor_player = GetPlayerById(actor_id.value())) {
+      actor = actor_player->GetNpc();
+    }
+  }
+
+  if (normalized_life_state == PLAYER_LIFE_DEAD) {
+    const bool was_dead = npc->IsDead();
+    cplayer->StopPositionInterpolation();
+    cplayer->ClearHandledAnimation();
+    cplayer->base_player().set_health(0);
+    cplayer->base_player().set_update_health_packet_counter(0);
+    CloseSpellBook(npc);
+
+    {
+      ScopedLocalLifecycleEventSuppression suppress_lifecycle;
+      ClearNpcHandsForLifecycle(npc);
+      npc->SetWeaponMode(NPC_WEAPON_NONE);
+      if (!was_dead) {
+        npc->DoDie(actor);
+      }
+      SetNpcHealth(npc, 0);
+    }
+
+    if (trigger_event) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+    }
+    return;
+  }
+
+  if (normalized_life_state == PLAYER_LIFE_UNCONSCIOUS) {
+    cplayer->StopPositionInterpolation();
+    cplayer->ClearHandledAnimation();
+    cplayer->base_player().set_health(1);
+    cplayer->base_player().set_update_health_packet_counter(0);
+    CloseSpellBook(npc);
+
+    {
+      ScopedLocalLifecycleEventSuppression suppress_lifecycle;
+      if (npc->IsDead()) {
+        if (cplayer->IsLocalPlayer()) {
+          npc->RefreshNpc();
+        }
+        SetNpcHealth(npc, 1);
+        auto pos = npc->GetPositionWorld();
+        npc->ResetPos(pos);
+      }
+
+      SetNpcHealth(npc, 1);
+      npc->SetWeaponMode(NPC_WEAPON_NONE);
+      if (!npc->IsUnconscious()) {
+        npc->DropUnconscious(0.0f, actor);
+      }
+      ClearNpcHandsForLifecycle(npc);
+    }
+    return;
+  }
+
+  const int target_health = ClampAliveHealth(npc, cplayer->base_player().health());
+  cplayer->base_player().set_health(static_cast<short>(target_health));
+  cplayer->base_player().set_update_health_packet_counter(0);
+
+  if (npc->IsDead()) {
+    cplayer->RespawnPlayer();
+    SetNpcHealth(npc, target_health);
+    return;
+  }
+
+  if (npc->IsUnconscious()) {
+    cplayer->StopPositionInterpolation();
+    cplayer->ClearHandledAnimation();
+    CloseSpellBook(npc);
+    {
+      ScopedLocalLifecycleEventSuppression suppress_lifecycle;
+      npc->DoDie(nullptr);
+      SetNpcHealth(npc, target_health);
+      npc->SetBodyState(BS_STAND);
+      npc->SetMovLock(0);
+      npc->SetWeaponMode(NPC_WEAPON_NONE);
+      StartWoundedStandTransition(npc);
+      npc->StandUp(0, 1);
+      SetNpcHealth(npc, target_health);
+    }
+    return;
+  }
+
+  if (npc->GetAttribute(NPC_ATR_HITPOINTS) != target_health) {
+    SetNpcHealth(npc, target_health);
+  }
+}
+
 void NetGame::JoinGame() {
   if (IsReadyToJoin && game_client && player) {
     HooksManager::GetInstance()->AddHook(HT_RENDER, (DWORD)InterfaceLoop);
@@ -985,6 +1185,13 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.animation_name = GetAnimationNameById(player, anim);
   if (state.animation_name.size() > kMaxPlayerAnimationNameLength) {
     state.animation_name.resize(kMaxPlayerAnimationNameLength);
+  }
+  if (player->IsDead()) {
+    state.life_state = PLAYER_LIFE_DEAD;
+  } else if (player->IsUnconscious()) {
+    state.life_state = PLAYER_LIFE_UNCONSCIOUS;
+  } else {
+    state.life_state = PLAYER_LIFE_ALIVE;
   }
   state.health_points = static_cast<std::int16_t>(player->attribute[NPC_ATR_HITPOINTS]);
   state.mana_points = static_cast<std::int16_t>(player->attribute[NPC_ATR_MANA]);
@@ -1210,6 +1417,7 @@ void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   ApplyAuthoritativeNpcPosition(local_player->GetNpc(), pos);
   pending_local_spawn_position_ = PendingLocalSpawnPosition{player.id(), pos, 12};
   local_player->base_player().set_enabled(true);
+  ApplyPlayerLifeState(player.id(), player.life_state(), std::nullopt, false);
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
   if (ogame && ogame->GetGameWorld()) {
     SendPlayerWorldEnter(ogame->GetGameWorld()->GetWorldFilename().ToChar());
@@ -1239,6 +1447,7 @@ void NetGame::OnPlayerJoined(gmp::client::Player& new_player) {
 
 void NetGame::OnPlayerSpawned(gmp::client::Player& new_player) {
   SpawnRemotePlayer(new_player);
+  ApplyPlayerLifeState(new_player.id(), new_player.life_state(), std::nullopt, false);
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{new_player.id()});
 }
 
@@ -1278,7 +1487,6 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
   newhero->SetNpc(npc);
   newhero->npc->startAIState = 0;
   newhero->npc->SetGuild(9);
-  newhero->base_player().set_health(static_cast<short>(newhero->GetHealth()));
   newhero->npc->Enable(pos);
   newhero->SetPosition(pos);
   newhero->SetName(new_player.name().c_str());
@@ -1547,16 +1755,40 @@ void NetGame::OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId
       cplayer->base_player().set_max_health(static_cast<std::int16_t>(clamped_value));
       int current_health = npc->GetAttribute(NPC_ATR_HITPOINTS);
       if (current_health > clamped_value) {
-        npc->SetAttribute(NPC_ATR_HITPOINTS, clamped_value);
         cplayer->base_player().set_health(static_cast<std::int16_t>(clamped_value));
+        cplayer->base_player().set_update_health_packet_counter(0);
+        if (clamped_value <= 0) {
+          ApplyPlayerLifeState(player_id, PLAYER_LIFE_DEAD, std::nullopt, false);
+        } else {
+          SetNpcHealth(npc, clamped_value);
+        }
       }
       break;
     }
     case ATTR_HEALTH: {
       int max_health = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
-      int clamped_health = std::min(clamped_value, max_health);
-      npc->SetAttribute(NPC_ATR_HITPOINTS, clamped_health);
+      int clamped_health = std::min(clamped_value, std::max(0, max_health));
       cplayer->base_player().set_health(static_cast<std::int16_t>(clamped_health));
+      cplayer->base_player().set_update_health_packet_counter(0);
+      if (clamped_health <= 0) {
+        ApplyPlayerLifeState(player_id, PLAYER_LIFE_DEAD, std::nullopt, false);
+        break;
+      }
+
+      const auto life_state = cplayer->base_player().life_state();
+      if (life_state == PLAYER_LIFE_DEAD) {
+        break;
+      }
+      if (life_state == PLAYER_LIFE_UNCONSCIOUS && clamped_health <= 1) {
+        SetNpcHealth(npc, 1);
+        break;
+      }
+      if (npc->IsDead() || npc->IsUnconscious()) {
+        ApplyPlayerLifeState(player_id, PLAYER_LIFE_ALIVE, std::nullopt, false);
+        break;
+      }
+
+      SetNpcHealth(npc, clamped_health);
       break;
     }
     case ATTR_MAX_MANA: {
@@ -1625,8 +1857,12 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     cplayer->AnalyzePosition(pos);
   }
 
+  const auto life_state = NormalizeLifeState(state.life_state, state.health_points);
+  ApplyPlayerLifeState(player_id, life_state, std::nullopt, false);
+  const bool terminal_life_state = IsTerminalLifeState(life_state);
+
   // Update rotation
-  if (!cplayer->npc->IsDead()) {
+  if (!terminal_life_state && !cplayer->npc->IsDead() && !cplayer->npc->IsUnconscious()) {
     const auto& at = state.nrot;
     zVEC3 at_vector(at.x, 0.0f, at.z);
     if (at_vector.Length_Sqr() > 0.000001f) {
@@ -1688,9 +1924,12 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     }
   };
 
+  const auto left_hand_item = terminal_life_state ? 0 : state.left_hand_item_instance;
+  const auto right_hand_item = terminal_life_state ? 0 : state.right_hand_item_instance;
+
   // Update hand items
-  sync_hand_item(state.left_hand_item_instance, false);
-  sync_hand_item(state.right_hand_item_instance, true);
+  sync_hand_item(left_hand_item, false);
+  sync_hand_item(right_hand_item, true);
 
   // Update equipped armor
   SyncEquippedCombatItem(cplayer->npc, state.equipped_armor_instance, cplayer->npc->GetEquippedArmor(), IsArmorItem);
@@ -1715,7 +1954,7 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     cplayer->ClearHandledAnimation();
   }
 
-  if (model && !animation_name.empty() && !cplayer->npc->IsDead()) {
+  if (model && !animation_name.empty() && !terminal_life_state && !cplayer->npc->IsDead() && !cplayer->npc->IsUnconscious()) {
     zSTRING animation_name_z(animation_name.c_str());
     const bool should_handle_animation_side_effects = cplayer->MarkAnimationHandled(animation_name);
 
@@ -1790,26 +2029,11 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     }
   }
 
-  // Update health
-  if (state.health_points > cplayer->npc->attribute[NPC_ATR_HITPOINTS]) {
-    if (cplayer->npc->attribute[NPC_ATR_HITPOINTS] == 1) {
-      cplayer->npc->RefreshNpc();
-      cplayer->npc->attribute[NPC_ATR_HITPOINTS] = 1;
-    }
-  }
-  if ((!cplayer->base_player().health()) && (state.health_points == cplayer->npc->attribute[NPC_ATR_HITPOINTSMAX])) {
-    cplayer->base_player().set_health(state.health_points);
-    auto pos = cplayer->npc->GetPositionWorld();
-    cplayer->npc->ResetPos(pos);
-  } else if ((cplayer->npc->attribute[NPC_ATR_HITPOINTS] > 0) && (state.health_points == 0)) {
-    cplayer->base_player().set_health(0);
-  } else {
-    if (cplayer->base_player().update_health_packet_counter() >= 5) {
-      cplayer->base_player().set_health(state.health_points);
-      cplayer->npc->attribute[NPC_ATR_HITPOINTS] = static_cast<int>(state.health_points);
-      cplayer->base_player().set_update_health_packet_counter(0);
-    } else
-      cplayer->base_player().set_update_health_packet_counter(cplayer->base_player().update_health_packet_counter() + 1);
+  const int target_health = life_state == PLAYER_LIFE_DEAD ? 0 : life_state == PLAYER_LIFE_UNCONSCIOUS ? 1 : ClampAliveHealth(cplayer->npc, state.health_points);
+  cplayer->base_player().set_health(static_cast<short>(target_health));
+  cplayer->base_player().set_update_health_packet_counter(0);
+  if (cplayer->npc->GetAttribute(NPC_ATR_HITPOINTS) != target_health) {
+    SetNpcHealth(cplayer->npc, target_health);
   }
 
   // Update mana
@@ -1818,7 +2042,7 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
   // Update active spell
   oCMag_Book* spell_book = cplayer->npc->GetSpellBook();
   if (spell_book) {
-    BYTE SpellNr = static_cast<BYTE>(state.active_spell_nr);
+    BYTE SpellNr = terminal_life_state ? 0 : static_cast<BYTE>(state.active_spell_nr);
     if (SpellNr != cplayer->npc->GetActiveSpellNr() && SpellNr > 0 && SpellNr < 100) {
       for (int s = 0; s < spell_book->GetNoOfSpells(); s++) {
         cplayer->npc->Equip(spell_book->GetSpellItem(s));
@@ -1830,14 +2054,15 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
       }
     } else if (SpellNr == 0 && cplayer->npc->GetActiveSpellNr() > 0) {
       spell_book->Close(1);
-    } else if (cplayer->npc->IsDead()) {
+    } else if (terminal_life_state || cplayer->npc->IsDead()) {
       spell_book->Close(1);
     }
   }
 
   // Update weapon mode
-  if ((BYTE)cplayer->npc->GetWeaponMode() != state.weapon_mode) {
-    cplayer->npc->SetWeaponMode(state.weapon_mode);
+  const auto weapon_mode = terminal_life_state ? 0 : state.weapon_mode;
+  if ((BYTE)cplayer->npc->GetWeaponMode() != weapon_mode) {
+    cplayer->npc->SetWeaponMode(weapon_mode);
   }
 
   // Update head direction
@@ -1877,74 +2102,24 @@ void NetGame::OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, 
 }
 
 void NetGame::OnPlayerDied(std::uint64_t player_id) {
-  Gothic2APlayer* cplayer = GetPlayerById(player_id);
-  if (cplayer && cplayer->GetNpc()) {
-    const bool was_dead = cplayer->npc->IsDead();
-    cplayer->ClearHandledAnimation();
-    cplayer->base_player().set_health(0);
-    cplayer->base_player().set_update_health_packet_counter(0);
-    cplayer->SetHealth(0);
-    if (!was_dead) {
-      cplayer->npc->DoDie(nullptr);
-    }
-  }
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+  ApplyPlayerLifeState(player_id, PLAYER_LIFE_DEAD, std::nullopt, true);
 }
 
 void NetGame::OnPlayerRespawned(std::uint64_t player_id) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc()) {
+    cplayer->base_player().set_life_state(PLAYER_LIFE_ALIVE);
     cplayer->RespawnPlayer();
   }
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerRespawnName, gmp::gothic::PlayerLifecycleEvent{player_id});
 }
 
 void NetGame::OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) {
-  Gothic2APlayer* cplayer = GetPlayerById(player_id);
-  if (!cplayer || !cplayer->GetNpc()) {
-    return;
-  }
-
-  oCNpc* npc = cplayer->GetNpc();
-  cplayer->ClearHandledAnimation();
-  if (npc->IsDead()) {
-    if (cplayer->IsLocalPlayer()) {
-      npc->RefreshNpc();
-      npc->SetMovLock(0);
-      npc->SetWeaponMode(NPC_WEAPON_NONE);
-    }
-    auto pos = npc->GetPositionWorld();
-    npc->ResetPos(pos);
-  }
-
-  cplayer->base_player().set_health(1);
-  cplayer->base_player().set_update_health_packet_counter(0);
-  cplayer->SetHealth(1);
-
-  if (npc->IsUnconscious()) {
-    return;
-  }
-
-  oCNpc* attacker = nullptr;
-  if (attacker_id.has_value()) {
-    if (Gothic2APlayer* attacker_player = GetPlayerById(attacker_id.value())) {
-      attacker = attacker_player->GetNpc();
-    }
-  }
-  npc->DropUnconscious(999999.0f, attacker);
+  ApplyPlayerLifeState(player_id, PLAYER_LIFE_UNCONSCIOUS, attacker_id, false);
 }
 
 void NetGame::OnPlayerStandUp(std::uint64_t player_id) {
-  Gothic2APlayer* cplayer = GetPlayerById(player_id);
-  if (!cplayer || !cplayer->GetNpc()) {
-    return;
-  }
-
-  oCNpc* npc = cplayer->GetNpc();
-  if (!npc->IsDead() && npc->IsUnconscious()) {
-    cplayer->ClearHandledAnimation();
-    npc->StandUp(0, 0);
-  }
+  ApplyPlayerLifeState(player_id, PLAYER_LIFE_ALIVE, std::nullopt, false);
 }
 
 void NetGame::OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {

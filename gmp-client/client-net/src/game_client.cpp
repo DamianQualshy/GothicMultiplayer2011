@@ -316,6 +316,7 @@ void GameClient::UpdatePlayerState(Player* player, const PlayerState& state) {
   player->set_animation_name(state.animation_name);
   player->set_health(state.health_points);
   player->set_mana(state.mana_points);
+  player->set_life_state(state.life_state);
   player->set_weapon_mode(state.weapon_mode);
   player->set_active_spell(state.active_spell_nr);
   player->set_active_spell_instance(state.active_spell_instance);
@@ -578,6 +579,7 @@ void GameClient::OnDoDie(Packet p) {
   }
   if (player) {
     player->set_health(0);
+    player->set_life_state(PLAYER_LIFE_DEAD);
   }
 
   event_observer_.OnPlayerDied(packet.player_id);
@@ -599,6 +601,7 @@ void GameClient::OnRespawn(Packet p) {
   }
   if (player) {
     player->set_health(player->max_health());
+    player->set_life_state(PLAYER_LIFE_ALIVE);
   }
 
   event_observer_.OnPlayerRespawned(packet.player_id);
@@ -827,6 +830,7 @@ void GameClient::OnExistingPlayers(Packet p) {
     player->set_max_mana(static_cast<std::int16_t>(existing_player.max_mana));
     player->set_health(static_cast<std::int16_t>(existing_player.health));
     player->set_mana(static_cast<std::int16_t>(existing_player.mana));
+    player->set_life_state(existing_player.life_state);
 
     player->set_fatness(existing_player.fatness);
     player->set_scale(existing_player.scale);
@@ -960,6 +964,7 @@ void GameClient::OnPlayerSpawn(Packet p) {
     local_player.set_max_mana(packet.max_mana);
     local_player.set_health(static_cast<std::int16_t>(packet.health));
     local_player.set_mana(static_cast<std::int16_t>(packet.mana));
+    local_player.set_life_state(packet.life_state);
     local_player.set_fatness(packet.fatness);
     local_player.set_scale(packet.scale);
     for (const auto& entry : packet.weapon_skills) {
@@ -1023,6 +1028,7 @@ void GameClient::OnPlayerSpawn(Packet p) {
   player->set_max_mana(packet.max_mana);
   player->set_health(static_cast<std::int16_t>(packet.health));
   player->set_mana(static_cast<std::int16_t>(packet.mana));
+  player->set_life_state(packet.life_state);
   player->set_fatness(packet.fatness);
   player->set_scale(packet.scale);
   for (const auto& entry : packet.weapon_skills) {
@@ -1416,6 +1422,11 @@ void GameClient::OnPlayerAttributeUpdate(Packet p) {
         break;
       case ATTR_HEALTH:
         player->set_health(static_cast<std::int16_t>(packet.value));
+        if (packet.value <= 0) {
+          player->set_life_state(PLAYER_LIFE_DEAD);
+        } else if (packet.value > 1 && (player->life_state() == PLAYER_LIFE_DEAD || player->life_state() == PLAYER_LIFE_UNCONSCIOUS)) {
+          player->set_life_state(PLAYER_LIFE_ALIVE);
+        }
         break;
       case ATTR_MAX_HEALTH:
         player->set_max_health(static_cast<std::int16_t>(packet.value));
@@ -1461,6 +1472,11 @@ void GameClient::OnPlayerAttributeSnapshot(Packet p) {
     player->set_max_mana(static_cast<std::int16_t>(packet.max_mana));
     player->set_health(static_cast<std::int16_t>(packet.health));
     player->set_mana(static_cast<std::int16_t>(packet.mana));
+    if (packet.health <= 0) {
+      player->set_life_state(PLAYER_LIFE_DEAD);
+    } else if (packet.health > 1 && (player->life_state() == PLAYER_LIFE_DEAD || player->life_state() == PLAYER_LIFE_UNCONSCIOUS)) {
+      player->set_life_state(PLAYER_LIFE_ALIVE);
+    }
   }
 
   event_observer_.OnPlayerAttributeUpdate(packet.player_id, ATTR_STRENGTH, packet.strength);
@@ -1508,6 +1524,7 @@ void GameClient::OnPlayerUnconscious(Packet p) {
   }
   if (player) {
     player->set_health(1);
+    player->set_life_state(PLAYER_LIFE_UNCONSCIOUS);
   }
 
   std::optional<std::uint64_t> attacker_id;
@@ -1528,6 +1545,17 @@ void GameClient::OnPlayerStandUp(Packet p) {
   if (packet.player_id == 0) {
     SPDLOG_WARN("PlayerStandUpPacket missing player id");
     return;
+  }
+
+  Player* player = player_manager_.GetPlayer(packet.player_id);
+  if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
+    player = &player_manager_.GetLocalPlayer();
+  }
+  if (player) {
+    if (player->health() <= 0) {
+      player->set_health(1);
+    }
+    player->set_life_state(PLAYER_LIFE_ALIVE);
   }
 
   event_observer_.OnPlayerStandUp(packet.player_id);

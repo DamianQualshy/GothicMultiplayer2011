@@ -86,6 +86,7 @@ struct ExistingPlayerInfo {
   std::int32_t max_health{0};
   std::int32_t mana{0};
   std::int32_t max_mana{0};
+  std::uint8_t life_state{PLAYER_LIFE_ALIVE};
 
   float fatness{1.0f};
   glm::vec3 scale{1.0f, 1.0f, 1.0f};
@@ -155,6 +156,7 @@ void serialize(S& s, ExistingPlayerInfo& info) {
   s.value4b(info.max_health);
   s.value4b(info.mana);
   s.value4b(info.max_mana);
+  s.value1b(info.life_state);
 
   s.value4b(info.fatness);
   s.object(info.scale);
@@ -187,7 +189,8 @@ inline std::ostream& operator<<(std::ostream& os, const ExistingPlayerInfo& pack
      << ", strength: " << packet.strength << ", dexterity: " << packet.dexterity << ", level: " << packet.level
      << ", exp: " << packet.exp << ", next_level_exp: " << packet.next_level_exp << ", learn_points: " << packet.learn_points
      << ", health: " << packet.health << ", max_health: " << packet.max_health << ", mana: " << packet.mana
-     << ", max_mana: " << packet.max_mana << ", fatness: " << packet.fatness
+     << ", max_mana: " << packet.max_mana << ", life_state: " << static_cast<int>(packet.life_state)
+     << ", fatness: " << packet.fatness
      << ", scale: (" << packet.scale.x << ", " << packet.scale.y << ", " << packet.scale.z << ")"
      << ", weapon_skills: " << packet.weapon_skills.size() << ", talents: " << packet.talents.size() << ", overlays: "
      << packet.overlays.size() << " }";
@@ -757,6 +760,7 @@ struct PlayerSpawnPacket {
   std::int32_t max_health{0};
   std::int32_t mana{0};
   std::int32_t max_mana{0};
+  std::uint8_t life_state{PLAYER_LIFE_ALIVE};
 
   float fatness{1.0f};
   glm::vec3 scale{1.0f, 1.0f, 1.0f};
@@ -828,6 +832,7 @@ void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value4b(packet.max_health);
   s.value4b(packet.mana);
   s.value4b(packet.max_mana);
+  s.value1b(packet.life_state);
 
   s.value4b(packet.fatness);
   s.object(packet.scale);
@@ -862,7 +867,8 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerSpawnPacket& packe
      << ", strength: " << packet.strength << ", dexterity: " << packet.dexterity << ", level: " << packet.level
      << ", exp: " << packet.exp << ", next_level_exp: " << packet.next_level_exp << ", learn_points: " << packet.learn_points
      << ", health: " << packet.health << ", max_health: " << packet.max_health << ", mana: " << packet.mana
-     << ", max_mana: " << packet.max_mana << ", fatness: " << packet.fatness
+     << ", max_mana: " << packet.max_mana << ", life_state: " << static_cast<int>(packet.life_state)
+     << ", fatness: " << packet.fatness
      << ", scale: (" << packet.scale.x << ", " << packet.scale.y << ", " << packet.scale.z << ")"
      << ", weapon_skills: " << packet.weapon_skills.size() << ", talents: " << packet.talents.size() << ", overlays: "
      << packet.overlays.size() << " }";

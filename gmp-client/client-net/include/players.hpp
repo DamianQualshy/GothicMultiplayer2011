@@ -35,6 +35,8 @@ SOFTWARE.
 #include <string>
 #include <vector>
 
+#include "common_structs.h"
+
 namespace gmp::client {
 
 class Player {
@@ -175,6 +177,13 @@ public:
   }
   void set_mana(std::int16_t value) {
     mana_ = value;
+  }
+
+  std::uint8_t life_state() const {
+    return life_state_;
+  }
+  void set_life_state(std::uint8_t value) {
+    life_state_ = value;
   }
 
   std::int16_t max_health() const {
@@ -442,6 +451,7 @@ protected:
   // Attributes
   std::int16_t health_{0};
   std::int16_t mana_{0};
+  std::uint8_t life_state_{PLAYER_LIFE_ALIVE};
   std::int16_t max_health_{0};
   std::int16_t max_mana_{0};
   std::int32_t level_{0};
