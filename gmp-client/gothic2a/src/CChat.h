@@ -84,7 +84,6 @@ private:
   std::string input_font_ = "FONT_DEFAULT.TGA";
   int input_x_ = 0;
   int input_y_ = 0;
-  bool input_position_custom_ = false;
   std::size_t caret_position_ = 0;
   std::chrono::steady_clock::time_point next_character_time_;
   std::chrono::steady_clock::time_point next_backspace_time_;

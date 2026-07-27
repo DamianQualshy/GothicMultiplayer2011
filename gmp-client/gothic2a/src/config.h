@@ -63,13 +63,11 @@ public:
 
   zSTRING Nickname;
   int lang;
-  bool logchat;
   bool watch;
   enum class RendererType { D3D7, D3D9, D3D11 };
   bool vsync_enabled = true;
   int WatchPosX;
   int WatchPosY;
-  int ChatLines;
 
   Config();
   ~Config();

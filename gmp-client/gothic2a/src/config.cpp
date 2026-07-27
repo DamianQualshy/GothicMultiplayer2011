@@ -78,10 +78,6 @@ void Config::LoadConfigFromFile() {
     lang = *lang_opt;
   }
 
-  if (auto logchat_opt = toml.GetValue<bool>("log_chat"); logchat_opt) {
-    logchat = *logchat_opt;
-  }
-
   if (auto watch_opt = toml.GetValue<bool>("watch_enabled"); watch_opt) {
     watch = *watch_opt;
   }
@@ -95,10 +91,6 @@ void Config::LoadConfigFromFile() {
     if (it_y != watch_pos->end()) {
       WatchPosY = it_y->second;
     }
-  }
-
-  if (auto chat_lines_opt = toml.GetValue<int>("chat_lines"); chat_lines_opt) {
-    ChatLines = *chat_lines_opt;
   }
 
   if (std::optional<std::map<std::string, std::int32_t>> window_position = toml.GetValue<std::map<std::string, int>>("window_position")) {
@@ -179,11 +171,9 @@ void Config::DefaultSettings() {
   Nickname.Clear();
   // 0 - polski, 1 - angielski
   lang = 0;
-  logchat = false;
   watch = false;
   WatchPosX = 7000;
   WatchPosY = 2500;
-  ChatLines = 6;
   window_position_.reset();
   console_position_.reset();
   renderer_type_ = RendererType::D3D9;
@@ -199,15 +189,12 @@ void Config::SaveConfigToFile() {
 
   toml["nickname"] = Nickname.string();
   toml["language"] = lang;
-  toml["log_chat"] = logchat;
   toml["watch_enabled"] = watch;
 
   std::unordered_map<std::string, toml::value> watch_position_map;
   watch_position_map["x"] = toml::value(WatchPosX);
   watch_position_map["y"] = toml::value(WatchPosY);
   toml["watch_position"] = watch_position_map;
-
-  toml["chat_lines"] = ChatLines;
 
   if (window_position_) {
     std::unordered_map<std::string, toml::value> window_position_map;

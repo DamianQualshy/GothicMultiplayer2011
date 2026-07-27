@@ -36,8 +36,6 @@ SOFTWARE.
 
 #include "CChat.h"
 
-#include <spdlog/spdlog.h>
-
 #include <algorithm>
 #include <cstdarg>
 #include <cstdint>
@@ -47,7 +45,6 @@ SOFTWARE.
 #include <string_view>
 #include <utility>
 
-#include "config.h"
 #include "keyboard.h"
 #include "language.h"
 #include "net_game.h"
@@ -121,10 +118,6 @@ void DispatchSystemMessage(const zCOLOR& color, const std::string& text) {
                                         static_cast<std::uint8_t>(color.g),
                                         static_cast<std::uint8_t>(color.b),
                                         text});
-
-  if (Config::Instance().logchat) {
-    SPDLOG_INFO("{}", text);
-  }
 }
 }  // namespace
 
@@ -215,17 +208,12 @@ int CChat::GetInputX() const {
 }
 
 int CChat::GetInputY() const {
-  if (input_position_custom_) {
-    return input_y_;
-  }
-
-  return static_cast<int>(Config::Instance().ChatLines) * 200;
+  return input_y_;
 }
 
 void CChat::SetInputPosition(int x, int y) {
   input_x_ = x;
   input_y_ = y;
-  input_position_custom_ = true;
 }
 
 const std::string& CChat::GetInputText() const {

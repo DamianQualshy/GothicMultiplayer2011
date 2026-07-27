@@ -126,10 +126,6 @@ void OnlineOptionsState::RenderOptionsMenu() {
     optionsTable_->addRow(G2W::TableRow{{"", std::move(label), std::move(value)}, option == selectedOption_});
   };
   addRow(OptionItem::NICKNAME, Language::Instance()[Language::MMENU_NICKNAME].ToChar(), context_.config.Nickname.ToChar());
-  addRow(OptionItem::LOG_CHAT,
-         Language::Instance()[Language::MMENU_LOGCHAT].ToChar(),
-         (context_.config.logchat) ? Language::Instance()[Language::MMENU_ON].ToChar() : Language::Instance()[Language::MMENU_OFF].ToChar());
-  addRow(OptionItem::CHAT_LINES, Language::Instance()[Language::MMENU_CHATLINES].ToChar(), std::to_string(context_.config.ChatLines));
   addRow(OptionItem::WATCH_TOGGLE,
          Language::Instance()[Language::MMENU_WATCH].ToChar(),
          (context_.config.watch) ? Language::Instance()[Language::MMENU_ON].ToChar() : Language::Instance()[Language::MMENU_OFF].ToChar());
@@ -226,11 +222,6 @@ void OnlineOptionsState::ExecuteOption(OptionItem option) {
       context_.writingNickname = true;
       break;
 
-    case OptionItem::LOG_CHAT:
-      context_.config.logchat = !context_.config.logchat;
-      context_.config.SaveConfigToFile();
-      break;
-
     case OptionItem::WATCH_TOGGLE:
       context_.config.watch = !context_.config.watch;
       context_.config.SaveConfigToFile();
@@ -274,26 +265,6 @@ void OnlineOptionsState::ExecuteOption(OptionItem option) {
 
 void OnlineOptionsState::AdjustOption(OptionItem option, int direction) {
   switch (option) {
-    case OptionItem::CHAT_LINES:
-      if (direction < 0) {  // Left
-        if (context_.config.ChatLines > 0) {
-          if (context_.config.ChatLines <= 5)
-            context_.config.ChatLines = 0;
-          else
-            context_.config.ChatLines--;
-          context_.config.SaveConfigToFile();
-        }
-      } else {  // Right
-        if (context_.config.ChatLines < 30) {
-          if (context_.config.ChatLines < 5)
-            context_.config.ChatLines = 5;
-          else
-            context_.config.ChatLines++;
-          context_.config.SaveConfigToFile();
-        }
-      }
-      break;
-
     case OptionItem::LANGUAGE: {
       const auto& languages = LanguageManager::Instance().GetAvailableLanguages();
       if (languages.empty())

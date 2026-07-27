@@ -33,15 +33,13 @@ namespace menu {
 namespace states {
 
 /**
- * @brief State for GMP-specific online options (nickname, chat, language, etc.)
+ * @brief State for GMP-specific online options.
  *
  * This state allows configuration of:
  * - Nickname
- * - Chat logging
  * - Watch/clock settings
  * - Anti-aliasing
  * - Joystick
- * - Chat lines
  * - Language
  * - Intro videos
  */
@@ -51,16 +49,14 @@ private:
 
   enum class OptionItem {
     NICKNAME = 0,
-    LOG_CHAT = 1,
-    CHAT_LINES = 2,
-    WATCH_TOGGLE = 3,
-    WATCH_POSITION = 4,
-    LANGUAGE = 5,
-    ANTIALIASING = 6,
-    JOYSTICK = 7,
-    INTRO_VIDEOS = 8,
-    BACK = 9,
-    OPTION_COUNT = 10
+    WATCH_TOGGLE = 1,
+    WATCH_POSITION = 2,
+    LANGUAGE = 3,
+    ANTIALIASING = 4,
+    JOYSTICK = 5,
+    INTRO_VIDEOS = 6,
+    BACK = 7,
+    OPTION_COUNT = 8
   };
 
   OptionItem selectedOption_;

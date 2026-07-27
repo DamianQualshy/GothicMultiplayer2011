@@ -67,6 +67,13 @@ std::string ReadClipboardText() {
   CloseClipboard();
   return result;
 }
+
+bool ShouldEmitWhileChatInputActive(int code) {
+  return code == KEY_UP || code == KEY_UPARROW || code == KEY_DOWN || code == KEY_DOWNARROW ||
+         code == KEY_PRIOR || code == KEY_PGUP || code == KEY_NEXT || code == KEY_PGDN ||
+         code == KEY_HOME || code == KEY_END || code == KEY_RETURN || code == KEY_NUMPADENTER ||
+         code == KEY_ESCAPE;
+}
 }  // namespace
 
 void ProcessInput(zCInput* zinput) {
@@ -90,7 +97,7 @@ void ProcessInput(zCInput* zinput) {
     processed_codes[code] = true;
     const bool is_disabled = code >= 0 && code <= kMaxTrackedCode && s_disabledKeys[code];
     const bool raw_pressed = zinput->KeyPressed(code) != 0;
-    const bool is_pressed = !chat_input_active && !is_disabled && raw_pressed;
+    const bool is_pressed = (!chat_input_active || ShouldEmitWhileChatInputActive(code)) && !is_disabled && raw_pressed;
     const bool was_pressed = s_prevPressed[code];
     s_rawPressedThisFrame[code] = raw_pressed;
 
@@ -145,7 +152,7 @@ void ProcessInput(zCInput* zinput) {
     EventManager::Instance().TriggerEvent(kEventOnMouseMoveName, OnMouseMoveEvent{dx, dy});
   }
 
-  if (!chat_input_active && wheel != 0.0f) {
+  if (wheel != 0.0f) {
     EventManager::Instance().TriggerEvent(kEventOnMouseWheelName, OnMouseWheelEvent{wheel});
   }
 

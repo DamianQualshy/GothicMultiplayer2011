@@ -1671,12 +1671,6 @@ void GameServer::HandleNormalMsg(Packet p) {
   }
 
   EventManager::Instance().TriggerEvent(kEventOnPlayerMessageName, OnPlayerMessageEvent{player.player_id, packet.message});
-
-  packet.sender = player.player_id;
-  player_manager_.ForEachIngamePlayer(
-      [&](const Player& existing_player) { SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, existing_player.connection); });
-
-  SPDLOG_INFO("{}", packet);
 }
 
 void GameServer::HandleCastSpell(Packet p, bool target) {
