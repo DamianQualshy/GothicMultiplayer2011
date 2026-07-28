@@ -91,7 +91,7 @@ public:
   void SetNpc(oCNpc* npc);
   bool ReplaceNpcInstance(int instance_id);
   void SetNpcType(NpcType Type);
-  void SetPosition(zVEC3& pos);
+  void SetPosition(const zVEC3& pos);
   void SetPosition(float x, float y, float z);
   gmp::client::Player& base_player() {
     return base_player_;

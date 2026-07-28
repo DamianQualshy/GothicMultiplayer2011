@@ -52,9 +52,6 @@ static int HeroInstance;
 extern CIngame* global_ingame;
 
 namespace {
-constexpr float kPositionSnapDistance = 1.0f;
-constexpr float kPositionTeleportDistance = 400.0f;
-
 void CloseSpellBook(oCNpc* npc) {
   if (!npc) {
     return;
@@ -146,19 +143,6 @@ Gothic2APlayer::~Gothic2APlayer() {
 
 void Gothic2APlayer::AnalyzePosition(zVEC3& Pos) {
   if (!npc || !InterPos) {
-    return;
-  }
-
-  const zVEC3 current_pos = npc->GetPositionWorld();
-  if (InterPos->IsDistanceSmallerThanRadius(kPositionSnapDistance, current_pos, Pos)) {
-    InterPos->StopInterpolation();
-    SetPosition(Pos);
-    return;
-  }
-
-  if (!InterPos->IsDistanceSmallerThanRadius(kPositionTeleportDistance, current_pos, Pos)) {
-    InterPos->StopInterpolation();
-    SetPosition(Pos);
     return;
   }
 
@@ -476,7 +460,7 @@ void Gothic2APlayer::SetNpcType(NpcType TYPE) {
   }
 };
 
-void Gothic2APlayer::SetPosition(zVEC3& pos) {
+void Gothic2APlayer::SetPosition(const zVEC3& pos) {
   if (!this->npc) {
     return;
   }

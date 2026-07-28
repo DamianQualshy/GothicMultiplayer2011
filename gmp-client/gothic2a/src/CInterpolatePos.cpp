@@ -34,6 +34,7 @@ SOFTWARE.
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 
 #include "CIngame.h"
 
@@ -43,6 +44,10 @@ extern CIngame* global_ingame;
 namespace {
 constexpr float kInterpolationSnapDistance = 1.0f;
 constexpr float kInterpolationTeleportDistance = 400.0f;
+constexpr float kMaxExtrapolationDistance = 200.0f;
+constexpr std::size_t kMaxBufferedPositionSamples = 8;
+constexpr std::chrono::milliseconds kInterpolationDelay(120);
+constexpr std::chrono::milliseconds kMaxExtrapolationTime(120);
 
 float DistanceBetween(const zVEC3& from, const zVEC3& to) {
   const float x = to[VX] - from[VX];
@@ -51,36 +56,41 @@ float DistanceBetween(const zVEC3& from, const zVEC3& to) {
   return std::sqrt(x * x + y * y + z * z);
 }
 
-float InterpolationSpeedForDistance(float distance) {
-  if (distance < 70.0f) {
-    return 1200.0f;
+zVEC3 LerpPosition(const zVEC3& from, const zVEC3& to, float alpha) {
+  return zVEC3(from[VX] + (to[VX] - from[VX]) * alpha,
+               from[VY] + (to[VY] - from[VY]) * alpha,
+               from[VZ] + (to[VZ] - from[VZ]) * alpha);
+}
+
+zVEC3 AddScaledVelocity(const zVEC3& position, const zVEC3& velocity, float seconds) {
+  return zVEC3(position[VX] + velocity[VX] * seconds,
+               position[VY] + velocity[VY] * seconds,
+               position[VZ] + velocity[VZ] * seconds);
+}
+
+zVEC3 VelocityBetween(const zVEC3& from, const zVEC3& to, float seconds) {
+  if (seconds <= 0.001f) {
+    return zVEC3(0.0f, 0.0f, 0.0f);
   }
-  if (distance < 100.0f) {
-    return 1600.0f;
-  }
-  if (distance < 200.0f) {
-    return 2200.0f;
-  }
-  if (distance < 300.0f) {
-    return 3000.0f;
-  }
-  return 3800.0f;
+
+  return zVEC3((to[VX] - from[VX]) / seconds,
+               (to[VY] - from[VY]) / seconds,
+               (to[VZ] - from[VZ]) / seconds);
 }
 }  // namespace
 
 CInterpolatePos::CInterpolatePos(Gothic2APlayer* Player) {
   InterpolatingPlayer = Player;
   IsInterpolating = false;
+  LastVelocity = zVEC3(0.0f, 0.0f, 0.0f);
+  HasVelocity = false;
   if (global_ingame) {
     global_ingame->Interpolation.push_back(this);
   }
-  InterCount = 0;
-  LastUpdate = std::chrono::steady_clock::now();
 };
 
 CInterpolatePos::~CInterpolatePos() {
-  IsInterpolating = false;
-  InterCount = 0;
+  StopInterpolation();
   InterpolatingPlayer = NULL;
   if (global_ingame) {
     for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
@@ -97,71 +107,72 @@ void CInterpolatePos::DoInterpolate() {
     return;
 
   if (!InterpolatingPlayer || !InterpolatingPlayer->npc) {
-    IsInterpolating = false;
-    InterCount = 0;
-    return;
-  }
-
-  const float distance = DistanceBetween(InterpolatingPlayer->npc->GetPositionWorld(), InterpolatingTo);
-  if (distance <= kInterpolationSnapDistance) {
-    InterpolatingPlayer->SetPosition(InterpolatingTo);
     StopInterpolation();
     return;
   }
 
-  if (distance > kInterpolationTeleportDistance) {
-    InterpolatingPlayer->SetPosition(InterpolatingTo);
+  if (PositionSamples.empty()) {
     StopInterpolation();
     return;
   }
 
-  Interpolate(InterpolatingTo[VX], InterpolatingTo[VY], InterpolatingTo[VZ], InterpolationSpeedForDistance(distance));
-};
+  const auto now = Clock::now();
+  const auto render_time = now - kInterpolationDelay;
 
-void CInterpolatePos::Interpolate(float x, float y, float z, float value) {
-  if (!IsInterpolating)
-    return;
-
-  if (!InterpolatingPlayer || !InterpolatingPlayer->npc) {
-    IsInterpolating = false;
-    InterCount = 0;
-    return;
+  while (PositionSamples.size() >= 2 && PositionSamples[1].received_at <= render_time) {
+    PositionSamples.pop_front();
   }
 
-  const auto now = std::chrono::steady_clock::now();
-  const float delta_seconds =
-      std::clamp(std::chrono::duration<float>(now - LastUpdate).count(), 0.0f, 0.1f);
-  LastUpdate = now;
+  zVEC3 render_position = PositionSamples.front().position;
+  bool stop_after_render = false;
 
-  zVEC3 Pos = InterpolatingPlayer->npc->GetPositionWorld();
-  const float delta_x = x - Pos[VX];
-  const float delta_y = y - Pos[VY];
-  const float delta_z = z - Pos[VZ];
-  const float distance = std::sqrt(delta_x * delta_x + delta_y * delta_y + delta_z * delta_z);
-  const float max_step = value * delta_seconds;
+  if (PositionSamples.size() >= 2) {
+    const PositionSample& from = PositionSamples[0];
+    const PositionSample& to = PositionSamples[1];
+    const float sample_span = std::chrono::duration<float>(to.received_at - from.received_at).count();
 
-  zVEC3 target(x, y, z);
-  if (distance <= kInterpolationSnapDistance || distance <= max_step) {
-    InterpolatingPlayer->SetPosition(target);
+    if (sample_span <= 0.001f) {
+      render_position = to.position;
+    } else {
+      const float elapsed = std::chrono::duration<float>(render_time - from.received_at).count();
+      const float alpha = std::clamp(elapsed / sample_span, 0.0f, 1.0f);
+      render_position = LerpPosition(from.position, to.position, alpha);
+    }
+  } else {
+    const PositionSample& sample = PositionSamples.front();
+    const auto extrapolation_time = render_time - sample.received_at;
+    const float extrapolation_seconds = std::chrono::duration<float>(extrapolation_time).count();
+
+    if (HasVelocity && extrapolation_seconds > 0.0f) {
+      const float max_extrapolation_seconds = std::chrono::duration<float>(kMaxExtrapolationTime).count();
+      const zVEC3 extrapolated_position =
+          AddScaledVelocity(sample.position, LastVelocity, std::min(extrapolation_seconds, max_extrapolation_seconds));
+      const float extrapolated_distance = DistanceBetween(sample.position, extrapolated_position);
+
+      if (extrapolated_distance > kMaxExtrapolationDistance) {
+        render_position = LerpPosition(sample.position, extrapolated_position, kMaxExtrapolationDistance / extrapolated_distance);
+      } else {
+        render_position = extrapolated_position;
+      }
+
+      if (extrapolation_time > kMaxExtrapolationTime && now - sample.received_at > kInterpolationDelay + kMaxExtrapolationTime) {
+        stop_after_render = true;
+      }
+    } else if (now - sample.received_at > kInterpolationDelay + kMaxExtrapolationTime) {
+      stop_after_render = true;
+    }
+  }
+
+  const zVEC3 current_position = InterpolatingPlayer->npc->GetPositionWorld();
+  if (DistanceBetween(current_position, render_position) > kInterpolationTeleportDistance) {
+    InterpolatingPlayer->SetPosition(render_position);
     StopInterpolation();
     return;
-  } else if (distance > 0.0f) {
-    const float ratio = max_step / distance;
-    Pos[VX] += delta_x * ratio;
-    Pos[VY] += delta_y * ratio;
-    Pos[VZ] += delta_z * ratio;
   }
 
-  if (IsDistanceSmallerThanRadius(kInterpolationSnapDistance, Pos, target)) {
-    InterpolatingPlayer->SetPosition(target);
-    StopInterpolation();
-    return;
-  }
+  InterpolatingPlayer->SetPosition(render_position);
 
-  InterpolatingPlayer->SetPosition(Pos);
-  InterCount++;
-  if (InterCount > 3000) {
-    InterpolatingPlayer->SetPosition(x, y, z);
+  if (stop_after_render) {
     StopInterpolation();
   }
 };
@@ -182,17 +193,56 @@ bool CInterpolatePos::IsDistanceSmallerThanRadius(float radius, const zVEC3& Pos
 
 void CInterpolatePos::StopInterpolation() {
   IsInterpolating = false;
-  InterCount = 0;
-  LastUpdate = std::chrono::steady_clock::now();
+  PositionSamples.clear();
+  LastVelocity = zVEC3(0.0f, 0.0f, 0.0f);
+  HasVelocity = false;
+}
+
+void CInterpolatePos::EnqueueSample(const zVEC3& position, Clock::time_point received_at, bool authoritative) {
+  if (!PositionSamples.empty()) {
+    const PositionSample& previous = PositionSamples.back();
+    const float seconds = std::chrono::duration<float>(received_at - previous.received_at).count();
+    if (previous.authoritative && authoritative) {
+      LastVelocity = VelocityBetween(previous.position, position, seconds);
+      HasVelocity = seconds > 0.001f;
+    } else {
+      LastVelocity = zVEC3(0.0f, 0.0f, 0.0f);
+      HasVelocity = false;
+    }
+  }
+
+  PositionSamples.push_back(PositionSample{position, received_at, authoritative});
+  while (PositionSamples.size() > kMaxBufferedPositionSamples) {
+    PositionSamples.pop_front();
+  }
+
+  IsInterpolating = true;
 }
 
 void CInterpolatePos::UpdateInterpolation(float x, float y, float z) {
-  if (!IsInterpolating) {
-    IsInterpolating = true;
-    InterCount = 0;
-    LastUpdate = std::chrono::steady_clock::now();
+  if (!InterpolatingPlayer || !InterpolatingPlayer->npc) {
+    StopInterpolation();
+    return;
   }
-  InterpolatingTo[VX] = x;
-  InterpolatingTo[VY] = y;
-  InterpolatingTo[VZ] = z;
+
+  const auto now = Clock::now();
+  const zVEC3 target(x, y, z);
+
+  if (PositionSamples.empty()) {
+    const zVEC3 current_position = InterpolatingPlayer->npc->GetPositionWorld();
+    const float distance = DistanceBetween(current_position, target);
+    if (distance <= kInterpolationSnapDistance || distance > kInterpolationTeleportDistance) {
+      InterpolatingPlayer->SetPosition(target);
+      StopInterpolation();
+      return;
+    }
+
+    EnqueueSample(current_position, now - kInterpolationDelay, false);
+  } else if (DistanceBetween(PositionSamples.back().position, target) > kInterpolationTeleportDistance) {
+    InterpolatingPlayer->SetPosition(target);
+    StopInterpolation();
+    return;
+  }
+
+  EnqueueSample(target, now, true);
 };

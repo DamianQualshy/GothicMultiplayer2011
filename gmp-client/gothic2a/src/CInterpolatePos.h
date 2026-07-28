@@ -36,6 +36,7 @@ SOFTWARE.
 #pragma once
 
 #include <chrono>
+#include <deque>
 
 #include "ZenGin/zGothicAPI.h"
 #include "gothic2a_player.hpp"
@@ -44,16 +45,24 @@ SOFTWARE.
 // Ewentualnie inne smieci dodamy w przyszłości.
 class CInterpolatePos {
 private:
+  using Clock = std::chrono::steady_clock;
+
+  struct PositionSample {
+    zVEC3 position;
+    Clock::time_point received_at;
+    bool authoritative;
+  };
+
   Gothic2APlayer* InterpolatingPlayer;
-  zVEC3 InterpolatingTo;
-  int InterCount;
-  std::chrono::steady_clock::time_point LastUpdate;
+  std::deque<PositionSample> PositionSamples;
+  zVEC3 LastVelocity;
+  bool HasVelocity;
 
 public:
   bool IsInterpolating;
 
 private:
-  void Interpolate(float x, float y, float z, float value);
+  void EnqueueSample(const zVEC3& position, Clock::time_point received_at, bool authoritative);
 
 public:
   CInterpolatePos(Gothic2APlayer* Player);
