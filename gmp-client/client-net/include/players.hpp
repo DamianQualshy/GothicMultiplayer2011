@@ -146,6 +146,20 @@ public:
     head_texture_ = value;
   }
 
+  std::int16_t teeth_texture() const {
+    return teeth_texture_;
+  }
+  void set_teeth_texture(std::int16_t value) {
+    teeth_texture_ = value;
+  }
+
+  std::int16_t skin_color() const {
+    return skin_color_;
+  }
+  void set_skin_color(std::int16_t value) {
+    skin_color_ = value;
+  }
+
   // Position and rotation
   const glm::vec3& position() const {
     return position_;
@@ -440,6 +454,8 @@ protected:
   std::int16_t body_texture_{0};
   std::string head_model_name_;
   std::int16_t head_texture_{0};
+  std::int16_t teeth_texture_{0};
+  std::int16_t skin_color_{0};
   float fatness_{1.0f};
   glm::vec3 scale_{1.0f, 1.0f, 1.0f};
   std::vector<std::string> overlays_;

@@ -122,7 +122,7 @@ public:
   bool SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage);
   bool SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std::int32_t talent_value);
   bool SetPlayerVisual(PlayerId player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
-                       std::int16_t head_texture);
+                       std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color);
   bool SetPlayerFatness(PlayerId player_id, float fatness);
   bool SetPlayerScale(PlayerId player_id, const glm::vec3& scale);
   bool SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode);

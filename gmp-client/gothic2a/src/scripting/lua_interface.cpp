@@ -154,6 +154,131 @@ sol::object Function_IsHudEnabled(std::int32_t hud_type, sol::this_state ts) {
 
 /* luagmp (func)
 *
+* This function will set the Gothic HUD display mode.
+*
+* @version  0.3.0
+* @name     setHudMode
+* @side     client
+* @category Interface
+* @param    (number) hud_type  HUD type constant.
+* @param    (number) mode      HUD mode constant.
+* @return   (boolean)          True on success.
+*
+*/
+bool Function_SetHudMode(std::int32_t hud_type, std::int32_t mode) {
+  return SetHudMode(hud_type, mode);
+}
+
+/* luagmp (func)
+*
+* This function will return the Gothic HUD display mode.
+*
+* @version  0.3.0
+* @name     getHudMode
+* @side     client
+* @category Interface
+* @param    (number) hud_type  HUD type constant.
+* @return   (number|nil)       HUD mode constant, or nil for unsupported HUD types.
+*
+*/
+sol::object Function_GetHudMode(std::int32_t hud_type, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto mode = GetHudMode(hud_type);
+  if (!mode.has_value()) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, *mode);
+}
+
+/* luagmp (func)
+*
+* This function will set a Gothic HUD status bar position in virtual coordinates.
+*
+* @version  0.3.0
+* @name     setBarPosition
+* @side     client
+* @category Interface
+* @param    (number) hud_type  Status bar HUD type constant.
+* @param    (number) x         X position.
+* @param    (number) y         Y position.
+* @return   (boolean)          True on success.
+*
+*/
+bool Function_SetBarPosition(std::int32_t hud_type, std::int32_t x, std::int32_t y) {
+  return SetHudBarPosition(hud_type, x, y);
+}
+
+/* luagmp (func)
+*
+* This function will return a Gothic HUD status bar position in virtual coordinates.
+*
+* @version  0.3.0
+* @name     getBarPosition
+* @side     client
+* @category Interface
+* @param    (number) hud_type  Status bar HUD type constant.
+* @return   ({x, y}|nil)       Status bar position, or nil for unsupported HUD types.
+*
+*/
+sol::object Function_GetBarPosition(std::int32_t hud_type, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto position = GetHudBarPosition(hud_type);
+  if (!position.has_value()) {
+    return sol::nil;
+  }
+
+  sol::table result = lua.create_table();
+  result["x"] = position->x;
+  result["y"] = position->y;
+  return sol::make_object(lua, result);
+}
+
+/* luagmp (func)
+*
+* This function will set a Gothic HUD status bar size in virtual coordinates.
+*
+* @version  0.3.0
+* @name     setBarSize
+* @side     client
+* @category Interface
+* @param    (number) hud_type  Status bar HUD type constant.
+* @param    (number) width     Width.
+* @param    (number) height    Height.
+* @return   (boolean)          True on success.
+*
+*/
+bool Function_SetBarSize(std::int32_t hud_type, std::int32_t width, std::int32_t height) {
+  return SetHudBarSize(hud_type, width, height);
+}
+
+/* luagmp (func)
+*
+* This function will return a Gothic HUD status bar size in virtual coordinates.
+*
+* @version  0.3.0
+* @name     getBarSize
+* @side     client
+* @category Interface
+* @param    (number) hud_type       Status bar HUD type constant.
+* @return   ({width, height}|nil)   Status bar size, or nil for unsupported HUD types.
+*
+*/
+sol::object Function_GetBarSize(std::int32_t hud_type, sol::this_state ts) {
+  sol::state_view lua(ts);
+  auto size = GetHudBarSize(hud_type);
+  if (!size.has_value()) {
+    return sol::nil;
+  }
+
+  sol::table result = lua.create_table();
+  result["width"] = size->x;
+  result["height"] = size->y;
+  return sol::make_object(lua, result);
+}
+
+/* luagmp (func)
+*
 * This function will check whether the Gothic console is open.
 *
 * @version  0.3.0
@@ -175,6 +300,12 @@ void BindInterface(sol::state& lua) {
   
   lua["enableHud"] = Function_EnableHud;
   lua["isHudEnabled"] = Function_IsHudEnabled;
+  lua["setHudMode"] = Function_SetHudMode;
+  lua["getHudMode"] = Function_GetHudMode;
+  lua["setBarPosition"] = Function_SetBarPosition;
+  lua["getBarPosition"] = Function_GetBarPosition;
+  lua["setBarSize"] = Function_SetBarSize;
+  lua["getBarSize"] = Function_GetBarSize;
   lua["isConsoleOpen"] = Function_IsConsoleOpen;
 
   // Constants
@@ -183,6 +314,10 @@ void BindInterface(sol::state& lua) {
   lua["HUD_MANA_BAR"] = kHudManaBar;
   lua["HUD_SWIM_BAR"] = kHudSwimBar;
   lua["HUD_FOCUS_BAR"] = kHudFocusBar;
+  lua["HUD_FOCUS_NAME"] = kHudFocusName;
+  lua["HUD_MODE_HIDDEN"] = kHudModeHidden;
+  lua["HUD_MODE_DEFAULT"] = kHudModeDefault;
+  lua["HUD_MODE_ALWAYS_VISIBLE"] = kHudModeAlwaysVisible;
 }
 
 } // namespace gmp::gothic
@@ -235,5 +370,45 @@ void BindInterface(sol::state& lua) {
 * @category HUD
 * @side     client
 * @name     HUD_FOCUS_BAR
+*
+*/
+
+/* luagmp (const)
+*
+* Represents the focused object name text.
+*
+* @category HUD
+* @side     client
+* @name     HUD_FOCUS_NAME
+*
+*/
+
+/* luagmp (const)
+*
+* Represents hidden HUD mode.
+*
+* @category HUD
+* @side     client
+* @name     HUD_MODE_HIDDEN
+*
+*/
+
+/* luagmp (const)
+*
+* Represents default HUD mode.
+*
+* @category HUD
+* @side     client
+* @name     HUD_MODE_DEFAULT
+*
+*/
+
+/* luagmp (const)
+*
+* Represents always-visible HUD mode.
+*
+* @category HUD
+* @side     client
+* @name     HUD_MODE_ALWAYS_VISIBLE
 *
 */

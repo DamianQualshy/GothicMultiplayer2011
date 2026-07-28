@@ -326,7 +326,8 @@ void GameClient::UpdatePlayerState(Player* player, const PlayerState& state) {
 }
 
 void GameClient::JoinGame(const std::string& player_name, const std::string& character_name, 
-                          const std::string& body_model, int body_texture, const std::string& head_model, int head_texture, int walk_style) {
+                          const std::string& body_model, int body_texture, const std::string& head_model, int head_texture, int walk_style,
+                          int teeth_texture, int skin_color) {
   JoinGamePacket packet;
   packet.packet_type = PT_JOIN_GAME;
   // Position, rotation, and items will need to be filled by the caller or from the local player state
@@ -334,6 +335,8 @@ void GameClient::JoinGame(const std::string& player_name, const std::string& cha
   packet.body_texture = body_texture;
   packet.head_model = head_model;
   packet.head_texture = head_texture;
+  packet.teeth_texture = teeth_texture;
+  packet.skin_color = skin_color;
   packet.walk_style = walk_style;
   packet.player_name = player_name;
 
@@ -818,6 +821,8 @@ void GameClient::OnExistingPlayers(Packet p) {
     player->set_body_texture(existing_player.body_texture);
     player->set_head_model(existing_player.head_model);
     player->set_head_texture(existing_player.head_texture);
+    player->set_teeth_texture(existing_player.teeth_texture);
+    player->set_skin_color(existing_player.skin_color);
     player->set_walk_style(existing_player.walk_style);
 
     player->set_strength(existing_player.strength);
@@ -856,7 +861,7 @@ void GameClient::OnExistingPlayers(Packet p) {
     event_observer_.OnPlayerColorUpdate(existing_player.player_id, existing_player.name_color_r, existing_player.name_color_g, existing_player.name_color_b);
     if (!existing_player.body_model.empty() || !existing_player.head_model.empty()) {
       event_observer_.OnPlayerVisualUpdate(existing_player.player_id, existing_player.body_model, existing_player.body_texture, existing_player.head_model,
-                                           existing_player.head_texture);
+                                           existing_player.head_texture, existing_player.teeth_texture, existing_player.skin_color);
     }
     event_observer_.OnPlayerFatnessUpdate(existing_player.player_id, existing_player.fatness);
     event_observer_.OnPlayerScaleUpdate(existing_player.player_id, existing_player.scale);
@@ -902,7 +907,8 @@ void GameClient::OnPlayerSpawn(Packet p) {
     event_observer_.OnPlayerInstanceUpdate(player_id, packet.instance);
     event_observer_.OnPlayerColorUpdate(player_id, packet.name_color_r, packet.name_color_g, packet.name_color_b);
     if (!packet.body_model.empty() || !packet.head_model.empty()) {
-      event_observer_.OnPlayerVisualUpdate(player_id, packet.body_model, packet.body_texture, packet.head_model, packet.head_texture);
+      event_observer_.OnPlayerVisualUpdate(player_id, packet.body_model, packet.body_texture, packet.head_model, packet.head_texture,
+                                           packet.teeth_texture, packet.skin_color);
     }
     event_observer_.OnPlayerFatnessUpdate(player_id, packet.fatness);
     event_observer_.OnPlayerScaleUpdate(player_id, packet.scale);
@@ -950,6 +956,8 @@ void GameClient::OnPlayerSpawn(Packet p) {
     local_player.set_body_texture(packet.body_texture);
     local_player.set_head_model(packet.head_model);
     local_player.set_head_texture(packet.head_texture);
+    local_player.set_teeth_texture(packet.teeth_texture);
+    local_player.set_skin_color(packet.skin_color);
     local_player.set_walk_style(packet.walk_style);
 
     local_player.set_instance(packet.instance);
@@ -1014,6 +1022,8 @@ void GameClient::OnPlayerSpawn(Packet p) {
   player->set_body_texture(packet.body_texture);
   player->set_head_model(packet.head_model);
   player->set_head_texture(packet.head_texture);
+  player->set_teeth_texture(packet.teeth_texture);
+  player->set_skin_color(packet.skin_color);
   player->set_walk_style(packet.walk_style);
 
   player->set_instance(packet.instance);
@@ -1093,6 +1103,8 @@ void GameClient::OnJoinGame(Packet p) {
   player->set_body_texture(packet.body_texture);
   player->set_head_model(packet.head_model);
   player->set_head_texture(packet.head_texture);
+  player->set_teeth_texture(packet.teeth_texture);
+  player->set_skin_color(packet.skin_color);
   player->set_walk_style(packet.walk_style);
   if (!was_joined) {
     player->set_has_joined(true);
@@ -1236,9 +1248,12 @@ void GameClient::OnPlayerVisualUpdate(Packet p) {
     player->set_body_texture(packet.body_texture);
     player->set_head_model(packet.head_model);
     player->set_head_texture(packet.head_texture);
+    player->set_teeth_texture(packet.teeth_texture);
+    player->set_skin_color(packet.skin_color);
   }
 
-  event_observer_.OnPlayerVisualUpdate(packet.player_id, packet.body_model, packet.body_texture, packet.head_model, packet.head_texture);
+  event_observer_.OnPlayerVisualUpdate(packet.player_id, packet.body_model, packet.body_texture, packet.head_model, packet.head_texture,
+                                       packet.teeth_texture, packet.skin_color);
 }
 
 void GameClient::OnPlayerFatnessUpdate(Packet p) {

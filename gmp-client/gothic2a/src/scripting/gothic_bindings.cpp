@@ -28,8 +28,10 @@ SOFTWARE.
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <string>
+#include <system_error>
 #include <tuple>
 #include <unordered_map>
 #include <spdlog/spdlog.h>
@@ -38,6 +40,7 @@ SOFTWARE.
 #include "process_input.h"
 #include "net_game.h"
 #include "patch.h"
+#include "Mod.h"
 #include "gmp_core.h"
 #include "Interface.h"
 #include "item_ground.h"
@@ -160,7 +163,21 @@ std::optional<std::string> ItemInstanceNameByIndex(int index) {
 }
 
 std::optional<std::string> ItemInstanceName(oCItem* item) {
-  return item ? ItemInstanceNameByIndex(item->GetInstance()) : std::nullopt;
+  if (!item) {
+    return std::nullopt;
+  }
+
+  auto instance = ItemInstanceNameByIndex(item->GetInstance());
+  if (instance.has_value()) {
+    return instance;
+  }
+
+  zSTRING instance_name = item->GetInstanceName();
+  if (instance_name.IsEmpty()) {
+    return std::nullopt;
+  }
+
+  return std::string(instance_name.ToChar());
 }
 
 oCItem* GetNpcSlotItem(oCNpc* npc, const char* slot_name) {
@@ -264,6 +281,39 @@ bool UnequipSlot(std::int64_t id, EquipmentSlot slot) {
   }
 
   return false;
+}
+
+struct VideoModeSelection {
+  int index{};
+  zTRnd_VidModeInfo info{};
+};
+
+std::optional<VideoModeSelection> FindVideoMode(int width, int height, std::optional<int> bpp) {
+  if (!zrenderer || width <= 0 || height <= 0) {
+    return std::nullopt;
+  }
+
+  const int mode_count = zrenderer->Vid_GetNumModes();
+  for (int mode_index = 0; mode_index < mode_count; ++mode_index) {
+    zTRnd_VidModeInfo mode_info;
+    if (!zrenderer->Vid_GetModeInfo(mode_info, mode_index)) {
+      continue;
+    }
+
+    if (mode_info.xdim == width && mode_info.ydim == height && (!bpp.has_value() || mode_info.bpp == *bpp)) {
+      return VideoModeSelection{mode_index, mode_info};
+    }
+  }
+
+  return std::nullopt;
+}
+
+zCSkyControler* GetActiveSkyController() {
+  if (!ogame || !ogame->GetGameWorld()) {
+    return nullptr;
+  }
+
+  return ogame->GetGameWorld()->GetActiveSkyControler();
 }
 
 bool ReplaceStandaloneNpcInstance(ClientNpc& entry, int instance_id) {
@@ -1087,24 +1137,26 @@ sol::object Function_GetLearnPoints(sol::this_state ts) {
 * @side     client
 * @category Player
 * @param    (number) player_id    Target player id.
-* @param    (string) body_model   Body model name.
-* @param    (number) body_texture    Body texture index.
-* @param    (string) head_model   Head model name.
-* @param    (number) head_texture    Head texture index.
+* @param    (string) bodyModel   Body model name.
+* @param    (number) bodyTexture    Body texture index.
+* @param    (string) headModel   Head model name.
+* @param    (number) headTexture    Head texture index.
+* @param    (number) teethTexture  Optional teeth texture file numeric id. Defaults to 0 if omitted.
+* @param    (number) skinColor     Optional color variant of head & body texture files. Defaults to 0 if omitted.
 *
 */
 bool Function_SetPlayerVisual(std::int64_t id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
-         sol::optional<int> teeth_texture, sol::optional<int> skin_color) {
-        if (auto* npc = GetNpcById(id); npc) {
-          zSTRING body(body_model.c_str());
-          zSTRING head(head_model.c_str());
-          const int color_variant = skin_color.value_or(0);
-          const int teeth_variant = teeth_texture.value_or(0);
-          npc->SetAdditionalVisuals(body, body_texture, color_variant, head, head_texture, teeth_variant, color_variant);
-          return true;
-        }
-        return false;
-      }
+                              sol::optional<int> teeth_texture, sol::optional<int> skin_color) {
+  if (auto* npc = GetNpcById(id); npc) {
+    zSTRING body(body_model.c_str());
+    zSTRING head(head_model.c_str());
+    const int color_variant = skin_color.value_or(0);
+    const int teeth_variant = teeth_texture.value_or(0);
+    npc->SetAdditionalVisuals(body, body_texture, color_variant, head, head_texture, teeth_variant, -1);
+    return true;
+  }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -1115,7 +1167,7 @@ bool Function_SetPlayerVisual(std::int64_t id, const std::string& body_model, in
 * @side     client
 * @category Player
 * @param    (number) player_id                                           Target player id.
-* @return   ({body_model, body_texture, head_model, head_texture}|nil)   Player visual or nil.
+* @return   ({bodyModel, bodyTexture, headModel, headTexture, teethTexture, skinColor}|nil)   Player visual or nil.
 *
 */
 sol::object Function_GetPlayerVisual(std::int64_t id, sol::this_state ts) {
@@ -1124,10 +1176,12 @@ sol::object Function_GetPlayerVisual(std::int64_t id, sol::this_state ts) {
   if (auto* npc = GetNpcById(id); npc) {
     sol::table tbl = lua.create_table();
 
-    tbl["body_model"] = std::string(npc->body_visualName.ToChar());
-    tbl["body_texture"] = static_cast<int>(npc->body_TexVarNr);
-    tbl["head_model"] = std::string(npc->head_visualName.ToChar());
-    tbl["head_texture"] = static_cast<int>(npc->head_TexVarNr);
+    tbl["bodyModel"] = std::string(npc->body_visualName.ToChar());
+    tbl["bodyTexture"] = static_cast<int>(npc->body_TexVarNr);
+    tbl["headModel"] = std::string(npc->head_visualName.ToChar());
+    tbl["headTexture"] = static_cast<int>(npc->head_TexVarNr);
+    tbl["teethTexture"] = static_cast<int>(npc->teeth_TexVarNr);
+    tbl["skinColor"] = static_cast<int>(npc->body_TexColorNr);
     return sol::make_object(lua, tbl);
   }
   return sol::nil;
@@ -1726,7 +1780,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 * @version  0.3.0
 * @name     giveItem
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name.
 * @param    (number) amount       Amount to give.
@@ -1758,7 +1812,7 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
 * @version  0.3.0
 * @name     equipItem
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id      Target player id.
 * @param    (string) instance       Item instance name.
 *
@@ -1774,7 +1828,7 @@ bool Function_EquipItem(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipItem
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id      Target player id.
 * @param    (string) instance       Item instance name.
 *
@@ -1803,7 +1857,7 @@ bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     equipArmor
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @param    (string) instance     Armor item instance name.
 * @return   (boolean)             True on success.
@@ -1820,7 +1874,7 @@ bool Function_EquipArmor(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipArmor
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @return   (boolean)             True when an armor item was equipped and unequipped.
 *
@@ -1836,7 +1890,7 @@ bool Function_UnequipArmor(std::int64_t id) {
 * @version  0.3.0
 * @name     equipMeleeWeapon
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @param    (string) instance     Melee weapon item instance name.
 * @return   (boolean)             True on success.
@@ -1853,7 +1907,7 @@ bool Function_EquipMeleeWeapon(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipMeleeWeapon
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @return   (boolean)             True when a melee weapon was equipped and unequipped.
 *
@@ -1869,7 +1923,7 @@ bool Function_UnequipMeleeWeapon(std::int64_t id) {
 * @version  0.3.0
 * @name     equipRangedWeapon
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @param    (string) instance     Ranged weapon item instance name.
 * @return   (boolean)             True on success.
@@ -1886,7 +1940,7 @@ bool Function_EquipRangedWeapon(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipRangedWeapon
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @return   (boolean)             True when a ranged weapon was equipped and unequipped.
 *
@@ -1902,7 +1956,7 @@ bool Function_UnequipRangedWeapon(std::int64_t id) {
 * @version  0.3.0
 * @name     equipHelmet
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @param    (string) instance     Helmet item instance name.
 * @return   (boolean)             True on success.
@@ -1919,7 +1973,7 @@ bool Function_EquipHelmet(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipHelmet
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @return   (boolean)             True when a helmet item was equipped and unequipped.
 *
@@ -1935,7 +1989,7 @@ bool Function_UnequipHelmet(std::int64_t id) {
 * @version  0.3.0
 * @name     equipShield
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @param    (string) instance     Shield item instance name.
 * @return   (boolean)             True on success.
@@ -1952,7 +2006,7 @@ bool Function_EquipShield(std::int64_t id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipShield
 * @side     client
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player or client NPC id.
 * @return   (boolean)             True when a shield item was equipped and unequipped.
 *
@@ -1988,6 +2042,215 @@ int Function_HasItem(std::int64_t id, const std::string& instance) {
   }
 
   return 0;
+}
+
+/* luagmp (func)
+*
+* This function will return the local player's currently selected inventory slot.
+*
+* @version  0.3.0
+* @name     getCurrentInventorySlot
+* @side     client
+* @category Inventory
+* @return   (number|nil)  Current inventory slot, starting from 0, or nil if unavailable.
+*
+*/
+sol::object Function_GetCurrentInventorySlot(sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (!player) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, player->inventory2.selectedItem);
+}
+
+/* luagmp (func)
+*
+* This function will return the local player's inventory as item instance keys with item amounts as values.
+*
+* @version  0.3.0
+* @name     getInventory
+* @side     client
+* @category Inventory
+* @return   ({[string]: number})  Inventory table indexed by item instance.
+*
+*/
+sol::object Function_GetInventory(sol::this_state ts) {
+  sol::state_view lua(ts);
+  sol::table inventory = lua.create_table();
+  if (!player) {
+    return sol::make_object(lua, inventory);
+  }
+
+  int slot = 0;
+  while (auto* item = player->GetItem(0, slot++)) {
+    auto instance = ItemInstanceName(item);
+    if (!instance.has_value()) {
+      continue;
+    }
+
+    inventory[*instance] = std::max(0, item->amount);
+  }
+
+  return sol::make_object(lua, inventory);
+}
+
+/* luagmp (func)
+*
+* This function will return the item instance from the local player's inventory slot.
+*
+* @version  0.3.0
+* @name     getItemBySlot
+* @side     client
+* @category Inventory
+* @param    (number) slot       Inventory slot, starting from 0.
+* @return   (string|nil)        Item instance, or nil if the slot is empty.
+*
+*/
+sol::object Function_GetItemBySlot(std::int32_t slot, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (!player || slot < 0) {
+    return sol::nil;
+  }
+
+  auto instance = ItemInstanceName(player->GetItem(0, slot));
+  if (!instance.has_value()) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will return the item instance currently held in the local player's left hand.
+*
+* @version  0.3.0
+* @name     getLeftHand
+* @side     client
+* @category Inventory
+* @return   (string|nil)  Item instance, or nil if the hand is empty.
+*
+*/
+sol::object Function_GetLeftHand(sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (!player) {
+    return sol::nil;
+  }
+
+  auto instance = ItemInstanceName(dynamic_cast<oCItem*>(player->GetLeftHand()));
+  if (!instance.has_value()) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will return the item instance currently held in the local player's right hand.
+*
+* @version  0.3.0
+* @name     getRightHand
+* @side     client
+* @category Inventory
+* @return   (string|nil)  Item instance, or nil if the hand is empty.
+*
+*/
+sol::object Function_GetRightHand(sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (!player) {
+    return sol::nil;
+  }
+
+  auto instance = ItemInstanceName(dynamic_cast<oCItem*>(player->GetRightHand()));
+  if (!instance.has_value()) {
+    return sol::nil;
+  }
+
+  return sol::make_object(lua, *instance);
+}
+
+/* luagmp (func)
+*
+* This function will drop an item from the local player's inventory.
+*
+* @version  0.3.0
+* @name     dropItem
+* @side     client
+* @category Inventory
+* @param    (string) instance      Item instance name.
+* @param    (number|nil) amount    Optional amount to drop. Defaults to the whole stack.
+* @return   (boolean)              True on success.
+*
+*/
+bool Function_DropItem(const std::string& instance, sol::optional<std::int32_t> amount) {
+  if (!player || !zfactory) {
+    return false;
+  }
+
+  auto* parser = zCParser::GetParser();
+  if (!parser) {
+    return false;
+  }
+
+  zSTRING instance_name(instance.c_str());
+  const int instance_id = parser->GetIndex(instance_name);
+  if (instance_id < 0) {
+    return false;
+  }
+
+  auto* item = player->inventory2.IsIn(instance_id, 1);
+  if (!item || item->amount <= 0) {
+    return false;
+  }
+
+  std::int32_t drop_amount = amount ? *amount : item->amount;
+  if (drop_amount <= 0) {
+    return false;
+  }
+  drop_amount = std::min(drop_amount, item->amount);
+
+  if (item->amount > drop_amount) {
+    item->amount -= drop_amount;
+
+    auto* dropped_item = zfactory->CreateItem(instance_id);
+    if (!dropped_item) {
+      item->amount += drop_amount;
+      return false;
+    }
+
+    dropped_item->amount = drop_amount;
+    player->DoPutInInventory(dropped_item);
+    return player->DoDropVob(dropped_item) != 0;
+  }
+
+  return player->DoDropVob(item) != 0;
+}
+
+/* luagmp (func)
+*
+* This function will drop the item from the local player's inventory slot.
+*
+* @version  0.3.0
+* @name     dropItemBySlot
+* @side     client
+* @category Inventory
+* @param    (number) slot   Inventory slot, starting from 0.
+* @return   (boolean)       True on success.
+*
+*/
+bool Function_DropItemBySlot(std::int32_t slot) {
+  if (!player || slot < 0) {
+    return false;
+  }
+
+  auto* item = player->GetItem(0, slot);
+  if (!item) {
+    return false;
+  }
+
+  return player->DoDropVob(item) != 0;
 }
 
 /* luagmp (func)
@@ -2623,12 +2886,248 @@ sol::object Function_GetDayLength(sol::this_state ts) {
 
 /* luagmp (func)
 *
+* This function will enable or disable Gothic damage animations for non-local NPCs.
+*
+* @version  0.3.0
+* @name     enable_DamageAnims
+* @side     client
+* @category Game
+* @param    (boolean) enabled  True to allow damage animations.
+*
+*/
+void Function_EnableDamageAnims(bool enabled) {
+  SetDamageAnimationsEnabled(enabled);
+}
+
+/* luagmp (func)
+*
+* This function will enable or disable arrow and bolt trails.
+*
+* @version  0.3.0
+* @name     enable_MunitionTrail
+* @side     client
+* @category Game
+* @param    (boolean) enabled  True to show munition trails.
+*
+*/
+void Function_EnableMunitionTrail(bool enabled) {
+  SetMunitionTrailEnabled(enabled);
+}
+
+/* luagmp (func)
+*
+* This function will enable or disable melee weapon trails.
+*
+* @version  0.3.0
+* @name     enable_WeaponTrail
+* @side     client
+* @category Game
+* @param    (boolean) enabled  True to show weapon trails.
+*
+*/
+void Function_EnableWeaponTrail(bool enabled) {
+  zCAIPlayer::s_bShowWeaponTrails = enabled ? 1 : 0;
+}
+
+/* luagmp (func)
+*
+* This function will set the Gothic blood rendering mode.
+*
+* Blood modes: 0 none, 1 particles, 2 decals, 3 trails, 4 amplification.
+*
+* @version  0.3.0
+* @name     setBloodMode
+* @side     client
+* @category Game
+* @param    (number) mode  Blood mode.
+* @return   (boolean)      True on success.
+*
+*/
+bool Function_SetBloodMode(std::int32_t mode) {
+  if (mode < oCNpc::oEBloodMode_None || mode > oCNpc::oEBloodMode_Amplification) {
+    return false;
+  }
+
+  oCNpc::modeBlood = static_cast<oCNpc::oEBloodMode>(mode);
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will return the current Gothic blood rendering mode.
+*
+* Blood modes: 0 none, 1 particles, 2 decals, 3 trails, 4 amplification.
+*
+* @version  0.3.0
+* @name     getBloodMode
+* @side     client
+* @category Game
+* @return   (number)  Blood mode.
+*
+*/
+std::int32_t Function_GetBloodMode() {
+  return static_cast<std::int32_t>(oCNpc::modeBlood);
+}
+
+/* luagmp (func)
+*
+* This function will set the Gothic view distance scalability factor.
+*
+* @version  0.3.0
+* @name     setSightFactor
+* @side     client
+* @category Game
+* @param    (number) factor  Sight factor, clamped to 0.02 - 5.0.
+* @return   (boolean)        True on success.
+*
+*/
+bool Function_SetSightFactor(float factor) {
+  auto* sky_controller = GetActiveSkyController();
+  if (!sky_controller || !std::isfinite(factor)) {
+    return false;
+  }
+
+  factor = std::clamp(factor, 0.02f, 5.0f);
+  if (zoptions) {
+    const int game_setting = std::max(0, static_cast<int>(factor * 100.0f) / 20 - 1);
+    zoptions->WriteInt(zSTRING("PERFORMANCE"), "sightValue", game_setting, 1);
+  }
+
+  sky_controller->SetFarZScalability(factor);
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will return the current Gothic view distance scalability factor.
+*
+* @version  0.3.0
+* @name     getSightFactor
+* @side     client
+* @category Game
+* @return   (number)  Sight factor.
+*
+*/
+float Function_GetSightFactor() {
+  auto* sky_controller = GetActiveSkyController();
+  if (!sky_controller) {
+    return 1.0f;
+  }
+
+  return sky_controller->GetFarZScalability();
+}
+
+/* luagmp (func)
+*
+* This function will set the global progressive mesh LOD strength modifier.
+*
+* @version  0.3.0
+* @name     setLODStrengthModifier
+* @side     client
+* @category Game
+* @param    (number) modifier  LOD strength modifier.
+*
+*/
+void Function_SetLODStrengthModifier(float modifier) {
+  zCProgMeshProto::SetLODParamStrengthModifier(modifier);
+}
+
+/* luagmp (func)
+*
+* This function will return the global progressive mesh LOD strength modifier.
+*
+* @version  0.3.0
+* @name     getLODStrengthModifier
+* @side     client
+* @category Game
+* @return   (number)  LOD strength modifier.
+*
+*/
+float Function_GetLODStrengthModifier() {
+  return zCProgMeshProto::GetLODParamStrengthModifier();
+}
+
+/* luagmp (func)
+*
+* This function will set the global progressive mesh LOD strength override.
+*
+* Use -1 to use mesh values. Use 0 to disable LOD.
+*
+* @version  0.3.0
+* @name     setLODStrengthOverride
+* @side     client
+* @category Game
+* @param    (number) strength  LOD strength override.
+*
+*/
+void Function_SetLODStrengthOverride(float strength) {
+  zCProgMeshProto::SetLODParamStrength(strength);
+}
+
+/* luagmp (func)
+*
+* This function will return the global progressive mesh LOD strength override.
+*
+* @version  0.3.0
+* @name     getLODStrengthOverride
+* @side     client
+* @category Game
+* @return   (number)  LOD strength override.
+*
+*/
+float Function_GetLODStrengthOverride() {
+  return zCProgMeshProto::s_lodParamStrengthOverride;
+}
+
+/* luagmp (func)
+*
+* This function will play a BIK video from Gothic's _Work\Data\Video path.
+*
+* @version  0.3.0
+* @name     playVideo
+* @side     client
+* @category Game
+* @param    (string) file_name  BIK file name, e.g. "Intro.bik".
+* @return   (boolean)           True when Gothic accepted the video.
+*
+*/
+bool Function_PlayVideo(const std::string& file_name) {
+  if (!gameMan || file_name.empty()) {
+    return false;
+  }
+
+  return gameMan->PlayVideo(zSTRING(file_name.c_str())) != 0;
+}
+
+/* luagmp (func)
+*
+* This function will check whether a physical file exists.
+*
+* @version  0.3.0
+* @name     fileExists
+* @side     client
+* @category Game
+* @param    (string) file_path  File path, e.g. "System/Gothic.ini".
+* @return   (boolean)           True when the file exists.
+*
+*/
+bool Function_FileExists(const std::string& file_path) {
+  if (file_path.empty()) {
+    return false;
+  }
+
+  std::error_code error;
+  return std::filesystem::is_regular_file(std::filesystem::path(file_path), error);
+}
+
+/* luagmp (func)
+*
 * This function will return the current game resolution.
 *
 * @version  0.3.0
 * @name     getResolution
 * @side     client
-* @category Game
+* @category Interface
 * @return   ({x, y})  Table containing width and height.
 *
 */
@@ -2638,14 +3137,101 @@ sol::object Function_GetResolution(sol::this_state ts) {
 
   int width = 800;
   int height = 600;
+  int bpp = 32;
   if (zrenderer) {
     width = zrenderer->vid_xdim;
     height = zrenderer->vid_ydim;
+    bpp = zrenderer->vid_bpp;
   }
 
   resolution["x"] = width;
   resolution["y"] = height;
-  return resolution;
+  resolution["bpp"] = bpp;
+  return sol::make_object(lua, resolution);
+}
+
+/* luagmp (func)
+*
+* This function will set the current game resolution.
+*
+* @version  0.3.0
+* @name     setResolution
+* @side     client
+* @category Interface
+* @param    (number) width      Resolution width.
+* @param    (number) height     Resolution height.
+* @param    (number|nil) bpp    Optional bits per pixel. Defaults to the current renderer bpp.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_SetResolution(std::int32_t width, std::int32_t height, sol::optional<std::int32_t> bpp) {
+  if (!zrenderer || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  std::optional<int> requested_bpp;
+  if (bpp.has_value()) {
+    requested_bpp = *bpp;
+  } else if (zrenderer->vid_bpp > 0) {
+    requested_bpp = zrenderer->vid_bpp;
+  }
+
+  auto selection = FindVideoMode(width, height, requested_bpp);
+  if (!selection.has_value() && requested_bpp.has_value()) {
+    selection = FindVideoMode(width, height, std::nullopt);
+  }
+  if (!selection.has_value()) {
+    return false;
+  }
+
+  HWND window = hWndApp;
+  zCView::SetMode(selection->info.xdim, selection->info.ydim, selection->info.bpp, &window);
+
+  zrenderer->SetViewport(0, 0, selection->info.xdim, selection->info.ydim);
+
+  if (zoptions) {
+    zoptions->WriteInt(zOPT_SEC_VIDEO, "zVidResFullscreenX", selection->info.xdim);
+    zoptions->WriteInt(zOPT_SEC_VIDEO, "zVidResFullscreenY", selection->info.ydim);
+    zoptions->WriteInt(zOPT_SEC_VIDEO, "zVidResFullscreenBPP", selection->info.bpp);
+  }
+
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will return the available game resolutions.
+*
+* @version  0.3.0
+* @name     getAvailableResolutions
+* @side     client
+* @category Interface
+* @return   (table)  Array of resolution tables containing x, y, and bpp.
+*
+*/
+sol::object Function_GetAvailableResolutions(sol::this_state ts) {
+  sol::state_view lua(ts);
+  sol::table resolutions = lua.create_table();
+  if (!zrenderer) {
+    return sol::make_object(lua, resolutions);
+  }
+
+  int result_index = 1;
+  const int mode_count = zrenderer->Vid_GetNumModes();
+  for (int mode_index = 0; mode_index < mode_count; ++mode_index) {
+    zTRnd_VidModeInfo mode_info;
+    if (!zrenderer->Vid_GetModeInfo(mode_info, mode_index)) {
+      continue;
+    }
+
+    sol::table resolution = lua.create_table();
+    resolution["x"] = mode_info.xdim;
+    resolution["y"] = mode_info.ydim;
+    resolution["bpp"] = mode_info.bpp;
+    resolutions[result_index++] = resolution;
+  }
+
+  return sol::make_object(lua, resolutions);
 }
 
 /* luagmp (func)
@@ -2845,6 +3431,13 @@ void BindGothicSpecific(sol::state& lua) {
   lua["equipShield"] = Function_EquipShield;
   lua["unequipShield"] = Function_UnequipShield;
   lua["hasItem"] = Function_HasItem;
+  lua["getCurrentInventorySlot"] = Function_GetCurrentInventorySlot;
+  lua["getInventory"] = Function_GetInventory;
+  lua["getItemBySlot"] = Function_GetItemBySlot;
+  lua["getLeftHand"] = Function_GetLeftHand;
+  lua["getRightHand"] = Function_GetRightHand;
+  lua["dropItem"] = Function_DropItem;
+  lua["dropItemBySlot"] = Function_DropItemBySlot;
   lua["removeItem"] = Function_RemoveItem;
   lua["clearInventory"] = Function_ClearInventory;
   lua["openInventory"] = Function_OpenInventory;
@@ -2875,7 +3468,23 @@ void BindGothicSpecific(sol::state& lua) {
   lua["setDayLength"] = Function_SetDayLength;
   lua["getDayLength"] = Function_GetDayLength;
 
+  lua["enable_DamageAnims"] = Function_EnableDamageAnims;
+  lua["enable_MunitionTrail"] = Function_EnableMunitionTrail;
+  lua["enable_WeaponTrail"] = Function_EnableWeaponTrail;
+  lua["setBloodMode"] = Function_SetBloodMode;
+  lua["getBloodMode"] = Function_GetBloodMode;
+  lua["setSightFactor"] = Function_SetSightFactor;
+  lua["getSightFactor"] = Function_GetSightFactor;
+  lua["setLODStrengthModifier"] = Function_SetLODStrengthModifier;
+  lua["getLODStrengthModifier"] = Function_GetLODStrengthModifier;
+  lua["setLODStrengthOverride"] = Function_SetLODStrengthOverride;
+  lua["getLODStrengthOverride"] = Function_GetLODStrengthOverride;
+  lua["playVideo"] = Function_PlayVideo;
+  lua["fileExists"] = Function_FileExists;
+
   lua["getResolution"] = Function_GetResolution;
+  lua["setResolution"] = Function_SetResolution;
+  lua["getAvailableResolutions"] = Function_GetAvailableResolutions;
   lua["getFpsRate"] = Function_GetFpsRate;
   lua["getNetworkStats"] = Function_GetNetworkStats;
 

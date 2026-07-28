@@ -56,59 +56,177 @@ void InstalloCGamePatches() {
 
 namespace gmp::gothic {
 namespace {
-bool g_hud_health_bar_enabled = true;
-bool g_hud_mana_bar_enabled = true;
-bool g_hud_swim_bar_enabled = true;
-bool g_hud_focus_bar_enabled = true;
-}  // namespace
+std::int32_t g_hud_all_mode = kHudModeDefault;
+std::int32_t g_hud_health_bar_mode = kHudModeDefault;
+std::int32_t g_hud_mana_bar_mode = kHudModeDefault;
+std::int32_t g_hud_swim_bar_mode = kHudModeDefault;
+std::int32_t g_hud_focus_bar_mode = kHudModeDefault;
+std::int32_t g_hud_focus_name_mode = kHudModeDefault;
 
-bool SetHudEnabled(std::int32_t hud_type, bool enabled) {
+bool IsValidHudMode(std::int32_t mode) {
+  return mode == kHudModeHidden || mode == kHudModeDefault || mode == kHudModeAlwaysVisible;
+}
+
+std::int32_t* GetHudModeStorage(std::int32_t hud_type) {
   switch (hud_type) {
     case kHudAll:
-      if (!Gothic_II_Addon::ogame) {
-        return false;
-      }
-      Gothic_II_Addon::ogame->SetShowPlayerStatus(enabled ? 1 : 0);
-      return true;
+      return &g_hud_all_mode;
     case kHudHealthBar:
-      g_hud_health_bar_enabled = enabled;
-      return true;
+      return &g_hud_health_bar_mode;
     case kHudManaBar:
-      g_hud_mana_bar_enabled = enabled;
-      return true;
+      return &g_hud_mana_bar_mode;
     case kHudSwimBar:
-      g_hud_swim_bar_enabled = enabled;
-      return true;
+      return &g_hud_swim_bar_mode;
     case kHudFocusBar:
-      g_hud_focus_bar_enabled = enabled;
-      return true;
+      return &g_hud_focus_bar_mode;
+    case kHudFocusName:
+      return &g_hud_focus_name_mode;
     default:
-      return false;
+      return nullptr;
   }
 }
 
-std::optional<bool> GetHudEnabled(std::int32_t hud_type) {
-  switch (hud_type) {
-    case kHudAll:
-      if (!Gothic_II_Addon::ogame) {
-        return std::nullopt;
-      }
-      return Gothic_II_Addon::ogame->GetShowPlayerStatus() != 0;
-    case kHudHealthBar:
-      return g_hud_health_bar_enabled;
-    case kHudManaBar:
-      return g_hud_mana_bar_enabled;
-    case kHudSwimBar:
-      return g_hud_swim_bar_enabled;
-    case kHudFocusBar:
-      return g_hud_focus_bar_enabled;
-    default:
-      return std::nullopt;
+oCViewStatusBar* GetHudBar(std::int32_t hud_type) {
+  if (!Gothic_II_Addon::ogame) {
+    return nullptr;
   }
+
+  switch (hud_type) {
+    case kHudHealthBar:
+      return Gothic_II_Addon::ogame->hpBar;
+    case kHudManaBar:
+      return Gothic_II_Addon::ogame->manaBar;
+    case kHudSwimBar:
+      return Gothic_II_Addon::ogame->swimBar;
+    case kHudFocusBar:
+      return Gothic_II_Addon::ogame->focusBar;
+    default:
+      return nullptr;
+  }
+}
+}  // namespace
+
+bool SetHudEnabled(std::int32_t hud_type, bool enabled) {
+  return SetHudMode(hud_type, enabled ? kHudModeDefault : kHudModeHidden);
+}
+
+std::optional<bool> GetHudEnabled(std::int32_t hud_type) {
+  auto mode = GetHudMode(hud_type);
+  if (!mode.has_value()) {
+    return std::nullopt;
+  }
+
+  if (*mode == kHudModeHidden) {
+    return false;
+  }
+
+  if (hud_type == kHudAll && *mode == kHudModeDefault) {
+    if (!Gothic_II_Addon::ogame) {
+      return std::nullopt;
+    }
+    return Gothic_II_Addon::ogame->GetShowPlayerStatus() != 0;
+  }
+
+  return true;
 }
 
 bool IsHudTypeEnabled(std::int32_t hud_type) {
   return GetHudEnabled(hud_type).value_or(false);
+}
+
+bool SetHudMode(std::int32_t hud_type, std::int32_t mode) {
+  if (!IsValidHudMode(mode)) {
+    return false;
+  }
+
+  auto* storage = GetHudModeStorage(hud_type);
+  if (!storage) {
+    return false;
+  }
+
+  *storage = mode;
+  if (hud_type == kHudAll && Gothic_II_Addon::ogame) {
+    Gothic_II_Addon::ogame->SetShowPlayerStatus(mode == kHudModeHidden ? 0 : 1);
+  }
+
+  return true;
+}
+
+std::optional<std::int32_t> GetHudMode(std::int32_t hud_type) {
+  auto* storage = GetHudModeStorage(hud_type);
+  if (!storage) {
+    return std::nullopt;
+  }
+
+  return *storage;
+}
+
+bool IsHudVisible(std::int32_t hud_type, bool default_visible) {
+  auto all_mode = GetHudMode(kHudAll);
+  if (!all_mode.has_value() || *all_mode == kHudModeHidden) {
+    return false;
+  }
+
+  auto mode = GetHudMode(hud_type);
+  if (!mode.has_value() || *mode == kHudModeHidden) {
+    return false;
+  }
+
+  if (*mode == kHudModeAlwaysVisible || *all_mode == kHudModeAlwaysVisible) {
+    return true;
+  }
+
+  if (*all_mode == kHudModeDefault) {
+    if (!Gothic_II_Addon::ogame || Gothic_II_Addon::ogame->GetShowPlayerStatus() == 0) {
+      return false;
+    }
+  }
+
+  return default_visible;
+}
+
+bool SetHudBarPosition(std::int32_t hud_type, std::int32_t x, std::int32_t y) {
+  auto* bar = GetHudBar(hud_type);
+  if (!bar) {
+    return false;
+  }
+
+  bar->SetPos(x, y);
+  return true;
+}
+
+std::optional<HudVector> GetHudBarPosition(std::int32_t hud_type) {
+  auto* bar = GetHudBar(hud_type);
+  if (!bar) {
+    return std::nullopt;
+  }
+
+  int x = 0;
+  int y = 0;
+  bar->GetPos(x, y);
+  return HudVector{x, y};
+}
+
+bool SetHudBarSize(std::int32_t hud_type, std::int32_t width, std::int32_t height) {
+  auto* bar = GetHudBar(hud_type);
+  if (!bar || width <= 0 || height <= 0) {
+    return false;
+  }
+
+  bar->SetSize(width, height);
+  return true;
+}
+
+std::optional<HudVector> GetHudBarSize(std::int32_t hud_type) {
+  auto* bar = GetHudBar(hud_type);
+  if (!bar) {
+    return std::nullopt;
+  }
+
+  int width = 0;
+  int height = 0;
+  bar->GetSize(width, height);
+  return HudVector{width, height};
 }
 
 }  // namespace gmp::gothic
@@ -129,31 +247,31 @@ struct FocusInfo {
   zSTRING name;
   int current_health{};
   int health_max{};
+  bool default_name_visible{};
+  bool default_bar_visible{};
 };
 
 std::optional<FocusInfo> GetFocusInfo(zCVob* vob) {
+  if (!vob) {
+    return std::nullopt;
+  }
+
   FocusInfo info{};
   if (oCMOB* mob = zDYNAMIC_CAST<oCMOB>(vob)) {
-    if (!show_FocusMob) {
-      return std::nullopt;
-    }
     info.name = mob->GetName();
+    info.default_name_visible = show_Focus && show_FocusMob;
   } else if (oCNpc* npc = zDYNAMIC_CAST<oCNpc>(vob)) {
-    if ((!show_FocusNpc && !show_FocusBar) || npc->noFocus) {
+    if (npc->noFocus) {
       return std::nullopt;
     }
-    if (show_FocusNpc) {
-      info.name = npc->GetName();
-    }
-    if (show_FocusBar) {
-      info.current_health = npc->GetAttribute(NPC_ATR_HITPOINTS);
-      info.health_max = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
-    }
+    info.name = npc->GetName();
+    info.current_health = npc->GetAttribute(NPC_ATR_HITPOINTS);
+    info.health_max = npc->GetAttribute(NPC_ATR_HITPOINTSMAX);
+    info.default_name_visible = show_Focus && show_FocusNpc;
+    info.default_bar_visible = show_Focus && show_FocusBar;
   } else if (oCItem* item = zDYNAMIC_CAST<oCItem>(vob)) {
-    if (!show_FocusItm) {
-      return std::nullopt;
-    }
     info.name = item->GetName(1);
+    info.default_name_visible = show_Focus && show_FocusItm;
   } else {
     return std::nullopt;
   }
@@ -240,7 +358,7 @@ void oCGame::UpdatePlayerStatus() {
   screen->RemoveItem(swimBar);
   screen->RemoveItem(manaBar);
   screen->RemoveItem(focusBar);
-  if (!showPlayerStatus) {
+  if (!gmp::gothic::IsHudVisible(gmp::gothic::kHudAll, showPlayerStatus != 0)) {
     return;
   }
 
@@ -250,7 +368,7 @@ void oCGame::UpdatePlayerStatus() {
     return;
   }
 
-  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudHealthBar)) {
+  if (gmp::gothic::IsHudVisible(gmp::gothic::kHudHealthBar, true)) {
     screen->InsertItem(hpBar);
     hpBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
     hpBar->SetRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
@@ -258,29 +376,36 @@ void oCGame::UpdatePlayerStatus() {
     hpBar->SetValue(player->GetAttribute(NPC_ATR_HITPOINTS));
   }
 
-  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudSwimBar) && player->GetAnictrl() != nullptr) {
-    if (player->GetAnictrl()->wmode_last == ANI_WALKMODE_DIVE) {
-      float swim_time_a, swim_time_b, swim_time_c;
-      player->GetSwimDiveTime(swim_time_a, swim_time_b, swim_time_c);
+  if (player->GetAnictrl() != nullptr) {
+    const bool is_diving = player->GetAnictrl()->wmode_last == ANI_WALKMODE_DIVE;
+    if (gmp::gothic::IsHudVisible(gmp::gothic::kHudSwimBar, is_diving)) {
+      float swim_time = 0.0f;
+      float dive_time = 0.0f;
+      float dive_value = 0.0f;
+      player->GetSwimDiveTime(swim_time, dive_time, dive_value);
+
+      float max_swim_time = dive_time;
+      if (dive_time == DIVE_TIME_INVALID || max_swim_time <= 0.0f) {
+        max_swim_time = 1.0f;
+        dive_value = max_swim_time;
+      }
+
       screen->InsertItem(swimBar);
-      float max_swim_time = swim_time_b;
-      if (swim_time_b == DIVE_TIME_INVALID)
-        swim_time_c = max_swim_time;
       swimBar->SetMaxRange(0, max_swim_time);
       swimBar->SetRange(0, max_swim_time);
-      swimBar->SetValue(swim_time_c);
+      swimBar->SetValue(dive_value);
     }
   }
 
-  if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudManaBar) &&
-      (player->inventory2.IsOpen() || player->GetWeaponMode() == NPC_WEAPON_MAG)) {
-    if (player->GetAttribute(NPC_ATR_MANAMAX) > 0) {
-      screen->InsertItem(manaBar);
-      manaBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_MANAMAX));
-      manaBar->SetRange(0, player->GetAttribute(NPC_ATR_MANAMAX));
-      manaBar->SetPreview(player->GetAttribute(NPC_ATR_MANA));
-      manaBar->SetValue(player->GetAttribute(NPC_ATR_MANA));
-    }
+  const int mana_max = player->GetAttribute(NPC_ATR_MANAMAX);
+  const bool mana_default_visible =
+      mana_max > 0 && (player->inventory2.IsOpen() || player->GetWeaponMode() == NPC_WEAPON_MAG);
+  if (mana_max > 0 && gmp::gothic::IsHudVisible(gmp::gothic::kHudManaBar, mana_default_visible)) {
+    screen->InsertItem(manaBar);
+    manaBar->SetMaxRange(0, mana_max);
+    manaBar->SetRange(0, mana_max);
+    manaBar->SetPreview(player->GetAttribute(NPC_ATR_MANA));
+    manaBar->SetValue(player->GetAttribute(NPC_ATR_MANA));
   }
 
   if (gStatusReadGameOptions) {
@@ -294,24 +419,26 @@ void oCGame::UpdatePlayerStatus() {
     }
   }
 
-  if (show_Focus) {
-    zCVob* focus_vob = player->GetFocusVob();
-    if (!focus_vob) {
-      return;
-    }
+  zCVob* focus_vob = player->GetFocusVob();
+  if (!focus_vob) {
+    return;
+  }
 
-    auto focus_info = GetFocusInfo(focus_vob);
-    if (!focus_info.has_value()) {
-      return;
-    }
+  auto focus_info = GetFocusInfo(focus_vob);
+  if (!focus_info.has_value()) {
+    return;
+  }
 
-    if (gmp::gothic::IsHudTypeEnabled(gmp::gothic::kHudFocusBar) && focus_info->current_health > 0) {
-      screen->InsertItem(focusBar);
-      focusBar->SetMaxRange(0, focus_info->health_max);
-      focusBar->SetRange(0, focus_info->health_max);
-      focusBar->SetValue(focus_info->current_health);
-    }
+  if (focus_info->current_health > 0 &&
+      gmp::gothic::IsHudVisible(gmp::gothic::kHudFocusBar, focus_info->default_bar_visible)) {
+    screen->InsertItem(focusBar);
+    focusBar->SetMaxRange(0, focus_info->health_max);
+    focusBar->SetRange(0, focus_info->health_max);
+    focusBar->SetValue(focus_info->current_health);
+  }
 
+  if (focus_vob->GetVisual() &&
+      gmp::gothic::IsHudVisible(gmp::gothic::kHudFocusName, focus_info->default_name_visible)) {
     zVEC3 focus_pos = CalculateFocusPosition(focus_vob);
     RenderFocusName(focus_pos, focus_info->name);
   }

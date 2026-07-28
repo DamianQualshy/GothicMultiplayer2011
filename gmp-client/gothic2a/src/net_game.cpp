@@ -1591,7 +1591,8 @@ void NetGame::OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_
 }
 
 void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& body_model, std::int16_t body_texture,
-                                   const std::string& head_model, std::int16_t head_texture) {
+                                   const std::string& head_model, std::int16_t head_texture, std::int16_t teeth_texture,
+                                   std::int16_t skin_color) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
@@ -1599,11 +1600,13 @@ void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& b
 
   zSTRING body(body_model.c_str());
   zSTRING head(head_model.c_str());
-  cplayer->GetNpc()->SetAdditionalVisuals(body, body_texture, 0, head, head_texture, 0, 0);
+  cplayer->GetNpc()->SetAdditionalVisuals(body, body_texture, skin_color, head, head_texture, teeth_texture, -1);
   cplayer->base_player().set_body_model(body_model);
   cplayer->base_player().set_body_texture(body_texture);
   cplayer->base_player().set_head_model(head_model);
   cplayer->base_player().set_head_texture(head_texture);
+  cplayer->base_player().set_teeth_texture(teeth_texture);
+  cplayer->base_player().set_skin_color(skin_color);
 }
 
 void NetGame::OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) {

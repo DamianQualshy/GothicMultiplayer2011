@@ -104,7 +104,7 @@ void ApplyPlayerAppearance(oCNpc* npc, gmp::client::Player& player) {
     if (!player.body_model().empty() || !player.head_model().empty()) {
       zSTRING body(player.body_model().c_str());
       zSTRING head(player.head_model().c_str());
-      npc->SetAdditionalVisuals(body, player.body_texture(), 0, head, player.head_texture(), 0, -1);
+      npc->SetAdditionalVisuals(body, player.body_texture(), player.skin_color(), head, player.head_texture(), player.teeth_texture(), -1);
     }
     npc->SetFatness(player.fatness());
   }

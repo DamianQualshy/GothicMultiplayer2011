@@ -124,7 +124,7 @@ public:
   void OnPlayerSkillWeaponUpdate(std::uint64_t player_id, std::int32_t skill_id, std::int32_t percentage) override;
   void OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_id, std::int32_t talent_value) override;
   void OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
-                            std::int16_t head_texture) override;
+                            std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color) override;
   void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) override;
   void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) override;
   void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) override;

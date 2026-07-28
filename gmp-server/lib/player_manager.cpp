@@ -45,6 +45,8 @@ PlayerManager::PlayerId PlayerManager::AddPlayer(Net::ConnectionHandle connectio
   player.body_texture = 0;
   player.head_model.clear();
   player.head_texture = 0;
+  player.teeth_texture = 0;
+  player.skin_color = 0;
   player.flags = 0;
   player.walkstyle = 0;
   player.fight_pos = 0;

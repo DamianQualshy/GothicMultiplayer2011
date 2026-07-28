@@ -270,25 +270,26 @@ local function cmdStats(playerId, params)
 end
 
 local function cmdVisual(playerId, params)
-  local args = sscanf('dsdsd', params or '')
+  local args = sscanf('dsdsddd', params or '') or sscanf('dsdsd', params or '')
   if not args then
-    sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: Type /visual id body_model body_texture head_model head_texture')
+    sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: Type /visual id body_model body_texture head_model head_texture [teeth_texture] [skin_color]')
     return
   end
 
   local id, bodyModel, bodyTexture, headModel, headTexture = args[1], args[2], args[3], args[4], args[5]
+  local teethTexture, skinColor = args[6] or 0, args[7] or 0
   if not isPlayerSpawned(id) then
     sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: You cannot change visuals of unconnected or unspawned player!')
     return
   end
 
-  if not setPlayerVisual(id, bodyModel, bodyTexture, headModel, headTexture) then
+  if not setPlayerVisual(id, bodyModel, bodyTexture, headModel, headTexture, teethTexture, skinColor) then
     sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: Failed to change player visuals')
     return
   end
 
-  sendMessageToPlayer(playerId, 0, 255, 0, string.format('ACP: You changed %s visuals to %s/%d %s/%d',
-      playerName(id), bodyModel, bodyTexture, headModel, headTexture))
+  sendMessageToPlayer(playerId, 0, 255, 0, string.format('ACP: You changed %s visuals to %s/%d %s/%d teeth:%d skin:%d',
+      playerName(id), bodyModel, bodyTexture, headModel, headTexture, teethTexture, skinColor))
   sendMessageToPlayer(id, 0, 255, 0, string.format('Your visuals were changed by %s', playerName(playerId)))
 end
 

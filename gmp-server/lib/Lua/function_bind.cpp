@@ -1041,20 +1041,24 @@ sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_sta
 * @side     server
 * @category Player
 * @param    (number) player_id       Target player id.
-* @param    (string) body_model      Body model name.
-* @param    (number) body_texture    Body texture index.
-* @param    (string) head_model      Head model name.
-* @param    (number) head_texture    Head texture index.
+* @param    (string) bodyModel      Body model name.
+* @param    (number) bodyTexture    Body texture index.
+* @param    (string) headModel      Head model name.
+* @param    (number) headTexture    Head texture index.
+* @param    (number) teethTexture   Optional teeth texture file numeric id. Defaults to 0 if omitted.
+* @param    (number) skinColor      Optional color variant of head & body texture files. Defaults to 0 if omitted.
 *
 */
-bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model,
-                              int head_texture) {
+bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
+                              sol::optional<int> teeth_texture, sol::optional<int> skin_color) {
   if (!GetPlayerOrWarn(player_id, "setPlayerVisual")) {
     return false;
   }
 
   return g_server->SetPlayerVisual(player_id, body_model, static_cast<std::int16_t>(body_texture), head_model,
-                                   static_cast<std::int16_t>(head_texture));
+                                   static_cast<std::int16_t>(head_texture),
+                                   static_cast<std::int16_t>(teeth_texture.value_or(0)),
+                                   static_cast<std::int16_t>(skin_color.value_or(0)));
 }
 
 /* luagmp (func)
@@ -1066,7 +1070,7 @@ bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_m
 * @side     server
 * @category Player
 * @param    (number) player_id       Target player id.
-* @return   ({bodyModel, bodyTexture, headModel, headTexture}|nil)         Table with bodyModel, bodyTexture, headModel, headTexture or nil.
+* @return   ({bodyModel, bodyTexture, headModel, headTexture, teethTexture, skinColor}|nil)  Table with visual data or nil.
 *
 */
 sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts) {
@@ -1082,6 +1086,8 @@ sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts
   visual_table["bodyTexture"] = player.body_texture;
   visual_table["headModel"] = player.head_model;
   visual_table["headTexture"] = player.head_texture;
+  visual_table["teethTexture"] = player.teeth_texture;
+  visual_table["skinColor"] = player.skin_color;
   return visual_table;
 }
 

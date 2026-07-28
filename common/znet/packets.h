@@ -69,6 +69,8 @@ struct ExistingPlayerInfo {
   std::uint16_t body_texture{0};
   std::string head_model;
   std::uint16_t head_texture{0};
+  std::uint16_t teeth_texture{0};
+  std::uint16_t skin_color{0};
   std::uint8_t walk_style{0};
   std::string player_name;
   std::string instance;
@@ -138,6 +140,8 @@ void serialize(S& s, ExistingPlayerInfo& info) {
   s.value2b(info.body_texture);
   s.text1b(info.head_model, 255);
   s.value2b(info.head_texture);
+  s.value2b(info.teeth_texture);
+  s.value2b(info.skin_color);
   s.value1b(info.walk_style);
   s.text1b(info.player_name, 255);
 
@@ -182,6 +186,7 @@ inline std::ostream& operator<<(std::ostream& os, const ExistingPlayerInfo& pack
      << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
+     << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
      << ", walk_style: " << static_cast<int>(packet.walk_style) << ", player_name: " << packet.player_name
      << ", instance: " << packet.instance
      << ", name_color: (" << static_cast<int>(packet.name_color_r) << ", " << static_cast<int>(packet.name_color_g) << ", "
@@ -280,6 +285,8 @@ struct PlayerVisualUpdatePacket {
   std::uint16_t body_texture{0};
   std::string head_model;
   std::uint16_t head_texture{0};
+  std::uint16_t teeth_texture{0};
+  std::uint16_t skin_color{0};
 };
 
 template <typename S>
@@ -290,13 +297,16 @@ void serialize(S& s, PlayerVisualUpdatePacket& packet) {
   s.value2b(packet.body_texture);
   s.text1b(packet.head_model, 255);
   s.value2b(packet.head_texture);
+  s.value2b(packet.teeth_texture);
+  s.value2b(packet.skin_color);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerVisualUpdatePacket& packet) {
   os << "PlayerVisualUpdatePacket {"
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", player_id: " << packet.player_id
      << ", body_model: " << packet.body_model << ", body_texture: " << packet.body_texture 
-     << ", head_model: " << packet.head_model << ", head_texture: " << packet.head_texture << " }";
+     << ", head_model: " << packet.head_model << ", head_texture: " << packet.head_texture
+     << ", teeth_texture: " << packet.teeth_texture << ", skin_color: " << packet.skin_color << " }";
   return os;
 }
 
@@ -659,6 +669,8 @@ struct JoinGamePacket {
   std::uint16_t body_texture{0};
   std::string head_model;
   std::uint16_t head_texture{0};
+  std::uint16_t teeth_texture{0};
+  std::uint16_t skin_color{0};
   std::uint8_t walk_style{0};
   std::string player_name;
   // May be used to identify the player (e.g. when relaying the information about the player to other players)
@@ -685,6 +697,8 @@ void serialize(S& s, JoinGamePacket& packet) {
   s.value2b(packet.body_texture);
   s.text1b(packet.head_model, 255);
   s.value2b(packet.head_texture);
+  s.value2b(packet.teeth_texture);
+  s.value2b(packet.skin_color);
   s.value1b(packet.walk_style);
   s.text1b(packet.player_name, 255);
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
@@ -705,7 +719,8 @@ inline std::ostream& operator<<(std::ostream& os, const JoinGamePacket& packet) 
      << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
      << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
-     << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture) 
+     << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
+     << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
      << ", walk_style: " << static_cast<int>(packet.walk_style)
      << ", player_name: " << packet.player_name;
 
@@ -741,6 +756,8 @@ struct PlayerSpawnPacket {
   std::uint16_t body_texture{0};
   std::string head_model;
   std::uint16_t head_texture{0};
+  std::uint16_t teeth_texture{0};
+  std::uint16_t skin_color{0};
   std::uint8_t walk_style{0};
   std::string player_name;
 
@@ -814,6 +831,8 @@ void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value2b(packet.body_texture);
   s.text1b(packet.head_model, 255);
   s.value2b(packet.head_texture);
+  s.value2b(packet.teeth_texture);
+  s.value2b(packet.skin_color);
   s.value1b(packet.walk_style);
   s.text1b(packet.player_name, 255);
 
@@ -858,7 +877,8 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerSpawnPacket& packe
      << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
      << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
-     << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture) 
+     << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
+     << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
      << ", walk_style: " << static_cast<int>(packet.walk_style)
      << ", player_name: " << packet.player_name
      << ", instance: " << packet.instance

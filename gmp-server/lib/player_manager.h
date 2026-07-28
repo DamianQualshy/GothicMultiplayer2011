@@ -75,6 +75,8 @@ public:
     std::int16_t body_texture{0};
     std::string head_model;
     std::int16_t head_texture{0};
+    std::int16_t teeth_texture{0};
+    std::int16_t skin_color{0};
     float fatness{1.0f};
     glm::vec3 scale{1.0f, 1.0f, 1.0f};
     std::vector<std::string> overlays;

@@ -32,3 +32,7 @@ void SetSuppressLocalEquipEvents(bool suppress);
 bool ShouldSuppressLocalEquipEvents();
 void SetSuppressLocalLifecycleEvents(bool suppress);
 bool ShouldSuppressLocalLifecycleEvents();
+void SetDamageAnimationsEnabled(bool enabled);
+bool AreDamageAnimationsEnabled();
+void SetMunitionTrailEnabled(bool enabled);
+bool IsMunitionTrailEnabled();

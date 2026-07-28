@@ -253,6 +253,8 @@ PlayerSpawnPacket MakePlayerSpawnPacket(const PlayerManager::Player& player) {
   packet.body_texture = player.body_texture;
   packet.head_model = player.head_model;
   packet.head_texture = player.head_texture;
+  packet.teeth_texture = player.teeth_texture;
+  packet.skin_color = player.skin_color;
   packet.walk_style = player.walkstyle;
   PopulatePlayerSpawnSnapshot(packet, player);
   return packet;
@@ -1424,6 +1426,8 @@ void GameServer::SomeoneJoinGame(Packet p) {
   player.body_texture = packet.body_texture;
   player.head_model = packet.head_model;
   player.head_texture = packet.head_texture;
+  player.teeth_texture = packet.teeth_texture;
+  player.skin_color = packet.skin_color;
   player.walkstyle = packet.walk_style;
   player.name = SanitizePlayerName(packet.player_name);
 
@@ -2369,6 +2373,8 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
   packet.body_texture = joining_player.body_texture;
   packet.head_model = joining_player.head_model;
   packet.head_texture = joining_player.head_texture;
+  packet.teeth_texture = joining_player.teeth_texture;
+  packet.skin_color = joining_player.skin_color;
   packet.walk_style = joining_player.walkstyle;
   packet.player_name = joining_player.name;
   packet.player_id = joining_player.player_id;
@@ -2433,6 +2439,8 @@ void GameServer::SendExistingPlayersPacket(Player& target_player) {
     player_packet.body_texture = existing_player.body_texture;
     player_packet.head_model = existing_player.head_model;
     player_packet.head_texture = existing_player.head_texture;
+    player_packet.teeth_texture = existing_player.teeth_texture;
+    player_packet.skin_color = existing_player.skin_color;
     player_packet.walk_style = existing_player.walkstyle;
     player_packet.player_name = existing_player.name;
     player_packet.instance = existing_player.instance;
@@ -2936,7 +2944,7 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
 }
 
 bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
-                                 std::int16_t head_texture) {
+                                 std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color) {
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerVisual called for unknown player id {}", player_id);
@@ -2954,6 +2962,8 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
   }
   player.body_texture = static_cast<std::int16_t>(std::clamp<int>(body_texture, 0, 255));
   player.head_texture = static_cast<std::int16_t>(std::clamp<int>(head_texture, 0, 255));
+  player.teeth_texture = static_cast<std::int16_t>(std::clamp<int>(teeth_texture, 0, 255));
+  player.skin_color = static_cast<std::int16_t>(std::clamp<int>(skin_color, 0, 255));
 
   PlayerVisualUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_VISUAL_UPDATE;
@@ -2962,6 +2972,8 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
   packet.body_texture = player.body_texture;
   packet.head_model = player.head_model;
   packet.head_texture = player.head_texture;
+  packet.teeth_texture = player.teeth_texture;
+  packet.skin_color = player.skin_color;
 
   BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
   return true;

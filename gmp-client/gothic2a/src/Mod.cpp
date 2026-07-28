@@ -85,6 +85,7 @@ constexpr DWORD kCallOnStateFuncHookAddress = 0x00720870;
 constexpr DWORD kAINormalHookAddress = 0x004A4370;
 constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
 constexpr DWORD kOnDamageHitHookAddress = 0x00666610;
+constexpr DWORD kCreateArrowTrailHookAddress = 0x006A0420;
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
 using DropItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
@@ -100,6 +101,7 @@ using CallOnStateFuncOriginalFn = void(__thiscall*)(oCMobInter*, oCNpc*, int);
 using AINormalOriginalFn = void(__thiscall*)(zCAICamera*);
 using OnDamageAnimOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
 using OnDamageHitOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
+using CreateArrowTrailOriginalFn = void(__thiscall*)(oCAIArrowBase*, zCVob*);
 
 CastSpellOriginalFn g_originalCastSpell = nullptr;
 DropItemOriginalFn g_originalDropItem = nullptr;
@@ -115,6 +117,9 @@ CallOnStateFuncOriginalFn g_originalCallOnStateFunc = nullptr;
 AINormalOriginalFn g_originalAINormal = nullptr;
 OnDamageAnimOriginalFn g_originalOnDamageAnim = nullptr;
 OnDamageHitOriginalFn g_originalOnDamageHit = nullptr;
+CreateArrowTrailOriginalFn g_originalCreateArrowTrail = nullptr;
+bool g_damageAnimationsEnabled = false;
+bool g_munitionTrailEnabled = true;
 
 int GetInventoryAmount(oCNpc* npc, int instance_id) {
   if (npc == nullptr || instance_id <= 0) {
@@ -126,6 +131,22 @@ int GetInventoryAmount(oCNpc* npc, int instance_id) {
 }
 
 }  // namespace
+
+void SetDamageAnimationsEnabled(bool enabled) {
+  g_damageAnimationsEnabled = enabled;
+}
+
+bool AreDamageAnimationsEnabled() {
+  return g_damageAnimationsEnabled;
+}
+
+void SetMunitionTrailEnabled(bool enabled) {
+  g_munitionTrailEnabled = enabled;
+}
+
+bool IsMunitionTrailEnabled() {
+  return g_munitionTrailEnabled;
+}
 
 // Hook: zCAICamera::AI_Normal - crashfix for null camVob pointer
 // The original code dereferences camVob without null check, causing crashes
@@ -313,15 +334,26 @@ void __fastcall OnCallOnStateFunc(oCMobInter* mob, void* /*edx*/, oCNpc* npc, in
   }
 }
 
-// Hook: oCNpc::OnDamage_Anim - only play damage animations for the local player
-// Other players' damage animations are network-controlled
+// Hook: oCNpc::OnDamage_Anim - script-controlled non-local damage animations
 void __fastcall OnOnDamageAnim(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDescriptor& damageDesc) {
-  // Skip damage animations for non-player NPCs (other players handle their own)
-  if (thisNpc != player) {
+  const int attackerWeaponMode = damageDesc.pNpcAttacker ? damageDesc.pNpcAttacker->GetWeaponMode() : NPC_WEAPON_NONE;
+  const bool alwaysAllowMode =
+      attackerWeaponMode == NPC_WEAPON_FIST || (attackerWeaponMode >= NPC_WEAPON_BOW && attackerWeaponMode <= NPC_WEAPON_MAG);
+  if (thisNpc != player && !g_damageAnimationsEnabled && !alwaysAllowMode) {
     return;
   }
   if (g_originalOnDamageAnim) {
     g_originalOnDamageAnim(thisNpc, damageDesc);
+  }
+}
+
+// Hook: oCAIArrowBase::CreateTrail - allow scripts to hide arrow/bolt trails
+void __fastcall OnCreateArrowTrail(oCAIArrowBase* ai, void* /*edx*/, zCVob* vob) {
+  if (!g_munitionTrailEnabled) {
+    return;
+  }
+  if (g_originalCreateArrowTrail) {
+    g_originalCreateArrowTrail(ai, vob);
   }
 }
 
@@ -749,13 +781,17 @@ void Initialize(void) {
     if (auto original = CreateHook(kAINormalHookAddress, (DWORD)OnAINormal)) {
       g_originalAINormal = reinterpret_cast<AINormalOriginalFn>(*original);
     }
-    // oCNpc::OnDamage_Anim - only play damage anims for local player
+    // oCNpc::OnDamage_Anim - script-controlled non-local damage animations
     if (auto original = CreateHook(kOnDamageAnimHookAddress, (DWORD)OnOnDamageAnim)) {
       g_originalOnDamageAnim = reinterpret_cast<OnDamageAnimOriginalFn>(*original);
     }
     // oCNpc::OnDamage_Hit - filter arrow/spell damage from other players
     if (auto original = CreateHook(kOnDamageHitHookAddress, (DWORD)OnOnDamageHit)) {
       g_originalOnDamageHit = reinterpret_cast<OnDamageHitOriginalFn>(*original);
+    }
+    // oCAIArrowBase::CreateTrail - script-controlled arrow/bolt trail visibility
+    if (auto original = CreateHook(kCreateArrowTrailHookAddress, (DWORD)OnCreateArrowTrail)) {
+      g_originalCreateArrowTrail = reinterpret_cast<CreateArrowTrailOriginalFn>(*original);
     }
     // Patch for FindMobInter
     EraseMemory(0x00740006, 0x6A, 1);
