@@ -108,11 +108,14 @@ void ApplyAimingDeathAnimationFix() {
         if (player->GetLeftHand()) {
           LHand = dynamic_cast<oCItem*>(player->GetLeftHand());
         }
-        player->DropAllInHand();
-        if (RHand)
+        player->SetRightHand(nullptr);
+        player->SetLeftHand(nullptr);
+        if (RHand) {
           RHand->RemoveVobFromWorld();
-        if (LHand)
+        }
+        if (LHand && LHand != RHand) {
           LHand->RemoveVobFromWorld();
+        }
       }
     }
   }

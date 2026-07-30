@@ -34,6 +34,7 @@ SOFTWARE.
 #include <system_error>
 #include <tuple>
 #include <unordered_map>
+#include <glm/glm.hpp>
 #include <spdlog/spdlog.h>
 
 #include "ZenGin/zGothicAPI.h"
@@ -1736,13 +1737,13 @@ sol::object Function_GetPlayerPosition(std::int64_t id, sol::this_state ts) {
 * @name     setPlayerAngle
 * @side     client
 * @category Player
-* @param    (number) player_id    Target player id.
-* @param    (number) angle        Angle in radians.
+* @param    (number) player_id        Target player id.
+* @param    (number) angle            Angle in degrees.
 *
 */
 bool Function_SetPlayerAngle(std::int64_t id, float angle) {
     if (auto* npc = GetNpcById(id)) {
-      const float radians = angle;
+      const float radians = glm::radians(angle);
       const zVEC3 heading_vector(std::sin(radians), 0.0F, std::cos(radians));
       npc->SetHeadingYWorld(heading_vector);
       return true;
@@ -1759,7 +1760,7 @@ bool Function_SetPlayerAngle(std::int64_t id, float angle) {
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (number|nil)        Angle in radians or nil.
+* @return   (number|nil)        Angle in degrees or nil.
 *
 */
 sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
@@ -1767,7 +1768,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 
   if (auto* npc = GetNpcById(id)) {
     const zVEC3 forward = npc->GetAtVectorWorld();
-    return sol::make_object(lua, std::atan2(forward[VX], forward[VZ]));
+    return sol::make_object(lua, glm::degrees(std::atan2(forward[VX], forward[VZ])));
   }
 
   return sol::nil;

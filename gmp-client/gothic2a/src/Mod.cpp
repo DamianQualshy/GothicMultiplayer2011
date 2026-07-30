@@ -271,15 +271,20 @@ bool ShouldSuppressLocalLifecycleEvents() {
 
 // Helper to clear items from NPC hands after death/unconscious
 void ClearNpcHands(oCNpc* npc) {
-  if (!npc)
+  if (!npc) {
     return;
+  }
+
   oCItem* rightHand = npc->GetRightHand() ? zDYNAMIC_CAST<oCItem>(npc->GetRightHand()) : nullptr;
   oCItem* leftHand = npc->GetLeftHand() ? zDYNAMIC_CAST<oCItem>(npc->GetLeftHand()) : nullptr;
-  npc->DropAllInHand();
-  if (rightHand)
+  npc->SetRightHand(nullptr);
+  npc->SetLeftHand(nullptr);
+  if (rightHand) {
     rightHand->RemoveVobFromWorld();
-  if (leftHand)
+  }
+  if (leftHand && leftHand != rightHand) {
     leftHand->RemoveVobFromWorld();
+  }
 }
 
 // Hook: oCNpc::DoDie - clears hands after death
@@ -374,14 +379,35 @@ void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDesc
     }
   }
   const int old_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
-  if (g_originalOnDamageHit) {
+  int damage = 0;
+
+  const bool connected = NetGame::Instance().IsConnected();
+  const bool attacker_is_local_player = damageDesc.pNpcAttacker == player;
+  const bool attacker_is_network_player =
+      attacker_is_local_player || NetGame::Instance().GetPlayerIdByNpc(damageDesc.pNpcAttacker).has_value();
+  const bool victim_is_network_player = thisNpc == player || NetGame::Instance().GetPlayerIdByNpc(thisNpc).has_value();
+  const bool server_controlled_player_damage =
+      connected && attacker_is_network_player && victim_is_network_player && damageDesc.pNpcAttacker != thisNpc;
+
+  if (server_controlled_player_damage) {
+    constexpr int kProtectedDamageHealth = 1000000;
+    if (g_originalOnDamageHit) {
+      thisNpc->attribute[NPC_ATR_HITPOINTS] = kProtectedDamageHealth;
+      g_originalOnDamageHit(thisNpc, damageDesc);
+      damage = std::max(0, kProtectedDamageHealth - thisNpc->attribute[NPC_ATR_HITPOINTS]);
+      thisNpc->attribute[NPC_ATR_HITPOINTS] = old_health;
+    }
+    damageDesc.bIsDead = 0;
+    damageDesc.bIsUnconscious = 0;
+  } else if (g_originalOnDamageHit) {
     g_originalOnDamageHit(thisNpc, damageDesc);
+    const int new_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
+    damage = std::max(0, old_health - new_health);
   }
+
   // Report only the damage delta; the server decides whether and how to apply it.
-  if (damageDesc.pNpcAttacker == player && thisNpc != player && NetGame::Instance().IsConnected()) {
+  if (attacker_is_local_player && thisNpc != player && connected) {
     if (auto victim_id = NetGame::Instance().GetPlayerIdByNpc(thisNpc); victim_id.has_value()) {
-      const int new_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
-      const auto damage = static_cast<std::int32_t>(old_health - new_health);
       if (damage > 0) {
         NetGame::Instance().SendPlayerHit(static_cast<std::uint32_t>(victim_id.value()), damage,
                                           static_cast<std::uint32_t>(damageDesc.enuModeDamage),

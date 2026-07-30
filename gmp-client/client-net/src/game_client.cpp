@@ -38,6 +38,7 @@ SOFTWARE.
 #include <iomanip>
 #include <sstream>
 #include <stdexcept>
+#include <utility>
 
 #include "net_enums.h"
 #include "packets.h"
@@ -52,6 +53,44 @@ Net::NetClient* g_netclient = nullptr;
 
 constexpr std::uint32_t kPlayerStateChannel = 1;
 
+bool ParseEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port) {
+  host.assign(full_address.begin(), full_address.end());
+  port = 0xDEAD;
+
+  const size_t pos = host.find_last_of(':');
+  if (pos != std::string::npos) {
+    const std::string port_text = host.substr(pos + 1);
+    std::istringstream iss(port_text);
+    int parsed_port = 0;
+    if (!(iss >> parsed_port) || parsed_port <= 0 || parsed_port > 65535) {
+      return false;
+    }
+    port = static_cast<std::uint32_t>(parsed_port);
+    host.erase(pos);
+  }
+
+  return !host.empty();
+}
+
+std::string GetConnectionFailureMessage(std::uint8_t message) {
+  switch (static_cast<Net::PacketID>(message)) {
+    case Net::ID_INVALID_PASSWORD:
+      return "Invalid server password";
+    case Net::ID_NO_FREE_INCOMING_CONNECTIONS:
+      return "Server is full";
+    case Net::ID_CONNECTION_BANNED:
+      return "Connection banned";
+    case Net::ID_ALREADY_CONNECTED:
+      return "Already connected";
+    case Net::ID_INCOMPATIBLE_PROTOCOL_VERSION:
+      return "Incompatible protocol version";
+    case Net::ID_IP_RECENTLY_CONNECTED:
+      return "IP recently connected";
+    default:
+      return std::string("Connection failed: ") + Net::PacketIDToString(static_cast<Net::PacketID>(message));
+  }
+}
+
 template <typename TContainer = std::vector<std::uint8_t>, typename Packet>
 static void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable, std::uint32_t channel = 0) {
   TContainer buffer;
@@ -60,7 +99,7 @@ static void SerializeAndSend(const Packet& packet, Net::PacketPriority priority,
 }
 
 GameClient::GameClient(EventObserver& eventObserver, gmp::TaskScheduler& taskScheduler)
-    : event_observer_(eventObserver), task_scheduler_(taskScheduler), resource_downloader_(eventObserver, taskScheduler) {
+    : event_observer_(eventObserver), resource_downloader_(eventObserver, taskScheduler) {
   assert(g_netclient != nullptr);
   InitPacketHandlers();
   g_netclient->AddPacketHandler(*this);
@@ -70,20 +109,23 @@ GameClient::~GameClient() {
   Disconnect();
   assert(g_netclient != nullptr);
 
-  // Clean up connection thread if still running
-  {
-    std::lock_guard<std::mutex> lock(connection_mutex_);
-    if (connection_thread_.joinable()) {
-      connection_thread_.join();
-    }
-  }
-
   resource_downloader_.StopDownload();
 
   g_netclient->RemovePacketHandler(*this);
 }
 
 void GameClient::InitPacketHandlers() {
+  packet_handlers_[Net::ID_CONNECTION_REQUEST_ACCEPTED] = [this](Packet p) { OnConnectionAccepted(p); };
+  packet_handlers_[Net::ID_CONNECTION_ATTEMPT_FAILED] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_INVALID_PASSWORD] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_NO_FREE_INCOMING_CONNECTIONS] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_ALREADY_CONNECTED] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_CONNECTION_BANNED] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_INCOMPATIBLE_PROTOCOL_VERSION] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_IP_RECENTLY_CONNECTED] = [this](Packet p) { OnConnectionFailedPacket(p); };
+  packet_handlers_[Net::ID_DISCONNECTION_NOTIFICATION] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
+  packet_handlers_[Net::ID_CONNECTION_LOST] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
+
   packet_handlers_[PT_INITIAL_INFO] = [this](Packet p) { OnInitialInfo(p); };
   packet_handlers_[PT_ACTUAL_STATISTICS] = [this](Packet p) { OnActualStatistics(p); };
   packet_handlers_[PT_MAP_ONLY] = [this](Packet p) { OnMapOnly(p); };
@@ -128,104 +170,97 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_PING_UPDATE] = [this](Packet p) { OnPlayerPingUpdate(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
   packet_handlers_[PT_LUA_EVENT] = [this](Packet p) { OnLuaEvent(p); };
-  packet_handlers_[Net::ID_DISCONNECTION_NOTIFICATION] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
-  packet_handlers_[Net::ID_CONNECTION_LOST] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
 }
 
 void GameClient::ConnectAsync(std::string_view full_address) {
+  if (GetConnectionState() == ConnectionState::Connecting || GetConnectionState() == ConnectionState::Connected ||
+      (g_netclient && g_netclient->IsConnected())) {
+    Disconnect();
+  }
+
+  std::string host;
+  std::uint32_t port = 0;
+  if (!ParseEndpoint(full_address, host, port)) {
+    const std::string error = "Invalid server endpoint";
+    {
+      std::lock_guard<std::mutex> lock(connection_mutex_);
+      connection_state_ = ConnectionState::Failed;
+      connection_error_ = error;
+      notify_connected_pending_ = false;
+      notify_connection_failed_pending_ = false;
+      notify_connection_lost_pending_ = false;
+    }
+    event_observer_.OnConnectionFailed(error);
+    return;
+  }
+
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);
-
-    // Prevent multiple simultaneous connection attempts
-    if (connection_state_ == ConnectionState::Connecting) {
-      SPDLOG_WARN("Connection already in progress");
-      return;
-    }
-
-    // Join previous thread if exists
-    if (connection_thread_.joinable()) {
-      connection_thread_.join();
-    }
-
     connection_state_ = ConnectionState::Connecting;
+    connection_lost_ = false;
+    is_in_game_ = false;
+    outgoing_state_sequence_ = 0;
     connection_error_.clear();
+    server_ip_ = host;
+    server_port_ = port;
+    notify_connected_pending_ = false;
+    notify_connection_failed_pending_ = false;
+    notify_connection_lost_pending_ = false;
   }
 
   resource_downloader_.Reset();
-
-  // Queue the OnConnectionStarted callback for main thread execution
-  task_scheduler_.ScheduleOnMainThread([this]() { event_observer_.OnConnectionStarted(); });
-
-  // Launch connection thread
-  connection_thread_ = std::thread([this, addr = std::string(full_address)]() {
-    SPDLOG_INFO("Connection thread started for: {}", addr);
-    bool success = ConnectInternal(addr);
-
-    {
-      std::lock_guard<std::mutex> lock(connection_mutex_);
-      connection_state_ = success ? ConnectionState::Connected : ConnectionState::Failed;
-    }
-
-    // Queue callbacks for main thread execution instead of calling directly
-    if (success) {
-      SPDLOG_INFO("Connection successful");
-      task_scheduler_.ScheduleOnMainThread([this]() { event_observer_.OnConnected(); });
-    } else {
-      SPDLOG_ERROR("Connection failed: {}", connection_error_);
-      // Capture error string by value to avoid race condition
-      std::string error = connection_error_;
-      task_scheduler_.ScheduleOnMainThread([this, error]() { event_observer_.OnConnectionFailed(error); });
-    }
-  });
-}
-
-bool GameClient::ConnectInternal(std::string_view full_address) {
-  // Extract port number from IP address if present
-  std::string host(full_address);
-  int port = 0xDEAD;
-  size_t pos = host.find_last_of(':');
-  if (pos != std::string::npos) {
-    std::string portStr = host.substr(pos + 1);
-    std::istringstream iss(portStr);
-    iss >> port;
-    host.erase(pos);
-  }
-
-  if (!g_netclient->Connect(host.c_str(), port)) {
-    std::lock_guard<std::mutex> lock(connection_mutex_);
-    connection_error_ = "Failed to establish network connection";
-    return false;
-  }
-
-  server_ip_ = host;
-  server_port_ = port;
+  player_manager_.Clear();
+  worlds_.clear();
   resource_downloader_.SetServerEndpoint(host, port);
-  return true;
+
+  event_observer_.OnConnectionStarted();
+
+  if (g_netclient->Connect(host.c_str(), port)) {
+    return;
+  }
+
+  const std::string error = "Failed to start network connection";
+  {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    connection_state_ = ConnectionState::Failed;
+    connection_error_ = error;
+  }
+
+  event_observer_.OnConnectionFailed(error);
 }
 
 void GameClient::Disconnect() {
-  bool was_connected = IsConnected();
+  bool notify_disconnected = false;
 
-  // Join connection thread if it's still running
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);
-    if (connection_thread_.joinable()) {
-      connection_thread_.join();
-    }
+    notify_disconnected = connection_state_ == ConnectionState::Connected && !connection_lost_;
     connection_state_ = ConnectionState::Disconnected;
-  }
-
-  if (was_connected) {
+    connection_lost_ = false;
     is_in_game_ = false;
     outgoing_state_sequence_ = 0;
+    notify_connected_pending_ = false;
+    notify_connection_failed_pending_ = false;
+    notify_connection_lost_pending_ = false;
+  }
+
+  resource_downloader_.StopDownload();
+
+  if (g_netclient) {
     g_netclient->Disconnect();
+  }
+
+  player_manager_.Clear();
+  worlds_.clear();
+
+  if (notify_disconnected) {
     event_observer_.OnDisconnected();
   }
 }
 
 bool GameClient::IsConnected() const {
   std::lock_guard<std::mutex> lock(connection_mutex_);
-  return !connection_lost_ && connection_state_ == ConnectionState::Connected && g_netclient->IsConnected();
+  return !connection_lost_ && connection_state_ == ConnectionState::Connected && g_netclient && g_netclient->IsConnected();
 }
 
 GameClient::ConnectionState GameClient::GetConnectionState() const {
@@ -261,17 +296,16 @@ Net::NetworkStats GameClient::GetNetworkStats() const {
 }
 
 void GameClient::HandleNetwork() {
+  bool should_pulse = false;
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);
-    // Don't pulse if still connecting
-    if (connection_state_ == ConnectionState::Connecting) {
-      return;
-    }
+    should_pulse = connection_state_ == ConnectionState::Connecting || connection_state_ == ConnectionState::Connected;
   }
 
-  if (IsConnected()) {
+  if (should_pulse && g_netclient) {
     g_netclient->Pulse();
   }
+  DispatchPendingConnectionNotifications();
 }
 
 std::vector<GameClient::ResourcePayload> GameClient::ConsumeDownloadedResources() {
@@ -1674,9 +1708,88 @@ void GameClient::OnLuaEvent(Packet p) {
 
 void GameClient::OnDisconnectOrLostConnection(Packet p) {
   SPDLOG_WARN("OnDisconnectOrLostConnection, code: {}", p.data[0]);
-  connection_lost_ = true;
-  is_in_game_ = false;
-  event_observer_.OnConnectionLost();
+  {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    if (connection_state_ != ConnectionState::Disconnected || !connection_lost_) {
+      connection_lost_ = true;
+      connection_state_ = ConnectionState::Disconnected;
+      is_in_game_ = false;
+      outgoing_state_sequence_ = 0;
+      notify_connected_pending_ = false;
+      notify_connection_failed_pending_ = false;
+      notify_connection_lost_pending_ = true;
+    }
+  }
+
+  resource_downloader_.StopDownload();
+  player_manager_.Clear();
+  worlds_.clear();
+}
+
+void GameClient::DispatchPendingConnectionNotifications() {
+  bool notify_connected = false;
+  bool notify_connection_failed = false;
+  bool notify_connection_lost = false;
+  std::string connection_error;
+
+  {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    notify_connected = notify_connected_pending_;
+    notify_connection_failed = notify_connection_failed_pending_;
+    notify_connection_lost = notify_connection_lost_pending_;
+    connection_error = connection_error_;
+
+    notify_connected_pending_ = false;
+    notify_connection_failed_pending_ = false;
+    notify_connection_lost_pending_ = false;
+  }
+
+  if (notify_connected) {
+    event_observer_.OnConnected();
+  }
+  if (notify_connection_failed) {
+    event_observer_.OnConnectionFailed(connection_error);
+  }
+  if (notify_connection_lost) {
+    event_observer_.OnConnectionLost();
+  }
+}
+
+void GameClient::OnConnectionAccepted(Packet p) {
+  SPDLOG_INFO("Connection accepted, code: {}", p.data[0]);
+  {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    if (connection_state_ != ConnectionState::Connecting) {
+      SPDLOG_WARN("Ignoring connection acceptance while not connecting");
+      return;
+    }
+
+    connection_state_ = ConnectionState::Connected;
+    connection_lost_ = false;
+    connection_error_.clear();
+    notify_connected_pending_ = true;
+    notify_connection_failed_pending_ = false;
+    notify_connection_lost_pending_ = false;
+  }
+}
+
+void GameClient::OnConnectionFailedPacket(Packet p) {
+  const std::string error = GetConnectionFailureMessage(p.data[0]);
+  SPDLOG_ERROR("Connection failed: {}", error);
+  {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    if (connection_state_ != ConnectionState::Connecting) {
+      SPDLOG_WARN("Ignoring connection failure while not connecting");
+      return;
+    }
+
+    connection_state_ = ConnectionState::Failed;
+    connection_lost_ = false;
+    connection_error_ = error;
+    notify_connected_pending_ = false;
+    notify_connection_failed_pending_ = true;
+    notify_connection_lost_pending_ = false;
+  }
 }
 
 void LoadNetworkLibrary() {

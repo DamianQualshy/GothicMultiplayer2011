@@ -203,8 +203,9 @@ void CMainMenu::PreparePlayerForMenuReentry() {
 
   if (auto* rightHand = player->GetRightHand()) {
     zCVob* leftHand = player->GetLeftHand();
-    player->DropAllInHand();
-    if (leftHand) {
+    player->SetRightHand(nullptr);
+    player->SetLeftHand(nullptr);
+    if (leftHand && leftHand != rightHand) {
       leftHand->RemoveVobFromWorld();
     }
     rightHand->RemoveVobFromWorld();

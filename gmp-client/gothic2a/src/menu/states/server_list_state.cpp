@@ -104,7 +104,7 @@ StateResult ServerListState::Update() {
     connectionStartTime_ = std::chrono::steady_clock::now();  // Record start time for animation
   }
 
-  // Check async connection status only if we have an active connection attempt
+  // Check packet-driven connection status only if we have an active connection attempt
   if (connectionAttemptInProgress_ && NetGame::Instance().game_client) {
     auto connState = NetGame::Instance().game_client->GetConnectionState();
 
@@ -284,14 +284,10 @@ void ServerListState::HandleCustomIPInput() {
 void ServerListState::ConnectToServer() {
   context_.input->ClearKeyBuffer();
 
-  SPDLOG_INFO("Starting async connection to: {}", context_.selectedServerIP.ToChar());
+  SPDLOG_INFO("Starting connection to: {}", context_.selectedServerIP.ToChar());
 
-  // Initiate async connection - will not block
+  // Start the RakNet connection attempt. Completion is reported by packets pumped in Update().
   NetGame::Instance().Connect(context_.selectedServerIP.ToChar());
-
-  // Connection will complete in background
-  // The state will check connection status in Update() loop
-  // and transition when OnConnected callback fires
 }
 
 void ServerListState::RenderConnectionProgress() {

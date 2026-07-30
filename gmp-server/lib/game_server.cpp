@@ -1277,13 +1277,12 @@ bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attac
     return false;
   }
 
-  const auto event_damage = static_cast<std::int16_t>(std::min<std::int32_t>(damage, std::numeric_limits<std::int16_t>::max()));
   std::optional<std::uint64_t> event_attacker;
   if (attacker_id.has_value()) {
     event_attacker = attacker_id.value();
   }
   auto result = EventManager::Instance().DispatchEvent(
-      kEventOnPlayerHitName, std::any(OnPlayerHitEvent{event_attacker, victim.player_id, event_damage, damage_type}));
+      kEventOnPlayerHitName, std::any(OnPlayerHitEvent{event_attacker, victim.player_id, damage, damage_type}));
   if (result.cancelled) {
     return false;
   }

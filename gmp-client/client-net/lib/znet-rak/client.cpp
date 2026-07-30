@@ -68,41 +68,58 @@ namespace {
   }
   return ::RELIABLE;
 }
+
+bool ShouldClosePeerAfterDispatch(MessageID message) {
+  switch (message) {
+    case ID_CONNECTION_ATTEMPT_FAILED:
+    case ID_ALREADY_CONNECTED:
+    case ID_NO_FREE_INCOMING_CONNECTIONS:
+    case ID_DISCONNECTION_NOTIFICATION:
+    case ID_CONNECTION_LOST:
+    case ID_CONNECTION_BANNED:
+    case ID_INVALID_PASSWORD:
+    case ID_INCOMPATIBLE_PROTOCOL_VERSION:
+    case ID_IP_RECENTLY_CONNECTED:
+      return true;
+    default:
+      return false;
+  }
+}
 }  // namespace
 
 bool RakNetClient::Connect(const char* address, std::uint32_t port) {
+  if (peer_) {
+    Disconnect();
+  }
+
   packetReceived_ = 0;
   peer_ = RakPeerInterface::GetInstance();
+  if (!peer_) {
+    return false;
+  }
+
   peer_->SetTimeoutTime(1500, UNASSIGNED_SYSTEM_ADDRESS);
   SocketDescriptor socketDescriptor(0, 0);
   socketDescriptor.socketFamily = AF_INET;
-  peer_->Startup(1, &socketDescriptor, 1);
+  if (peer_->Startup(1, &socketDescriptor, 1) != RAKNET_STARTED) {
+    Disconnect();
+    return false;
+  }
+
   peer_->SetOccasionalPing(true);
   std::string hostPassword = RAKNET_PASSWORD;
   ConnectionAttemptResult connectionAttemptResult =
       peer_->Connect(address, port, hostPassword.c_str(), hostPassword.size());
   if (connectionAttemptResult != CONNECTION_ATTEMPT_STARTED) {
+    Disconnect();
     return false;
   }
-  RakNet::Packet* packet = nullptr;
-  do {
-    packet = peer_->Receive();
-  } while (!packet);
 
-  MessageID message = packet->data[0];
-  serverAddress_ = packet->systemAddress;
-  ++packetReceived_;
-  peer_->DeallocatePacket(packet);
-  if (message != ID_CONNECTION_REQUEST_ACCEPTED) {
-    SPDLOG_ERROR("Connection not accepted ({}).", message);
-    return false;
-  }
-  isConnected_ = true;
   return true;
 }
 
 void RakNetClient::Disconnect() {
-  if (!isConnected_) {
+  if (!peer_) {
     return;
   }
 
@@ -118,6 +135,10 @@ bool RakNetClient::IsConnected() const {
 
 bool RakNetClient::SendPacket(unsigned char* data, std::uint32_t size, PacketReliability packetReliability,
                               PacketPriority packetPriority, std::uint32_t channel) {
+  if (!peer_ || !isConnected_) {
+    return false;
+  }
+
   // TODO: VALIDATION AND ENCRYPTION.
   const auto ordering_channel = static_cast<char>(std::min<std::uint32_t>(channel, 31));
   peer_->Send(reinterpret_cast<const char*>(data), size, ToRakNetPacketPriority(packetPriority),
@@ -126,10 +147,34 @@ bool RakNetClient::SendPacket(unsigned char* data, std::uint32_t size, PacketRel
 }
 
 void RakNetClient::Pulse() {
-  for (RakNet::Packet* packet = peer_->Receive(); packet; peer_->DeallocatePacket(packet), packet = peer_->Receive()) {
+  if (!peer_) {
+    return;
+  }
+
+  RakNet::Packet* packet = peer_->Receive();
+  while (packet) {
+    const MessageID message = packet->data[0];
+    const bool close_after_dispatch = ShouldClosePeerAfterDispatch(message);
+
+    if (message == ID_CONNECTION_REQUEST_ACCEPTED) {
+      serverAddress_ = packet->systemAddress;
+      isConnected_ = true;
+    } else if (close_after_dispatch) {
+      isConnected_ = false;
+    }
+
     ++packetReceived_;
     std::for_each(packetHandlers_.begin(), packetHandlers_.end(),
                   [packet](auto& handler) { handler->HandlePacket(packet->data, packet->length); });
+
+    peer_->DeallocatePacket(packet);
+
+    if (close_after_dispatch) {
+      Disconnect();
+      break;
+    }
+
+    packet = peer_->Receive();
   }
 }
 
@@ -142,6 +187,10 @@ void RakNetClient::RemovePacketHandler(PacketHandler& packetHandler) {
 }
 
 std::uint32_t RakNetClient::GetPing() const {
+  if (!peer_ || !isConnected_) {
+    return 0;
+  }
+
   return peer_->GetAveragePing(serverAddress_);
 }
 

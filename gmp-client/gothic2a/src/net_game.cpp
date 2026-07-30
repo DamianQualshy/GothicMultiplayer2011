@@ -55,6 +55,7 @@ SOFTWARE.
 #include "Interface.h"
 #include "ZenGin/zGothicAPI.h"
 #include "config.h"
+#include "gmp_core.h"
 #include "scripting/item_ground.h"
 #include "language.h"
 #include "net_enums.h"
@@ -138,7 +139,8 @@ void ClearNpcHandsForLifecycle(oCNpc* npc) {
 
   oCItem* right_hand = dynamic_cast<oCItem*>(npc->GetRightHand());
   oCItem* left_hand = dynamic_cast<oCItem*>(npc->GetLeftHand());
-  npc->DropAllInHand();
+  npc->SetRightHand(nullptr);
+  npc->SetLeftHand(nullptr);
   if (right_hand) {
     right_hand->RemoveVobFromWorld();
   }
@@ -863,8 +865,8 @@ bool NetGame::Connect(std::string_view full_address) {
   }
 
   game_client->ConnectAsync(full_address);
-  // Return true to indicate connection attempt started
-  // Actual connection status will be reported via callbacks
+  // Return true to indicate the connection attempt was started.
+  // Actual connection status is reported by RakNet packets pumped in HandleNetwork().
   return true;
 }
 
@@ -883,7 +885,7 @@ void NetGame::RestoreHealth() {
 }
 
 void NetGame::HandleNetwork() {
-  if (IsConnected()) {
+  if (game_client) {
     game_client->HandleNetwork();
   }
 }
@@ -1212,20 +1214,19 @@ void NetGame::SyncGameTime() {
 }
 
 void NetGame::Disconnect() {
-  if (game_client && game_client->IsConnected()) {
-    pending_local_spawn_position_.reset();
-    IsInGame = false;
-    IsReadyToJoin = false;
-    if (global_ingame) {
-      global_ingame->IgnoreFirstSync = true;
-    }
-    // if (LocalPlayer) {
-    //   LocalPlayer->SetNpcType(Gothic2APlayer::NPC_HUMAN);
-    // }
-    game_client->Disconnect();
-    Gothic2APlayer::DeleteAllPlayers();
-    CChat::GetInstance()->ClearChat();
+  pending_local_spawn_position_.reset();
+  IsInGame = false;
+  IsReadyToJoin = false;
+  if (global_ingame) {
+    global_ingame->IgnoreFirstSync = true;
   }
+
+  if (game_client) {
+    game_client->Disconnect();
+  }
+
+  Gothic2APlayer::DeleteAllPlayers();
+  CChat::GetInstance()->ClearChat();
 
   if (resource_runtime) {
     gmp::gothic::CleanupGothicViews();
@@ -1830,11 +1831,20 @@ void NetGame::OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& wo
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldChangeName,
                                         gmp::gothic::OnWorldChangeEvent{world_name, start_point});
 
-  zSTRING z_world(world_name.c_str());
-  zSTRING z_start_point(start_point.c_str());
-  Patch::ChangeLevelEnabled(true);
-  ogame->ChangeLevel(z_world, z_start_point);
-  Patch::ChangeLevelEnabled(false);
+  GMPCore::Instance().DeferToNextFrame([player_id, world_name, start_point]() {
+    NetGame& net_game = NetGame::Instance();
+    auto* client = net_game.game_client.get();
+    if (!client || !client->IsConnected() || !client->player_manager().HasLocalPlayer() ||
+        client->player_manager().GetLocalPlayer().id() != player_id || !ogame) {
+      return;
+    }
+
+    zSTRING z_world(world_name.c_str());
+    zSTRING z_start_point(start_point.c_str());
+    Patch::ChangeLevelEnabled(true);
+    ogame->ChangeLevel(z_world, z_start_point);
+    Patch::ChangeLevelEnabled(false);
+  });
 }
 
 void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state) {
@@ -1885,17 +1895,10 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     }
 
     oCItem* removed_item = dynamic_cast<oCItem*>(current_vob);
-    oCItem* preserved_item = dynamic_cast<oCItem*>(right_hand ? cplayer->npc->GetLeftHand() : cplayer->npc->GetRightHand());
-    if (preserved_item == removed_item) {
-      preserved_item = nullptr;
-    }
-    cplayer->npc->DropAllInHand();
-    if (preserved_item) {
-      if (right_hand) {
-        cplayer->npc->SetLeftHand(preserved_item);
-      } else {
-        cplayer->npc->SetRightHand(preserved_item);
-      }
+    if (right_hand) {
+      cplayer->npc->SetRightHand(nullptr);
+    } else {
+      cplayer->npc->SetLeftHand(nullptr);
     }
     if (removed_item) {
       if (right_hand) {

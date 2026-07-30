@@ -34,7 +34,6 @@ SOFTWARE.
 #include <queue>
 #include <string>
 #include <string_view>
-#include <thread>
 #include <vector>
 
 #include "common_structs.h"
@@ -117,13 +116,14 @@ private:
   void InitPacketHandlers();
   bool HandlePacket(unsigned char* data, std::uint32_t size) override;
 
-  // Internal blocking connect called from connection thread
-  bool ConnectInternal(std::string_view endpoint);
+  void DispatchPendingConnectionNotifications();
 
   // Helper to update player state from PlayerState struct
   void UpdatePlayerState(Player* player, const PlayerState& state);
 
   // Packet handlers
+  void OnConnectionAccepted(Packet packet);
+  void OnConnectionFailedPacket(Packet packet);
   void OnInitialInfo(Packet packet);
   void OnActualStatistics(Packet packet);
   void OnMapOnly(Packet packet);
@@ -171,7 +171,7 @@ private:
   void OnDisconnectOrLostConnection(Packet packet);
 
   EventObserver& event_observer_;
-  gmp::TaskScheduler& task_scheduler_;
+  ResourceDownloader resource_downloader_;
   PlayerManager player_manager_;
 
   using PacketHandlerFunc = std::function<void(Packet)>;
@@ -185,12 +185,11 @@ private:
   std::uint32_t outgoing_state_sequence_{0};
   bool connection_lost_{false};
   bool is_in_game_{false};
+  bool notify_connected_pending_{false};
+  bool notify_connection_failed_pending_{false};
+  bool notify_connection_lost_pending_{false};
 
-  ResourceDownloader resource_downloader_;
-
-  // Async connection support
   ConnectionState connection_state_{ConnectionState::Disconnected};
-  std::thread connection_thread_;
   mutable std::mutex connection_mutex_;
   std::string connection_error_;
 };
