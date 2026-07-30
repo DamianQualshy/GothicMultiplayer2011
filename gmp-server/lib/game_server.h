@@ -176,6 +176,7 @@ public:
   bool KickPlayer(PlayerId player_id, const std::string& reason);
   bool BanPlayer(PlayerId player_id, const std::string& reason);
   bool IsPlayerConnected(PlayerId player_id) const;
+  bool IsPlayerAdmin(PlayerId player_id) const;
   bool IsPlayerDead(PlayerId player_id) const;
   bool IsPlayerSpawned(PlayerId player_id) const;
   bool IsPlayerUnconscious(PlayerId player_id) const;
@@ -223,6 +224,8 @@ private:
   void SomeoneJoinGame(Packet p);
   void HandlePlayerUpdate(Packet p);
   void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
+  void HandleRconCommand(Player& player, const std::string& params);
+  void HandleAdminLogin(Player& player, const std::string& password);
   bool ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   bool MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id);
   void HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id);
@@ -242,6 +245,7 @@ private:
   void BroadcastGameInfo(GothicClock::Time time);
   void BroadcastSkySettings();
   void BroadcastPlayerPings();
+  void SendAdminAuthStatus(const Player& player);
   void UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times);
   void SendExistingPlayersPacket(Player& target_player);
   bool RespawnPlayerInternal(Player& player);

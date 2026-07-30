@@ -257,25 +257,6 @@ void CIngame::HandleInput() {
   }
   // DEBUG TOOLS
   debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
-  if (player && ogame && ogame->GetWorld() && zinput->KeyToggled(KEY_F5) && !chat_interface->IsInputActive()) {
-    zVEC3 basePos = player->GetPositionWorld();
-    int spawnCount = 0;
-    // Spawn a 10x10 grid of fire effects (100 total)
-    for (int x = -5; x < 5; x++) {
-      for (int z = -5; z < 5; z++) {
-        oCVisualFX* fireVob = new oCVisualFX();
-        zCParticleFX* fireParticle = zCParticleFX::Load("FIRE_HOT.PFX");
-        if (fireParticle) {
-          fireVob->SetVisual(fireParticle);
-          zVEC3 offset(x * 150.0f, 0.0f, z * 150.0f);  // 150 units apart
-          fireVob->SetPositionWorld(basePos + offset);
-          ogame->GetWorld()->AddVob(fireVob);
-          spawnCount++;
-        }
-      }
-    }
-    CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(0, 255, 0, 255), "Spawned %d fire effects for stress test", spawnCount);
-  }
   chat_interface->HandleInput(true);
 }
 

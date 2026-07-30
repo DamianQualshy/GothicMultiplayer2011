@@ -91,6 +91,7 @@ public:
     // Game state
     std::uint8_t is_ingame;
     std::uint8_t passed_crc_test;
+    bool is_admin{false};
 
     std::int16_t health;
     std::int16_t max_health{100};

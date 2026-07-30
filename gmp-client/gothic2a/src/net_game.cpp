@@ -55,6 +55,7 @@ SOFTWARE.
 #include "Interface.h"
 #include "ZenGin/zGothicAPI.h"
 #include "config.h"
+#include "dev/dev_tools.h"
 #include "gmp_core.h"
 #include "scripting/item_ground.h"
 #include "language.h"
@@ -1273,6 +1274,10 @@ void NetGame::OnConnectionLost() {
   IsInGame = false;
   IsReadyToJoin = false;
   CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s", Language::Instance()[Language::DISCONNECTED].ToChar());
+}
+
+void NetGame::OnAdminAuthChanged(bool authenticated) {
+  debug::DevTools::Instance().SetNoclipAllowed(authenticated);
 }
 
 bool NetGame::RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) {

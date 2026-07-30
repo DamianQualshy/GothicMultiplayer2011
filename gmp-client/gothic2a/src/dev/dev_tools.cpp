@@ -24,17 +24,13 @@ SOFTWARE.
 
 #include "dev/dev_tools.h"
 
-#include <spdlog/spdlog.h>
-
 #include <algorithm>
-#include <cstdio>
 #include <ctime>
 #include <string>
 #include <vector>
 
+#include "CChat.h"
 #include "keyboard.h"
-#include "shared/lua_runtime/lua_constants.h"
-#include "sky_utils.h"
 
 namespace debug {
 namespace {
@@ -69,10 +65,10 @@ void ZeroVelocity() {
 }  // namespace
 
 DevTools::DevTools()
-    : noclip_enabled_(false),
+    : noclip_allowed_(false),
+      noclip_enabled_(false),
       noclip_speed_(1000.0f),
-      last_noclip_update_(0),
-      weather_selection_(0) {
+      last_noclip_update_(0) {
 }
 
 DevTools& DevTools::Instance() {
@@ -82,7 +78,6 @@ DevTools& DevTools::Instance() {
 
 void DevTools::HandleInput(bool writingOnChat) {
   HandleNoclip(writingOnChat);
-  HandleWeatherMenu(writingOnChat);
 }
 
 void DevTools::Render() {
@@ -104,22 +99,35 @@ void DevTools::Render() {
 #endif
 
   RenderNoclipOverlay();
-  RenderWeatherMenu();
+}
+
+void DevTools::SetNoclipAllowed(bool allowed) {
+  noclip_allowed_ = allowed;
+  if (!noclip_allowed_) {
+    DisableNoclip();
+  }
 }
 
 void DevTools::HandleNoclip(bool writingOnChat) {
+  if (!noclip_allowed_) {
+    if (noclip_enabled_) {
+      DisableNoclip();
+    }
+    return;
+  }
+
   if (zinput->KeyToggled(KEY_F8) && !writingOnChat) {
     if (!HasModifierForToggle()) {
-      noclip_enabled_ = !noclip_enabled_;
-      last_noclip_update_ = clock();
-
-      if (!noclip_enabled_) {
-        EnablePhysics();
+      if (noclip_enabled_) {
+        DisableNoclip();
+      } else {
+        noclip_enabled_ = true;
+        last_noclip_update_ = clock();
       }
     }
   }
 
-  if (!noclip_enabled_ || writingOnChat) {
+  if (!noclip_enabled_ || writingOnChat || !player) {
     return;
   }
 
@@ -181,6 +189,17 @@ void DevTools::HandleNoclip(bool writingOnChat) {
   player->SetPositionWorld(newPos);
 }
 
+void DevTools::DisableNoclip() {
+  if (!noclip_enabled_) {
+    return;
+  }
+
+  noclip_enabled_ = false;
+  if (player) {
+    EnablePhysics();
+  }
+}
+
 void DevTools::RenderNoclipOverlay() {
   if (!noclip_enabled_) {
     return;
@@ -220,104 +239,6 @@ void DevTools::RenderNoclipOverlay() {
       screen->Print(x, y, line.c_str());
     }
   }
-}
-
-void DevTools::HandleWeatherMenu(bool writingOnChat) {
-  // F9: Toggle weather menu
-  if (zinput->KeyToggled(KEY_F9) && !writingOnChat) {
-    weather_menu_open_ = !weather_menu_open_;
-  }
-
-  if (!weather_menu_open_ || writingOnChat) {
-    return;
-  }
-
-  // Navigate with arrow keys
-  if (zinput->KeyToggled(KEY_UP)) {
-    weather_selection_ = (weather_selection_ - 1 + 3) % 3;
-  }
-  if (zinput->KeyToggled(KEY_DOWN)) {
-    weather_selection_ = (weather_selection_ + 1) % 3;
-  }
-
-  // Apply weather with Space
-  if (zinput->KeyToggled(KEY_SPACE)) {
-    switch (weather_selection_) {
-      case 0:  // Clear (type is ignored when weight is 0)
-        gmp::gothic::ApplyWeatherType(0);
-        SPDLOG_INFO("Weather override: Clear");
-        break;
-      case 1:  // Rain
-        gmp::gothic::ApplyWeatherType(WEATHER_RAIN);
-        SPDLOG_INFO("Weather override: Rain");
-        break;
-      case 2:  // Snow
-        gmp::gothic::ApplyWeatherType(WEATHER_SNOW);
-        SPDLOG_INFO("Weather override: Snow");
-        break;
-    }
-  }
-
-  // Close with Escape
-  if (zinput->KeyToggled(KEY_ESCAPE)) {
-    weather_menu_open_ = false;
-  }
-}
-
-void DevTools::RenderWeatherMenu() {
-  if (!weather_menu_open_) {
-    return;
-  }
-
-  screen->SetFont("FONT_OLD_10_WHITE.TGA");
-
-  constexpr int menuX = 4096;  // Center horizontally
-  constexpr int menuY = 2048;  // Center vertically
-  constexpr int lineSpacing = 200;
-
-  // Title
-  screen->SetFontColor(zCOLOR(255, 255, 0));
-  const char* title = "=== WEATHER MENU ===";
-  const int titleWidth = screen->FontSize(title);
-  screen->Print(menuX - titleWidth / 2, menuY - lineSpacing * 2, title);
-
-  // Weather options
-  const char* options[] = {"Clear", "Rain", "Snow"};
-
-  for (int i = 0; i < 3; ++i) {
-    const int yPos = menuY + i * lineSpacing;
-
-    if (i == weather_selection_) {
-      screen->SetFontColor(zCOLOR(0, 255, 0));
-      std::string selected = "> " + std::string(options[i]) + " <";
-      const int width = screen->FontSize(selected.c_str());
-      screen->Print(menuX - width / 2, yPos, selected.c_str());
-    } else {
-      screen->SetFontColor(zCOLOR(200, 200, 200));
-      const int width = screen->FontSize(options[i]);
-      screen->Print(menuX - width / 2, yPos, options[i]);
-    }
-  }
-
-  // Controls help
-  screen->SetFontColor(zCOLOR(150, 150, 150));
-  const char* help = "Up/Down: Navigate | Space: Apply | F9/Esc: Close";
-  const int helpWidth = screen->FontSize(help);
-  screen->Print(menuX - helpWidth / 2, menuY + lineSpacing * 4, help);
-
-  // Show active override status
-  screen->SetFontColor(zCOLOR(0, 255, 255));
-  const int activeWeatherType = gmp::gothic::GetWeatherType();
-  const char* activeWeather = "Clear";
-  if (activeWeatherType == WEATHER_RAIN) {
-    activeWeather = "Rain";
-  } else if (activeWeatherType == WEATHER_SNOW) {
-    activeWeather = "Snow";
-  }
-  std::string status = "[Active: " + std::string(activeWeather) + "]";
-  const int statusWidth = screen->FontSize(status.c_str());
-  screen->Print(menuX - statusWidth / 2, menuY + lineSpacing * 5, status.c_str());
-
 }
 
 }  // namespace debug

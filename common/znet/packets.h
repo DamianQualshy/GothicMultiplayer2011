@@ -1536,6 +1536,17 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerPingUpdatePacket& 
 template <>
 struct fmt::formatter<PlayerPingUpdatePacket> : ostream_formatter {};
 
+struct AdminAuthPacket {
+  std::uint8_t packet_type{0};
+  std::uint8_t authenticated{0};
+};
+
+template <typename S>
+void serialize(S& s, AdminAuthPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value1b(packet.authenticated);
+}
+
 constexpr std::size_t kMaxLuaEventPayloadSize = 8192;
 
 struct LuaEventPacket {

@@ -101,6 +101,7 @@ public:
   void OnConnectionFailed(const std::string& error) override;
   void OnDisconnected() override;
   void OnConnectionLost() override;
+  void OnAdminAuthChanged(bool authenticated) override;
   bool RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) override;
   void OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) override;
   void OnResourceDownloadFailed(const std::string& reason) override;

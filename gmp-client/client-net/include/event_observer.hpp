@@ -47,6 +47,7 @@ public:
   virtual void OnConnectionFailed(const std::string& error) {}
   virtual void OnDisconnected() {}
   virtual void OnConnectionLost() {}
+  virtual void OnAdminAuthChanged(bool authenticated) {}
   virtual bool RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) { return true; }
   virtual void OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) {}
   virtual void OnResourceDownloadFailed(const std::string& reason) {}

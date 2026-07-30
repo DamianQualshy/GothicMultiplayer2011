@@ -140,19 +140,6 @@ void Config::LoadConfigFromFile() {
     }
   }
 
-  // Load test mode configuration (from [test_mode] section)
-  // Using nested key access: GetValue<T>("table", defaultValue, "key")
-  test_mode_config_.enabled = toml.GetValue<bool>("test_mode", false, "enabled");
-  test_mode_config_.level = toml.GetValue<std::string>("test_mode", std::string{}, "level");
-  test_mode_config_.spawn_x = static_cast<float>(toml.GetValue<double>("test_mode", 0.0, "spawn_x"));
-  test_mode_config_.spawn_y = static_cast<float>(toml.GetValue<double>("test_mode", 0.0, "spawn_y"));
-  test_mode_config_.spawn_z = static_cast<float>(toml.GetValue<double>("test_mode", 0.0, "spawn_z"));
-
-  if (test_mode_config_.enabled) {
-    SPDLOG_INFO("Test mode enabled: level='{}', spawn=({}, {}, {})", test_mode_config_.level, test_mode_config_.spawn_x, test_mode_config_.spawn_y,
-                test_mode_config_.spawn_z);
-  }
-
   // MCP pipe enable flag
   if (auto mcp_opt = toml.GetValue<bool>("mcp_pipe_enabled"); mcp_opt) {
     mcp_pipe_enabled_ = *mcp_opt;
@@ -177,7 +164,6 @@ void Config::DefaultSettings() {
   window_position_.reset();
   console_position_.reset();
   renderer_type_ = RendererType::D3D9;
-  test_mode_config_ = TestModeConfig{};  // Reset test mode to defaults
   mcp_pipe_enabled_ = false;
   debug_console_enabled_ = true;
   vsync_enabled = true;
@@ -229,15 +215,6 @@ void Config::SaveConfigToFile() {
       break;
   }
   toml["renderer_type"] = toml::value(renderer_str);
-
-  // Save test mode configuration
-  std::unordered_map<std::string, toml::value> test_mode_map;
-  test_mode_map["enabled"] = toml::value(test_mode_config_.enabled);
-  test_mode_map["level"] = toml::value(test_mode_config_.level);
-  test_mode_map["spawn_x"] = toml::value(static_cast<double>(test_mode_config_.spawn_x));
-  test_mode_map["spawn_y"] = toml::value(static_cast<double>(test_mode_config_.spawn_y));
-  test_mode_map["spawn_z"] = toml::value(static_cast<double>(test_mode_config_.spawn_z));
-  toml["test_mode"] = test_mode_map;
 
   toml.Serialize(config_file_path_.string());
   is_default_ = Nickname.IsEmpty();

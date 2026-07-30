@@ -39,6 +39,7 @@ SOFTWARE.
 #include <algorithm>
 #include <cstdarg>
 #include <cstdint>
+#include <cctype>
 #include <cstdio>
 #include <optional>
 #include <string>
@@ -94,6 +95,14 @@ std::optional<std::pair<std::string, std::string>> ParseCommand(std::string_view
   }
 
   return std::make_pair(std::move(command), std::move(params));
+}
+
+bool IsSensitiveCommand(std::string_view command) {
+  constexpr std::string_view kRconCommand = "rcon";
+  return command.size() == kRconCommand.size() &&
+         std::equal(command.begin(), command.end(), kRconCommand.begin(), kRconCommand.end(), [](char a, char b) {
+           return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+         });
 }
 
 std::string FormatMessage(const char* format, va_list args) {
@@ -232,8 +241,10 @@ void CChat::SendCurrentMessage() {
 
   const std::string message = current_text_;
   if (auto command = ParseCommand(message)) {
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnCommandName,
-                                          gmp::gothic::OnCommandEvent{command->first, command->second});
+    if (!IsSensitiveCommand(command->first)) {
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnCommandName,
+                                            gmp::gothic::OnCommandEvent{command->first, command->second});
+    }
   }
 
   NetGame::Instance().SendMessage(message.c_str());

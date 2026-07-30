@@ -33,7 +33,6 @@ SOFTWARE.
 #include "main_menu.h"
 #include "mcp/mcp_pipe_handler.h"
 #include "net_game.h"
-#include "test_mode.h"
 
 // For now, maintain compatibility with existing global_ingame pattern
 extern CIngame* global_ingame;
@@ -56,16 +55,6 @@ void GMPCore::Initialize() {
     gmp::mcp::MCPPipeHandler::Instance().Start();
   }
 
-  // Check for test mode BEFORE creating the main menu
-  if (Config::Instance().IsTestModeEnabled()) {
-    SPDLOG_INFO("Test mode enabled - skipping main menu entirely");
-    testMode_ = std::make_unique<TestMode>(*this);
-    testMode_->Initialize();
-    initialized_ = true;
-    return;
-  }
-
-  // Normal mode: create the main menu
   // Note: CMainMenu is still a TSingleton, we just reference it here
   // Future: migrate to owned unique_ptr when singleton pattern is removed
   mainMenu_.reset(CMainMenu::GetInstance());
@@ -82,7 +71,6 @@ void GMPCore::Shutdown() {
 
   // Release references (don't delete - CMainMenu is still singleton-managed)
   // Future: properly destroy when we own these
-  testMode_.reset();
   ingame_.release();
   mainMenu_.release();
 
@@ -115,10 +103,6 @@ void GMPCore::OnFrameStart() {
     gmp::mcp::MCPPipeHandler::Instance().ProcessPendingMessages();
   }
 
-  // Update TestMode (e.g. Benchmark)
-  if (testMode_) {
-    testMode_->OnFrame();
-  }
 }
 
 void GMPCore::DeferToNextFrame(std::function<void()> action) {

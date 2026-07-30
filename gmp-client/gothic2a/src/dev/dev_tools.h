@@ -36,6 +36,7 @@ public:
 
   void HandleInput(bool writingOnChat);
   void Render();
+  void SetNoclipAllowed(bool allowed);
 
 private:
   DevTools();
@@ -46,18 +47,13 @@ private:
 
   void HandleNoclip(bool writingOnChat);
   void RenderNoclipOverlay();
-
-  void HandleWeatherMenu(bool writingOnChat);
-  void RenderWeatherMenu();
+  void DisableNoclip();
 
   // Noclip state
+  bool noclip_allowed_;
   bool noclip_enabled_;
   float noclip_speed_;
   clock_t last_noclip_update_;
-
-  // Weather menu state
-  bool weather_menu_open_;
-  int weather_selection_;
 };
 
 }  // namespace debug

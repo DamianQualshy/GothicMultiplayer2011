@@ -166,6 +166,7 @@ private:
   void OnGameInfo(Packet packet);
   void OnSkySettings(Packet packet);
   void OnPlayerPingUpdate(Packet packet);
+  void OnAdminAuth(Packet packet);
   void OnLeftGame(Packet packet);
   void OnLuaEvent(Packet packet);
   void OnDisconnectOrLostConnection(Packet packet);
@@ -183,6 +184,7 @@ private:
   std::uint32_t server_port_{0};
   std::uint32_t max_slots_{0};
   std::uint32_t outgoing_state_sequence_{0};
+  bool admin_authenticated_{false};
   bool connection_lost_{false};
   bool is_in_game_{false};
   bool notify_connected_pending_{false};

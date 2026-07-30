@@ -168,6 +168,7 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_GAME_INFO] = [this](Packet p) { OnGameInfo(p); };
   packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
   packet_handlers_[PT_PLAYER_PING_UPDATE] = [this](Packet p) { OnPlayerPingUpdate(p); };
+  packet_handlers_[PT_ADMIN_AUTH] = [this](Packet p) { OnAdminAuth(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
   packet_handlers_[PT_LUA_EVENT] = [this](Packet p) { OnLuaEvent(p); };
 }
@@ -239,6 +240,7 @@ void GameClient::Disconnect() {
     connection_lost_ = false;
     is_in_game_ = false;
     outgoing_state_sequence_ = 0;
+    admin_authenticated_ = false;
     notify_connected_pending_ = false;
     notify_connection_failed_pending_ = false;
     notify_connection_lost_pending_ = false;
@@ -252,6 +254,7 @@ void GameClient::Disconnect() {
 
   player_manager_.Clear();
   worlds_.clear();
+  event_observer_.OnAdminAuthChanged(false);
 
   if (notify_disconnected) {
     event_observer_.OnDisconnected();
@@ -1692,6 +1695,19 @@ void GameClient::OnLeftGame(Packet p) {
   player_manager_.RemovePlayer(packet.disconnected_id);
 }
 
+void GameClient::OnAdminAuth(Packet p) {
+  AdminAuthPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_ERROR("Failed to deserialize AdminAuthPacket");
+    return;
+  }
+
+  admin_authenticated_ = packet.authenticated != 0;
+  event_observer_.OnAdminAuthChanged(admin_authenticated_);
+}
+
 void GameClient::OnLuaEvent(Packet p) {
   LuaEventPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
@@ -1715,6 +1731,7 @@ void GameClient::OnDisconnectOrLostConnection(Packet p) {
       connection_state_ = ConnectionState::Disconnected;
       is_in_game_ = false;
       outgoing_state_sequence_ = 0;
+      admin_authenticated_ = false;
       notify_connected_pending_ = false;
       notify_connection_failed_pending_ = false;
       notify_connection_lost_pending_ = true;
@@ -1724,6 +1741,7 @@ void GameClient::OnDisconnectOrLostConnection(Packet p) {
   resource_downloader_.StopDownload();
   player_manager_.Clear();
   worlds_.clear();
+  event_observer_.OnAdminAuthChanged(false);
 }
 
 void GameClient::DispatchPendingConnectionNotifications() {

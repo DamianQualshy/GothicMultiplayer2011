@@ -1784,6 +1784,26 @@ bool Function_IsPlayerConnected(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
+* This function will check whether player is logged in through rcon.
+*
+* @version  0.3.0
+* @name     isPlayerAdmin
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player id.
+* @return   (boolean)           True when player is rcon-authenticated, otherwise false.
+*
+*/
+bool Function_IsPlayerAdmin(std::uint32_t player_id) {
+  if (!GetPlayerOrWarn(player_id, "isPlayerAdmin")) {
+    return false;
+  }
+
+  return g_server->IsPlayerAdmin(player_id);
+}
+
+/* luagmp (func)
+*
 * This function will check whether player is dead.
 *
 * @version  0.3.0
@@ -2569,6 +2589,7 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["ban"] = Function_Ban;
   lua["kick"] = Function_Kick;
   lua["isPlayerConnected"] = Function_IsPlayerConnected;
+  lua["isPlayerAdmin"] = Function_IsPlayerAdmin;
   lua["isPlayerDead"] = Function_IsPlayerDead;
   lua["isPlayerSpawned"] = Function_IsPlayerSpawned;
   lua["isPlayerUnconscious"] = Function_IsPlayerUnconscious;

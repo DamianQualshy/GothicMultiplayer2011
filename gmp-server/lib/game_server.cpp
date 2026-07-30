@@ -35,6 +35,7 @@ SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cmath>
 #include <dylib.hpp>
 #include <limits>
@@ -50,6 +51,7 @@ SOFTWARE.
 #include <stack>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "gothic_clock.h"
 #include "Lua/event_bind.h"
@@ -127,6 +129,32 @@ std::string FormatPlayerLabel(const PlayerManager::Player& player) {
   std::string label = player.name;
   label.append(" (").append(connection_details).append(")");
   return label;
+}
+
+bool IsCommand(std::string_view command, std::string_view expected) {
+  return command.size() == expected.size() && std::equal(command.begin(), command.end(), expected.begin(), expected.end(), [](char a, char b) {
+           return std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b));
+         });
+}
+
+std::string_view TrimLeft(std::string_view text) {
+  const auto first = text.find_first_not_of(' ');
+  if (first == std::string_view::npos) {
+    return {};
+  }
+  text.remove_prefix(first);
+  return text;
+}
+
+std::pair<std::string_view, std::string_view> SplitCommandArgs(std::string_view text) {
+  text = TrimLeft(text);
+  const auto space_pos = text.find(' ');
+  if (space_pos == std::string_view::npos) {
+    return {text, {}};
+  }
+
+  auto args = text.substr(space_pos + 1);
+  return {text.substr(0, space_pos), TrimLeft(args)};
 }
 
 #ifdef MASTER_SERVER_ENDPOINT
@@ -1636,6 +1664,54 @@ void GameServer::HandleVoice(Packet p) {
   });
 }
 
+void GameServer::SendAdminAuthStatus(const Player& player) {
+  AdminAuthPacket packet{};
+  packet.packet_type = PT_ADMIN_AUTH;
+  packet.authenticated = player.is_admin ? 1 : 0;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+}
+
+void GameServer::HandleAdminLogin(Player& player, const std::string& password) {
+  const auto& configured_password = config_.Get<std::string>("admin_passwd");
+
+  if (configured_password.empty()) {
+    player.is_admin = false;
+    SendAdminAuthStatus(player);
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Admin login is disabled on this server.");
+    SPDLOG_WARN("{} attempted admin login, but admin_passwd is empty", FormatPlayerLabel(player));
+    return;
+  }
+
+  if (password == configured_password) {
+    player.is_admin = true;
+    SendAdminAuthStatus(player);
+    SendMessageToPlayer(player.player_id, 0, 255, 0, "Admin login successful. Noclip unlocked.");
+    SPDLOG_INFO("{} logged in as admin", FormatPlayerLabel(player));
+    return;
+  }
+
+  player.is_admin = false;
+  SendAdminAuthStatus(player);
+  SendMessageToPlayer(player.player_id, 255, 0, 0, "Invalid admin password.");
+  SPDLOG_WARN("{} failed admin login", FormatPlayerLabel(player));
+}
+
+void GameServer::HandleRconCommand(Player& player, const std::string& params) {
+  const auto [subcommand, subcommand_params] = SplitCommandArgs(params);
+  if (subcommand.empty()) {
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Usage: /rcon login <password>");
+    return;
+  }
+
+  if (IsCommand(subcommand, "login")) {
+    HandleAdminLogin(player, std::string(subcommand_params));
+    return;
+  }
+
+  SendMessageToPlayer(player.player_id, 255, 80, 0, "Unknown rcon command.");
+  SPDLOG_WARN("{} attempted unknown rcon command: {}", FormatPlayerLabel(player), subcommand);
+}
+
 void GameServer::HandleNormalMsg(Packet p) {
   auto player_opt = player_manager_.GetPlayerByConnection(p.id);
   if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
@@ -1657,18 +1733,18 @@ void GameServer::HandleNormalMsg(Packet p) {
   packet.b = 255;
 
   if (!packet.message.empty() && packet.message.front() == '/') {
-    auto command_line = packet.message.substr(1);
-    auto command_start = command_line.find_first_not_of(' ');
-    if (command_start != std::string::npos) {
-      command_line = command_line.substr(command_start);
-      auto space_pos = command_line.find(' ');
-      auto command = command_line.substr(0, space_pos);
-      if (!command.empty()) {
-        auto params_start = command_line.find_first_not_of(' ', space_pos);
-        std::string params = params_start == std::string::npos ? std::string{} : command_line.substr(params_start);
-        SPDLOG_INFO("{} issued command: /{} {}", player.name, command, params);
-        EventManager::Instance().TriggerEvent(kEventOnPlayerCommandName, OnPlayerCommandEvent{player.player_id, command, params});
+    std::string command_line = packet.message.substr(1);
+    const auto [command_view, params_view] = SplitCommandArgs(command_line);
+    if (!command_view.empty()) {
+      if (IsCommand(command_view, "rcon")) {
+        HandleRconCommand(player, std::string(params_view));
+        return;
       }
+
+      std::string command(command_view);
+      std::string params(params_view);
+      SPDLOG_INFO("{} issued command: /{} {}", player.name, command, params);
+      EventManager::Instance().TriggerEvent(kEventOnPlayerCommandName, OnPlayerCommandEvent{player.player_id, command, params});
     }
     return;
   }
@@ -3716,6 +3792,15 @@ bool GameServer::BanPlayer(PlayerId player_id, const std::string& reason) {
 
 bool GameServer::IsPlayerConnected(PlayerId player_id) const {
   return player_manager_.HasPlayer(player_id);
+}
+
+bool GameServer::IsPlayerAdmin(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  return player_opt->get().is_admin;
 }
 
 bool GameServer::IsPlayerDead(PlayerId player_id) const {
