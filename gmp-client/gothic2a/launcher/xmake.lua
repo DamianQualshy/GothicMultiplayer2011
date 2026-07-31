@@ -23,8 +23,19 @@
 target("GMPLauncher")
     set_kind("binary")
     add_files("main.cpp")
-    add_syslinks("kernel32", "user32", "advapi32")
+    
+    if is_plat("windows") then
+        add_files("resource.rc")
+    end
+
+    add_syslinks("kernel32", "user32", "advapi32", "winhttp")
     add_packages("spdlog")
+
+    local update_source_url = get_config("gmp_update_source_url")
+    if update_source_url and #update_source_url > 0 then
+        update_source_url = update_source_url:gsub("\\", "\\\\"):gsub("\"", "\\\"")
+        add_defines(string.format("GMP_UPDATE_SOURCE_URL=\"%s\"", update_source_url))
+    end
     
     -- Set output name
     set_basename("GMPLauncher")

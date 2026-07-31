@@ -46,6 +46,12 @@ option("master_server_endpoint")
     set_default("")
 option_end()
 
+option("gmp_update_source_url")
+    set_showmenu(true)
+    set_description("Base HTTP(S) URL where GMPLauncher downloads GMP.dll and GMP.dll.sha256")
+    set_default("")
+option_end()
+
 
 add_rules("mode.debug", "mode.release", "mode.releasedbg")
 

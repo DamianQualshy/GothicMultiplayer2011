@@ -26,26 +26,66 @@ SOFTWARE.
 // clang-format off
 #include <windows.h>
 #include <tlhelp32.h>
+#include <wincrypt.h>
+#include <winhttp.h>
 // clang-format on
 
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdint>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 namespace fs = std::filesystem;
+
+#ifndef GMP_UPDATE_SOURCE_URL
+#define GMP_UPDATE_SOURCE_URL ""
+#endif
+
+namespace {
+
+class ScopedInternetHandle {
+public:
+  ScopedInternetHandle() = default;
+  explicit ScopedInternetHandle(HINTERNET handle) : handle_(handle) {}
+  ~ScopedInternetHandle() {
+    if (handle_) {
+      WinHttpCloseHandle(handle_);
+    }
+  }
+
+  ScopedInternetHandle(const ScopedInternetHandle&) = delete;
+  ScopedInternetHandle& operator=(const ScopedInternetHandle&) = delete;
+
+  operator HINTERNET() const {
+    return handle_;
+  }
+
+private:
+  HINTERNET handle_ = nullptr;
+};
+
+}  // namespace
 
 class GMPLauncher {
 private:
   std::string gothicPath;
   std::string gmpDllPath;
   std::string workingDirectory;
+  std::string updateSourceUrl;
   std::shared_ptr<spdlog::logger> logger;
   bool waitForDebugger = false;
+  bool updateEnabled = true;
 
   void InitializeLogger() {
     try {
@@ -95,6 +135,384 @@ private:
     return result;
   }
 
+  static std::string Trim(const std::string& value) {
+    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) { return std::isspace(ch); });
+    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) { return std::isspace(ch); }).base();
+    if (first >= last) {
+      return {};
+    }
+    return std::string(first, last);
+  }
+
+  static bool IsHexDigit(char ch) {
+    return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
+  }
+
+  static std::optional<std::string> ExtractSHA256(const std::string& text) {
+    std::string candidate;
+    candidate.reserve(64);
+
+    for (char ch : text) {
+      if (IsHexDigit(ch)) {
+        candidate.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
+        if (candidate.size() == 64) {
+          return candidate;
+        }
+      } else {
+        candidate.clear();
+      }
+    }
+
+    return std::nullopt;
+  }
+
+  static std::string BytesToHex(const BYTE* bytes, DWORD size) {
+    static constexpr char hexDigits[] = "0123456789abcdef";
+    std::string hex;
+    hex.reserve(static_cast<std::size_t>(size) * 2);
+
+    for (DWORD i = 0; i < size; ++i) {
+      const BYTE byte = bytes[i];
+      hex.push_back(hexDigits[(byte >> 4) & 0x0F]);
+      hex.push_back(hexDigits[byte & 0x0F]);
+    }
+
+    return hex;
+  }
+
+  static bool HashData(HCRYPTHASH hash, const std::uint8_t* data, std::size_t size) {
+    constexpr std::size_t maxChunkSize = 64 * 1024;
+    std::size_t offset = 0;
+
+    while (offset < size) {
+      const std::size_t chunkSize = (std::min)(maxChunkSize, size - offset);
+      if (!CryptHashData(hash, reinterpret_cast<const BYTE*>(data + offset), static_cast<DWORD>(chunkSize), 0)) {
+        return false;
+      }
+      offset += chunkSize;
+    }
+
+    return true;
+  }
+
+  static std::optional<std::string> FinishSHA256Hash(HCRYPTHASH hash) {
+    std::array<BYTE, 32> digest{};
+    DWORD digestSize = static_cast<DWORD>(digest.size());
+    if (!CryptGetHashParam(hash, HP_HASHVAL, digest.data(), &digestSize, 0)) {
+      return std::nullopt;
+    }
+
+    return BytesToHex(digest.data(), digestSize);
+  }
+
+  std::optional<std::string> ComputeSHA256(const std::vector<std::uint8_t>& bytes) {
+    HCRYPTPROV provider = 0;
+    HCRYPTHASH hash = 0;
+
+    if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+      SPDLOG_WARN("Failed to acquire crypto provider. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    if (!CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
+      SPDLOG_WARN("Failed to create SHA-256 hash. Error: {}", GetLastError());
+      CryptReleaseContext(provider, 0);
+      return std::nullopt;
+    }
+
+    const bool hashed = bytes.empty() || HashData(hash, bytes.data(), bytes.size());
+    std::optional<std::string> result;
+    if (hashed) {
+      result = FinishSHA256Hash(hash);
+    }
+
+    CryptDestroyHash(hash);
+    CryptReleaseContext(provider, 0);
+    return result;
+  }
+
+  std::optional<std::string> ComputeFileSHA256(const fs::path& path) {
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+      SPDLOG_WARN("Failed to open {} for checksum calculation", WideToUtf8(path.wstring()));
+      return std::nullopt;
+    }
+
+    HCRYPTPROV provider = 0;
+    HCRYPTHASH hash = 0;
+
+    if (!CryptAcquireContextW(&provider, nullptr, nullptr, PROV_RSA_AES, CRYPT_VERIFYCONTEXT)) {
+      SPDLOG_WARN("Failed to acquire crypto provider. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    if (!CryptCreateHash(provider, CALG_SHA_256, 0, 0, &hash)) {
+      SPDLOG_WARN("Failed to create SHA-256 hash. Error: {}", GetLastError());
+      CryptReleaseContext(provider, 0);
+      return std::nullopt;
+    }
+
+    std::array<std::uint8_t, 64 * 1024> buffer{};
+    bool success = true;
+    while (input) {
+      input.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
+      const std::streamsize bytesRead = input.gcount();
+      if (bytesRead > 0 && !HashData(hash, buffer.data(), static_cast<std::size_t>(bytesRead))) {
+        SPDLOG_WARN("Failed to hash {}", WideToUtf8(path.wstring()));
+        success = false;
+        break;
+      }
+    }
+
+    std::optional<std::string> result;
+    if (success) {
+      result = FinishSHA256Hash(hash);
+    }
+
+    CryptDestroyHash(hash);
+    CryptReleaseContext(provider, 0);
+    return result;
+  }
+
+  std::string BuildUpdateUrl(const std::string& fileName) {
+    std::string source = Trim(updateSourceUrl);
+    while (!source.empty() && (source.back() == '/' || source.back() == '\\')) {
+      source.pop_back();
+    }
+
+    if (source.empty()) {
+      return {};
+    }
+
+    return source + "/" + fileName;
+  }
+
+  std::optional<std::vector<std::uint8_t>> DownloadUrl(const std::string& url, std::size_t maxBytes = 0) {
+    const std::wstring wideUrl = Utf8ToWide(url);
+    if (wideUrl.empty()) {
+      SPDLOG_WARN("Invalid update URL: {}", url);
+      return std::nullopt;
+    }
+
+    URL_COMPONENTSW components = {};
+    components.dwStructSize = sizeof(components);
+    components.dwSchemeLength = static_cast<DWORD>(-1);
+    components.dwHostNameLength = static_cast<DWORD>(-1);
+    components.dwUrlPathLength = static_cast<DWORD>(-1);
+    components.dwExtraInfoLength = static_cast<DWORD>(-1);
+
+    if (!WinHttpCrackUrl(wideUrl.c_str(), 0, 0, &components)) {
+      SPDLOG_WARN("Failed to parse update URL '{}'. Error: {}", url, GetLastError());
+      return std::nullopt;
+    }
+
+    const bool isHttps = components.nScheme == INTERNET_SCHEME_HTTPS;
+    if (!isHttps && components.nScheme != INTERNET_SCHEME_HTTP) {
+      SPDLOG_WARN("Unsupported update URL scheme: {}", url);
+      return std::nullopt;
+    }
+
+    std::wstring host;
+    if (components.lpszHostName && components.dwHostNameLength > 0) {
+      host.assign(components.lpszHostName, components.dwHostNameLength);
+    }
+
+    std::wstring path;
+    if (components.lpszUrlPath && components.dwUrlPathLength > 0) {
+      path.assign(components.lpszUrlPath, components.dwUrlPathLength);
+    }
+    if (components.lpszExtraInfo && components.dwExtraInfoLength > 0) {
+      path.append(components.lpszExtraInfo, components.dwExtraInfoLength);
+    }
+    if (path.empty()) {
+      path = L"/";
+    }
+
+    ScopedInternetHandle session(WinHttpOpen(L"GMPLauncher/1.0",
+                                             WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+                                             WINHTTP_NO_PROXY_NAME,
+                                             WINHTTP_NO_PROXY_BYPASS,
+                                             0));
+    if (!session) {
+      SPDLOG_WARN("Failed to initialize update HTTP session. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    WinHttpSetTimeouts(session, 5000, 5000, 5000, 5000);
+
+    ScopedInternetHandle connection(WinHttpConnect(session, host.c_str(), components.nPort, 0));
+    if (!connection) {
+      SPDLOG_WARN("Failed to connect to update host. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    ScopedInternetHandle request(WinHttpOpenRequest(connection,
+                                                   L"GET",
+                                                   path.c_str(),
+                                                   nullptr,
+                                                   WINHTTP_NO_REFERER,
+                                                   WINHTTP_DEFAULT_ACCEPT_TYPES,
+                                                   isHttps ? WINHTTP_FLAG_SECURE : 0));
+    if (!request) {
+      SPDLOG_WARN("Failed to create update request. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
+    WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+    if (!WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) || !WinHttpReceiveResponse(request, nullptr)) {
+      SPDLOG_WARN("Failed to download {}. Error: {}", url, GetLastError());
+      return std::nullopt;
+    }
+
+    DWORD statusCode = 0;
+    DWORD statusCodeSize = sizeof(statusCode);
+    if (!WinHttpQueryHeaders(request,
+                             WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
+                             WINHTTP_HEADER_NAME_BY_INDEX,
+                             &statusCode,
+                             &statusCodeSize,
+                             WINHTTP_NO_HEADER_INDEX)) {
+      SPDLOG_WARN("Failed to read update HTTP status. Error: {}", GetLastError());
+      return std::nullopt;
+    }
+
+    if (statusCode != 200) {
+      SPDLOG_WARN("Update request returned HTTP {}", statusCode);
+      return std::nullopt;
+    }
+
+    std::vector<std::uint8_t> body;
+    for (;;) {
+      DWORD available = 0;
+      if (!WinHttpQueryDataAvailable(request, &available)) {
+        SPDLOG_WARN("Failed while reading update response. Error: {}", GetLastError());
+        return std::nullopt;
+      }
+
+      if (available == 0) {
+        break;
+      }
+
+      if (maxBytes > 0 && body.size() + available > maxBytes) {
+        SPDLOG_WARN("Update response exceeded expected maximum size");
+        return std::nullopt;
+      }
+
+      const std::size_t offset = body.size();
+      body.resize(offset + available);
+
+      DWORD bytesRead = 0;
+      if (!WinHttpReadData(request, body.data() + offset, available, &bytesRead)) {
+        SPDLOG_WARN("Failed while reading update response body. Error: {}", GetLastError());
+        return std::nullopt;
+      }
+
+      body.resize(offset + bytesRead);
+    }
+
+    return body;
+  }
+
+  bool InstallDownloadedDll(const std::vector<std::uint8_t>& dllBytes) {
+    const fs::path targetPath = Utf8ToWide(gmpDllPath);
+    fs::path tempPath = targetPath;
+    tempPath += L".download";
+
+    std::error_code ec;
+    fs::remove(tempPath, ec);
+
+    {
+      std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
+      if (!output) {
+        SPDLOG_ERROR("Failed to create temporary GMP.dll download file: {}", WideToUtf8(tempPath.wstring()));
+        return false;
+      }
+
+      output.write(reinterpret_cast<const char*>(dllBytes.data()), static_cast<std::streamsize>(dllBytes.size()));
+      if (!output) {
+        SPDLOG_ERROR("Failed to write temporary GMP.dll download file: {}", WideToUtf8(tempPath.wstring()));
+        return false;
+      }
+    }
+
+    if (fs::exists(targetPath)) {
+      fs::remove(targetPath, ec);
+      if (ec) {
+        SPDLOG_ERROR("Failed to remove existing GMP.dll: {}", ec.message());
+        fs::remove(tempPath, ec);
+        return false;
+      }
+    }
+
+    fs::rename(tempPath, targetPath, ec);
+    if (ec) {
+      SPDLOG_ERROR("Failed to install downloaded GMP.dll: {}", ec.message());
+      fs::remove(tempPath, ec);
+      return false;
+    }
+
+    SPDLOG_INFO("Installed updated GMP.dll");
+    return true;
+  }
+
+  bool UpdateGMPDllIfAvailable() {
+    if (!updateEnabled) {
+      SPDLOG_INFO("GMP.dll update check disabled");
+      return true;
+    }
+
+    if (Trim(updateSourceUrl).empty()) {
+      SPDLOG_INFO("No GMP.dll update source configured; skipping update check");
+      return true;
+    }
+
+    const std::string checksumUrl = BuildUpdateUrl("GMP.dll.sha256");
+    const std::string dllUrl = BuildUpdateUrl("GMP.dll");
+
+    SPDLOG_INFO("Checking GMP.dll update source...");
+    const auto checksumBytes = DownloadUrl(checksumUrl, 4096);
+    if (!checksumBytes) {
+      SPDLOG_WARN("Could not reach GMP.dll update source; using local file if available");
+      return true;
+    }
+
+    const std::string checksumText(checksumBytes->begin(), checksumBytes->end());
+    const auto expectedChecksum = ExtractSHA256(checksumText);
+    if (!expectedChecksum) {
+      SPDLOG_WARN("Update source did not provide a valid GMP.dll SHA-256 checksum; using local file if available");
+      return true;
+    }
+
+    const fs::path localDllPath = Utf8ToWide(gmpDllPath);
+    if (fs::exists(localDllPath)) {
+      const auto localChecksum = ComputeFileSHA256(localDllPath);
+      if (localChecksum && *localChecksum == *expectedChecksum) {
+        SPDLOG_INFO("Local GMP.dll is up to date");
+        return true;
+      }
+
+      SPDLOG_INFO("Local GMP.dll checksum differs from update source; downloading replacement");
+    } else {
+      SPDLOG_INFO("GMP.dll is missing; downloading from update source");
+    }
+
+    const auto dllBytes = DownloadUrl(dllUrl);
+    if (!dllBytes) {
+      SPDLOG_ERROR("Update source is reachable, but GMP.dll download failed");
+      return false;
+    }
+
+    const auto downloadedChecksum = ComputeSHA256(*dllBytes);
+    if (!downloadedChecksum || *downloadedChecksum != *expectedChecksum) {
+      SPDLOG_ERROR("Downloaded GMP.dll checksum mismatch; refusing to install it");
+      return false;
+    }
+
+    return InstallDownloadedDll(*dllBytes);
+  }
+
 public:
   GMPLauncher() {
     InitializeLogger();
@@ -104,6 +522,7 @@ public:
     // Default paths (can be overridden by command line)
     gothicPath = workingDirectory + "\\Gothic2.exe";
     gmpDllPath = workingDirectory + "\\GMP.dll";
+    updateSourceUrl = GMP_UPDATE_SOURCE_URL;
   }
 
   bool ValidatePaths() {
@@ -387,6 +806,10 @@ public:
         gmpDllPath = WideToUtf8(argv[++i]);
       } else if (arg == L"--workdir" && i + 1 < argc) {
         workingDirectory = WideToUtf8(argv[++i]);
+      } else if (arg == L"--update-source" && i + 1 < argc) {
+        updateSourceUrl = WideToUtf8(argv[++i]);
+      } else if (arg == L"--no-update") {
+        updateEnabled = false;
       } else if (arg == L"--debug" || arg == L"-d") {
         waitForDebugger = true;
       } else if (arg == L"--help" || arg == L"-h") {
@@ -405,6 +828,9 @@ public:
     SPDLOG_INFO("  --gothic <path>   Path to Gothic2.exe (default: Gothic2.exe in launcher directory)");
     SPDLOG_INFO("  --dll <path>      Path to GMP.dll (default: GMP.dll in launcher directory)");
     SPDLOG_INFO("  --workdir <path>  Working directory for Gothic2.exe (default: launcher directory)");
+    SPDLOG_INFO("  --update-source <url>");
+    SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll and GMP.dll.sha256");
+    SPDLOG_INFO("  --no-update       Skip the GMP.dll update check");
     SPDLOG_INFO("  --debug, -d       Pause after injection to attach IDA/debugger");
     SPDLOG_INFO("  --help, -h        Show this help message");
     SPDLOG_INFO("");
@@ -422,6 +848,11 @@ public:
 
     // Parse command line arguments
     ParseCommandLine(argc, argv);
+
+    if (!UpdateGMPDllIfAvailable()) {
+      SPDLOG_ERROR("GMP.dll update failed. Launch aborted.");
+      return 1;
+    }
 
     // Validate that required files exist
     if (!ValidatePaths()) {
