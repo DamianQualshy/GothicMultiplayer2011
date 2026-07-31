@@ -299,18 +299,17 @@ void ExtendedServerList::HandleInput(){
 		auto& active_servers = GetActiveServerList();
 		auto* active_table = GetActiveTable();
 		if(zinput->KeyToggled(KEY_DOWN) && !active_servers.empty()) {
-			active_table->scrollDown(1);
 			if((active_servers.size()-1)>(size_t)SelectedServer){
 				SelectedServer++;
 			}
 		}
 		if(zinput->KeyToggled(KEY_UP) && !active_servers.empty()) {
-			active_table->scrollUp(1);
 			if(SelectedServer>0){
 				SelectedServer--;
 			}
 		}
 		ClampSelectedServer();
+		active_table->ensureRowVisible(static_cast<unsigned int>(SelectedServer));
 		ReleaseMutex(srvList_access);
 	}
 
@@ -435,11 +434,13 @@ void ExtendedServerList::fillTables() {
 	}
 
 	ClampSelectedServer();
+	GetActiveTable()->ensureRowVisible(static_cast<unsigned int>(SelectedServer));
 }
 
 void ExtendedServerList::SelectServer(int index){
 	this->SelectedServer = index;	
 	ClampSelectedServer();
+	GetActiveTable()->ensureRowVisible(static_cast<unsigned int>(SelectedServer));
 }
 
 void ExtendedServerList::nextTab(){
@@ -455,12 +456,14 @@ void ExtendedServerList::selectTab(int index){
 			tab_fav->highlight = false;
 			SelectedTab = index;
 			ClampSelectedServer();
+			GetActiveTable()->ensureRowVisible(static_cast<unsigned int>(SelectedServer));
 			break;
 		case TAB_FAV:
 			tab_all->highlight = false;
 			tab_fav->highlight = true;
 			SelectedTab = index;
 			ClampSelectedServer();
+			GetActiveTable()->ensureRowVisible(static_cast<unsigned int>(SelectedServer));
 			break;
 		default:
 			//Nie ma takiej zakladki
