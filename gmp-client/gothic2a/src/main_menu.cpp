@@ -38,7 +38,6 @@ SOFTWARE.
 #include <nlohmann/json.hpp>
 
 #include "CSyncFuncs.h"
-#include "CWatch.h"
 #include "ExtendedServerList.h"
 #include "config.h"
 #include "interface.h"

@@ -37,7 +37,6 @@ namespace states {
  *
  * This state allows configuration of:
  * - Nickname
- * - Watch/clock settings
  * - Anti-aliasing
  * - Joystick
  * - Language
@@ -49,19 +48,16 @@ private:
 
   enum class OptionItem {
     NICKNAME = 0,
-    WATCH_TOGGLE = 1,
-    WATCH_POSITION = 2,
-    LANGUAGE = 3,
-    ANTIALIASING = 4,
-    JOYSTICK = 5,
-    INTRO_VIDEOS = 6,
-    BACK = 7,
-    OPTION_COUNT = 8
+    LANGUAGE = 1,
+    ANTIALIASING = 2,
+    JOYSTICK = 3,
+    INTRO_VIDEOS = 4,
+    BACK = 5,
+    OPTION_COUNT = 6
   };
 
   OptionItem selectedOption_;
   bool shouldReturnToMainMenu_;
-  bool shouldEnterWatchPositioning_;
 
 public:
   explicit OnlineOptionsState(MenuContext& context);

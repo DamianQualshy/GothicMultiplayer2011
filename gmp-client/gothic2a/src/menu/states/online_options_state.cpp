@@ -31,7 +31,6 @@ SOFTWARE.
 #include "keyboard.h"
 #include "language.h"
 #include "menu/states/main_menu_loop_state.hpp"
-#include "menu/states/set_watch_position_state.hpp"
 #include "StandardFonts.h"
 
 namespace {
@@ -60,7 +59,6 @@ OnlineOptionsState::OnlineOptionsState(MenuContext& context)
     : context_(context),
       selectedOption_(OptionItem::NICKNAME),
       shouldReturnToMainMenu_(false),
-      shouldEnterWatchPositioning_(false),
       optionsTable_(nullptr),
       backButton_(nullptr) {
 }
@@ -89,9 +87,6 @@ StateResult OnlineOptionsState::Update() {
 MenuState* OnlineOptionsState::CheckTransition() {
   if (shouldReturnToMainMenu_) {
     return new MainMenuLoopState(context_);
-  }
-  if (shouldEnterWatchPositioning_) {
-    return new SetWatchPositionState(context_);
   }
   return nullptr;
 }
@@ -126,10 +121,6 @@ void OnlineOptionsState::RenderOptionsMenu() {
     optionsTable_->addRow(G2W::TableRow{{"", std::move(label), std::move(value)}, option == selectedOption_});
   };
   addRow(OptionItem::NICKNAME, Language::Instance()[Language::MMENU_NICKNAME].ToChar(), context_.config.Nickname.ToChar());
-  addRow(OptionItem::WATCH_TOGGLE,
-         Language::Instance()[Language::MMENU_WATCH].ToChar(),
-         (context_.config.watch) ? Language::Instance()[Language::MMENU_ON].ToChar() : Language::Instance()[Language::MMENU_OFF].ToChar());
-  addRow(OptionItem::WATCH_POSITION, Language::Instance()[Language::MMENU_SETWATCHPOS].ToChar());
 
   std::string languageValue;
   const auto& languages = LanguageManager::Instance().GetAvailableLanguages();
@@ -220,16 +211,6 @@ void OnlineOptionsState::ExecuteOption(OptionItem option) {
   switch (option) {
     case OptionItem::NICKNAME:
       context_.writingNickname = true;
-      break;
-
-    case OptionItem::WATCH_TOGGLE:
-      context_.config.watch = !context_.config.watch;
-      context_.config.SaveConfigToFile();
-      break;
-
-    case OptionItem::WATCH_POSITION:
-      context_.config.watch = true;
-      shouldEnterWatchPositioning_ = true;
       break;
 
     case OptionItem::ANTIALIASING: {

@@ -27,6 +27,7 @@ SOFTWARE.
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <ctime>
 #include <iomanip>
 #include <optional>
 #include <sstream>
@@ -245,6 +246,36 @@ std::int64_t Function_GetTickCount() {
 
 /* luagmp (func)
 *
+* This function will return the current local wall-clock time.
+*
+* @version  0.3.0
+* @name     getRealTime
+* @side     shared
+* @category Utility
+* @return   ({hour, minute, second})  Table containing local time components.
+*
+*/
+sol::table Function_GetRealTime(sol::this_state ts) {
+  sol::state_view lua(ts);
+  sol::table result = lua.create_table();
+
+  std::time_t now = std::time(nullptr);
+  std::tm local_time{};
+
+#if defined(_WIN32)
+  localtime_s(&local_time, &now);
+#else
+  localtime_r(&now, &local_time);
+#endif
+
+  result["hour"] = local_time.tm_hour;
+  result["minute"] = local_time.tm_min;
+  result["second"] = local_time.tm_sec;
+  return result;
+}
+
+/* luagmp (func)
+*
 * This function will calculate the SHA-256 hash of a string and return it as hex.
 *
 * @version  0.3.0
@@ -283,6 +314,7 @@ std::string Function_HashSha512(const std::string& input) {
 
 void BindUtilities(sol::state& lua) {
   lua["getTickCount"] = Function_GetTickCount;
+  lua["getRealTime"] = Function_GetRealTime;
   lua["hexToRgb"] = Function_HexToRgb;
   lua["rgbToHex"] = Function_RgbToHex;
   lua["sscanf"] = Function_Sscanf;

@@ -31,7 +31,6 @@ SOFTWARE.
 
 #include "CActiveAniID.h"
 #include "CMenu.h"
-#include "CWatch.h"
 #include "HooksManager.h"
 #include "dev/dev_tools.h"
 #include "config.h"
@@ -262,8 +261,6 @@ void CIngame::HandleInput() {
 
 void CIngame::Draw() {
   this->chat_interface->PrintChat();
-  if (Config::Instance().watch)
-    CWatch::GetInstance()->PrintWatch();
   debug::DevTools::Instance().Render();
 
   // Display DirectX version in bottom right

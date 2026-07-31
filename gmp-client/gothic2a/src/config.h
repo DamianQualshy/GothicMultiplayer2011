@@ -51,11 +51,8 @@ public:
 
   zSTRING Nickname;
   int lang;
-  bool watch;
   enum class RendererType { D3D7, D3D9, D3D11 };
   bool vsync_enabled = true;
-  int WatchPosX;
-  int WatchPosY;
 
   Config();
   ~Config();

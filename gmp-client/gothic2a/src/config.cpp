@@ -78,21 +78,6 @@ void Config::LoadConfigFromFile() {
     lang = *lang_opt;
   }
 
-  if (auto watch_opt = toml.GetValue<bool>("watch_enabled"); watch_opt) {
-    watch = *watch_opt;
-  }
-
-  if (auto watch_pos = toml.GetValue<std::map<std::string, int>>("watch_position"); watch_pos) {
-    auto it_x = watch_pos->find("x");
-    auto it_y = watch_pos->find("y");
-    if (it_x != watch_pos->end()) {
-      WatchPosX = it_x->second;
-    }
-    if (it_y != watch_pos->end()) {
-      WatchPosY = it_y->second;
-    }
-  }
-
   if (std::optional<std::map<std::string, std::int32_t>> window_position = toml.GetValue<std::map<std::string, int>>("window_position")) {
     std::int32_t x = 0;
     std::int32_t y = 0;
@@ -158,9 +143,6 @@ void Config::DefaultSettings() {
   Nickname.Clear();
   // 0 - polski, 1 - angielski
   lang = 0;
-  watch = false;
-  WatchPosX = 7000;
-  WatchPosY = 2500;
   window_position_.reset();
   console_position_.reset();
   renderer_type_ = RendererType::D3D9;
@@ -175,12 +157,6 @@ void Config::SaveConfigToFile() {
 
   toml["nickname"] = Nickname.string();
   toml["language"] = lang;
-  toml["watch_enabled"] = watch;
-
-  std::unordered_map<std::string, toml::value> watch_position_map;
-  watch_position_map["x"] = toml::value(WatchPosX);
-  watch_position_map["y"] = toml::value(WatchPosY);
-  toml["watch_position"] = watch_position_map;
 
   if (window_position_) {
     std::unordered_map<std::string, toml::value> window_position_map;
