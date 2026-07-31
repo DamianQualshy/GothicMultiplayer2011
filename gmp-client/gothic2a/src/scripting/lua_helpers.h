@@ -25,7 +25,6 @@ SOFTWARE.
 #pragma once
 
 #include <array>
-#include <cstdint>
 #include <string>
 #include <utility>
 #include <vector>
@@ -40,7 +39,6 @@ namespace gmp::gothic::lua_helpers {
 inline constexpr float kCursorMinSensitivity = 1.0f;
 inline constexpr float kCursorMaxSensitivity = 10.0f;
 inline constexpr int kCursorDefaultSizePx = 96;
-inline constexpr std::uintptr_t kCursorGothicMouseDeviceAddress = 0x008D1D70;
 inline constexpr std::array<int, 8> kCursorMouseButtonCodes = {
     MOUSE_BUTTONLEFT, MOUSE_BUTTONRIGHT, MOUSE_BUTTONMID, MOUSE_XBUTTON1,
     MOUSE_XBUTTON2,   MOUSE_XBUTTON3,    MOUSE_XBUTTON4,  MOUSE_XBUTTON5};

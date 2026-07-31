@@ -58,8 +58,7 @@ LuaCursor::LuaCursor()
       pos_x_(0.0f),
       pos_y_(0.0f),
       width_(lua_helpers::kCursorDefaultSizePx),
-      height_(lua_helpers::kCursorDefaultSizePx),
-      mouse_device_(nullptr) {
+      height_(lua_helpers::kCursorDefaultSizePx) {
   EnsureView();
   setSizePx(lua_helpers::kCursorDefaultSizePx, lua_helpers::kCursorDefaultSizePx);
   setTexture(texture_name_);
@@ -138,28 +137,11 @@ void LuaCursor::ApplyDelta(float delta_x, float delta_y) {
   UpdateViewPosition();
 }
 
-void LuaCursor::UpdateFromInput(zCInput* input) {
-  if (!input) {
-    return;
-  }
-
+void LuaCursor::UpdateFromInput(float delta_x, float delta_y) {
   EnsureView();
-
-  float delta_x = 0.0f;
-  float delta_y = 0.0f;
-  float wheel = 0.0f;
-  const bool using_direct_input = PollDirectInput(delta_x, delta_y, wheel);
-  if (!using_direct_input) {
-    input->GetMousePos(delta_x, delta_y, wheel);
-  }
-  (void)wheel;
 
   if (delta_x != 0.0f || delta_y != 0.0f) {
     ApplyDelta(delta_x, delta_y);
-  }
-
-  if (view_) {
-    view_->Blit();
   }
 }
 
@@ -354,36 +336,6 @@ void LuaCursor::CleanupViews() {
   }
 
   cursor.visible_ = false;
-}
-
-bool LuaCursor::PollDirectInput(float& delta_x, float& delta_y, float& wheel) {
-  if (!mouse_device_) {
-    auto device_ptr = reinterpret_cast<LPDIRECTINPUTDEVICE8A*>(lua_helpers::kCursorGothicMouseDeviceAddress);
-    if (!device_ptr) {
-      return false;
-    }
-    mouse_device_ = *device_ptr;
-  }
-
-  if (!mouse_device_) {
-    return false;
-  }
-
-  DIMOUSESTATE2 state{};
-  HRESULT hr = mouse_device_->GetDeviceState(sizeof(state), &state);
-  if (hr == DIERR_INPUTLOST || hr == DIERR_NOTACQUIRED) {
-    mouse_device_->Acquire();
-    hr = mouse_device_->GetDeviceState(sizeof(state), &state);
-  }
-
-  if (FAILED(hr)) {
-    return false;
-  }
-
-  delta_x = static_cast<float>(state.lX);
-  delta_y = static_cast<float>(state.lY);
-  wheel = static_cast<float>(state.lZ);
-  return true;
 }
 
 }  // namespace gmp::gothic

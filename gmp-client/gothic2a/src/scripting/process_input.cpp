@@ -74,6 +74,28 @@ bool ShouldEmitWhileChatInputActive(int code) {
          code == KEY_HOME || code == KEY_END || code == KEY_RETURN || code == KEY_NUMPADENTER ||
          code == KEY_ESCAPE;
 }
+
+void NormalizeCursorDelta(zCInput* zinput, float& dx, float& dy) {
+  float sensitivity_x = 1.0f;
+  float sensitivity_y = 1.0f;
+  zinput->GetMouseSensitivity(sensitivity_x, sensitivity_y);
+  if (sensitivity_x != 0.0f) {
+    dx /= sensitivity_x;
+  }
+  if (sensitivity_y != 0.0f) {
+    dy /= sensitivity_y;
+  }
+
+  int flip_x = 0;
+  int flip_y = 0;
+  zinput->GetMouseFlipXY(flip_x, flip_y);
+  if (flip_x) {
+    dx = -dx;
+  }
+  if (flip_y) {
+    dy = -dy;
+  }
+}
 }  // namespace
 
 void ProcessInput(zCInput* zinput) {
@@ -147,6 +169,9 @@ void ProcessInput(zCInput* zinput) {
   float dy = 0.0f;
   float wheel = 0.0f;
   zinput->GetMousePos(dx, dy, wheel);
+  float cursor_dx = dx;
+  float cursor_dy = dy;
+  NormalizeCursorDelta(zinput, cursor_dx, cursor_dy);
 
   if (!chat_input_active && (dx != 0.0f || dy != 0.0f)) {
     EventManager::Instance().TriggerEvent(kEventOnMouseMoveName, OnMouseMoveEvent{dx, dy});
@@ -159,7 +184,7 @@ void ProcessInput(zCInput* zinput) {
   std::memcpy(s_prevPressed, s_pressedThisFrame, sizeof(s_prevPressed));
   s_prevRawPressed = s_rawPressedThisFrame;
 
-  LuaCursor::Instance().UpdateFromInput(zinput);
+  LuaCursor::Instance().UpdateFromInput(cursor_dx, cursor_dy);
 }
 
 void BindInputConstants(sol::state& lua) {

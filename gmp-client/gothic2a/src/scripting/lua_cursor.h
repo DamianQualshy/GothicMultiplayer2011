@@ -22,7 +22,6 @@ SOFTWARE.
 
 #include <string>
 
-#include "ZenGin/DirectX8/include/dinput.h"
 #include "ZenGin/zGothicAPI.h"
 #include "sol/sol.hpp"
 
@@ -34,7 +33,7 @@ class LuaCursor {
 public:
   static LuaCursor& Instance();
 
-  void UpdateFromInput(zCInput* input);
+  void UpdateFromInput(float delta_x, float delta_y);
   void Render();
 
   void setPosition(int x, int y);
@@ -71,8 +70,6 @@ private:
   void ClampPosition();
   sol::table MakePosTable(sol::this_state s, bool pixels) const;
   sol::table MakeSizeTable(sol::this_state s, bool pixels) const;
-  bool PollDirectInput(float& delta_x, float& delta_y, float& wheel);
-
   LuaCursorView* view_;
   zCTexture* texture_;
   std::string texture_name_;
@@ -84,7 +81,6 @@ private:
   int width_;
   int height_;
 
-  LPDIRECTINPUTDEVICE8A mouse_device_;
 };
 
 }  // namespace gmp::gothic

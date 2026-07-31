@@ -104,10 +104,11 @@ void ApplyCameraTransform(const zMAT4& matrix) {
     if (camera->connectedVob && camera->connectedVob != vob) {
       camera->connectedVob->SetTrafoObjToWorld(matrix);
     }
-    camera->camMatrixInv = matrix;
-    camera->camMatrix = camera->camMatrixInv.Inverse();
-    zCCamera::activeCamPos = matrix.GetTranslation();
-    camera->Activate();
+    if (camera->connectedVob) {
+      camera->Activate();
+    } else {
+      camera->SetTransform(zCAM_TRAFO_WORLDVIEW, matrix.InverseLinTrafo());
+    }
   }
 }
 
@@ -139,9 +140,6 @@ void StoreMovementStateForLock() {
 
 void DisableCameraAiForLock() {
   if (auto* ai = AiCamera()) {
-    ai->translate = 0;
-    ai->rotate = 0;
-    ai->collision = 0;
     if (ai->camVob && ai->camVob->callback_ai == static_cast<zCAIBase*>(ai)) {
       ai->camVob->SetAI(nullptr);
     }
@@ -162,10 +160,11 @@ void LockCameraTransform(const zMAT4& matrix) {
 
 void SetTarget(zCVob* vob) {
   if (auto* ai = AiCamera()) {
-    ai->SetTarget(vob);
     if (!vob) {
       ai->ClearTargetList();
+      return;
     }
+    ai->SetTarget(vob);
   }
 }
 
