@@ -20,12 +20,34 @@ bool s_toggledThisFrame[kMaxTrackedCode + 1] = {};
 std::array<bool, kMaxTrackedCode + 1> s_disabledKeys = {};
 
 namespace {
+constexpr int kMaxLogicalInputCode = GAME_LAME_HEAL;
 constexpr std::array<int, 8> kMouseButtonCodes = {
     MOUSE_BUTTONLEFT, MOUSE_BUTTONRIGHT, MOUSE_BUTTONMID, MOUSE_XBUTTON1,
     MOUSE_XBUTTON2,  MOUSE_XBUTTON3,    MOUSE_XBUTTON4,  MOUSE_XBUTTON5};
 
 std::array<bool, kMaxTrackedCode + 1> s_prevRawPressed = {};
 std::array<bool, kMaxTrackedCode + 1> s_rawPressedThisFrame = {};
+std::array<bool, kMaxLogicalInputCode + 1> s_prevLogicalPressed = {};
+std::array<bool, kMaxLogicalInputCode + 1> s_logicalPressedThisFrame = {};
+std::array<bool, kMaxLogicalInputCode + 1> s_logicalToggledThisFrame = {};
+std::array<bool, kMaxLogicalInputCode + 1> s_disabledLogicalKeys = {};
+
+bool IsLogicalInputCode(int code) {
+  for (const auto& key : kGameKeys) {
+    if (key.code == code) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool ReadLogicalInputPressed(zCInput* zinput, int code, bool chat_input_active) {
+  if (!zinput || chat_input_active) {
+    return false;
+  }
+
+  return zinput->GetState(static_cast<unsigned short>(code)) != 0.0f;
+}
 
 std::string WideClipboardTextToAnsi(const wchar_t* text) {
   if (!text) {
@@ -106,9 +128,22 @@ void ProcessInput(zCInput* zinput) {
   std::memset(s_pressedThisFrame, 0, sizeof(s_pressedThisFrame));
   std::memset(s_toggledThisFrame, 0, sizeof(s_toggledThisFrame));
   s_rawPressedThisFrame.fill(false);
+  s_logicalPressedThisFrame.fill(false);
+  s_logicalToggledThisFrame.fill(false);
   std::array<bool, kMaxTrackedCode + 1> processed_codes = {};
   processed_codes.fill(false);
   const bool chat_input_active = CChat::GetInstance()->IsInputActive();
+
+  for (const auto& key : kGameKeys) {
+    const int code = key.code;
+    if (s_disabledLogicalKeys[code]) {
+      continue;
+    }
+
+    const bool is_pressed = ReadLogicalInputPressed(zinput, code, chat_input_active);
+    s_logicalPressedThisFrame[code] = is_pressed;
+    s_logicalToggledThisFrame[code] = is_pressed && !s_prevLogicalPressed[code];
+  }
 
   // Process keyboard keys
   for (const auto& key : kKeyboardKeys) {
@@ -123,9 +158,11 @@ void ProcessInput(zCInput* zinput) {
     const bool was_pressed = s_prevPressed[code];
     s_rawPressedThisFrame[code] = raw_pressed;
 
-    if (is_pressed != was_pressed) {
+    if (is_pressed && !was_pressed) {
       s_toggledThisFrame[code] = true;
+    }
 
+    if (is_pressed != was_pressed) {
       if (is_pressed) {
         EventManager::Instance().TriggerEvent(kEventOnKeyDownName, OnKeyEvent{code});
       } else {
@@ -152,9 +189,11 @@ void ProcessInput(zCInput* zinput) {
     const bool was_pressed = s_prevPressed[code];
     s_rawPressedThisFrame[code] = raw_pressed;
 
-    if (is_pressed != was_pressed) {
+    if (is_pressed && !was_pressed) {
       s_toggledThisFrame[code] = true;
+    }
 
+    if (is_pressed != was_pressed) {
       if (is_pressed) {
         EventManager::Instance().TriggerEvent(kEventOnMouseDownName, OnMouseButtonEvent{code});
       } else {
@@ -183,6 +222,7 @@ void ProcessInput(zCInput* zinput) {
 
   std::memcpy(s_prevPressed, s_pressedThisFrame, sizeof(s_prevPressed));
   s_prevRawPressed = s_rawPressedThisFrame;
+  s_prevLogicalPressed = s_logicalPressedThisFrame;
 
   LuaCursor::Instance().UpdateFromInput(cursor_dx, cursor_dy);
 }
@@ -218,10 +258,32 @@ void BindInputConstants(sol::state& lua) {
 *
 */
   lua.set_function("keyPressed", [](int key) -> bool {
-    if (key < 0 || key > MAX_KEYS_AND_CODES) {
+    if (key < 0 || key > kMaxTrackedCode) {
       return false;
     }
     return s_pressedThisFrame[key];
+  });
+
+/* luagmp (func)
+*
+* This function will check whether the specified Gothic logical game action is pressed.
+*
+* @version  0.3.0
+* @name     logicalKeyPressed
+* @side     client
+* @category Input
+* @param    (number) key      The logical game action code to check. For more information, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)         True if the logical action is currently active, false otherwise.
+*
+*/
+  lua.set_function("logicalKeyPressed", [](int key) -> bool {
+    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+      return false;
+    }
+    if (s_disabledLogicalKeys[key]) {
+      return false;
+    }
+    return s_logicalPressedThisFrame[key];
   });
 
 /* luagmp (func)
@@ -233,14 +295,36 @@ void BindInputConstants(sol::state& lua) {
 * @side     client
 * @category Input
 * @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)         True if the key was toggled, false otherwise.
+* @return   (boolean)         True if the key became pressed this frame, false otherwise.
 *
 */
   lua.set_function("keyToggled", [](int key) -> bool {
-    if (key < 0 || key > MAX_KEYS_AND_CODES) {
+    if (key < 0 || key > kMaxTrackedCode) {
       return false;
     }
     return s_toggledThisFrame[key];
+  });
+
+/* luagmp (func)
+*
+* This function will check whether the specified Gothic logical game action was toggled from unpressed to pressed state.
+*
+* @version  0.3.0
+* @name     logicalKeyToggled
+* @side     client
+* @category Input
+* @param    (number) key      The logical game action code to check. For more information, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)         True if the logical action became pressed this frame, false otherwise.
+*
+*/
+  lua.set_function("logicalKeyToggled", [](int key) -> bool {
+    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+      return false;
+    }
+    if (s_disabledLogicalKeys[key]) {
+      return false;
+    }
+    return s_logicalToggledThisFrame[key];
   });
 
 /* luagmp (func)
@@ -303,6 +387,28 @@ void BindInputConstants(sol::state& lua) {
 
 /* luagmp (func)
 *
+* This function will disable/enable a Gothic logical game action for Lua input polling.
+*
+* @version  0.3.0
+* @name     disableLogicalKey
+* @side     client
+* @category Input
+* @param    (number) key        The logical game action code to disable.
+* @param    (boolean) toggle    True to disable, false to enable.
+* @return   (boolean)           True on success.
+*
+*/
+  lua.set_function("disableLogicalKey", [](int key, bool toggle) -> bool {
+    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+      return false;
+    }
+
+    s_disabledLogicalKeys[key] = toggle;
+    return true;
+  });
+
+/* luagmp (func)
+*
 * This function will check whether the specified keyboard key is disabled.
 *
 * @version  0.3.0
@@ -319,6 +425,26 @@ void BindInputConstants(sol::state& lua) {
     }
 
     return s_disabledKeys[key];
+  });
+
+/* luagmp (func)
+*
+* This function will check whether a Gothic logical game action is disabled for Lua input polling.
+*
+* @version  0.3.0
+* @name     isLogicalKeyDisabled
+* @side     client
+* @category Input
+* @param    (number) key        The logical game action code to check.
+* @return   (boolean)           True when disabled, otherwise false.
+*
+*/
+  lua.set_function("isLogicalKeyDisabled", [](int key) -> bool {
+    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+      return false;
+    }
+
+    return s_disabledLogicalKeys[key];
   });
 }
 

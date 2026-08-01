@@ -42,6 +42,14 @@ std::uint8_t ClampColorComponent(int value) {
   return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
 }
 
+float NormalizeDegrees(float degrees) {
+  degrees = std::fmod(degrees, 360.0f);
+  if (degrees < 0.0f) {
+    degrees += 360.0f;
+  }
+  return degrees;
+}
+
 std::optional<float> GetOptionalFloat(const sol::table& table, const char* lowerKey, const char* upperKey) {
   if (auto value = table.get<sol::optional<float>>(lowerKey); value) {
     return std::optional<float>(*value);
@@ -1618,7 +1626,7 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 
   const auto& nrot = player_opt->get().state.nrot;
   const float angle_radians = std::atan2(nrot.x, nrot.z);
-  const float angle_degrees = glm::degrees(angle_radians);
+  const float angle_degrees = NormalizeDegrees(glm::degrees(angle_radians));
   sol::state_view lua(ts);
   return sol::make_object(lua, angle_degrees);
 }
@@ -2436,7 +2444,7 @@ bool Function_SetTime(int hour, int min, sol::optional<int> day) {
 * @name     getTime
 * @side     server
 * @category Game
-* @return   ({day, hour, min})  Table containing day, hour, min.
+* @return   ({day, hour, minute})  Table containing day, hour, minute.
 *
 */
 sol::object Function_GetTime(sol::this_state ts) {
@@ -2445,7 +2453,7 @@ sol::object Function_GetTime(sol::this_state ts) {
   sol::table time_table = lua.create_table();
   time_table["day"] = time.day_;
   time_table["hour"] = time.hour_;
-  time_table["min"] = time.min_;
+  time_table["minute"] = time.min_;
   return time_table;
 }
 

@@ -40,6 +40,14 @@ namespace types {
 namespace {
 constexpr float kEpsilon = 0.001f;
 
+float NormalizeDegrees(float degrees) {
+  degrees = std::fmod(degrees, 360.0f);
+  if (degrees < 0.0f) {
+    degrees += 360.0f;
+  }
+  return degrees;
+}
+
 inline glm::vec3 ToGlm(const Vec3& vec) {
   return glm::vec3(vec.x, vec.y, vec.z);
 }
@@ -2341,7 +2349,7 @@ void BindMath(sol::state& lua) {
 *
 */
   lua["getVectorAngle"] = [](float x1, float y1, float x2, float y2) {
-    return std::atan2(y2 - y1, x2 - x1);
+    return NormalizeDegrees(glm::degrees(std::atan2(x2 - x1, y2 - y1)));
   };
 
   lua.new_usertype<Vec2>("Vec2", sol::constructors<Vec2(), Vec2(float), Vec2(float, float)>(), "x", &Vec2::x, "y", &Vec2::y, "len", &Vec2::len,

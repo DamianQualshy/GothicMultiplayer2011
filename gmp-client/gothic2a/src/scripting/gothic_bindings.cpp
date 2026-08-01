@@ -75,6 +75,14 @@ struct ClientNpc {
 std::unordered_map<int, ClientNpc> g_client_npcs;
 int g_next_npc_id = -1;
 
+float NormalizeDegrees(float degrees) {
+  degrees = std::fmod(degrees, 360.0f);
+  if (degrees < 0.0f) {
+    degrees += 360.0f;
+  }
+  return degrees;
+}
+
 oCSpawnManager* GetSpawnManager() {
   return ogame ? ogame->GetSpawnManager() : nullptr;
 }
@@ -1768,7 +1776,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 
   if (auto* npc = GetNpcById(id)) {
     const zVEC3 forward = npc->GetAtVectorWorld();
-    return sol::make_object(lua, glm::degrees(std::atan2(forward[VX], forward[VZ])));
+    return sol::make_object(lua, NormalizeDegrees(glm::degrees(std::atan2(forward[VX], forward[VZ]))));
   }
 
   return sol::nil;
