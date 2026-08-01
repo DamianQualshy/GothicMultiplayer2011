@@ -225,6 +225,7 @@ private:
   void HandlePlayerUpdate(Packet p);
   void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
   void HandleRconCommand(Player& player, const std::string& params);
+  void HandleDiagnosticsCommand(Player& player);
   void HandleAdminLogin(Player& player, const std::string& password);
   bool ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   bool MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id);

@@ -53,6 +53,7 @@ SOFTWARE.
 #include <string_view>
 #include <utility>
 
+#include "diagnostics_manager.h"
 #include "gothic_clock.h"
 #include "Lua/event_bind.h"
 #include "master_server_endpoint.h"
@@ -79,6 +80,7 @@ namespace {
 constexpr std::size_t kMaxWorldNameLength = 32;
 constexpr std::size_t kMaxPlayerNameLength = 64;
 constexpr std::uint32_t kItemGroundChannel = 14;
+constexpr const char* kDiagnosticsFileName = "diagnostic.txt";
 constexpr const char* kBanListFileName = "bans.json";
 constexpr const char* kItemRegistryPath = "instances/items.json";
 constexpr const char* kAnimationRegistryPath = "instances/anims.json";
@@ -404,6 +406,7 @@ void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::P
   TContainer buffer;
   auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
   g_net_server->Send(buffer.data(), written_size, priority, reliable, channel, id);
+  DiagnosticsManager::Instance().RecordOutgoingPacket(packet.packet_type, static_cast<std::uint32_t>(written_size));
 }
 
 template <typename Packet>
@@ -731,6 +734,7 @@ GameServer::GameServer() {
   server_world_ = SanitizeWorldName(config_.Get<std::string>("map"));
   config_.Set<std::string>("map", server_world_);
   g_server = this;
+  DiagnosticsManager::Instance().Reset();
 
   // Register server-side events.
   EventManager::Instance().RegisterEvent(kEventOnTickName);
@@ -888,6 +892,8 @@ bool GameServer::Init() {
 }
 
 void GameServer::Run() {
+  DiagnosticsManager::Instance().BeginFrame();
+
   g_net_server->Pulse();
   const auto advanced_times = clock_->RunClock();
   UpdateAuthoritativeWorldState(advanced_times);
@@ -992,6 +998,31 @@ void GameServer::Run() {
       }
     }
   }
+
+  DiagnosticsManager::ServerSnapshot snapshot;
+  snapshot.connected_players = player_manager_.GetPlayerCount();
+  snapshot.client_packages = client_resource_descriptors_.size();
+  player_manager_.ForEachPlayer([&](const Player& player) {
+    if (player.is_ingame) {
+      ++snapshot.ingame_players;
+    }
+    snapshot.streamed_player_links += player.streamed_by_players.size();
+  });
+  if (resource_manager_) {
+    for (const auto& entry : resource_manager_->GetResources()) {
+      const auto& resource = entry.second;
+      if (resource && resource->IsLoaded()) {
+        ++snapshot.loaded_resources;
+      }
+    }
+  }
+  snapshot.ground_items = item_ground_manager_.Items().size();
+  for (const auto& entry : item_ground_manager_.Items()) {
+    const auto& item_ground = entry.second;
+    snapshot.streamed_ground_item_links += item_ground.streamed_to.size();
+  }
+  DiagnosticsManager::Instance().SetServerSnapshot(snapshot);
+  DiagnosticsManager::Instance().EndFrame();
 }
 
 void GameServer::ProcessRespawns() {
@@ -1052,9 +1083,24 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
 }
 
 bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned char* data, std::uint32_t size) {
+  if (data == nullptr || size == 0) {
+    DiagnosticsManager::Instance().RecordPacketRejected(0);
+    SPDLOG_WARN("Rejected empty packet from {}", FormatConnectionDetails(connectionHandle));
+    return false;
+  }
+
+  if (data[0] == ID_TIMESTAMP && size <= 1 + sizeof(std::uint32_t)) {
+    DiagnosticsManager::Instance().RecordIncomingPacket(static_cast<std::uint8_t>(ID_TIMESTAMP), size);
+    DiagnosticsManager::Instance().RecordPacketRejected(static_cast<std::uint8_t>(ID_TIMESTAMP));
+    SPDLOG_WARN("Rejected malformed timestamp packet from {}", FormatConnectionDetails(connectionHandle));
+    return false;
+  }
+
   Packet p(data, size, connectionHandle);
 
   unsigned char packetIdentifier = GetPacketIdentifier(p);
+  DiagnosticsManager::Instance().RecordIncomingPacket(packetIdentifier, size);
+  const auto packet_handler_started_at = std::chrono::steady_clock::now();
 
   switch (packetIdentifier) {
     case ID_DISCONNECTION_NOTIFICATION: {
@@ -1138,6 +1184,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
       auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
       if (!state.second) {
+        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
         SPDLOG_WARN("Failed to deserialize PlayerHitReportPacket");
         break;
       }
@@ -1158,6 +1205,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
       auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
       if (!state.second) {
+        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
         SPDLOG_WARN("Failed to deserialize PlayerUnconsciousPacket");
         break;
       }
@@ -1183,6 +1231,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
       auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
       if (!state.second) {
+        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
         SPDLOG_WARN("Failed to deserialize PlayerStandUpPacket");
         break;
       }
@@ -1214,6 +1263,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
       auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
       if (!state.second) {
+        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
         SPDLOG_WARN("Failed to deserialize PlayerDeathReportPacket");
         break;
       }
@@ -1260,9 +1310,11 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       HandleVoice(p);
       break;
     default:
+      DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
       SPDLOG_WARN("(S)He or it try to do something strange. It's packet ID: {}", packetIdentifier);
       break;
   }
+  DiagnosticsManager::Instance().RecordPacketHandlerTime(packetIdentifier, std::chrono::steady_clock::now() - packet_handler_started_at);
   return true;
 }
 
@@ -1272,7 +1324,14 @@ bool GameServer::Receive() {
 }
 
 unsigned char GameServer::GetPacketIdentifier(const Packet& p) {
+  if (p.data == nullptr || p.length == 0) {
+    return 0;
+  }
+
   if ((unsigned char)p.data[0] == ID_TIMESTAMP) {
+    if (p.length <= 1 + sizeof(std::uint32_t)) {
+      return ID_TIMESTAMP;
+    }
     return (unsigned char)p.data[1 + sizeof(std::uint32_t)];
   } else
     return (unsigned char)p.data[0];
@@ -1430,6 +1489,7 @@ void GameServer::SomeoneJoinGame(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize JoinGamePacket");
     return;
   }
@@ -1484,6 +1544,7 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize PlayerStateUpdatePacket");
     return;
   }
@@ -1626,6 +1687,7 @@ void GameServer::HandleLuaEvent(Packet p) {
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
 
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_ERROR("Failed to deserialize LuaEventPacket, error code: {}", static_cast<int>(state.first));
     return;
   }
@@ -1639,6 +1701,7 @@ void GameServer::HandleLuaEvent(Packet p) {
   std::vector<sol::object> args;
   std::string error;
   if (!gmp::lua::DecodeLuaArgs(lua_script_->GetLuaState(), payload, args, error)) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_ERROR("Failed to decode Lua event '{}' payload: {}", packet.event_name, error);
     return;
   }
@@ -1660,6 +1723,7 @@ void GameServer::HandleVoice(Packet p) {
   player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
     if (existing_player.connection != p.id) {
       g_net_server->Send((unsigned char*)data.data(), p.length, IMMEDIATE_PRIORITY, UNRELIABLE, 5, existing_player.connection);
+      DiagnosticsManager::Instance().RecordOutgoingPacket(static_cast<std::uint8_t>(data[0]), p.length);
     }
   });
 }
@@ -1696,15 +1760,46 @@ void GameServer::HandleAdminLogin(Player& player, const std::string& password) {
   SPDLOG_WARN("{} failed admin login", FormatPlayerLabel(player));
 }
 
+void GameServer::HandleDiagnosticsCommand(Player& player) {
+  if (!player.is_admin) {
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Login first with /rcon login <password>.");
+    return;
+  }
+
+  std::ofstream output(kDiagnosticsFileName, std::ios::out | std::ios::trunc);
+  if (!output.is_open()) {
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Failed to write diagnostic.txt.");
+    SPDLOG_ERROR("{} failed to open {} for diagnostics output", FormatPlayerLabel(player), kDiagnosticsFileName);
+    return;
+  }
+
+  output << "Generated: " << FormatCurrentDateTime() << "\n\n";
+  output << DiagnosticsManager::Instance().BuildReport();
+  output.close();
+  if (!output) {
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Failed to write diagnostic.txt.");
+    SPDLOG_ERROR("{} failed to write diagnostics output to {}", FormatPlayerLabel(player), kDiagnosticsFileName);
+    return;
+  }
+
+  SendMessageToPlayer(player.player_id, 0, 200, 255, "Diagnostics written to diagnostic.txt.");
+  SPDLOG_INFO("{} wrote diagnostics report to {}", FormatPlayerLabel(player), kDiagnosticsFileName);
+}
+
 void GameServer::HandleRconCommand(Player& player, const std::string& params) {
   const auto [subcommand, subcommand_params] = SplitCommandArgs(params);
   if (subcommand.empty()) {
-    SendMessageToPlayer(player.player_id, 255, 80, 0, "Usage: /rcon login <password>");
+    SendMessageToPlayer(player.player_id, 255, 80, 0, "Usage: /rcon login <password> | /rcon diagnostics");
     return;
   }
 
   if (IsCommand(subcommand, "login")) {
     HandleAdminLogin(player, std::string(subcommand_params));
+    return;
+  }
+
+  if (IsCommand(subcommand, "diagnostics")) {
+    HandleDiagnosticsCommand(player);
     return;
   }
 
@@ -1723,6 +1818,7 @@ void GameServer::HandleNormalMsg(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize MessagePacket");
     return;
   }
@@ -1763,6 +1859,7 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize CastSpellPacket");
     return;
   }
@@ -1800,6 +1897,7 @@ void GameServer::HandleDropItem(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize DropItemPacket");
     return;
   }
@@ -1852,6 +1950,7 @@ void GameServer::HandleTakeItem(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize TakeItemPacket");
     return;
   }
@@ -1900,6 +1999,7 @@ void GameServer::HandlePlayerWorldEnter(Packet p) {
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     SPDLOG_WARN("Failed to deserialize PlayerWorldEnterPacket");
     return;
   }
