@@ -65,9 +65,30 @@ EventManager::EventDispatchResult EventManager::DispatchEvent(const std::string&
     return {false, false, std::nullopt};
   }
 
-  context_stack_.emplace_back();
+  // Snapshot ids so handlers can unsubscribe or unregister the event during dispatch.
+  std::vector<EventHandlerId> handler_ids;
+  handler_ids.reserve(it->second.handlers.size());
   for (const auto& handler : it->second.handlers) {
-    handler.callback(event);
+    handler_ids.push_back(handler.id);
+  }
+
+  context_stack_.emplace_back();
+  for (auto handler_id : handler_ids) {
+    auto event_it = events_.find(eventName);
+    if (event_it == events_.end() || !event_it->second.enabled) {
+      break;
+    }
+
+    auto& handlers = event_it->second.handlers;
+    auto handler_it = std::find_if(handlers.begin(), handlers.end(), [handler_id](const EventHandler& handler) {
+      return handler.id == handler_id;
+    });
+    if (handler_it == handlers.end()) {
+      continue;
+    }
+
+    auto callback = handler_it->callback;
+    callback(event);
   }
 
   bool cancelled = context_stack_.back().cancelled;

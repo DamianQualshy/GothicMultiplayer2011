@@ -117,7 +117,13 @@ std::vector<std::string> LuaWay::getWaypoints() const {
   }
 
   zSTRING start(start_wp_.c_str());
-  zCWaypoint* start_waypoint = ogame->GetGameWorld()->wayNet->GetWaypoint(start);
+  zCWayNet* way_net = lua_helpers::GetWayNet();
+  if (!way_net) {
+    delete route;
+    return result;
+  }
+
+  zCWaypoint* start_waypoint = way_net->GetWaypoint(start);
   if (start_waypoint) {
     route->SetStart(start_waypoint);
     result.emplace_back(start_wp_);

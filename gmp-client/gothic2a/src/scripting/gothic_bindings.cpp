@@ -2301,6 +2301,10 @@ bool Function_RemoveItem(std::int64_t id, const std::string& instance, std::int3
 *
 */
 void Function_ClearInventory() {
+  if (!player) {
+    return;
+  }
+
   if (auto* equippedArmor = player->GetEquippedArmor()) {
     player->UnequipItem(equippedArmor);
   }
@@ -2382,11 +2386,16 @@ bool Function_IsInventoryOpen() {
 *
 */
 void Function_ChangeWorld(const std::string& world, sol::optional<std::string> start_point) {
+  if (!ogame || world.empty()) {
+    SPDLOG_WARN("changeWorld called without an active game or world name");
+    return;
+  }
+
   zSTRING z_world(world.c_str());
   zSTRING z_start_point = start_point ? zSTRING(start_point->c_str()) : zSTRING("");
-    Patch::ChangeLevelEnabled(true);
-    ogame->ChangeLevel(z_world, z_start_point);
-    Patch::ChangeLevelEnabled(false);
+  Patch::ChangeLevelEnabled(true);
+  ogame->ChangeLevel(z_world, z_start_point);
+  Patch::ChangeLevelEnabled(false);
 }
 
 /* luagmp (func)
@@ -2402,6 +2411,10 @@ void Function_ChangeWorld(const std::string& world, sol::optional<std::string> s
 */
 sol::object Function_GetWorld(sol::this_state ts) {
   sol::state_view lua(ts);
+  if (!ogame || !ogame->GetGameWorld()) {
+    return sol::nil;
+  }
+
   return sol::make_object(lua, std::string(ogame->GetGameWorld()->GetWorldFilename().ToChar()));
 }
 

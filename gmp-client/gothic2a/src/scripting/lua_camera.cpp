@@ -25,6 +25,7 @@ SOFTWARE.
 #include "lua_camera.h"
 
 #include <cstddef>
+#include <optional>
 
 #include "ZenGin/zGothicAPI.h"
 #include "lua_helpers.h"
@@ -217,6 +218,62 @@ zCVob* PlayerVob(std::uint64_t player_id) {
   }
 
   return nullptr;
+}
+
+enum class CameraTargetKind {
+  None,
+  Vob,
+  Player
+};
+
+struct CameraTargetBinding {
+  CameraTargetKind kind = CameraTargetKind::None;
+  std::optional<LuaVob> vob;
+  std::optional<std::uint64_t> player_id;
+};
+
+CameraTargetBinding& TargetBinding() {
+  static CameraTargetBinding binding;
+  return binding;
+}
+
+void ClearTargetBinding() {
+  auto& binding = TargetBinding();
+  binding.kind = CameraTargetKind::None;
+  binding.vob.reset();
+  binding.player_id.reset();
+}
+
+zCVob* ResolveBoundTarget() {
+  auto& binding = TargetBinding();
+  if (binding.kind == CameraTargetKind::Vob) {
+    return binding.vob ? binding.vob->handle() : nullptr;
+  }
+
+  if (binding.kind == CameraTargetKind::Player && binding.player_id.has_value()) {
+    return PlayerVob(*binding.player_id);
+  }
+
+  return nullptr;
+}
+
+void RefreshBoundTarget() {
+  auto& binding = TargetBinding();
+  if (binding.kind == CameraTargetKind::None) {
+    return;
+  }
+
+  zCVob* target = ResolveBoundTarget();
+  if (!target) {
+    SetTarget(nullptr);
+    ClearTargetBinding();
+    return;
+  }
+
+  auto* ai = AiCamera();
+  if (ai && ai->target != target) {
+    SetTarget(target);
+  }
 }
 
 bool ReadStringArg(sol::variadic_args args, std::string& out) {
@@ -453,6 +510,11 @@ bool LuaCamera::setTargetVob(const LuaVob& vob) {
     return false;
   }
 
+  auto& binding = TargetBinding();
+  binding.kind = CameraTargetKind::Vob;
+  binding.vob = vob;
+  binding.player_id.reset();
+
   SetTarget(handle);
   return true;
 }
@@ -471,6 +533,11 @@ bool LuaCamera::setTargetPlayer(std::int64_t player_id) {
   if (!AiCamera() || !handle) {
     return false;
   }
+
+  auto& binding = TargetBinding();
+  binding.kind = CameraTargetKind::Player;
+  binding.vob.reset();
+  binding.player_id = static_cast<std::uint64_t>(player_id);
 
   SetTarget(handle);
   return true;
@@ -544,6 +611,8 @@ void LuaCamera::setMovementEnabled(bool enabled) {
 }
 
 void LuaCamera::ApplyMovementLock() {
+  RefreshBoundTarget();
+
   auto& state = MovementLock();
   if (state.enabled || !state.initialized) {
     return;
@@ -563,6 +632,8 @@ void LuaCamera::ApplyMovementLock() {
 */
 sol::object LuaCamera::getTargetVob(sol::this_state ts) {
   sol::state_view lua(ts);
+  RefreshBoundTarget();
+
   auto* ai = AiCamera();
   if (!ai || !ai->target) {
     return sol::make_object(lua, sol::lua_nil);
@@ -573,6 +644,7 @@ sol::object LuaCamera::getTargetVob(sol::this_state ts) {
 
 void LuaCamera::setTargetVobValue(sol::object value) {
   if (value.get_type() == sol::type::nil) {
+    ClearTargetBinding();
     SetTarget(nullptr);
     return;
   }
@@ -580,6 +652,13 @@ void LuaCamera::setTargetVobValue(sol::object value) {
   if (value.is<LuaVob>()) {
     setTargetVob(value.as<LuaVob>());
   }
+}
+
+void ResetCamera() {
+  ClearTargetBinding();
+  SetTarget(nullptr);
+  EnableCameraMovement();
+  SetModeChangeEnabledRaw(true);
 }
 
 void BindCamera(sol::state& lua) {

@@ -276,7 +276,7 @@ void BindInputConstants(sol::state& lua) {
 *
 */
   lua.set_function("isControlsDisabled", []() {
-    return Gothic_II_Addon::player->ai_disabled;
+    return Gothic_II_Addon::player && Gothic_II_Addon::player->ai_disabled;
   });
 
 /* luagmp (func)

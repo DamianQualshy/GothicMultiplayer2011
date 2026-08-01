@@ -181,6 +181,32 @@ TEST_F(ResourceManagerTest, UnloadsResourceSuccessfully) {
   EXPECT_FALSE(resource_opt->get().IsLoaded());
 }
 
+TEST_F(ResourceManagerTest, UnloadResourceRemovesOwnedEventHandlers) {
+  std::vector<std::string> calls;
+  lua_script.GetLuaState().set_function("__record", [&](const std::string& call) { calls.push_back(call); });
+
+  CreateTestResource("event_resource", R"(
+    addEvent("cleanup_test")
+    addEventHandler("cleanup_test", function()
+      __record("cleanup_test")
+    end)
+  )");
+
+  ASSERT_TRUE(manager.LoadResource("event_resource", lua_script));
+  sol::protected_function call_event = lua_script.GetLuaState()["callEvent"];
+
+  sol::protected_function_result first_result = call_event("cleanup_test");
+  ASSERT_TRUE(first_result.valid());
+  EXPECT_TRUE(first_result.get<bool>());
+  ASSERT_EQ(calls.size(), 1u);
+
+  manager.UnloadResource("event_resource", lua_script);
+  sol::protected_function_result second_result = call_event("cleanup_test");
+  ASSERT_TRUE(second_result.valid());
+  EXPECT_FALSE(second_result.get<bool>());
+  EXPECT_EQ(calls.size(), 1u);
+}
+
 TEST_F(ResourceManagerTest, MultipleServerScriptsKeepDistinctLifecycleHooks) {
   auto server_dir = test_resources_dir_ / "multi_hook_resource" / "server";
   std::filesystem::create_directories(server_dir);

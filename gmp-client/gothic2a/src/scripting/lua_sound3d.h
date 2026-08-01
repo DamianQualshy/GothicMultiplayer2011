@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_set>
 
@@ -86,16 +87,27 @@ public:
   void setTargetVobValue(sol::object value);
 
 private:
+  enum class TargetKind {
+    None,
+    Vob,
+    Player
+  };
+
   void ReloadSound();
   void StopIfNeeded();
   void ApplyParams();
   void ReplayIfNeeded(bool was_playing);
+  void ClearTarget();
+  Gothic_II_Addon::zCVob* ResolveTargetVob() const;
 
   std::string file_;
   float volume_;
   bool looping_;
   float balance_;
   int handle_;
+  TargetKind target_kind_;
+  std::optional<LuaVob> target_vob_ref_;
+  std::optional<std::uint64_t> target_player_id_;
   Gothic_II_Addon::zCVob* target_vob_;
   Gothic_II_Addon::zCSoundFX* sound_fx_;
   Gothic_II_Addon::zCSoundSystem::zTSound3DParams params_;

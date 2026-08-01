@@ -32,6 +32,7 @@ SOFTWARE.
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "item_ground.h"
@@ -43,9 +44,33 @@ namespace gmp::gothic {
 
 namespace {
 
+struct LuaEventCallback {
+  sol::protected_function callback;
+  std::string event_name;
+
+  LuaEventCallback() = default;
+
+  LuaEventCallback(sol::protected_function callback, std::string event_name)
+      : callback(std::move(callback)), event_name(std::move(event_name)) {}
+
+  lua_State* lua_state() {
+    return callback.lua_state();
+  }
+
+  template <typename... Args>
+  sol::protected_function_result operator()(Args&&... callback_args) {
+    sol::protected_function_result result = callback(std::forward<Args>(callback_args)...);
+    if (!result.valid()) {
+      sol::error error = result;
+      SPDLOG_ERROR("Lua event handler '{}' failed: {}", event_name, error.what());
+    }
+    return result;
+  }
+};
+
 struct LuaProxyArgs {
   std::any event;
-  sol::protected_function callback;
+  LuaEventCallback callback;
 };
 std::map<std::string, std::function<void(LuaProxyArgs)>> g_gothic_event_proxies;
 
@@ -691,10 +716,10 @@ void BindGothicEvents(sol::state& lua) {
                      int priority = priority_opt.value_or(9999);
                      const void* identity = GetFunctionIdentity(lua_callback);
 
-                     auto callback = [proxy, lua_callback](std::any event) {
+                     auto callback = [proxy, lua_callback, event_name](std::any event) {
                        LuaProxyArgs args;
                        args.event = event;
-                       args.callback = lua_callback;
+                       args.callback = LuaEventCallback(lua_callback, event_name);
                        (*proxy)(args);
                      };
 

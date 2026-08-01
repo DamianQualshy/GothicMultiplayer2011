@@ -31,6 +31,7 @@ SOFTWARE.
 #include <vector>
 
 #include "Script.h"
+#include "Lua/event_bind.h"
 #include "shared/lua_runtime/timer_manager.h"
 
 namespace fs = std::filesystem;
@@ -78,6 +79,7 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
   if (!load_directory(base_path + "/shared", "shared")) {
     SPDLOG_ERROR("Resource '{}' failed to load: shared script error", name_);
     timer_manager.KillTimersForResource(name_);
+    lua::bindings::RemoveHandlersForResource(name_);
     env_ = sol::environment();
     exports_ = sol::nil;
     start_hooks_.clear();
@@ -91,6 +93,7 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
   if (!load_directory(base_path + "/server", "server")) {
     SPDLOG_ERROR("Resource '{}' failed to load: server script error", name_);
     timer_manager.KillTimersForResource(name_);
+    lua::bindings::RemoveHandlersForResource(name_);
     env_ = sol::environment();
     exports_ = sol::nil;
     start_hooks_.clear();
@@ -131,6 +134,7 @@ void Resource::Unload(TimerManager& timer_manager) {
 
   // Kill all timers owned by this resource
   timer_manager.KillTimersForResource(name_);
+  lua::bindings::RemoveHandlersForResource(name_);
 
   // Clear environment and exports
   env_ = sol::environment();

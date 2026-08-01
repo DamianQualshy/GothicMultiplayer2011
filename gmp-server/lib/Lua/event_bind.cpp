@@ -30,6 +30,7 @@ SOFTWARE.
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "game_server.h"
@@ -46,9 +47,33 @@ namespace bindings {
 
 namespace {
 
+struct LuaEventCallback {
+  sol::protected_function callback;
+  std::string event_name;
+
+  LuaEventCallback() = default;
+
+  LuaEventCallback(sol::protected_function callback, std::string event_name)
+      : callback(std::move(callback)), event_name(std::move(event_name)) {}
+
+  lua_State* lua_state() {
+    return callback.lua_state();
+  }
+
+  template <typename... Args>
+  sol::protected_function_result operator()(Args&&... callback_args) {
+    sol::protected_function_result result = callback(std::forward<Args>(callback_args)...);
+    if (!result.valid()) {
+      sol::error error = result;
+      SPDLOG_ERROR("Lua event handler '{}' failed: {}", event_name, error.what());
+    }
+    return result;
+  }
+};
+
 struct LuaProxyArgs {
   std::any event;
-  sol::protected_function callback;
+  LuaEventCallback callback;
 };
 static std::map<std::string, std::function<void(LuaProxyArgs)>> kLuaEventProxies;
 
@@ -59,6 +84,7 @@ struct HandlerRegistration {
 };
 
 static std::unordered_map<std::string, std::vector<HandlerRegistration>> kHandlerRegistrations;
+static std::unordered_map<std::string, std::string> kCustomEventOwners;
 static std::unordered_set<std::string> kCustomEvents;
 static std::unordered_set<std::string> kRemoteEvents;
 
@@ -742,7 +768,7 @@ void BindEvents(sol::state& lua) {
       ResourceManager::ScopedResourceContext ctx(resource_opt->get());
       LuaProxyArgs args;
       args.event = event;
-      args.callback = lua_callback;
+      args.callback = LuaEventCallback(lua_callback, event_name);
       (*proxy)(args);
     };
     
@@ -758,10 +784,18 @@ void BindEvents(sol::state& lua) {
 
   lua["addEvent"] = [](std::string event_name, sol::optional<bool> allow_remote_trigger) -> bool {
     SPDLOG_TRACE("addEvent({})", event_name);
+
+    Resource* owner = ResourceManager::GetCurrentResource();
+    if (owner == nullptr) {
+      SPDLOG_ERROR("addEvent: no active resource context when registering event '{}'", event_name);
+      return false;
+    }
+
     if (!EventManager::Instance().RegisterEvent(event_name)) {
       return false;
     }
 
+    kCustomEventOwners[event_name] = owner->GetName();
     kCustomEvents.insert(event_name);
     if (allow_remote_trigger.value_or(false)) {
       kRemoteEvents.insert(event_name);
@@ -790,6 +824,11 @@ void BindEvents(sol::state& lua) {
   lua["triggerClientEvent"] = [&lua](sol::variadic_args args) -> bool {
     SPDLOG_TRACE("triggerClientEvent");
 
+    if (args.size() == 0) {
+      SPDLOG_ERROR("triggerClientEvent missing event name");
+      return false;
+    }
+
     std::optional<sol::object> send_to;
     std::size_t index = 0;
     sol::object first = args[0];
@@ -800,7 +839,7 @@ void BindEvents(sol::state& lua) {
       index = 1;
     } else if (first.get_type() == sol::type::nil) {
       send_to = first;
-      if (args.size() < 3) {
+      if (args.size() < 2) {
         SPDLOG_ERROR("triggerClientEvent missing event name");
         return false;
       }
@@ -808,7 +847,7 @@ void BindEvents(sol::state& lua) {
       index = 2;
     } else {
       send_to = first;
-      if (args.size() < 3) {
+      if (args.size() < 2) {
         SPDLOG_ERROR("triggerClientEvent missing event name");
         return false;
       }
@@ -821,6 +860,10 @@ void BindEvents(sol::state& lua) {
       return false;
     }
     std::string event_name = event_name_obj.as<std::string>();
+    if (event_name.empty()) {
+      SPDLOG_ERROR("triggerClientEvent called with empty event name");
+      return false;
+    }
 
     std::uint32_t source_element = 0;
     if (index < args.size()) {
@@ -847,6 +890,11 @@ void BindEvents(sol::state& lua) {
     }
 
     std::vector<GameServer::PlayerId> targets;
+    if (!g_server) {
+      SPDLOG_WARN("triggerClientEvent called without an active server");
+      return false;
+    }
+
     if (!send_to.has_value() || send_to->get_type() == sol::type::nil) {
       const auto& players = g_server->GetPlayerManager().GetAllPlayers();
       targets.reserve(players.size());
@@ -908,9 +956,24 @@ void BindEvents(sol::state& lua) {
       return;
     }
 
+    Resource* owner = ResourceManager::GetCurrentResource();
+    auto owner_it = kCustomEventOwners.find(event_name);
+    if (owner_it != kCustomEventOwners.end()) {
+      if (owner == nullptr) {
+        SPDLOG_ERROR("removeEvent: no active resource context when removing event '{}'", event_name);
+        return;
+      }
+
+      if (owner_it->second != owner->GetName()) {
+        SPDLOG_ERROR("removeEvent: resource '{}' does not own event '{}'", owner->GetName(), event_name);
+        return;
+      }
+    }
+
     EventManager::Instance().UnregisterEvent(event_name);
     kCustomEvents.erase(event_name);
     kRemoteEvents.erase(event_name);
+    kCustomEventOwners.erase(event_name);
     kHandlerRegistrations.erase(event_name);
   };
 
@@ -956,26 +1019,62 @@ void BindEvents(sol::state& lua) {
   };
 }
 
-  bool TriggerRemoteEvent(sol::state_view lua, const std::string& event_name, std::uint32_t source_element,
-                          const std::vector<sol::object>& args) {
-    (void)lua;
-    if (kCustomEvents.find(event_name) == kCustomEvents.end()) {
-      SPDLOG_ERROR("Remote event '{}' is not registered on the server", event_name);
-      return false;
+void RemoveHandlersForResource(const std::string& owner_name) {
+  std::vector<std::string> owned_custom_events;
+  for (const auto& [event_name, event_owner] : kCustomEventOwners) {
+    if (event_owner == owner_name) {
+      owned_custom_events.push_back(event_name);
     }
-    if (kRemoteEvents.find(event_name) == kRemoteEvents.end()) {
-      SPDLOG_WARN("Remote event '{}' is not allowed for server triggering", event_name);
-      return false;
-    }
-
-    LuaCustomEvent event;
-    event.args = args;
-    if (source_element != 0) {
-      event.source_element = source_element;
-    }
-
-    auto result = EventManager::Instance().DispatchEvent(event_name, event);
-    return result.dispatched && !result.cancelled;
   }
+
+  for (const auto& event_name : owned_custom_events) {
+    EventManager::Instance().UnregisterEvent(event_name);
+    kCustomEvents.erase(event_name);
+    kRemoteEvents.erase(event_name);
+    kCustomEventOwners.erase(event_name);
+    kHandlerRegistrations.erase(event_name);
+  }
+
+  for (auto it = kHandlerRegistrations.begin(); it != kHandlerRegistrations.end();) {
+    auto& event_name = it->first;
+    auto& handlers = it->second;
+    for (auto handler_it = handlers.begin(); handler_it != handlers.end();) {
+      if (handler_it->owner_name == owner_name) {
+        EventManager::Instance().UnsubscribeFromEvent(event_name, handler_it->id);
+        handler_it = handlers.erase(handler_it);
+      } else {
+        ++handler_it;
+      }
+    }
+
+    if (handlers.empty()) {
+      it = kHandlerRegistrations.erase(it);
+    } else {
+      ++it;
+    }
+  }
+}
+
+bool TriggerRemoteEvent(sol::state_view lua, const std::string& event_name, std::uint32_t source_element,
+                        const std::vector<sol::object>& args) {
+  (void)lua;
+  if (kCustomEvents.find(event_name) == kCustomEvents.end()) {
+    SPDLOG_ERROR("Remote event '{}' is not registered on the server", event_name);
+    return false;
+  }
+  if (kRemoteEvents.find(event_name) == kRemoteEvents.end()) {
+    SPDLOG_WARN("Remote event '{}' is not allowed for server triggering", event_name);
+    return false;
+  }
+
+  LuaCustomEvent event;
+  event.args = args;
+  if (source_element != 0) {
+    event.source_element = source_element;
+  }
+
+  auto result = EventManager::Instance().DispatchEvent(event_name, event);
+  return result.dispatched && !result.cancelled;
+}
 }  // namespace bindings
 }  // namespace lua

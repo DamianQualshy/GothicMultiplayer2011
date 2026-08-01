@@ -38,6 +38,7 @@ struct LuaCustomEvent {
 };
 
 void BindEvents(sol::state&);
+void RemoveHandlersForResource(const std::string& owner_name);
 bool TriggerRemoteEvent(sol::state_view lua, const std::string& event_name, std::uint32_t source_element,
                         const std::vector<sol::object>& args);
 }

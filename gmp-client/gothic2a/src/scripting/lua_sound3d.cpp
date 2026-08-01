@@ -61,6 +61,7 @@ LuaSound3d::LuaSound3d(const std::string& filename)
       looping_(false),
       balance_(0.0f),
       handle_(-1),
+      target_kind_(TargetKind::None),
       target_vob_(nullptr),
       sound_fx_(nullptr) {
   active_sounds_.insert(this);
@@ -126,6 +127,29 @@ void LuaSound3d::ReplayIfNeeded(bool was_playing) {
   }
 }
 
+void LuaSound3d::ClearTarget() {
+  target_kind_ = TargetKind::None;
+  target_vob_ref_.reset();
+  target_player_id_.reset();
+  target_vob_ = nullptr;
+}
+
+zCVob* LuaSound3d::ResolveTargetVob() const {
+  if (target_kind_ == TargetKind::Vob) {
+    return target_vob_ref_ ? target_vob_ref_->handle() : nullptr;
+  }
+
+  if (target_kind_ == TargetKind::Player && target_player_id_.has_value()) {
+    for (auto* player : NetGame::Instance().players) {
+      if (player && player->base_player().id() == *target_player_id_) {
+        return player->GetNpc();
+      }
+    }
+  }
+
+  return nullptr;
+}
+
 /* luagmp (method)
 *
 * Starts 3D sound playback at the current target Vob.
@@ -138,9 +162,11 @@ void LuaSound3d::play() {
     ReloadSound();
   }
 
+  target_vob_ = ResolveTargetVob();
   if (!zsound || !sound_fx_ || !target_vob_) {
     SPDLOG_WARN("Cannot play 3D sound '{}': zsound={}, sound_fx_={}, target_vob={}.", file_, (void*)zsound, (void*)sound_fx_,
                 (void*)target_vob_);
+    StopIfNeeded();
     return;
   }
 
@@ -180,6 +206,12 @@ bool LuaSound3d::isPlaying() const {
 *
 */
 void LuaSound3d::update() {
+  target_vob_ = ResolveTargetVob();
+  if (!target_vob_) {
+    StopIfNeeded();
+    return;
+  }
+
   if (handle_ >= 0 && zsound) {
     zsound->UpdateSound3D(handle_, &params_);
   }
@@ -203,7 +235,15 @@ void LuaSound3d::UpdateActiveSounds() {
 */
 void LuaSound3d::setTargetVob(const LuaVob& vob) {
   const bool was_playing = isPlaying();
-  target_vob_ = vob.handle();
+  target_kind_ = TargetKind::Vob;
+  target_vob_ref_ = vob;
+  target_player_id_.reset();
+  target_vob_ = ResolveTargetVob();
+  if (!target_vob_) {
+    StopIfNeeded();
+    return;
+  }
+
   ReplayIfNeeded(was_playing);
 }
 
@@ -230,6 +270,9 @@ bool LuaSound3d::setTargetPlayer(std::uint64_t player_id) {
   }
 
   const bool was_playing = isPlaying();
+  target_kind_ = TargetKind::Player;
+  target_vob_ref_.reset();
+  target_player_id_ = player_id;
   target_vob_ = target_player->GetNpc();
   ReplayIfNeeded(was_playing);
   return true;
@@ -443,24 +486,23 @@ void LuaSound3d::setPitchOffset(float pitch_offset) {
 
 sol::object LuaSound3d::getTargetVob(sol::this_state ts) const {
   sol::state_view lua(ts);
-  if (!target_vob_) {
+  zCVob* target_vob = ResolveTargetVob();
+  if (!target_vob) {
     return sol::make_object(lua, sol::lua_nil);
   }
 
-  return sol::make_object(lua, LuaVob::FromExisting(target_vob_));
+  return sol::make_object(lua, LuaVob::FromExisting(target_vob));
 }
 
 void LuaSound3d::setTargetVobValue(sol::object value) {
-  const bool was_playing = isPlaying();
   if (value.get_type() == sol::type::nil) {
-    target_vob_ = nullptr;
+    ClearTarget();
     StopIfNeeded();
     return;
   }
 
   if (value.is<LuaVob>()) {
-    target_vob_ = value.as<LuaVob>().handle();
-    ReplayIfNeeded(was_playing);
+    setTargetVob(value.as<LuaVob>());
   }
 }
 

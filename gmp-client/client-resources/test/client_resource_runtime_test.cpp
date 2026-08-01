@@ -37,9 +37,11 @@ SOFTWARE.
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <thread>
 #include <vector>
 
 #include "resource/packer.h"
+#include "Shared/lua_runtime/timer_manager.h"
 #include "shared/event.h"
 
 namespace {
@@ -155,6 +157,101 @@ protected:
   fs::path src_dir_;
   fs::path out_dir_;
 };
+
+TEST(EventManagerTest, RemovingHandlerDuringDispatchSkipsRemovedHandler) {
+  auto& events = EventManager::Instance();
+  events.Reset();
+
+  constexpr const char* event_name = "mutation_test";
+  ASSERT_TRUE(events.RegisterEvent(event_name));
+
+  std::vector<std::string> calls;
+  EventManager::EventHandlerId second_handler_id = 0;
+
+  auto first_handler_id = events.SubscribeToEventWithPriority(
+      event_name,
+      [&](std::any) {
+        calls.emplace_back("first");
+        events.UnsubscribeFromEvent(event_name, second_handler_id);
+      },
+      0);
+  ASSERT_TRUE(first_handler_id.has_value());
+
+  auto second_handler = events.SubscribeToEventWithPriority(
+      event_name,
+      [&](std::any) {
+        calls.emplace_back("second");
+      },
+      1);
+  ASSERT_TRUE(second_handler.has_value());
+  second_handler_id = *second_handler;
+
+  auto result = events.DispatchEvent(event_name, std::any{});
+
+  EXPECT_TRUE(result.dispatched);
+  ASSERT_EQ(calls.size(), 1u);
+  EXPECT_EQ(calls[0], "first");
+
+  events.Reset();
+}
+
+TEST(EventManagerTest, UnregisteringEventDuringDispatchStopsSafely) {
+  auto& events = EventManager::Instance();
+  events.Reset();
+
+  constexpr const char* event_name = "unregister_during_dispatch_test";
+  ASSERT_TRUE(events.RegisterEvent(event_name));
+
+  std::vector<std::string> calls;
+  auto first_handler = events.SubscribeToEventWithPriority(
+      event_name,
+      [&](std::any) {
+        calls.emplace_back("first");
+        events.UnregisterEvent(event_name);
+      },
+      0);
+  ASSERT_TRUE(first_handler.has_value());
+
+  auto second_handler = events.SubscribeToEventWithPriority(
+      event_name,
+      [&](std::any) {
+        calls.emplace_back("second");
+      },
+      1);
+  ASSERT_TRUE(second_handler.has_value());
+
+  auto result = events.DispatchEvent(event_name, std::any{});
+
+  EXPECT_TRUE(result.dispatched);
+  ASSERT_EQ(calls.size(), 1u);
+  EXPECT_EQ(calls[0], "first");
+
+  events.Reset();
+}
+
+TEST(TimerManagerTest, TimerCanKillItselfDuringCallback) {
+  sol::state lua;
+  lua.open_libraries(sol::lib::base);
+
+  TimerManager timer_manager;
+  TimerManager::TimerId timer_id = 0;
+
+  lua.set_function("__kill_timer", [&]() {
+    timer_manager.KillTimer(timer_id);
+  });
+  lua.script(R"(
+    function timerCallback()
+      __kill_timer()
+    end
+  )");
+
+  sol::protected_function callback = lua["timerCallback"];
+  timer_id = timer_manager.CreateTimer(callback, std::chrono::milliseconds(50), 0, {});
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(60));
+  EXPECT_NO_THROW(timer_manager.ProcessTimers());
+  EXPECT_FALSE(timer_manager.GetInterval(timer_id).has_value());
+}
 
 TEST_F(ClientResourceRuntimeTest, LoadsResourceAndExposesExports) {
   WriteFile("client/main.lua", R"(

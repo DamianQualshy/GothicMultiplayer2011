@@ -64,5 +64,6 @@ public:
 };
 
 void BindCamera(sol::state& lua);
+void ResetCamera();
 
 }  // namespace gmp::gothic

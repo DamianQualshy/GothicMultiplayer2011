@@ -66,6 +66,7 @@ SOFTWARE.
 #include "sky_utils.h"
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
+#include "scripting/lua_camera.h"
 #include "scripting/lua_draw3d.h"
 #include "scripting/lua_sound3d.h"
 #include "scripting/process_input.h"
@@ -762,7 +763,10 @@ NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_run
   game_client = std::make_unique<gmp::client::GameClient>(*this, *task_scheduler);
   resource_runtime = std::make_unique<ClientResourceRuntime>();
   resource_runtime->SetServerInfoProvider(*game_client);
-  resource_runtime->SetResetCallback([]() { gmp::gothic::ResetGothicEvents(); });
+  resource_runtime->SetResetCallback([]() {
+    gmp::gothic::ResetGothicEvents();
+    gmp::gothic::ResetCamera();
+  });
   gmp::gothic::BindGothicEvents(resource_runtime->GetLuaState());
   gmp::gothic::BindGothicSpecific(resource_runtime->GetLuaState());
 }
