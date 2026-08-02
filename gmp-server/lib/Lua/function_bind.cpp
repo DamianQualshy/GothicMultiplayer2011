@@ -34,8 +34,6 @@ SOFTWARE.
 #include "shared/lua_runtime/timer_manager.h"
 #include "shared/lua_runtime/lua_constants.h"
 
-using namespace std;
-
 namespace {
 
 std::uint8_t ClampColorComponent(int value) {
@@ -98,7 +96,7 @@ std::optional<glm::vec3> ParseSpawnPosition(sol::variadic_args args) {
   return std::nullopt;
 }
 
-std::optional<glm::vec3> Function_ParsePositionTable(const sol::table& table) {
+std::optional<glm::vec3> ParsePositionTable(const sol::table& table) {
   auto x = GetOptionalFloat(table, "x", "X");
   auto y = GetOptionalFloat(table, "y", "Y");
   auto z = GetOptionalFloat(table, "z", "Z");
@@ -168,6 +166,7 @@ std::optional<std::string> FindItemInstanceByIndex(std::int16_t index, const cha
 * @param    (number) g        Green component (0-255).
 * @param    (number) b        Blue component (0-255).
 * @param    (string) text     Message text to send.
+* @return   (boolean)         True on success.
 *
 */
 bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
@@ -188,6 +187,7 @@ bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
 * @param    (number) g          Green component (0-255).
 * @param    (number) b          Blue component (0-255).
 * @param    (string) text       Message text to send.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, const std::string& text) {
@@ -212,6 +212,7 @@ bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, 
 * @param    (number) g          Green component (0-255).
 * @param    (number) b          Blue component (0-255).
 * @param    (string) text       Message text.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int b, const std::string& text) {
@@ -237,6 +238,7 @@ bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int 
 * @param    (number) g            Green component (0-255).
 * @param    (number) b            Blue component (0-255).
 * @param    (string) text         Message text.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t receiver_id, int r, int g, int b,
@@ -263,7 +265,8 @@ bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t r
 * @category Player
 * @note     If the player is not spawned, server doesn't recognize his presence at all.
 * @param    (number) player_id    Player id to spawn.
-* @param    ({x, y, z})           Optional position table or three numeric coords.
+* @param    ({x, y, z}|nil) position  Optional position table or three numeric coords.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
@@ -305,6 +308,7 @@ bool Function_UnspawnPlayer(std::uint32_t player_id) {
 * @category Player
 * @param    (number) player_id     Target player id.
 * @param    (string) instance      Instance name.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& instance) {
@@ -347,6 +351,7 @@ sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state 
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) name       New player name.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
@@ -489,6 +494,7 @@ std::int32_t Function_GetPlayerPing(std::uint32_t player_id) {
 * @param    (number) r          Red (0-255).
 * @param    (number) g          Green (0-255).
 * @param    (number) b          Blue (0-255).
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
@@ -536,6 +542,7 @@ sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) health     New health value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
@@ -578,6 +585,7 @@ sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts
 * @category Player
 * @param    (number) player_id   Target player id.
 * @param    (number) max_health  New maximum health.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
@@ -620,6 +628,7 @@ sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) mana       New mana value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
@@ -662,6 +671,7 @@ sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) 
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) max_mana   New maximum mana.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
@@ -704,6 +714,7 @@ sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state t
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) strength   New strength value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
@@ -746,6 +757,7 @@ sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state 
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) dexterity  New dexterity value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
@@ -789,6 +801,7 @@ sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state
 * @param    (number) player_id  Target player id.
 * @param    (number) skill_id   Skill identifier, for more information check [Weapon Constants](../../shared-constants/Weapon.md).
 * @param    (number) percentage Hit chance amount.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int percentage) {
@@ -836,6 +849,7 @@ sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id,
 * @param    (number) player_id     Target player id.
 * @param    (number) talent_id     Talent identifier, for more information check [Talent Constants](../../shared-constants/Talent.md).
 * @param    (number) talent_value  Talent value.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent_value) {
@@ -882,6 +896,7 @@ sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) level      New level.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
@@ -924,6 +939,7 @@ sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) exp        New exp value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
@@ -966,6 +982,7 @@ sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id      Target player id.
 * @param    (number) next_level_exp Required exp for next level.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp) {
@@ -1008,6 +1025,7 @@ sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_st
 * @category Player
 * @param    (number) player_id     Target player id.
 * @param    (number) learn_points  New learn points value.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
@@ -1053,8 +1071,9 @@ sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_sta
 * @param    (number) bodyTexture    Body texture index.
 * @param    (string) headModel      Head model name.
 * @param    (number) headTexture    Head texture index.
-* @param    (number) teethTexture   Optional teeth texture file numeric id. Defaults to 0 if omitted.
-* @param    (number) skinColor      Optional color variant of head & body texture files. Defaults to 0 if omitted.
+* @param    (number|nil) teethTexture   Optional teeth texture file numeric id. Defaults to 0 if omitted.
+* @param    (number|nil) skinColor      Optional color variant of head & body texture files. Defaults to 0 if omitted.
+* @return   (boolean)                    True on success.
 *
 */
 bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
@@ -1109,6 +1128,7 @@ sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts
 * @category Player
 * @param    (number) player_id   Target player id.
 * @param    (number) fatness     Fatness value.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
@@ -1153,6 +1173,7 @@ sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state t
 * @param    (number) x           Scale factor on x axis.
 * @param    (number) y           Scale factor on y axis.
 * @param    (number) z           Scale factor on z axis.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z) {
@@ -1199,7 +1220,8 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @param    (number) weapon_mode Weapon mode constant.
+* @param    (number) weapon_mode Weapon mode constant. For more information, see [Weapon Mode Constants](../../shared-constants/WeaponMode.md).
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
@@ -1219,7 +1241,7 @@ bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
 * @side     server
 * @category Player
 * @param    (number) player_id   Target player id.
-* @return   (number|nil)         Weapon mode or nil.
+* @return   (number|nil)         Weapon mode from [Weapon Mode Constants](../../shared-constants/WeaponMode.md), or nil.
 *
 */
 sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_state ts) {
@@ -1373,6 +1395,7 @@ sol::object Function_GetPlayerShield(std::uint32_t player_id, sol::this_state ts
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) overlay      Overlay name.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
@@ -1424,6 +1447,7 @@ sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state 
 * @category Player
 * @param    (number) player_id     Target player id.
 * @param    (string) overlay       Overlay name.
+* @return   (boolean)              True on success.
 *
 */
 bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
@@ -1444,6 +1468,7 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Animation name (e.g. "T_STAND_2_SIT").
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
@@ -1464,6 +1489,7 @@ bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string|nil) aniName  Animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
@@ -1484,6 +1510,7 @@ bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_na
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Face animation name (e.g. "S_FRIENDLY").
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayFaceAni(std::uint32_t player_id, const std::string& ani_name) {
@@ -1504,6 +1531,7 @@ bool Function_PlayFaceAni(std::uint32_t player_id, const std::string& ani_name) 
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string|nil) aniName  Face animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
@@ -1523,6 +1551,7 @@ bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> an
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayGesticulation(std::uint32_t player_id) {
@@ -1545,6 +1574,7 @@ bool Function_PlayGesticulation(std::uint32_t player_id) {
 * @param    (number) x          X coordinate.
 * @param    (number) y          Y coordinate.
 * @param    (number) z          Z coordinate.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z) {
@@ -1595,6 +1625,7 @@ sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state 
 * @category Player
 * @param    (number) player_id        Target player id.
 * @param    (number) angle_degrees    Angle in degrees.
+* @return   (boolean)                 True on success.
 *
 */
 bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
@@ -1641,7 +1672,8 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id      Target player id.
 * @param    (string) world          World name.
-* @param    (string) start_point    Optional start point name.
+* @param    (string|nil) start_point Optional start point name.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, std::optional<std::string> start_point) {
@@ -1684,6 +1716,7 @@ sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts)
 * @category Player
 * @param    (number) player_id       Target player id.
 * @param    (number) virtual_world   Virtual world id (0-65535).
+* @return   (boolean)                True on success.
 *
 */
 bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) {
@@ -1726,7 +1759,7 @@ sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_st
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
 * @param    (number) player_id  Target player id.
-* @param    (string) reason     Optional reason why the player was banned.
+* @param    (string|nil) reason Optional reason why the player was banned.
 *
 */
 void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
@@ -1753,7 +1786,7 @@ void Function_Ban(std::uint32_t player_id, sol::optional<std::string> reason) {
 * @category Player
 * @note     The reason string can't be longer than 255 characters.
 * @param    (number) player_id  Target player id.
-* @param    (string) reason     Optional reason why the player was kicked.
+* @param    (string|nil) reason Optional reason why the player was kicked.
 *
 */
 void Function_Kick(std::uint32_t player_id, sol::optional<std::string> reason) {
@@ -1953,6 +1986,7 @@ sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_sta
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
 * @param    (number) amount       Amount to give.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
@@ -1973,7 +2007,8 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
 * @category Inventory
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
-* @param    (number) slot_id      Optional slot id. Defaults to -1 for first free slot.
+* @param    (number|nil) slot_id  Optional slot id. Defaults to -1 for first free slot.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, sol::optional<std::int32_t> slot_id) {
@@ -1994,6 +2029,7 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 * @category Inventory
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) {
@@ -2251,6 +2287,7 @@ int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
 * @param    (number) amount       Amount to remove.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
@@ -2303,13 +2340,13 @@ std::string Function_GetServerWorld() {
 * @param    ({x, y, z}) position_table    Table with x,y,z coordinates.
 * @param    (number) radius               Search radius.
 * @param    (string) world                World name to search in.
-* @param    (number) virtual_world        Optional virtual world id.
+* @param    (number|nil) virtual_world    Optional virtual world id.
 * @return   ({...})                       Array of player ids.
 *
 */
 std::vector<std::uint32_t> Function_FindNearbyPlayers(const sol::table& position_table, int radius,
                                                       const std::string& world, sol::optional<int> virtual_world) {
-  auto position = Function_ParsePositionTable(position_table);
+  auto position = ParsePositionTable(position_table);
   if (!position.has_value()) {
     return {};
   }
@@ -2429,7 +2466,8 @@ int Function_GetStreamerHeight() {
 * @category Game
 * @param    (number) hour      Hour (0-23).
 * @param    (number) min       Minute (0-59).
-* @param    (number) day       Optional day offset.
+* @param    (number|nil) day   Optional day offset.
+* @return   (boolean)          True on success.
 *
 */
 bool Function_SetTime(int hour, int min, sol::optional<int> day) {
@@ -2466,6 +2504,7 @@ sol::object Function_GetTime(sol::this_state ts) {
 * @side     server
 * @category Game
 * @param    (number) miliseconds   Day length in milliseconds (min 10000 ms).
+* @return   (boolean)              True on success.
 *
 */
 bool Function_SetDayLength(float day_length_ms) {

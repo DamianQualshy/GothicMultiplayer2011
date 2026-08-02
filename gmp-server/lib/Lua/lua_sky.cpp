@@ -73,7 +73,7 @@ public:
 
 /* luagmp (property)
 *
-* Current server weather type. When automatic weather is enabled, this can be overwritten on the next server game minute.
+* Current server weather type. When automatic weather is enabled, this can be overwritten on the next server game minute. For more information, see [Weather Constants](../../shared-constants/Weather.md).
 *
 * @name     weatherType
 * @return   (number)

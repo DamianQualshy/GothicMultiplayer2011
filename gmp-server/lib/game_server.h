@@ -26,12 +26,9 @@ SOFTWARE.
 
 #pragma once
 
-#include <string.h>
-
 #include <atomic>
 #include <chrono>
 #include <cstdint>
-#include <ctime>
 #include <filesystem>
 #include <functional>
 #include <future>
@@ -216,6 +213,10 @@ public:
 private:
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
+  void HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier);
+  void HandlePlayerUnconsciousReport(Packet p, std::uint8_t packet_identifier);
+  void HandlePlayerStandUpReport(Packet p, std::uint8_t packet_identifier);
+  void HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifier);
   void HandleDropItem(Packet p);
   void HandleTakeItem(Packet p);
   void HandlePlayerWorldEnter(Packet p);
@@ -262,18 +263,15 @@ private:
   std::optional<std::string> ResolveItemInstance(std::string instance) const;
   std::int16_t ResolveItemIndex(PlayerId player_id, std::int16_t index, const char* field_name) const;
   void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
+  std::optional<std::reference_wrapper<Player>> GetIngamePlayerByConnection(Net::ConnectionHandle connection);
 
   std::unique_ptr<BanManager> ban_manager_;
   std::unique_ptr<LuaScript> lua_script_;
   std::unique_ptr<ResourceManager> resource_manager_;
-  time_t last_stand_timer;
-  time_t regen_time;
 
   void ProcessRespawns();
 
   unsigned char GetPacketIdentifier(const Packet& p);
-  int serverPort;
-  unsigned short maxConnections;
   PlayerManager player_manager_;
   AnimationRegistry animation_registry_;
   ItemRegistry item_registry_;

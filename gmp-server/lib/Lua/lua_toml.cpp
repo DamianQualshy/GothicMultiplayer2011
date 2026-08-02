@@ -438,6 +438,31 @@ std::optional<TomlFile> LoadTomlFile(const std::string& relative_path, std::stri
 
 }  // namespace
 
+/* luagmp (func)
+*
+* Open a read-only TOML file relative to the server data directory.
+*
+* @version  0.3.0
+* @name     TOML
+* @side     server
+* @category File
+* @param    (string) relative_path  Path under the data directory.
+* @return   (TomlFile|nil)          File handle or nil on error.
+*
+*/
+sol::object Function_TOML(const std::string& relative_path, sol::this_state ts) {
+  sol::state_view lua(ts);
+  std::string error;
+  auto file = LoadTomlFile(relative_path, error);
+  if (!file) {
+    if (!error.empty() && error != "Invalid TOML path") {
+      SPDLOG_WARN("TOML open failed for '{}': {}", relative_path, error);
+    }
+    return sol::make_object(lua, sol::lua_nil);
+  }
+  return sol::make_object(lua, std::move(*file));
+}
+
 void BindToml(sol::state& lua) {
 /* luagmp (class)
 *
@@ -525,29 +550,7 @@ void BindToml(sol::state& lua) {
     return std::make_tuple(next, file.Entries(lua_state), sol::make_object(lua_state, sol::lua_nil));
   };
 
-/* luagmp (func)
-*
-* Open a read-only TOML file relative to the server data directory.
-*
-* @version  0.3.0
-* @name     TOML
-* @side     server
-* @category File
-* @param    (string) relative_path  Path under the data directory.
-* @return   (TomlFile|nil)          File handle or nil on error.
-*
-*/
-  lua["TOML"] = [&lua](const std::string& relative_path) -> sol::object {
-    std::string error;
-    auto file = LoadTomlFile(relative_path, error);
-    if (!file) {
-      if (!error.empty() && error != "Invalid TOML path") {
-        SPDLOG_WARN("TOML open failed for '{}': {}", relative_path, error);
-      }
-      return sol::make_object(lua, sol::lua_nil);
-    }
-    return sol::make_object(lua, std::move(*file));
-  };
+  lua["TOML"] = Function_TOML;
 }
 
 }  // namespace lua::bindings

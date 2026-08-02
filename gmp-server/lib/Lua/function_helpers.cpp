@@ -39,8 +39,6 @@ SOFTWARE.
 
 #include "sol/sol.hpp"
 
-using namespace std;
-
 namespace {
 
 sol::optional<std::string> GetOptionalString(const sol::table& table, const char* lowerKey, const char* upperKey) {

@@ -93,11 +93,6 @@ std::vector<ClientResourceDescriptor> ClientResourcePackager::Build(const std::v
   }
 
   for (const auto& resource : resources) {
-    if (!resource.active) {
-      SPDLOG_INFO("Skipping client pack for resource '{}' because it is inactive", resource.name);
-      continue;
-    }
-
     if (!resource.metadata) {
       SPDLOG_INFO("Skipping client pack for resource '{}' because metadata is missing", resource.name);
       continue;

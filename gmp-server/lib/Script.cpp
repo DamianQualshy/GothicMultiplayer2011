@@ -17,8 +17,6 @@ namespace lua::bindings {
 void BindToml(sol::state& lua);
 }
 
-using namespace std;
-
 LuaScript::LuaScript() {
   BindDomainSpecific();
 }

@@ -25,7 +25,6 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
-#include <optional>
 #include <ctime>
 #include <functional>
 #include <optional>

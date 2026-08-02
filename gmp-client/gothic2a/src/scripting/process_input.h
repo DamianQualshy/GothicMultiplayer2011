@@ -166,6 +166,9 @@ inline constexpr std::array kGameKeys = {
 // Bind all key constants to Lua state
 void BindInputConstants(sol::state& lua);
 
+// Bind input query/control functions to Lua state
+void BindInput(sol::state& lua);
+
 // Bind Cursor related functions to Lua state
 void BindCursor(sol::state& lua);
 

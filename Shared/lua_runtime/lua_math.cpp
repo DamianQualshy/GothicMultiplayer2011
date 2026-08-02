@@ -2287,7 +2287,6 @@ namespace bindings {
 
 using namespace types;
 
-void BindMath(sol::state& lua) {
 /* luagmp (func)
 *
 * This function returns the 2d distance between two points.
@@ -2303,11 +2302,11 @@ void BindMath(sol::state& lua) {
 * @return (number)        The distance between the two points.
 *
 */
-  lua["getDistance2d"] = [](float x1, float y1, float x2, float y2) {
-    const float dx = x1 - x2;
-    const float dy = y1 - y2;
-    return std::sqrt(dx * dx + dy * dy);
-  };
+float Function_GetDistance2d(float x1, float y1, float x2, float y2) {
+  const float dx = x1 - x2;
+  const float dy = y1 - y2;
+  return std::sqrt(dx * dx + dy * dy);
+}
 
 /* luagmp (func)
 *
@@ -2326,13 +2325,13 @@ void BindMath(sol::state& lua) {
 * @return (number)         The distance between the two points.
 *
 */
-  lua["getDistance3d"] = [](float x1, float y1, float z1, float x2, float y2, float z2) {
-    const float dx = x1 - x2;
-    const float dy = y1 - y2;
-    const float dz = z1 - z2;
-    return std::sqrt(dx * dx + dy * dy + dz * dz);
-  };
-  
+float Function_GetDistance3d(float x1, float y1, float z1, float x2, float y2, float z2) {
+  const float dx = x1 - x2;
+  const float dy = y1 - y2;
+  const float dz = z1 - z2;
+  return std::sqrt(dx * dx + dy * dy + dz * dz);
+}
+
 /* luagmp (func)
 *
 * This function returns the angle on Y axis directed towards the second point.
@@ -2348,9 +2347,14 @@ void BindMath(sol::state& lua) {
 * @return (number)         The angle on Y axis directed towards the second point.
 *
 */
-  lua["getVectorAngle"] = [](float x1, float y1, float x2, float y2) {
-    return NormalizeDegrees(glm::degrees(std::atan2(x2 - x1, y2 - y1)));
-  };
+float Function_GetVectorAngle(float x1, float y1, float x2, float y2) {
+  return NormalizeDegrees(glm::degrees(std::atan2(x2 - x1, y2 - y1)));
+}
+
+void BindMath(sol::state& lua) {
+  lua["getDistance2d"] = Function_GetDistance2d;
+  lua["getDistance3d"] = Function_GetDistance3d;
+  lua["getVectorAngle"] = Function_GetVectorAngle;
 
   lua.new_usertype<Vec2>("Vec2", sol::constructors<Vec2(), Vec2(float), Vec2(float, float)>(), "x", &Vec2::x, "y", &Vec2::y, "len", &Vec2::len,
                          "len2", &Vec2::len2, "lenApprox", &Vec2::lenApprox, "distance", &Vec2::distance, "normalize", &Vec2::normalize,

@@ -163,7 +163,7 @@ void RegisterProxies() {
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player that disconnected.
-* @param    (number) reason       The reason why player got disconnected. See Network constants.
+* @param    (number) reason       The reason why player got disconnected. For more information, see [Network Constants](../../server-constants/Network.md).
 *
 */
   kLuaEventProxies[kEventOnPlayerDisconnectName] = {[](LuaProxyArgs args) {
@@ -215,7 +215,7 @@ void RegisterProxies() {
 * @side     server
 * @category Player
 * @param    (number) player_id    The id of the player who died.
-* @param    (number) killer_id    Optional id of the killer (nil if none).
+* @param    (number|nil) killer_id Optional id of the killer (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerDeathName] = {[](LuaProxyArgs args) {
@@ -249,7 +249,7 @@ void RegisterProxies() {
 * @name     onPlayerUnconscious
 * @side     server
 * @category Player
-* @param    (number) attacker_id    Optional attacker id (nil if none).
+* @param    (number|nil) attacker_id Optional attacker id (nil if none).
 * @param    (number) victim_id      Victim player id.
 *
 */
@@ -305,7 +305,7 @@ void RegisterProxies() {
 * @category Player
 * @param    (number) caster_id    Caster player id.
 * @param    (number) spell_id     Spell identifier.
-* @param    (number) target_id    Optional target player id (nil if none).
+* @param    (number|nil) target_id Optional target player id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerCastSpellName] = {[](LuaProxyArgs args) {
@@ -395,8 +395,8 @@ void RegisterProxies() {
 * @side     server
 * @category Player
 * @param    (number) player_id  Player id.
-* @param    (number) old_mode   Previous weapon mode.
-* @param    (number) new_mode   New weapon mode.
+* @param    (number) old_mode   Previous weapon mode. For more information, see [Weapon Mode Constants](../../shared-constants/WeaponMode.md).
+* @param    (number) new_mode   New weapon mode from the same table.
 *
 */
   kLuaEventProxies[kEventOnPlayerWeaponModeChangeName] = {[](LuaProxyArgs args) {
@@ -677,10 +677,10 @@ void RegisterProxies() {
 * @name     onPlayerHit
 * @side     server
 * @category Player
-* @param    (number) attacker_id  Optional attacker id (nil if none).
+* @param    (number|nil) attacker_id  Optional attacker id (nil if none).
 * @param    (number) victim_id     Victim player id.
 * @param    (number) damage        Damage to deal. Use eventValue(newDamage) to change it, or cancelEvent() to prevent it.
-* @param    (number) damageType    Gothic damage type/mode flags.
+* @param    (number) damageType    Gothic damage type/mode flags. For more information, see [Damage Constants](../../shared-constants/Damage.md).
 *
 */
   kLuaEventProxies[kEventOnPlayerHitName] = {[](LuaProxyArgs args) {

@@ -162,8 +162,8 @@ void RegisterGothicEventProxies() {
 * @name     onWeatherChange
 * @side     client
 * @category Weather
-* @param    (number) old_weather_type  Previous weather type.
-* @param    (number) new_weather_type  New weather type.
+* @param    (number) old_weather_type  Previous weather type. For more information, see [Weather Constants](../../shared-constants/Weather.md).
+* @param    (number) new_weather_type  New weather type from the same table.
 *
 */
   g_gothic_event_proxies[kEventOnWeatherChangeName] = [](LuaProxyArgs args) {
@@ -179,7 +179,7 @@ void RegisterGothicEventProxies() {
 * @name     onKeyDown
 * @side     client
 * @category Input
-* @param    (number) key    The key code pressed.
+* @param    (number) key    The key code pressed. For more information, see [Key Constants](../../client-constants/Key.md).
 *
 */
   g_gothic_event_proxies[kEventOnKeyDownName] = [](LuaProxyArgs args) {
@@ -195,7 +195,7 @@ void RegisterGothicEventProxies() {
 * @name     onKeyUp
 * @side     client
 * @category Input
-* @param    (number) key    The key code released.
+* @param    (number) key    The key code released. For more information, see [Key Constants](../../client-constants/Key.md).
 *
 */
   g_gothic_event_proxies[kEventOnKeyUpName] = [](LuaProxyArgs args) {
@@ -244,7 +244,7 @@ void RegisterGothicEventProxies() {
 * @name     onMouseDown
 * @side     client
 * @category Mouse
-* @param    (number) button The mouse button pressed.
+* @param    (number) button The mouse button pressed. For more information, see [Mouse Constants](../../client-constants/Mouse.md).
 *
 */
   g_gothic_event_proxies[kEventOnMouseDownName] = [](LuaProxyArgs args) {
@@ -260,7 +260,7 @@ void RegisterGothicEventProxies() {
 * @name     onMouseUp
 * @side     client
 * @category Mouse
-* @param    (number) button The mouse button released.
+* @param    (number) button The mouse button released. For more information, see [Mouse Constants](../../client-constants/Mouse.md).
 *
 */
   g_gothic_event_proxies[kEventOnMouseUpName] = [](LuaProxyArgs args) {
@@ -419,7 +419,7 @@ void RegisterGothicEventProxies() {
 * @param    (string) item           Item instance.
 * @param    (boolean) synchronized  True when pickup is synchronized with the server.
 * @param    (number) amount         Item amount.
-* @param    (number) itemGroundId   Ground item id, or nil for non-server items.
+* @param    (number|nil) itemGroundId Ground item id, or nil for non-server items.
 *
 */
   g_gothic_event_proxies[kEventOnTakeItemName] = [](LuaProxyArgs args) {
@@ -551,7 +551,7 @@ void RegisterGothicEventProxies() {
 * @name     onPlayerMessage
 * @side     client
 * @category Player
-* @param    (number) sender_id    Optional sender id (nil for system).
+* @param    (number|nil) sender_id Optional sender id (nil for system).
 * @param    (number) r            The red color component in RGB model.
 * @param    (number) g            The green color component in RGB model.
 * @param    (number) b            The blue color component in RGB model.

@@ -520,6 +520,7 @@ sol::object Function_GetPlayerName(std::int64_t id, sol::this_state ts) {
 * @param    (number) r          The red color component in RGB model.
 * @param    (number) g          The green color component in RGB model.
 * @param    (number) b          The blue color component in RGB model.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerColor(std::int64_t id, int r, int g, int b) {
@@ -574,6 +575,7 @@ sol::object Function_GetPlayerColor(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) health     New health value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerHealth(std::int64_t id, int health) {
@@ -627,6 +629,7 @@ sol::object Function_GetPlayerHealth(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id   Target player id.
 * @param    (number) max_health  New maximum health.
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerMaxHealth(std::int64_t id, int max_health) {
@@ -677,6 +680,7 @@ sol::object Function_GetPlayerMaxHealth(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) mana       Mana value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMana(std::int64_t id, int mana) {
@@ -725,6 +729,7 @@ sol::object Function_GetPlayerMana(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) max_mana   New maximum mana.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerMaxMana(std::int64_t id, int max_mana) {
@@ -775,6 +780,7 @@ sol::object Function_GetPlayerMaxMana(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) strength   Strength value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerStrength(std::int64_t id, int strength) {
@@ -821,6 +827,7 @@ sol::object Function_GetPlayerStrength(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) dexterity  Dexterity value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerDexterity(std::int64_t id, int dexterity) {
@@ -866,8 +873,9 @@ sol::object Function_GetPlayerDexterity(std::int64_t id, sol::this_state ts) {
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) skill_id   Skill identifier.
+* @param    (number) skill_id   Skill identifier. For more information, see [Weapon Constants](../../shared-constants/Weapon.md).
 * @param    (number) percentage Hit chance (0-100).
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerSkillWeapon(std::int64_t id, int skill_id, int percentage) {
@@ -889,7 +897,7 @@ bool Function_SetPlayerSkillWeapon(std::int64_t id, int skill_id, int percentage
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) skill_id   Skill identifier.
+* @param    (number) skill_id   Skill identifier. For more information, see [Weapon Constants](../../shared-constants/Weapon.md).
 * @return   (number|nil)        Hit chance (0-100) or nil.
 *
 */
@@ -912,8 +920,9 @@ sol::object Function_GetPlayerSkillWeapon(std::int64_t id, int skill_id, sol::th
 * @side     client
 * @category Player
 * @param    (number) player_id    Target player id.
-* @param    (number) talent_id    Talent identifier.
+* @param    (number) talent_id    Talent identifier. For more information, see [Talent Constants](../../shared-constants/Talent.md).
 * @param    (number) talent_value Talent value.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_SetPlayerTalent(std::int64_t id, int talent_id, int talent_value) {
@@ -933,7 +942,7 @@ bool Function_SetPlayerTalent(std::int64_t id, int talent_id, int talent_value) 
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @param    (number) talent_id  Talent identifier.
+* @param    (number) talent_id  Talent identifier. For more information, see [Talent Constants](../../shared-constants/Talent.md).
 * @return   (number|nil)        Talent value or nil.
 *
 */
@@ -957,6 +966,7 @@ sol::object Function_GetPlayerTalent(std::int64_t id, int talent_id, sol::this_s
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) level      New level.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerLevel(std::int64_t id, int level) {
@@ -998,6 +1008,7 @@ sol::object Function_GetPlayerLevel(std::int64_t id, sol::this_state ts) {
 * @side     client
 * @category Hero
 * @param    (number) exp       New exp value.
+* @return   (boolean)          True on success.
 *
 */
 bool Function_SetExp(int exp) {
@@ -1048,6 +1059,7 @@ sol::object Function_GetExp(sol::this_state ts) {
 * @side     client
 * @category Hero
 * @param    (number) next_level_exp   Required exp for next level.
+* @return   (boolean)                 True on success.
 *
 */
 bool Function_SetNextLevelExp(int next_level_exp) {
@@ -1097,6 +1109,7 @@ sol::object Function_GetNextLevelExp(sol::this_state ts) {
 * @side     client
 * @category Hero
 * @param    (number) learn_points   New learn points value.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_SetLearnPoints(int learn_points) {
@@ -1150,8 +1163,9 @@ sol::object Function_GetLearnPoints(sol::this_state ts) {
 * @param    (number) bodyTexture    Body texture index.
 * @param    (string) headModel   Head model name.
 * @param    (number) headTexture    Head texture index.
-* @param    (number) teethTexture  Optional teeth texture file numeric id. Defaults to 0 if omitted.
-* @param    (number) skinColor     Optional color variant of head & body texture files. Defaults to 0 if omitted.
+* @param    (number|nil) teethTexture  Optional teeth texture file numeric id. Defaults to 0 if omitted.
+* @param    (number|nil) skinColor     Optional color variant of head & body texture files. Defaults to 0 if omitted.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_SetPlayerVisual(std::int64_t id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
@@ -1206,6 +1220,7 @@ sol::object Function_GetPlayerVisual(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (number) fatness    Fatness value.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerFatness(std::int64_t id, float fatness) {
@@ -1250,6 +1265,7 @@ sol::object Function_GetPlayerFatness(std::int64_t id, sol::this_state ts) {
 * @param    (number) x            Scale factor on x axis.
 * @param    (number) y            Scale factor on y axis.
 * @param    (number) z            Scale factor on z axis.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_SetPlayerScale(std::int64_t id, float x, float y, float z) {
@@ -1296,7 +1312,8 @@ sol::object Function_GetPlayerScale(std::int64_t id, sol::this_state ts){
 * @side     client
 * @category Player
 * @param    (number) player_id   Target player id.
-* @param    (number) weapon_mode Weapon mode constant.
+* @param    (number) weapon_mode Weapon mode constant. For more information, see [Weapon Mode Constants](../../shared-constants/WeaponMode.md).
+* @return   (boolean)            True on success.
 *
 */
 bool Function_SetPlayerWeaponMode(std::int64_t id, int weapon_mode) {
@@ -1317,7 +1334,7 @@ bool Function_SetPlayerWeaponMode(std::int64_t id, int weapon_mode) {
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (number|nil)        Weapon mode or nil.
+* @return   (number|nil)        Weapon mode from [Weapon Mode Constants](../../shared-constants/WeaponMode.md), or nil.
 *
 */
 sol::object Function_GetPlayerWeaponMode(std::int64_t id, sol::this_state ts) {
@@ -1484,6 +1501,7 @@ sol::object Function_GetPlayerShield(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) overlay      The name of overlay.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_ApplyPlayerOverlay(std::int64_t id, const std::string& overlay) {
@@ -1538,6 +1556,7 @@ sol::object Function_GetPlayerOverlays(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) overlay      The name of overlay.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_RemovePlayerOverlay(std::int64_t id, const std::string& overlay) {
@@ -1562,6 +1581,7 @@ bool Function_RemovePlayerOverlay(std::int64_t id, const std::string& overlay) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Animation name (e.g. "T_STAND_2_SIT").
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayAni(std::int64_t id, const std::string& ani_name) {
@@ -1585,6 +1605,7 @@ bool Function_PlayAni(std::int64_t id, const std::string& ani_name) {
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string|nil) aniName  Animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_StopAni(std::int64_t id, sol::optional<std::string> ani_name) {
@@ -1617,6 +1638,7 @@ bool Function_StopAni(std::int64_t id, sol::optional<std::string> ani_name) {
 * @category Player
 * @param    (number) player_id  Target player id.
 * @param    (string) aniName    Face animation name (e.g. "S_FRIENDLY").
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayFaceAni(std::int64_t id, const std::string& ani_name) {
@@ -1639,6 +1661,7 @@ bool Function_PlayFaceAni(std::int64_t id, const std::string& ani_name) {
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string|nil) aniName  Face animation name to stop. Defaults to "" for first active animation.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_StopFaceAni(std::int64_t id, sol::optional<std::string> ani_name) {
@@ -1661,6 +1684,7 @@ bool Function_StopFaceAni(std::int64_t id, sol::optional<std::string> ani_name) 
 * @side     client
 * @category Player
 * @param    (number) player_id  Target player id.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_PlayGesticulation(std::int64_t id) {
@@ -1693,6 +1717,7 @@ bool Function_PlayGesticulation(std::int64_t id) {
 * @param    (number) x          X coordinate.
 * @param    (number) y          Y coordinate.
 * @param    (number) z          Z coordinate.
+* @return   (boolean)           True on success.
 *
 */
 bool Function_SetPlayerPosition(std::int64_t id, float x, float y, float z) {
@@ -1747,6 +1772,7 @@ sol::object Function_GetPlayerPosition(std::int64_t id, sol::this_state ts) {
 * @category Player
 * @param    (number) player_id        Target player id.
 * @param    (number) angle            Angle in degrees.
+* @return   (boolean)                 True on success.
 *
 */
 bool Function_SetPlayerAngle(std::int64_t id, float angle) {
@@ -1793,6 +1819,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name.
 * @param    (number) amount       Amount to give.
+* @return   (boolean)             True on success.
 *
 */
 bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_t amount) {
@@ -1824,6 +1851,7 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
 * @category Player
 * @param    (number) player_id      Target player id.
 * @param    (string) instance       Item instance name.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_EquipItem(std::int64_t id, const std::string& instance) {
@@ -1840,6 +1868,7 @@ bool Function_EquipItem(std::int64_t id, const std::string& instance) {
 * @category Player
 * @param    (number) player_id      Target player id.
 * @param    (string) instance       Item instance name.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
@@ -2273,6 +2302,7 @@ bool Function_DropItemBySlot(std::int32_t slot) {
 * @param    (number) player_id      Target player id.
 * @param    (string) instance       Item instance name.
 * @param    (number) amount         Amount to remove.
+* @return   (boolean)               True on success.
 *
 */
 bool Function_RemoveItem(std::int64_t id, const std::string& instance, std::int32_t amount) {
@@ -2825,6 +2855,7 @@ sol::object Function_GetPlayerCollision(std::int64_t id, sol::this_state ts) {
 * @category Game
 * @param    (number) hour    Hour component.
 * @param    (number) minute  Minute component.
+* @return   (boolean)        True on success.
 *
 */
 bool Function_SetTime(int hour, int minute) {
@@ -2873,6 +2904,7 @@ sol::object Function_GetTime(sol::this_state ts) {
 * @side     client
 * @category Game
 * @param    (number) miliseconds  Day length in milliseconds (min 10000 ms).
+* @return   (boolean)             True on success.
 *
 */
 bool Function_SetDayLength(float day_length_ms) {
@@ -3517,6 +3549,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["closeGMPMenu"] = Function_CloseGMPMenu;
 
   BindInputConstants(lua);
+  BindInput(lua);
   BindCursor(lua);
   BindChat(lua);
   BindDiscord(lua);

@@ -265,7 +265,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the item's main category flag.
+* Represents the item's main category flag. For more information, see [Item Constants](../../shared-constants/Item.md).
 *
 * @name     mainflag
 * @return   (number)
@@ -275,7 +275,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the item's main category flag.
+* Represents the item's main category flag. For more information, see [Item Constants](../../shared-constants/Item.md).
 *
 * @name     mainFlag
 * @return   (number)
@@ -285,7 +285,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the item's Gothic flags.
+* Represents the item's Gothic flags. For more information, see [Item Constants](../../shared-constants/Item.md).
 *
 * @name     flags
 * @return   (number)
@@ -305,7 +305,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the armor wear slot value.
+* Represents the armor wear slot value. For more information, see [Item Constants](../../shared-constants/Item.md).
 *
 * @name     wear
 * @return   (number)
@@ -335,7 +335,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the item's damage information.
+* Represents the item's damage information. Its `types` field uses [Damage Constants](../../shared-constants/Damage.md).
 *
 * @name     damage
 * @return   ({total, types}|nil)
@@ -355,7 +355,7 @@ void BindItem(sol::state& lua) {
 
 /* luagmp (property)
 *
-* Represents the item's Gothic damage type flags.
+* Represents the item's Gothic damage type flags. For more information, see [Damage Constants](../../shared-constants/Damage.md).
 *
 * @name     damageTypes
 * @return   (number)
@@ -418,7 +418,7 @@ void BindItem(sol::state& lua) {
 * Represents protection values exported for this item.
 *
 * @name     protections
-* @return   ({...}) Array of tables with `type` and `value` fields.
+* @return   ({...}) Array of tables with `type` and `value` fields; `type` uses [Damage Constants](../../shared-constants/Damage.md).
 *
 */
   item_type["protections"] = sol::property([](const LuaItem& item, sol::this_state state) { return item.getProtections(state); });
@@ -438,7 +438,7 @@ void BindItem(sol::state& lua) {
 * Returns the protection value for a Gothic damage type.
 *
 * @name     getProtection
-* @param    (number) damageType  Gothic damage type.
+* @param    (number) damageType  Gothic damage type. For more information, see [Damage Constants](../../shared-constants/Damage.md).
 * @return   (number)
 *
 */

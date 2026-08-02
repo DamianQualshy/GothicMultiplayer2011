@@ -60,7 +60,7 @@ protected:
     std::filesystem::remove_all(test_resources_dir_, ec);
   }
 
-  void WriteResourceToml(const std::string& name, const std::vector<std::string>& scripts, bool active = true) {
+  void WriteResourceToml(const std::string& name, const std::vector<std::string>& scripts) {
     auto resource_dir = test_resources_dir_ / name;
     std::filesystem::create_directories(resource_dir);
 
@@ -69,7 +69,6 @@ protected:
     ofs << "version = \"1.0.0\"\n";
     ofs << "author = \"Test\"\n";
     ofs << "description = \"Test resource\"\n";
-    ofs << "active = " << (active ? "true" : "false") << "\n";
     ofs << "scripts = [\n";
     for (const auto& script : scripts) {
       ofs << "  \"" << script << "\",\n";

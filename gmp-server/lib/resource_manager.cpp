@@ -42,7 +42,6 @@ constexpr const char* kMetadataFileName = "resource.toml";
 
 struct ResourceMetadataResult {
   std::optional<ResourceManager::ResourceMetadata> metadata;
-  bool active = false;
 };
 
 bool IsServerScriptPath(const std::string& path) {
@@ -92,12 +91,6 @@ std::optional<ResourceMetadataResult> LoadResourceMetadata(const fs::path& resou
 
   try {
     const toml::value metadata = toml::parse(metadata_path.string());
-    if (!metadata.contains("active")) {
-      SPDLOG_ERROR("Resource '{}' metadata is missing required 'active' field", resource_name);
-      return result;
-    }
-    result.active = toml::find<bool>(metadata, "active");
-
     if (!metadata.contains("version")) {
       SPDLOG_ERROR("Resource '{}' metadata is missing required 'version' field", resource_name);
       return result;
@@ -191,14 +184,12 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
     descriptor.name = resource_name;
     descriptor.root_path = entry.path();
     descriptor.metadata = std::move(metadata_result->metadata);
-    descriptor.active = metadata_result->active && descriptor.metadata.has_value();
 
     discovered_resources_.push_back(descriptor);
-    if (descriptor.active) {
+    if (descriptor.metadata) {
       discovered.push_back(resource_name);
     }
-    SPDLOG_DEBUG("  Found resource: '{}'{}{}", resource_name, descriptor.metadata ? " (metadata detected)" : " (invalid metadata)",
-                 descriptor.active ? "" : " (inactive)");
+    SPDLOG_DEBUG("  Found resource: '{}'{}", resource_name, descriptor.metadata ? " (metadata detected)" : " (invalid metadata)");
   }
 
   // Sort for consistent load order
@@ -207,33 +198,30 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
     return lhs.name < rhs.name;
   });
 
-  const std::size_t active_count = discovered.size();
-  const std::size_t inactive_count = discovered_resources_.size() - active_count;
-  SPDLOG_INFO("Discovered {} active resource(s) ({} inactive)", active_count, inactive_count);
+  const std::size_t valid_count = discovered.size();
+  const std::size_t invalid_count = discovered_resources_.size() - valid_count;
+  SPDLOG_INFO("Discovered {} valid resource(s) ({} invalid)", valid_count, invalid_count);
   return discovered;
 }
 
 void ResourceManager::LogResourceInfo() const {
-  std::size_t inactive_scripts_count = 0;
-  std::size_t inactive_resources = 0;
-  std::size_t active_scripts_count = 0;
-  std::size_t active_resources = 0;
+  std::size_t valid_scripts_count = 0;
+  std::size_t valid_resources = 0;
+  std::size_t invalid_resources = 0;
   for (const auto& resource : discovered_resources_) {
-    if (resource.active) {
-      ++active_resources;
-      active_scripts_count += resource.metadata ? resource.metadata->scripts.size() : 0;
+    if (resource.metadata) {
+      ++valid_resources;
+      valid_scripts_count += resource.metadata->scripts.size();
     } else {
-      ++inactive_resources;
-      inactive_scripts_count += resource.metadata ? resource.metadata->scripts.size() : 0;
+      ++invalid_resources;
     }
   }
 
   SPDLOG_INFO("");
   SPDLOG_INFO("-= Resources =-");
-  SPDLOG_INFO("* {:<18}: {}", "Resources active", active_resources);
-  SPDLOG_INFO("* {:<18}: {}", "Active scripts count", active_scripts_count);
-  SPDLOG_INFO("* {:<18}: {}", "Resources inactive", inactive_resources);
-  SPDLOG_INFO("* {:<18}: {}", "Inactive scripts count", inactive_scripts_count);
+  SPDLOG_INFO("* {:<18}: {}", "Resources valid", valid_resources);
+  SPDLOG_INFO("* {:<18}: {}", "Scripts count", valid_scripts_count);
+  SPDLOG_INFO("* {:<18}: {}", "Resources invalid", invalid_resources);
 }
 
 const ResourceManager::DiscoveredResource* ResourceManager::FindDiscoveredResource(const std::string& name) const {
@@ -260,11 +248,6 @@ const ResourceManager::DiscoveredResource* ResourceManager::FindLoadableResource
 
   if (!descriptor->metadata) {
     SPDLOG_WARN("Resource '{}' has invalid metadata", name);
-    return nullptr;
-  }
-
-  if (!descriptor->active) {
-    SPDLOG_WARN("Resource '{}' is inactive", name);
     return nullptr;
   }
 

@@ -227,6 +227,438 @@ void ProcessInput(zCInput* zinput) {
   LuaCursor::Instance().UpdateFromInput(cursor_dx, cursor_dy);
 }
 
+/* luagmp (func)
+*
+* This function will check whether the specified keyboard key is pressed.
+*
+* @version  0.3.0
+* @name     keyPressed
+* @side     client
+* @category Input
+* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)         True if the key is currently pressed, false otherwise.
+*
+*/
+bool Function_KeyPressed(int key) {
+  if (key < 0 || key > kMaxTrackedCode) {
+    return false;
+  }
+  return s_pressedThisFrame[key];
+}
+
+/* luagmp (func)
+*
+* This function will check whether the specified Gothic logical game action is pressed.
+*
+* @version  0.3.0
+* @name     logicalKeyPressed
+* @side     client
+* @category Input
+* @param    (number) key      The logical game action code to check. For more information, see [Logical Key Constants](../../client-constants/LogicalKey.md).
+* @return   (boolean)         True if the logical action is currently active, false otherwise.
+*
+*/
+bool Function_LogicalKeyPressed(int key) {
+  if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+    return false;
+  }
+  if (s_disabledLogicalKeys[key]) {
+    return false;
+  }
+  return s_logicalPressedThisFrame[key];
+}
+
+/* luagmp (func)
+*
+* This function will check whether the specified keyboard key was toggled from unpressed to pressed state.
+*
+* @version  0.3.0
+* @name     keyToggled
+* @side     client
+* @category Input
+* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)         True if the key became pressed this frame, false otherwise.
+*
+*/
+bool Function_KeyToggled(int key) {
+  if (key < 0 || key > kMaxTrackedCode) {
+    return false;
+  }
+  return s_toggledThisFrame[key];
+}
+
+/* luagmp (func)
+*
+* This function will check whether the specified Gothic logical game action was toggled from unpressed to pressed state.
+*
+* @version  0.3.0
+* @name     logicalKeyToggled
+* @side     client
+* @category Input
+* @param    (number) key      The logical game action code to check. For more information, see [Logical Key Constants](../../client-constants/LogicalKey.md).
+* @return   (boolean)         True if the logical action became pressed this frame, false otherwise.
+*
+*/
+bool Function_LogicalKeyToggled(int key) {
+  if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+    return false;
+  }
+  if (s_disabledLogicalKeys[key]) {
+    return false;
+  }
+  return s_logicalToggledThisFrame[key];
+}
+
+/* luagmp (func)
+*
+* This function will disable/enable default game actions that are bound to keys.
+*
+* @version  0.3.0
+* @name     disableControls
+* @side     client
+* @category Input
+* @param    (boolean) toggle   True when you want to disable game keys, otherwise false.
+* @return   (boolean)          True on success.
+*
+*/
+bool Function_DisableControls(bool toggle) {
+  if (!Gothic_II_Addon::player) {
+    return false;
+  }
+
+  Gothic_II_Addon::player->SetNpcAIDisabled(toggle);
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will check whether default game actions are disabled.
+*
+* @version  0.3.0
+* @name     isControlsDisabled
+* @side     client
+* @category Input
+* @return   (boolean)           True when disabled, otherwise false.
+*
+*/
+bool Function_IsControlsDisabled() {
+  return Gothic_II_Addon::player && Gothic_II_Addon::player->ai_disabled;
+}
+
+/* luagmp (func)
+*
+* This function will disable/enable specified keyboard key, like: ESCAPE, TAB, etc.
+*
+* @version  0.3.0
+* @name     disableKey
+* @side     client
+* @category Input
+* @param    (number) keyId        The key code to disable. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @param    (boolean) toggle      True when you want to disable specified keyboard key, otherwise false
+* @return   (boolean)             True on success.
+*
+*/
+bool Function_DisableKey(int key, bool toggle) {
+  if (key < 0 || key > kMaxTrackedCode) {
+    return false;
+  }
+
+  s_disabledKeys[key] = toggle;
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will disable/enable a Gothic logical game action for Lua input polling.
+*
+* @version  0.3.0
+* @name     disableLogicalKey
+* @side     client
+* @category Input
+* @param    (number) key        The logical game action code to disable. For more information about key codes, see [Logical Key Constants](../../client-constants/LogicalKey.md).
+* @param    (boolean) toggle    True to disable, false to enable.
+* @return   (boolean)           True on success.
+*
+*/
+bool Function_DisableLogicalKey(int key, bool toggle) {
+  if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+    return false;
+  }
+
+  s_disabledLogicalKeys[key] = toggle;
+  return true;
+}
+
+/* luagmp (func)
+*
+* This function will check whether the specified keyboard key is disabled.
+*
+* @version  0.3.0
+* @name     isKeyDisabled
+* @side     client
+* @category Input
+* @param    (number) keyId        The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
+* @return   (boolean)             True when disabled, otherwise false.
+*
+*/
+bool Function_IsKeyDisabled(int key) {
+  if (key < 0 || key > kMaxTrackedCode) {
+    return false;
+  }
+
+  return s_disabledKeys[key];
+}
+
+/* luagmp (func)
+*
+* This function will check whether a Gothic logical game action is disabled for Lua input polling.
+*
+* @version  0.3.0
+* @name     isLogicalKeyDisabled
+* @side     client
+* @category Input
+* @param    (number) key        The logical game action code to check. For more information about key codes, see [Logical Key Constants](../../client-constants/LogicalKey.md).
+* @return   (boolean)           True when disabled, otherwise false.
+*
+*/
+bool Function_IsLogicalKeyDisabled(int key) {
+  if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
+    return false;
+  }
+
+  return s_disabledLogicalKeys[key];
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor position in virtual (screen-scaled) coordinates.
+*
+* @version  0.3.0
+* @name     setCursorPosition
+* @side     client
+* @category Cursor
+* @param    (number) x      X position.
+* @param    (number) y      Y position.
+*
+*/
+void Function_SetCursorPosition(int x, int y) {
+  LuaCursor::Instance().setPosition(x, y);
+}
+  
+/* luagmp (func)
+*
+* This function will return the current cursor position in virtual (screen-scaled) coordinates.
+*
+* @version  0.3.0
+* @name     getCursorPosition
+* @side     client
+* @category Cursor
+* @return   ({x, y})    X and Y position.
+*
+*/
+sol::table Function_GetCursorPosition(sol::this_state s) {
+  return LuaCursor::Instance().getPosition(s);
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor position in pixel coordinates.
+*
+* @version  0.3.0
+* @name     setCursorPositionPx
+* @side     client
+* @category Cursor
+* @param    (number) x      X position in pixels.
+* @param    (number) y      Y position in pixels.
+*
+*/
+void Function_SetCursorPositionPx(int x, int y) {
+  LuaCursor::Instance().setPositionPx(x, y);
+}
+
+/* luagmp (func)
+*
+* This function will return the current cursor position in pixel coordinates.
+*
+* @version  0.3.0
+* @name     getCursorPositionPx
+* @side     client
+* @category Cursor
+* @return   ({x, y})    X and Y position in pixels.
+*
+*/
+sol::table Function_GetCursorPositionPx(sol::this_state s) {
+  return LuaCursor::Instance().getPositionPx(s);
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor size in virtual units.
+*
+* @version  0.3.0
+* @name     setCursorSize
+* @side     client
+* @category Cursor
+* @param    (number) width    Cursor width.
+* @param    (number) height   Cursor height.
+*
+*/
+void Function_SetCursorSize(int width, int height) {
+  LuaCursor::Instance().setSize(width, height);
+}
+  
+/* luagmp (func)
+*
+* This function will return the cursor size in virtual (screen-scaled) units.
+*
+* @version  0.3.0
+* @name     getCursorSize
+* @side     client
+* @category Cursor
+* @return   ({x, y})     Cursor width and height.
+*
+*/
+sol::table Function_GetCursorSize(sol::this_state s) {
+  return LuaCursor::Instance().getSize(s);
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor size in pixel units.
+*
+* @version  0.3.0
+* @name     setCursorSizePx
+* @side     client
+* @category Cursor
+* @param    (number) width      Cursor width in pixels.
+* @param    (number) height     Cursor height in pixels.
+*
+*/
+void Function_SetCursorSizePx(int width, int height) {
+  LuaCursor::Instance().setSizePx(width, height);
+}
+  
+/* luagmp (func)
+*
+* This function will return the cursor size in pixel units.
+*
+* @version  0.3.0
+* @name     getCursorSizePx
+* @side     client
+* @category Cursor
+* @return   ({x, y})     Cursor width and height in pixels.
+*
+*/
+sol::table Function_GetCursorSizePx(sol::this_state s) {
+  return LuaCursor::Instance().getSizePx(s);
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor texture.
+*
+* @version  0.3.0
+* @name     setCursorTxt
+* @side     client
+* @category Cursor
+* @param    (string) file    Texture file name.
+*
+*/
+void Function_SetCursorTxt(const std::string& file) {
+  LuaCursor::Instance().setTexture(file);
+}
+
+/* luagmp (func)
+*
+* This function will return the current cursor texture.
+*
+* @version  0.3.0
+* @name     getCursorTxt
+* @side     client
+* @category Cursor
+* @return   (string)        Texture file name.
+*
+*/
+std::string Function_GetCursorTxt() {
+  return LuaCursor::Instance().getTexture();
+}
+
+/* luagmp (func)
+*
+* This function will set whether the cursor is visible.
+*
+* @version  0.3.0
+* @name     setCursorVisible
+* @side     client
+* @category Cursor
+* @param    (boolean) toggle    True to show the cursor, false to hide it.
+*
+*/
+void Function_SetCursorVisible(bool toggle) {
+  LuaCursor::Instance().setVisible(toggle);
+}
+
+/* luagmp (func)
+*
+* This function will return whether the cursor is currently visible.
+*
+* @version  0.3.0
+* @name     isCursorVisible
+* @side     client
+* @category Cursor
+* @return   (boolean)           True if the cursor is visible.
+*
+*/
+bool Function_IsCursorVisible() {
+  return LuaCursor::Instance().isVisible();
+}
+
+/* luagmp (func)
+*
+* This function will set the cursor movement sensitivity.
+*
+* @version  0.3.0
+* @name     setCursorSensitivity
+* @side     client
+* @category Cursor
+* @param    (number) sensitivity    Cursor sensitivity multiplier.
+*
+*/
+void Function_SetCursorSensitivity(float sensitivity) {
+  LuaCursor::Instance().setSensitivity(sensitivity);
+}
+
+/* luagmp (func)
+*
+* This function will return the cursor movement sensitivity.
+*
+* @version  0.3.0
+* @name     getCursorSensitivity
+* @side     client
+* @category Cursor
+* @return   (number)        Cursor sensitivity multiplier.
+*
+*/
+float Function_GetCursorSensitivity() {
+  return LuaCursor::Instance().getSensitivity();
+}
+
+/* luagmp (func)
+*
+* This function will return whether a mouse button is currently pressed.
+*
+* @version  0.3.0
+* @name     isMouseBtnPressed
+* @side     client
+* @category Cursor
+* @param    (number) button     Mouse button identifier. For more information, see [Mouse Constants](../../client-constants/Mouse.md).
+* @return   (boolean)           True if the button is currently pressed, otherwise false.
+*
+*/
+bool Function_IsMouseBtnPressed(int button) {
+  return LuaCursor::Instance().isButtonPressed(button);
+}
+
 void BindInputConstants(sol::state& lua) {
   // Bind keyboard keys
   for (const auto& key : kKeyboardKeys) {
@@ -242,441 +674,37 @@ void BindInputConstants(sol::state& lua) {
   for (const auto& key : kGameKeys) {
     lua[key.name] = key.code;
   }
+}
 
-  // Bind input query functions
-
-/* luagmp (func)
-*
-* This function will check whether the specified keyboard key is pressed.
-*
-* @version  0.3.0
-* @name     keyPressed
-* @side     client
-* @category Input
-* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)         True if the key is currently pressed, false otherwise.
-*
-*/
-  lua.set_function("keyPressed", [](int key) -> bool {
-    if (key < 0 || key > kMaxTrackedCode) {
-      return false;
-    }
-    return s_pressedThisFrame[key];
-  });
-
-/* luagmp (func)
-*
-* This function will check whether the specified Gothic logical game action is pressed.
-*
-* @version  0.3.0
-* @name     logicalKeyPressed
-* @side     client
-* @category Input
-* @param    (number) key      The logical game action code to check. For more information, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)         True if the logical action is currently active, false otherwise.
-*
-*/
-  lua.set_function("logicalKeyPressed", [](int key) -> bool {
-    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
-      return false;
-    }
-    if (s_disabledLogicalKeys[key]) {
-      return false;
-    }
-    return s_logicalPressedThisFrame[key];
-  });
-
-/* luagmp (func)
-*
-* This function will check whether the specified keyboard key was toggled from unpressed to pressed state.
-*
-* @version  0.3.0
-* @name     keyToggled
-* @side     client
-* @category Input
-* @param    (number) key      The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)         True if the key became pressed this frame, false otherwise.
-*
-*/
-  lua.set_function("keyToggled", [](int key) -> bool {
-    if (key < 0 || key > kMaxTrackedCode) {
-      return false;
-    }
-    return s_toggledThisFrame[key];
-  });
-
-/* luagmp (func)
-*
-* This function will check whether the specified Gothic logical game action was toggled from unpressed to pressed state.
-*
-* @version  0.3.0
-* @name     logicalKeyToggled
-* @side     client
-* @category Input
-* @param    (number) key      The logical game action code to check. For more information, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)         True if the logical action became pressed this frame, false otherwise.
-*
-*/
-  lua.set_function("logicalKeyToggled", [](int key) -> bool {
-    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
-      return false;
-    }
-    if (s_disabledLogicalKeys[key]) {
-      return false;
-    }
-    return s_logicalToggledThisFrame[key];
-  });
-
-/* luagmp (func)
-*
-* This functiuon will disable/enable default game actions that are bound to keys.
-*
-* @version  0.3.0
-* @name     disableControls
-* @side     client
-* @category Input
-* @param    (boolean)          True when you want to disable game keys, otherwise false.
-* @return   (boolean)          True on success.
-*
-*/
-  lua.set_function("disableControls", [](bool toggle) -> bool {
-    if (!Gothic_II_Addon::player) {
-      return false;
-    }
-
-    Gothic_II_Addon::player->SetNpcAIDisabled(toggle);
-    return true;
-  });
-
-/* luagmp (func)
-*
-* This function will check whether default game actions are disabled.
-*
-* @version  0.3.0
-* @name     isControlsDisabled
-* @side     client
-* @category Input
-* @return   (boolean)           True when disabled, otherwise false.
-*
-*/
-  lua.set_function("isControlsDisabled", []() {
-    return Gothic_II_Addon::player && Gothic_II_Addon::player->ai_disabled;
-  });
-
-/* luagmp (func)
-*
-* This function will disable/enable specified keyboard key, like: ESCAPE, TAB, etc.
-*
-* @version  0.3.0
-* @name     disableKey
-* @side     client
-* @category Input
-* @param    (number) keyId        The key code to disable. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @param    (boolean) toggle      True when you want to disable specified keyboard key, otherwise false
-* @return   (boolean)             True on success.
-*
-*/
-  lua.set_function("disableKey", [](int key, bool toggle) -> bool {
-    if (key < 0 || key > kMaxTrackedCode) {
-      return false;
-    }
-
-    s_disabledKeys[key] = toggle;
-    return true;
-  });
-
-/* luagmp (func)
-*
-* This function will disable/enable a Gothic logical game action for Lua input polling.
-*
-* @version  0.3.0
-* @name     disableLogicalKey
-* @side     client
-* @category Input
-* @param    (number) key        The logical game action code to disable.
-* @param    (boolean) toggle    True to disable, false to enable.
-* @return   (boolean)           True on success.
-*
-*/
-  lua.set_function("disableLogicalKey", [](int key, bool toggle) -> bool {
-    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
-      return false;
-    }
-
-    s_disabledLogicalKeys[key] = toggle;
-    return true;
-  });
-
-/* luagmp (func)
-*
-* This function will check whether the specified keyboard key is disabled.
-*
-* @version  0.3.0
-* @name     isKeyDisabled
-* @side     client
-* @category Input
-* @param    (number) keyId        The key code to check. For more information about key codes, see [Key Constants](../../client-constants/Key.md).
-* @return   (boolean)             True when disabled, otherwise false.
-*
-*/
-  lua.set_function("isKeyDisabled", [](int key) {
-    if (key < 0 || key > kMaxTrackedCode) {
-      return false;
-    }
-
-    return s_disabledKeys[key];
-  });
-
-/* luagmp (func)
-*
-* This function will check whether a Gothic logical game action is disabled for Lua input polling.
-*
-* @version  0.3.0
-* @name     isLogicalKeyDisabled
-* @side     client
-* @category Input
-* @param    (number) key        The logical game action code to check.
-* @return   (boolean)           True when disabled, otherwise false.
-*
-*/
-  lua.set_function("isLogicalKeyDisabled", [](int key) -> bool {
-    if (key < 0 || key > kMaxLogicalInputCode || !IsLogicalInputCode(key)) {
-      return false;
-    }
-
-    return s_disabledLogicalKeys[key];
-  });
+void BindInput(sol::state& lua) {
+  lua["keyPressed"] = Function_KeyPressed;
+  lua["logicalKeyPressed"] = Function_LogicalKeyPressed;
+  lua["keyToggled"] = Function_KeyToggled;
+  lua["logicalKeyToggled"] = Function_LogicalKeyToggled;
+  lua["disableControls"] = Function_DisableControls;
+  lua["isControlsDisabled"] = Function_IsControlsDisabled;
+  lua["disableKey"] = Function_DisableKey;
+  lua["disableLogicalKey"] = Function_DisableLogicalKey;
+  lua["isKeyDisabled"] = Function_IsKeyDisabled;
+  lua["isLogicalKeyDisabled"] = Function_IsLogicalKeyDisabled;
 }
 
 void BindCursor(sol::state& lua) {
-/* luagmp (func)
-*
-* This function will set the cursor position in virtual (screen-scaled) coordinates.
-*
-* @version  0.3.0
-* @name     setCursorPosition
-* @side     client
-* @category Cursor
-* @param    (number) x      X position.
-* @param    (number) y      Y position.
-*
-*/
-  lua.set_function("setCursorPosition", [](int x, int y) {
-    LuaCursor::Instance().setPosition(x, y); 
-  });
-  
-/* luagmp (func)
-*
-* This function will return the current cursor position in virtual (screen-scaled) coordinates.
-*
-* @version  0.3.0
-* @name     getCursorPosition
-* @side     client
-* @category Cursor
-* @return   ({x, y})    X and Y position.
-*
-*/
-  lua.set_function("getCursorPosition", [](sol::this_state s) {
-    return LuaCursor::Instance().getPosition(s); 
-  });
-
-/* luagmp (func)
-*
-* This function will set the cursor position in pixel coordinates.
-*
-* @version  0.3.0
-* @name     setCursorPositionPx
-* @side     client
-* @category Cursor
-* @param    (number) x      X position in pixels.
-* @param    (number) y      Y position in pixels.
-*
-*/
-  lua.set_function("setCursorPositionPx", [](int x, int y) {
-    LuaCursor::Instance().setPositionPx(x, y);
-  });
-
-/* luagmp (func)
-*
-* This function will return the current cursor position in pixel coordinates.
-*
-* @version  0.3.0
-* @name     getCursorPositionPx
-* @side     client
-* @category Cursor
-* @return   ({x, y})    X and Y position in pixels.
-*
-*/
-  lua.set_function("getCursorPositionPx", [](sol::this_state s) {
-    return LuaCursor::Instance().getPositionPx(s);
-  });
-
-/* luagmp (func)
-*
-* This function will set the cursor size in virtual units.
-*
-* @version  0.3.0
-* @name     setCursorSize
-* @side     client
-* @category Cursor
-* @param    (number) width    Cursor width.
-* @param    (number) height   Cursor height.
-*
-*/
-  lua.set_function("setCursorSize", [](int width, int height) {
-    LuaCursor::Instance().setSize(width, height);
-  });
-  
-/* luagmp (func)
-*
-* This function will return the cursor size in virtual (screen-scaled) units.
-*
-* @version  0.3.0
-* @name     getCursorSize
-* @side     client
-* @category Cursor
-* @return   ({x, y})     Cursor width and height.
-*
-*/
-  lua.set_function("getCursorSize", [](sol::this_state s) {
-    return LuaCursor::Instance().getSize(s);
-  });
-
-/* luagmp (func)
-*
-* This function will set the cursor size in pixel units.
-*
-* @version  0.3.0
-* @name     setCursorSizePx
-* @side     client
-* @category Cursor
-* @param    (number) width      Cursor width in pixels.
-* @param    (number) height     Cursor height in pixels.
-*
-*/
-  lua.set_function("setCursorSizePx", [](int width, int height) {
-    LuaCursor::Instance().setSizePx(width, height);
-  });
-  
-/* luagmp (func)
-*
-* This function will return the cursor size in pixel units.
-*
-* @version  0.3.0
-* @name     getCursorSizePx
-* @side     client
-* @category Cursor
-* @return   ({x, y})     Cursor width and height in pixels.
-*
-*/
-  lua.set_function("getCursorSizePx", [](sol::this_state s) {
-    return LuaCursor::Instance().getSizePx(s);
-  });
-
- /* luagmp (func)
-*
-* This function will set the cursor texture.
-*
-* @version  0.3.0
-* @name     setCursorTxt
-* @side     client
-* @category Cursor
-* @param    (string) file    Texture file name.
-*
-*/
-  lua.set_function("setCursorTxt", [](const std::string& file) {
-    LuaCursor::Instance().setTexture(file);
-  });
-
-/* luagmp (func)
-*
-* This function will return the current cursor texture.
-*
-* @version  0.3.0
-* @name     getCursorTxt
-* @side     client
-* @category Cursor
-* @return   (string)        Texture file name.
-*
-*/
-  lua.set_function("getCursorTxt", []() {
-    return LuaCursor::Instance().getTexture();
-  });
-
-/* luagmp (func)
-*
-* This function will set whether the cursor is visible.
-*
-* @version  0.3.0
-* @name     setCursorVisible
-* @side     client
-* @category Cursor
-* @param    (boolean) toggle    True to show the cursor, false to hide it.
-*
-*/
-  lua.set_function("setCursorVisible", [](bool toggle) {
-    LuaCursor::Instance().setVisible(toggle);
-  });
-
-/* luagmp (func)
-*
-* This function will return whether the cursor is currently visible.
-*
-* @version  0.3.0
-* @name     isCursorVisible
-* @side     client
-* @category Cursor
-* @return   (boolean)           True if the cursor is visible.
-*
-*/
-  lua.set_function("isCursorVisible", []() {
-    return LuaCursor::Instance().isVisible();
-  });
-
-/* luagmp (func)
-*
-* This function will set the cursor movement sensitivity.
-*
-* @version  0.3.0
-* @name     setCursorSensitivity
-* @side     client
-* @category Cursor
-* @param    (number) sensitivity    Cursor sensitivity multiplier.
-*
-*/
-  lua.set_function("setCursorSensitivity", [](float sensitivity) {
-    LuaCursor::Instance().setSensitivity(sensitivity);
-  });
-
-/* luagmp (func)
-*
-* This function will return the cursor movement sensitivity.
-*
-* @version  0.3.0
-* @name     getCursorSensitivity
-* @side     client
-* @category Cursor
-* @return   (number)        Cursor sensitivity multiplier.
-*
-*/
-  lua.set_function("getCursorSensitivity", []() {
-    return LuaCursor::Instance().getSensitivity();
-  });
-
-/* luagmp (func)
-*
-* This function will return whether a mouse button is currently pressed.
-*
-* @version  0.3.0
-* @name     isMouseBtnPressed
-* @side     client
-* @category Cursor
-* @param    (number) button     Mouse button identifier.
-*
-*/
-  lua.set_function("isMouseBtnPressed", [](int button) {
-    return LuaCursor::Instance().isButtonPressed(button);
-  });
+  lua["setCursorPosition"] = Function_SetCursorPosition;
+  lua["getCursorPosition"] = Function_GetCursorPosition;
+  lua["setCursorPositionPx"] = Function_SetCursorPositionPx;
+  lua["getCursorPositionPx"] = Function_GetCursorPositionPx;
+  lua["setCursorSize"] = Function_SetCursorSize;
+  lua["getCursorSize"] = Function_GetCursorSize;
+  lua["setCursorSizePx"] = Function_SetCursorSizePx;
+  lua["getCursorSizePx"] = Function_GetCursorSizePx;
+  lua["setCursorTxt"] = Function_SetCursorTxt;
+  lua["getCursorTxt"] = Function_GetCursorTxt;
+  lua["setCursorVisible"] = Function_SetCursorVisible;
+  lua["isCursorVisible"] = Function_IsCursorVisible;
+  lua["setCursorSensitivity"] = Function_SetCursorSensitivity;
+  lua["getCursorSensitivity"] = Function_GetCursorSensitivity;
+  lua["isMouseBtnPressed"] = Function_IsMouseBtnPressed;
 }
 
 }  // namespace gmp::gothic

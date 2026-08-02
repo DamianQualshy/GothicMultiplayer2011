@@ -121,7 +121,7 @@ int Function_NAY(int virtuals) {
 * @name     enableHud
 * @side     client
 * @category Interface
-* @param    (number) hud_type  HUD type constant.
+* @param    (number) hud_type  HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @param    (boolean) enabled  New HUD state.
 * @return   (boolean)          True on success.
 *
@@ -138,7 +138,7 @@ bool Function_EnableHud(std::int32_t hud_type, bool enabled) {
 * @name     isHudEnabled
 * @side     client
 * @category Interface
-* @param    (number) hud_type  HUD type constant.
+* @param    (number) hud_type  HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @return   (boolean|nil)      HUD state, or nil for unsupported HUD types.
 *
 */
@@ -160,8 +160,8 @@ sol::object Function_IsHudEnabled(std::int32_t hud_type, sol::this_state ts) {
 * @name     setHudMode
 * @side     client
 * @category Interface
-* @param    (number) hud_type  HUD type constant.
-* @param    (number) mode      HUD mode constant.
+* @param    (number) hud_type  HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
+* @param    (number) mode      HUD mode constant from the same table.
 * @return   (boolean)          True on success.
 *
 */
@@ -177,8 +177,8 @@ bool Function_SetHudMode(std::int32_t hud_type, std::int32_t mode) {
 * @name     getHudMode
 * @side     client
 * @category Interface
-* @param    (number) hud_type  HUD type constant.
-* @return   (number|nil)       HUD mode constant, or nil for unsupported HUD types.
+* @param    (number) hud_type  HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
+* @return   (number|nil)       HUD mode constant from the same table, or nil for unsupported HUD types.
 *
 */
 sol::object Function_GetHudMode(std::int32_t hud_type, sol::this_state ts) {
@@ -199,7 +199,7 @@ sol::object Function_GetHudMode(std::int32_t hud_type, sol::this_state ts) {
 * @name     setBarPosition
 * @side     client
 * @category Interface
-* @param    (number) hud_type  Status bar HUD type constant.
+* @param    (number) hud_type  Status bar HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @param    (number) x         X position.
 * @param    (number) y         Y position.
 * @return   (boolean)          True on success.
@@ -217,7 +217,7 @@ bool Function_SetBarPosition(std::int32_t hud_type, std::int32_t x, std::int32_t
 * @name     getBarPosition
 * @side     client
 * @category Interface
-* @param    (number) hud_type  Status bar HUD type constant.
+* @param    (number) hud_type  Status bar HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @return   ({x, y}|nil)       Status bar position, or nil for unsupported HUD types.
 *
 */
@@ -242,7 +242,7 @@ sol::object Function_GetBarPosition(std::int32_t hud_type, sol::this_state ts) {
 * @name     setBarSize
 * @side     client
 * @category Interface
-* @param    (number) hud_type  Status bar HUD type constant.
+* @param    (number) hud_type  Status bar HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @param    (number) width     Width.
 * @param    (number) height    Height.
 * @return   (boolean)          True on success.
@@ -260,7 +260,7 @@ bool Function_SetBarSize(std::int32_t hud_type, std::int32_t width, std::int32_t
 * @name     getBarSize
 * @side     client
 * @category Interface
-* @param    (number) hud_type       Status bar HUD type constant.
+* @param    (number) hud_type       Status bar HUD type constant. For more information, see [HUD Constants](../../client-constants/HUD.md).
 * @return   ({width, height}|nil)   Status bar size, or nil for unsupported HUD types.
 *
 */

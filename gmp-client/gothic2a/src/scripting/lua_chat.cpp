@@ -39,7 +39,6 @@ CChat& Chat() {
 
 }  // namespace
 
-void BindChat(sol::state& lua) {
 /* luagmp (func)
 *
 * This function clears the current chat input text.
@@ -50,9 +49,9 @@ void BindChat(sol::state& lua) {
 * @category Chat
 *
 */
-  lua["chatInputClear"] = []() {
-    Chat().ClearInput();
-  };
+void Function_ChatInputClear() {
+  Chat().ClearInput();
+}
 
 /* luagmp (func)
 *
@@ -64,9 +63,9 @@ void BindChat(sol::state& lua) {
 * @category Chat
 *
 */
-  lua["chatInputClose"] = []() {
-    Chat().CloseInput();
-  };
+void Function_ChatInputClose() {
+  Chat().CloseInput();
+}
 
 /* luagmp (func)
 *
@@ -79,9 +78,9 @@ void BindChat(sol::state& lua) {
 * @return   (number) Zero-based caret position.
 *
 */
-  lua["chatInputGetCaretPosition"] = []() {
-    return Chat().GetInputCaretPosition();
-  };
+int Function_ChatInputGetCaretPosition() {
+  return Chat().GetInputCaretPosition();
+}
 
 /* luagmp (func)
 *
@@ -94,9 +93,9 @@ void BindChat(sol::state& lua) {
 * @return   (string) Font name.
 *
 */
-  lua["chatInputGetFont"] = []() {
-    return Chat().GetInputFont();
-  };
+std::string Function_ChatInputGetFont() {
+  return Chat().GetInputFont();
+}
 
 /* luagmp (func)
 *
@@ -109,9 +108,9 @@ void BindChat(sol::state& lua) {
 * @return   (Vec2) Position with x and y fields.
 *
 */
-  lua["chatInputGetPosition"] = []() {
-    return ::lua::types::Vec2(static_cast<float>(Chat().GetInputX()), static_cast<float>(Chat().GetInputY()));
-  };
+::lua::types::Vec2 Function_ChatInputGetPosition() {
+  return ::lua::types::Vec2(static_cast<float>(Chat().GetInputX()), static_cast<float>(Chat().GetInputY()));
+}
 
 /* luagmp (func)
 *
@@ -124,9 +123,9 @@ void BindChat(sol::state& lua) {
 * @return   (string) Input text.
 *
 */
-  lua["chatInputGetText"] = []() {
-    return Chat().GetInputText();
-  };
+std::string Function_ChatInputGetText() {
+  return Chat().GetInputText();
+}
 
 /* luagmp (func)
 *
@@ -139,9 +138,9 @@ void BindChat(sol::state& lua) {
 * @return   (boolean) True when the input is open.
 *
 */
-  lua["chatInputIsOpen"] = []() {
-    return Chat().IsInputActive();
-  };
+bool Function_ChatInputIsOpen() {
+  return Chat().IsInputActive();
+}
 
 /* luagmp (func)
 *
@@ -153,9 +152,9 @@ void BindChat(sol::state& lua) {
 * @category Chat
 *
 */
-  lua["chatInputOpen"] = []() {
-    Chat().OpenInput();
-  };
+void Function_ChatInputOpen() {
+  Chat().OpenInput();
+}
 
 /* luagmp (func)
 *
@@ -167,9 +166,9 @@ void BindChat(sol::state& lua) {
 * @category Chat
 *
 */
-  lua["chatInputSend"] = []() {
-    Chat().SubmitInput();
-  };
+void Function_ChatInputSend() {
+  Chat().SubmitInput();
+}
 
 /* luagmp (func)
 *
@@ -182,9 +181,9 @@ void BindChat(sol::state& lua) {
 * @param    (number) position Zero-based caret position.
 *
 */
-  lua["chatInputSetCaretPosition"] = [](int position) {
-    Chat().SetInputCaretPosition(position);
-  };
+void Function_ChatInputSetCaretPosition(int position) {
+  Chat().SetInputCaretPosition(position);
+}
 
 /* luagmp (func)
 *
@@ -197,9 +196,9 @@ void BindChat(sol::state& lua) {
 * @param    (string) font Font name.
 *
 */
-  lua["chatInputSetFont"] = [](const std::string& font) {
-    Chat().SetInputFont(font);
-  };
+void Function_ChatInputSetFont(const std::string& font) {
+  Chat().SetInputFont(font);
+}
 
 /* luagmp (func)
 *
@@ -213,9 +212,9 @@ void BindChat(sol::state& lua) {
 * @param    (number) y Y position.
 *
 */
-  lua["chatInputSetPosition"] = [](int x, int y) {
-    Chat().SetInputPosition(x, y);
-  };
+void Function_ChatInputSetPosition(int x, int y) {
+  Chat().SetInputPosition(x, y);
+}
 
 /* luagmp (func)
 *
@@ -228,9 +227,24 @@ void BindChat(sol::state& lua) {
 * @param    (string) text New input text.
 *
 */
-  lua["chatInputSetText"] = [](const std::string& text) {
-    Chat().SetInputText(text);
-  };
+void Function_ChatInputSetText(const std::string& text) {
+  Chat().SetInputText(text);
+}
+
+void BindChat(sol::state& lua) {
+  lua["chatInputClear"] = Function_ChatInputClear;
+  lua["chatInputClose"] = Function_ChatInputClose;
+  lua["chatInputGetCaretPosition"] = Function_ChatInputGetCaretPosition;
+  lua["chatInputGetFont"] = Function_ChatInputGetFont;
+  lua["chatInputGetPosition"] = Function_ChatInputGetPosition;
+  lua["chatInputGetText"] = Function_ChatInputGetText;
+  lua["chatInputIsOpen"] = Function_ChatInputIsOpen;
+  lua["chatInputOpen"] = Function_ChatInputOpen;
+  lua["chatInputSend"] = Function_ChatInputSend;
+  lua["chatInputSetCaretPosition"] = Function_ChatInputSetCaretPosition;
+  lua["chatInputSetFont"] = Function_ChatInputSetFont;
+  lua["chatInputSetPosition"] = Function_ChatInputSetPosition;
+  lua["chatInputSetText"] = Function_ChatInputSetText;
 }
 
 }  // namespace gmp::gothic

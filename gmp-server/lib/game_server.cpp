@@ -36,6 +36,8 @@ SOFTWARE.
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cstring>
+#include <ctime>
 #include <cmath>
 #include <dylib.hpp>
 #include <limits>
@@ -105,8 +107,8 @@ bool SelectConfiguredResources(const ResourceManager& resource_manager, const st
       return false;
     }
 
-    if (!it->active) {
-      SPDLOG_ERROR("Configured resource '{}' is inactive or has invalid metadata", resource_name);
+    if (!it->metadata) {
+      SPDLOG_ERROR("Configured resource '{}' has invalid metadata", resource_name);
       return false;
     }
 
@@ -433,6 +435,19 @@ void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::P
   auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
   g_net_server->Send(buffer.data(), written_size, priority, reliable, channel, id);
   DiagnosticsManager::Instance().RecordOutgoingPacket(packet.packet_type, static_cast<std::uint32_t>(written_size));
+}
+
+template <typename PacketT>
+bool DeserializeClientPacket(const ::Packet& source, PacketT& packet, std::uint8_t packet_identifier, const char* packet_name) {
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({source.data, source.length}, packet);
+  if (!state.second) {
+    DiagnosticsManager::Instance().RecordPacketRejected(packet_identifier);
+    SPDLOG_WARN("Failed to deserialize {}", packet_name);
+    return false;
+  }
+
+  return true;
 }
 
 template <typename Packet>
@@ -864,8 +879,6 @@ bool GameServer::Init() {
   } else if (!IsPublic()) {
     SPDLOG_WARN("Server marked as private, skipping connection to Master Server..");
   }
-  this->last_stand_timer = 0;
-
   SPDLOG_INFO(kFrame);
 
   // Initialize Lua VM
@@ -1214,118 +1227,18 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_CASTSPELLONTARGET:
       HandleCastSpell(p, true);
       break;
-    case PT_PLAYER_HIT: {
-      PlayerHitReportPacket packet;
-      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-      if (!state.second) {
-        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
-        SPDLOG_WARN("Failed to deserialize PlayerHitReportPacket");
-        break;
-      }
-      auto attacker_opt = player_manager_.GetPlayerByConnection(p.id);
-      auto victim_opt = player_manager_.GetPlayer(packet.victim_id);
-      if (!attacker_opt.has_value() || !victim_opt.has_value()) {
-        break;
-      }
-      auto& attacker = attacker_opt->get();
-      auto& victim = victim_opt->get();
-      if (!attacker.is_ingame || !victim.is_ingame || victim.tod != 0) {
-        break;
-      }
-      ApplyPlayerDamage(victim, attacker.player_id, packet.damage, packet.damage_type, packet.dont_kill);
-    } break;
-    case PT_PLAYER_UNCONSCIOUS: {
-      PlayerUnconsciousPacket packet;
-      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-      if (!state.second) {
-        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
-        SPDLOG_WARN("Failed to deserialize PlayerUnconsciousPacket");
-        break;
-      }
-      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-      if (!player_opt.has_value()) {
-        break;
-      }
-      auto& player = player_opt->get();
-      if (!player.is_ingame || player.tod != 0) {
-        break;
-      }
-      std::optional<PlayerId> attacker;
-      if (packet.attacker_id.has_value()) {
-        auto attacker_opt = player_manager_.GetPlayer(packet.attacker_id.value());
-        if (attacker_opt.has_value() && attacker_opt->get().is_ingame) {
-          attacker = packet.attacker_id.value();
-        }
-      }
-      MakePlayerUnconscious(player, attacker);
-    } break;
-    case PT_PLAYER_STANDUP: {
-      PlayerStandUpPacket packet;
-      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-      if (!state.second) {
-        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
-        SPDLOG_WARN("Failed to deserialize PlayerStandUpPacket");
-        break;
-      }
-      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-      if (!player_opt.has_value()) {
-        break;
-      }
-      auto& player = player_opt->get();
-      if (player.is_ingame && player.tod == 0 && (player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
-        const auto old_health = player.health;
-        player.flags &= ~PlayerManager::PL_UNCONCIOUS;
-        if (player.health <= 0) {
-          player.health = 1;
-        }
-        player.state.health_points = player.health;
-        player.state.life_state = GetPlayerLifeState(player);
-        AdvancePlayerStateSequence(player);
-        if (old_health != player.health) {
-          EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                                OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
-          SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
-        }
-        EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
-        SendStandUpInfo(player.player_id);
-      }
-    } break;
-    case PT_PLAYER_DIED: {
-      PlayerDeathReportPacket packet;
-      using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-      auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-      if (!state.second) {
-        DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
-        SPDLOG_WARN("Failed to deserialize PlayerDeathReportPacket");
-        break;
-      }
-      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-      if (!player_opt.has_value()) {
-        break;
-      }
-      auto& player = player_opt->get();
-      if (!player.is_ingame || player.tod != 0) {
-        break;
-      }
-
-      std::optional<PlayerId> killer_id;
-      if (packet.killer_id.has_value()) {
-        auto killer_opt = player_manager_.GetPlayer(packet.killer_id.value());
-        if (killer_opt.has_value() && killer_opt->get().is_ingame) {
-          killer_id = packet.killer_id.value();
-        }
-      }
-      if (killer_id.has_value()) {
-        if ((player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
-          MakePlayerUnconscious(player, killer_id);
-          break;
-        }
-      }
-      HandlePlayerDeath(player, killer_id);
-    } break;
+    case PT_PLAYER_HIT:
+      HandlePlayerHitReport(p, packetIdentifier);
+      break;
+    case PT_PLAYER_UNCONSCIOUS:
+      HandlePlayerUnconsciousReport(p, packetIdentifier);
+      break;
+    case PT_PLAYER_STANDUP:
+      HandlePlayerStandUpReport(p, packetIdentifier);
+      break;
+    case PT_PLAYER_DIED:
+      HandlePlayerDeathReport(p, packetIdentifier);
+      break;
     case PT_DROPITEM:
       HandleDropItem(p);
       break;
@@ -1363,13 +1276,15 @@ unsigned char GameServer::GetPacketIdentifier(const Packet& p) {
     return 0;
   }
 
-  if ((unsigned char)p.data[0] == ID_TIMESTAMP) {
-    if (p.length <= 1 + sizeof(std::uint32_t)) {
-      return ID_TIMESTAMP;
-    }
-    return (unsigned char)p.data[1 + sizeof(std::uint32_t)];
-  } else
-    return (unsigned char)p.data[0];
+  const auto packet_identifier = static_cast<unsigned char>(p.data[0]);
+  if (packet_identifier != ID_TIMESTAMP) {
+    return packet_identifier;
+  }
+
+  if (p.length <= 1 + sizeof(std::uint32_t)) {
+    return ID_TIMESTAMP;
+  }
+  return static_cast<unsigned char>(p.data[1 + sizeof(std::uint32_t)]);
 }
 
 void GameServer::DeleteFromPlayerList(PlayerId player_id) {
@@ -1391,6 +1306,128 @@ void GameServer::HandlePlayerDisconnect(Net::ConnectionHandle connection, std::i
     }
     DeleteFromPlayerList(player.player_id);
   }
+}
+
+std::optional<std::reference_wrapper<GameServer::Player>> GameServer::GetIngamePlayerByConnection(Net::ConnectionHandle connection) {
+  auto player_opt = player_manager_.GetPlayerByConnection(connection);
+  if (!player_opt.has_value() || !player_opt->get().is_ingame) {
+    return std::nullopt;
+  }
+
+  return player_opt;
+}
+
+void GameServer::HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier) {
+  PlayerHitReportPacket packet;
+  if (!DeserializeClientPacket(p, packet, packet_identifier, "PlayerHitReportPacket")) {
+    return;
+  }
+
+  auto attacker_opt = GetIngamePlayerByConnection(p.id);
+  auto victim_opt = player_manager_.GetPlayer(packet.victim_id);
+  if (!attacker_opt.has_value() || !victim_opt.has_value()) {
+    return;
+  }
+
+  auto& attacker = attacker_opt->get();
+  auto& victim = victim_opt->get();
+  if (!victim.is_ingame || victim.tod != 0) {
+    return;
+  }
+
+  ApplyPlayerDamage(victim, attacker.player_id, packet.damage, packet.damage_type, packet.dont_kill);
+}
+
+void GameServer::HandlePlayerUnconsciousReport(Packet p, std::uint8_t packet_identifier) {
+  PlayerUnconsciousPacket packet;
+  if (!DeserializeClientPacket(p, packet, packet_identifier, "PlayerUnconsciousPacket")) {
+    return;
+  }
+
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
+    return;
+  }
+
+  auto& player = player_opt->get();
+  if (player.tod != 0) {
+    return;
+  }
+
+  std::optional<PlayerId> attacker;
+  if (packet.attacker_id.has_value()) {
+    auto attacker_opt = player_manager_.GetPlayer(packet.attacker_id.value());
+    if (attacker_opt.has_value() && attacker_opt->get().is_ingame) {
+      attacker = packet.attacker_id.value();
+    }
+  }
+
+  MakePlayerUnconscious(player, attacker);
+}
+
+void GameServer::HandlePlayerStandUpReport(Packet p, std::uint8_t packet_identifier) {
+  PlayerStandUpPacket packet;
+  if (!DeserializeClientPacket(p, packet, packet_identifier, "PlayerStandUpPacket")) {
+    return;
+  }
+
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
+    return;
+  }
+
+  auto& player = player_opt->get();
+  if (player.tod != 0 || (player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
+    return;
+  }
+
+  const auto old_health = player.health;
+  player.flags &= ~PlayerManager::PL_UNCONCIOUS;
+  if (player.health <= 0) {
+    player.health = 1;
+  }
+  player.state.health_points = player.health;
+  player.state.life_state = GetPlayerLifeState(player);
+  AdvancePlayerStateSequence(player);
+  if (old_health != player.health) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+    SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
+  }
+  EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
+  SendStandUpInfo(player.player_id);
+}
+
+void GameServer::HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifier) {
+  PlayerDeathReportPacket packet;
+  if (!DeserializeClientPacket(p, packet, packet_identifier, "PlayerDeathReportPacket")) {
+    return;
+  }
+
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
+    return;
+  }
+
+  auto& player = player_opt->get();
+  if (player.tod != 0) {
+    return;
+  }
+
+  std::optional<PlayerId> killer_id;
+  if (packet.killer_id.has_value()) {
+    auto killer_opt = player_manager_.GetPlayer(packet.killer_id.value());
+    if (killer_opt.has_value() && killer_opt->get().is_ingame) {
+      killer_id = packet.killer_id.value();
+    }
+  }
+
+  if (killer_id.has_value() && (player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
+    MakePlayerUnconscious(player, killer_id);
+    return;
+  }
+
+  HandlePlayerDeath(player, killer_id);
 }
 
 bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type,
@@ -1490,7 +1527,7 @@ void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> kille
   victim.health = 0;
   victim.state.health_points = 0;
   victim.flags &= ~PlayerManager::PL_UNCONCIOUS;
-  victim.tod = time(NULL);
+  victim.tod = std::time(nullptr);
   victim.state.life_state = GetPlayerLifeState(victim);
   ClearTransientCombatState(victim);
   AdvancePlayerStateSequence(victim);
@@ -1521,11 +1558,7 @@ void GameServer::SomeoneJoinGame(Packet p) {
   }
 
   JoinGamePacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize JoinGamePacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "JoinGamePacket")) {
     return;
   }
   SPDLOG_TRACE("{} from {}", packet, p.id);
@@ -1565,22 +1598,14 @@ void GameServer::SomeoneJoinGame(Packet p) {
 }
 
 void GameServer::HandlePlayerUpdate(Packet p) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
+  auto player_opt = GetIngamePlayerByConnection(p.id);
   if (!player_opt.has_value()) {
     return;
   }
   auto& updated_player = player_opt.value().get();
-  if (!updated_player.is_ingame) {
-    return;
-  }
 
   PlayerStateUpdatePacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize PlayerStateUpdatePacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "PlayerStateUpdatePacket")) {
     return;
   }
 
@@ -1754,7 +1779,7 @@ void GameServer::HandleVoice(Packet p) {
 
   std::string data;
   data.resize(p.length);
-  memcpy(data.data(), p.data, p.length);
+  std::memcpy(data.data(), p.data, p.length);
   player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
     if (existing_player.connection != p.id) {
       g_net_server->Send((unsigned char*)data.data(), p.length, IMMEDIATE_PRIORITY, UNRELIABLE, 5, existing_player.connection);
@@ -1843,18 +1868,15 @@ void GameServer::HandleRconCommand(Player& player, const std::string& params) {
 }
 
 void GameServer::HandleNormalMsg(Packet p) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
     return;
+  }
 
   auto& player = player_opt.value().get();
 
   MessagePacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize MessagePacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "MessagePacket")) {
     return;
   }
 
@@ -1884,18 +1906,15 @@ void GameServer::HandleNormalMsg(Packet p) {
 }
 
 void GameServer::HandleCastSpell(Packet p, bool target) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
     return;
+  }
 
   auto& player = player_opt.value().get();
 
   CastSpellPacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize CastSpellPacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "CastSpellPacket")) {
     return;
   }
   packet.caster_id = player.player_id;
@@ -1922,18 +1941,15 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
 }
 
 void GameServer::HandleDropItem(Packet p) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
     return;
+  }
 
   auto& player = player_opt.value().get();
 
   DropItemPacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize DropItemPacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "DropItemPacket")) {
     return;
   }
 
@@ -1975,18 +1991,15 @@ void GameServer::HandleDropItem(Packet p) {
 }
 
 void GameServer::HandleTakeItem(Packet p) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame)
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
     return;
+  }
 
   auto& player = player_opt.value().get();
 
   TakeItemPacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize TakeItemPacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "TakeItemPacket")) {
     return;
   }
 
@@ -2023,19 +2036,15 @@ void GameServer::HandleTakeItem(Packet p) {
 }
 
 void GameServer::HandlePlayerWorldEnter(Packet p) {
-  auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-  if (!player_opt.has_value() || !player_opt.value().get().is_ingame) {
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value()) {
     return;
   }
 
   auto& player = player_opt.value().get();
 
   PlayerWorldEnterPacket packet;
-  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
-  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
-    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
-    SPDLOG_WARN("Failed to deserialize PlayerWorldEnterPacket");
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "PlayerWorldEnterPacket")) {
     return;
   }
 
@@ -2434,7 +2443,7 @@ void GameServer::SendDisconnectionInfo(PlayerId disconnected_player_id) {
 }
 
 bool GameServer::IsPublic() {
-  return (config_.Get<bool>("public")) ? true : false;
+  return config_.Get<bool>("public");
 }
 
 void GameServer::SendMessageToAll(std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& text) {
