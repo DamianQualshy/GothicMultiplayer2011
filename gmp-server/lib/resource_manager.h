@@ -47,6 +47,7 @@ public:
     std::string version;
     std::optional<std::string> author;
     std::optional<std::string> description;
+    std::vector<std::string> scripts;
   };
 
   struct DiscoveredResource {
@@ -119,6 +120,8 @@ public:
 
 private:
   static void SetCurrentResource(Resource* resource);  // Non-owning
+  const DiscoveredResource* FindDiscoveredResource(const std::string& name) const;
+  const DiscoveredResource* FindLoadableResource(const std::string& name);
 
   std::unordered_map<std::string, std::unique_ptr<Resource>> resources_;
   std::vector<DiscoveredResource> discovered_resources_;

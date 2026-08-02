@@ -60,18 +60,39 @@ protected:
     std::filesystem::remove_all(test_resources_dir_, ec);
   }
 
+  void WriteResourceToml(const std::string& name, const std::vector<std::string>& scripts, bool active = true) {
+    auto resource_dir = test_resources_dir_ / name;
+    std::filesystem::create_directories(resource_dir);
+
+    std::ofstream ofs(resource_dir / "resource.toml");
+    ASSERT_TRUE(ofs.good()) << "Failed to create resource.toml for resource " << name;
+    ofs << "version = \"1.0.0\"\n";
+    ofs << "author = \"Test\"\n";
+    ofs << "description = \"Test resource\"\n";
+    ofs << "active = " << (active ? "true" : "false") << "\n";
+    ofs << "scripts = [\n";
+    for (const auto& script : scripts) {
+      ofs << "  \"" << script << "\",\n";
+    }
+    ofs << "]\n";
+  }
+
   void CreateTestResource(const std::string& name, const std::string& lua_content, bool create_server_dir = true) {
     auto resource_dir = test_resources_dir_ / name;
     auto server_dir = resource_dir / "server";
+    std::vector<std::string> scripts;
 
     if (create_server_dir) {
       std::filesystem::create_directories(server_dir);
       std::ofstream ofs(server_dir / "main.lua");
       ASSERT_TRUE(ofs.good()) << "Failed to create main.lua for resource " << name;
       ofs << lua_content;
+      scripts.push_back("server/main.lua");
     } else {
       std::filesystem::create_directories(resource_dir);
     }
+
+    WriteResourceToml(name, scripts);
   }
 
   std::filesystem::path test_resources_dir_;
@@ -210,6 +231,7 @@ TEST_F(ResourceManagerTest, UnloadResourceRemovesOwnedEventHandlers) {
 TEST_F(ResourceManagerTest, MultipleServerScriptsKeepDistinctLifecycleHooks) {
   auto server_dir = test_resources_dir_ / "multi_hook_resource" / "server";
   std::filesystem::create_directories(server_dir);
+  WriteResourceToml("multi_hook_resource", {"server/b.lua", "server/a.lua"});
 
   {
     std::ofstream ofs(server_dir / "a.lua");
@@ -245,14 +267,14 @@ TEST_F(ResourceManagerTest, MultipleServerScriptsKeepDistinctLifecycleHooks) {
   ASSERT_TRUE(manager.LoadResource("multi_hook_resource", lua_script));
 
   ASSERT_EQ(calls.size(), 2u);
-  EXPECT_EQ(calls[0], "a_start");
-  EXPECT_EQ(calls[1], "b_start");
+  EXPECT_EQ(calls[0], "b_start");
+  EXPECT_EQ(calls[1], "a_start");
 
   manager.UnloadResource("multi_hook_resource", lua_script);
 
   ASSERT_EQ(calls.size(), 4u);
-  EXPECT_EQ(calls[2], "b_stop");
-  EXPECT_EQ(calls[3], "a_stop");
+  EXPECT_EQ(calls[2], "a_stop");
+  EXPECT_EQ(calls[3], "b_stop");
 }
 
 TEST_F(ResourceManagerTest, ReloadsResourceSuccessfully) {

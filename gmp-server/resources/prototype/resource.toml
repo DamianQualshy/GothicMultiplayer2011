@@ -2,3 +2,8 @@ version = "0.1.0"
 author = "Gothic Multiplayer Team"
 description = "Prototype resource for testing and development"
 active = true
+
+scripts = [
+  "server/acp.lua",
+  "server/main.lua"
+]

@@ -29,9 +29,9 @@ SOFTWARE.
 #include <spdlog/common.h>
 #include <spdlog/fmt/fmt.h>
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/fmt/ranges.h>
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <fstream>
@@ -39,6 +39,7 @@ SOFTWARE.
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "shared/toml_wrapper.h"
@@ -60,10 +61,10 @@ const std::unordered_map<std::string, std::variant<std::string, std::vector<std:
     {"allow_modification", true},
     {"hide_map", false},
     {"respawn_time_seconds", 5},
+    {"resources", std::vector<std::string>{std::string("default"), std::string("prototype")}},
     {"log_file", std::string("log.txt")},
     {"log_to_stdout", true},
     {"log_level", std::string("trace")},
-    {"scripts", std::vector<std::string>{std::string("main.lua")}},
     {"tick_rate_ms", 100},
     {"seconds_per_game_minute", 4},
     {"stream_radius", 5000},
@@ -168,6 +169,24 @@ void Config::ValidateAndFixValues() {
       value = default_value;
     }
   }
+
+  auto& resources = std::get<std::vector<std::string>>(values_.at("resources"));
+  std::vector<std::string> normalized_resources;
+  normalized_resources.reserve(resources.size());
+  for (const auto& resource : resources) {
+    if (resource.empty()) {
+      SPDLOG_WARN("Ignoring empty resource name in config");
+      continue;
+    }
+
+    if (std::find(normalized_resources.begin(), normalized_resources.end(), resource) != normalized_resources.end()) {
+      SPDLOG_WARN("Ignoring duplicate resource '{}' in config", resource);
+      continue;
+    }
+
+    normalized_resources.push_back(resource);
+  }
+  resources = std::move(normalized_resources);
 }
 
 void Config::LogConfigValues() const {
@@ -190,6 +209,15 @@ void Config::LogConfigValues() const {
   SPDLOG_INFO("* {:<18}: {}", "Allow modification", bool_to_string(Get<bool>("allow_modification")));
   SPDLOG_INFO("* {:<18}: {}", "Hide map", bool_to_string(Get<bool>("hide_map")));
   SPDLOG_INFO("* {:<18}: {}", "Respawn time", fmt::format("{}s", Get<std::int32_t>("respawn_time_seconds")));
+  const auto& resources = Get<std::vector<std::string>>("resources");
+  std::ostringstream resources_list;
+  for (std::size_t i = 0; i < resources.size(); ++i) {
+    if (i > 0) {
+      resources_list << ", ";
+    }
+    resources_list << resources[i];
+  }
+  SPDLOG_INFO("* {:<18}: {}", "Resources", resources.empty() ? std::string("<none>") : resources_list.str());
 
   SPDLOG_INFO("");
   SPDLOG_INFO("-= Logging =-");

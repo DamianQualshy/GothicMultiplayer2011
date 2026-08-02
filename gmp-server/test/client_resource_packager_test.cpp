@@ -42,6 +42,8 @@ protected:
 
       std::ofstream meta_file(resource.root_path / "resource.toml");
       meta_file << "version = \"1.0.0\"\n";
+      meta_file << "active = true\n";
+      meta_file << "scripts = []\n";
       meta_file.close();
     }
 

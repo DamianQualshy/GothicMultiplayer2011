@@ -52,6 +52,7 @@ SOFTWARE.
 #include <string>
 #include <string_view>
 #include <utility>
+#include <vector>
 
 #include "diagnostics_manager.h"
 #include "gothic_clock.h"
@@ -89,6 +90,31 @@ constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
                                                 SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
                                                 SKY_SETTING_LIGHTNING;
+
+bool SelectConfiguredResources(const ResourceManager& resource_manager, const std::vector<std::string>& resource_names,
+                               std::vector<ResourceManager::DiscoveredResource>& selected_resources) {
+  const auto& discovered_resources = resource_manager.GetDiscoveredResourceInfo();
+  selected_resources.clear();
+  selected_resources.reserve(resource_names.size());
+
+  for (const auto& resource_name : resource_names) {
+    auto it = std::find_if(discovered_resources.begin(), discovered_resources.end(),
+                           [&resource_name](const ResourceManager::DiscoveredResource& resource) { return resource.name == resource_name; });
+    if (it == discovered_resources.end()) {
+      SPDLOG_ERROR("Configured resource '{}' was not found in resources/", resource_name);
+      return false;
+    }
+
+    if (!it->active) {
+      SPDLOG_ERROR("Configured resource '{}' is inactive or has invalid metadata", resource_name);
+      return false;
+    }
+
+    selected_resources.push_back(*it);
+  }
+
+  return true;
+}
 
 SkySettingsPacket MakeSkySettingsPacket(std::uint8_t flags, std::int32_t weather_type, std::int32_t rain_start_hour,
                                         std::int32_t rain_start_min, std::int32_t rain_stop_hour, std::int32_t rain_stop_min,
@@ -854,12 +880,18 @@ bool GameServer::Init() {
   // Set up exports proxy
   resource_manager_->CreateExportsProxy(lua_script_->GetLuaState());
 
-  // Discover and load all resources from resources/
-  auto discovered_resources = resource_manager_->DiscoverResources();
+  // Discover resource metadata, then load only the resources configured by server order.
+  resource_manager_->DiscoverResources();
   resource_manager_->LogResourceInfo();
 
+  const auto& configured_resource_names = config_.Get<std::vector<std::string>>("resources");
+  std::vector<ResourceManager::DiscoveredResource> configured_resources;
+  if (!SelectConfiguredResources(*resource_manager_, configured_resource_names, configured_resources)) {
+    return false;
+  }
+
   try {
-    client_resource_descriptors_ = ClientResourcePackager::Build(resource_manager_->GetDiscoveredResourceInfo());
+    client_resource_descriptors_ = ClientResourcePackager::Build(configured_resources);
   } catch (const std::exception& ex) {
     SPDLOG_ERROR("Failed to pack client resources: {}", ex.what());
     return false;
@@ -870,8 +902,11 @@ bool GameServer::Init() {
     return false;
   }
 
-  for (const auto& resource_name : discovered_resources) {
-    resource_manager_->LoadResource(resource_name, *lua_script_);
+  for (const auto& resource : configured_resources) {
+    if (!resource_manager_->LoadResource(resource.name, *lua_script_)) {
+      SPDLOG_ERROR("Failed to load configured resource '{}'", resource.name);
+      return false;
+    }
   }
 
   last_update_time_ = std::chrono::steady_clock::now();

@@ -42,31 +42,90 @@ constexpr const char* kMetadataFileName = "resource.toml";
 
 struct ResourceMetadataResult {
   std::optional<ResourceManager::ResourceMetadata> metadata;
-  bool active = true;
+  bool active = false;
 };
 
-ResourceMetadataResult LoadResourceMetadata(const fs::path& resource_root, const std::string& resource_name) {
+bool IsServerScriptPath(const std::string& path) {
+  return path.rfind("shared/", 0) == 0 || path.rfind("server/", 0) == 0;
+}
+
+bool NormalizeResourceScriptPath(const std::string& script_path, std::string& normalized, std::string& error) {
+  if (script_path.empty()) {
+    error = "script path is empty";
+    return false;
+  }
+
+  fs::path path(script_path);
+  if (path.is_absolute() || path.has_root_name() || path.has_root_directory()) {
+    error = "script path must be relative";
+    return false;
+  }
+
+  for (const auto& part : path) {
+    if (part == fs::path("..")) {
+      error = "script path cannot contain '..'";
+      return false;
+    }
+  }
+
+  if (path.extension() != ".lua") {
+    error = "script path must point to a .lua file";
+    return false;
+  }
+
+  normalized = path.lexically_normal().generic_string();
+  if (!IsServerScriptPath(normalized)) {
+    error = "server resource scripts must be under shared/ or server/";
+    return false;
+  }
+
+  return true;
+}
+
+std::optional<ResourceMetadataResult> LoadResourceMetadata(const fs::path& resource_root, const std::string& resource_name) {
   ResourceMetadataResult result;
   const fs::path metadata_path = resource_root / kMetadataFileName;
   if (!fs::exists(metadata_path)) {
-    SPDLOG_DEBUG("Resource '{}' has no {} metadata", resource_name, kMetadataFileName);
-    return result;
+    SPDLOG_DEBUG("Skipping directory '{}' because it has no {}", resource_name, kMetadataFileName);
+    return std::nullopt;
   }
 
   try {
     const toml::value metadata = toml::parse(metadata_path.string());
-    result.active = toml::find_or(metadata, "active", true);
+    if (!metadata.contains("active")) {
+      SPDLOG_ERROR("Resource '{}' metadata is missing required 'active' field", resource_name);
+      return result;
+    }
+    result.active = toml::find<bool>(metadata, "active");
 
     if (!metadata.contains("version")) {
-      SPDLOG_WARN("Resource '{}' metadata is missing a non-empty 'version' field; skipping client pack", resource_name);
+      SPDLOG_ERROR("Resource '{}' metadata is missing required 'version' field", resource_name);
       return result;
     }
 
     ResourceManager::ResourceMetadata meta;
     meta.version = toml::find<std::string>(metadata, "version");
     if (meta.version.empty()) {
-      SPDLOG_WARN("Resource '{}' metadata declared an empty version; skipping client pack", resource_name);
+      SPDLOG_ERROR("Resource '{}' metadata declared an empty version", resource_name);
       return result;
+    }
+
+    if (!metadata.contains("scripts")) {
+      SPDLOG_ERROR("Resource '{}' metadata is missing required 'scripts' field", resource_name);
+      return result;
+    }
+
+    std::vector<std::string> declared_scripts = toml::find<std::vector<std::string>>(metadata, "scripts");
+    meta.scripts.reserve(declared_scripts.size());
+    for (const auto& script : declared_scripts) {
+      std::string normalized;
+      std::string error;
+      if (!NormalizeResourceScriptPath(script, normalized, error)) {
+        SPDLOG_ERROR("Resource '{}' has invalid script '{}': {}", resource_name, script, error);
+        return result;
+      }
+
+      meta.scripts.push_back(std::move(normalized));
     }
 
     const std::string author = toml::find_or(metadata, "author", std::string{});
@@ -123,18 +182,22 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
     }
 
     std::string resource_name = entry.path().filename().string();
+    auto metadata_result = LoadResourceMetadata(entry.path(), resource_name);
+    if (!metadata_result.has_value()) {
+      continue;
+    }
+
     DiscoveredResource descriptor;
     descriptor.name = resource_name;
     descriptor.root_path = entry.path();
-    auto metadata_result = LoadResourceMetadata(descriptor.root_path, descriptor.name);
-    descriptor.metadata = std::move(metadata_result.metadata);
-    descriptor.active = metadata_result.active;
+    descriptor.metadata = std::move(metadata_result->metadata);
+    descriptor.active = metadata_result->active && descriptor.metadata.has_value();
 
     discovered_resources_.push_back(descriptor);
     if (descriptor.active) {
       discovered.push_back(resource_name);
     }
-    SPDLOG_DEBUG("  Found resource: '{}'{}{}", resource_name, descriptor.metadata ? " (metadata detected)" : "",
+    SPDLOG_DEBUG("  Found resource: '{}'{}{}", resource_name, descriptor.metadata ? " (metadata detected)" : " (invalid metadata)",
                  descriptor.active ? "" : " (inactive)");
   }
 
@@ -151,22 +214,6 @@ std::vector<std::string> ResourceManager::DiscoverResources() {
 }
 
 void ResourceManager::LogResourceInfo() const {
-  const auto count_scripts_in_directory = [](const fs::path& directory) {
-    std::size_t count = 0;
-
-    if (!fs::exists(directory) || !fs::is_directory(directory)) {
-      return count;
-    }
-
-    for (const auto& entry : fs::directory_iterator(directory)) {
-      if (entry.is_regular_file() && entry.path().extension() == ".lua") {
-        ++count;
-      }
-    }
-
-    return count;
-  };
-
   std::size_t inactive_scripts_count = 0;
   std::size_t inactive_resources = 0;
   std::size_t active_scripts_count = 0;
@@ -174,16 +221,10 @@ void ResourceManager::LogResourceInfo() const {
   for (const auto& resource : discovered_resources_) {
     if (resource.active) {
       ++active_resources;
-
-      active_scripts_count += count_scripts_in_directory(resource.root_path / "shared");
-      active_scripts_count += count_scripts_in_directory(resource.root_path / "server");
-      active_scripts_count += count_scripts_in_directory(resource.root_path / "client");
+      active_scripts_count += resource.metadata ? resource.metadata->scripts.size() : 0;
     } else {
       ++inactive_resources;
-
-      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "shared");
-      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "server");
-      inactive_scripts_count += count_scripts_in_directory(resource.root_path / "client");
+      inactive_scripts_count += resource.metadata ? resource.metadata->scripts.size() : 0;
     }
   }
 
@@ -195,7 +236,47 @@ void ResourceManager::LogResourceInfo() const {
   SPDLOG_INFO("* {:<18}: {}", "Inactive scripts count", inactive_scripts_count);
 }
 
+const ResourceManager::DiscoveredResource* ResourceManager::FindDiscoveredResource(const std::string& name) const {
+  auto it = std::find_if(discovered_resources_.begin(), discovered_resources_.end(),
+                         [&name](const DiscoveredResource& resource) { return resource.name == name; });
+  if (it == discovered_resources_.end()) {
+    return nullptr;
+  }
+
+  return &*it;
+}
+
+const ResourceManager::DiscoveredResource* ResourceManager::FindLoadableResource(const std::string& name) {
+  const DiscoveredResource* descriptor = FindDiscoveredResource(name);
+  if (descriptor == nullptr) {
+    DiscoverResources();
+    descriptor = FindDiscoveredResource(name);
+  }
+
+  if (descriptor == nullptr) {
+    SPDLOG_WARN("Resource '{}' was not discovered from a {}", name, kMetadataFileName);
+    return nullptr;
+  }
+
+  if (!descriptor->metadata) {
+    SPDLOG_WARN("Resource '{}' has invalid metadata", name);
+    return nullptr;
+  }
+
+  if (!descriptor->active) {
+    SPDLOG_WARN("Resource '{}' is inactive", name);
+    return nullptr;
+  }
+
+  return descriptor;
+}
+
 bool ResourceManager::LoadResource(const std::string& name, LuaScript& lua_script) {
+  const DiscoveredResource* descriptor = FindLoadableResource(name);
+  if (descriptor == nullptr || !descriptor->metadata) {
+    return false;
+  }
+
   // Check if already loaded
   if (resources_.find(name) != resources_.end() && resources_[name]->IsLoaded()) {
     SPDLOG_WARN("Resource '{}' is already loaded", name);
@@ -211,7 +292,7 @@ bool ResourceManager::LoadResource(const std::string& name, LuaScript& lua_scrip
   ScopedResourceContext ctx(*resources_[name]);
 
   // Load the resource
-  return resources_[name]->Load(lua_script, lua_script.GetTimerManager());
+  return resources_[name]->Load(lua_script, lua_script.GetTimerManager(), descriptor->root_path, descriptor->metadata->scripts);
 }
 
 void ResourceManager::UnloadResource(const std::string& name, LuaScript& lua_script) {
@@ -229,6 +310,11 @@ void ResourceManager::UnloadResource(const std::string& name, LuaScript& lua_scr
 }
 
 bool ResourceManager::ReloadResource(const std::string& name, LuaScript& lua_script) {
+  const DiscoveredResource* descriptor = FindLoadableResource(name);
+  if (descriptor == nullptr || !descriptor->metadata) {
+    return false;
+  }
+
   auto it = resources_.find(name);
   if (it == resources_.end()) {
     SPDLOG_WARN("Resource '{}' does not exist", name);
@@ -239,7 +325,7 @@ bool ResourceManager::ReloadResource(const std::string& name, LuaScript& lua_scr
   ScopedResourceContext ctx(*it->second);
 
   // Reload the resource
-  return it->second->Reload(lua_script, lua_script.GetTimerManager());
+  return it->second->Reload(lua_script, lua_script.GetTimerManager(), descriptor->root_path, descriptor->metadata->scripts);
 }
 
 void ResourceManager::BindResourceAwareTimer(LuaScript& lua_script) {

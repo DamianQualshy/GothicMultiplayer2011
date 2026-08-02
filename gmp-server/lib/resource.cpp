@@ -48,7 +48,8 @@ const void* GetFunctionIdentity(const sol::protected_function& function) {
 
 Resource::Resource(std::string name) : name_(std::move(name)) {}
 
-bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
+bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager, const std::filesystem::path& root_path,
+                    const std::vector<std::string>& scripts) {
   if (loaded_) {
     SPDLOG_WARN("Resource '{}' is already loaded", name_);
     return false;
@@ -64,34 +65,8 @@ bool Resource::Load(LuaScript& lua_script, TimerManager& timer_manager) {
   start_hook_ids_.clear();
   stop_hook_ids_.clear();
 
-  const std::string base_path = "resources/" + name_;
-
-  auto load_directory = [&](const std::string& path, const char* label) {
-    if (!fs::exists(path) || !fs::is_directory(path)) {
-      return true;
-    }
-
-    SPDLOG_DEBUG("  Loading {} scripts from '{}'", label, path);
-    return LoadScriptsFromDirectory(lua, path);
-  };
-
-  // Load shared scripts first (shared between client and server)
-  if (!load_directory(base_path + "/shared", "shared")) {
-    SPDLOG_ERROR("Resource '{}' failed to load: shared script error", name_);
-    timer_manager.KillTimersForResource(name_);
-    lua::bindings::RemoveHandlersForResource(name_);
-    env_ = sol::environment();
-    exports_ = sol::nil;
-    start_hooks_.clear();
-    stop_hooks_.clear();
-    start_hook_ids_.clear();
-    stop_hook_ids_.clear();
-    return false;
-  }
-
-  // Then load server-only scripts
-  if (!load_directory(base_path + "/server", "server")) {
-    SPDLOG_ERROR("Resource '{}' failed to load: server script error", name_);
+  if (!LoadScripts(lua, root_path, scripts)) {
+    SPDLOG_ERROR("Resource '{}' failed to load: script error", name_);
     timer_manager.KillTimersForResource(name_);
     lua::bindings::RemoveHandlersForResource(name_);
     env_ = sol::environment();
@@ -148,31 +123,23 @@ void Resource::Unload(TimerManager& timer_manager) {
   SPDLOG_INFO("Resource '{}' unloaded", name_);
 }
 
-bool Resource::Reload(LuaScript& lua_script, TimerManager& timer_manager) {
+bool Resource::Reload(LuaScript& lua_script, TimerManager& timer_manager, const std::filesystem::path& root_path,
+                      const std::vector<std::string>& scripts) {
   SPDLOG_INFO("Reloading resource '{}'...", name_);
   Unload(timer_manager);
-  return Load(lua_script, timer_manager);
+  return Load(lua_script, timer_manager, root_path, scripts);
 }
 
-bool Resource::LoadScriptsFromDirectory(sol::state& lua, const std::string& directory) {
-  if (!fs::exists(directory) || !fs::is_directory(directory)) {
-    return true;
-  }
-
-  // Collect all .lua files
-  std::vector<std::string> script_files;
-  for (const auto& entry : fs::directory_iterator(directory)) {
-    if (entry.is_regular_file() && entry.path().extension() == ".lua") {
-      script_files.push_back(entry.path().string());
+bool Resource::LoadScripts(sol::state& lua, const std::filesystem::path& root_path, const std::vector<std::string>& scripts) {
+  for (const auto& script : scripts) {
+    const auto script_path = root_path / fs::path(script);
+    if (!fs::exists(script_path) || !fs::is_regular_file(script_path)) {
+      SPDLOG_ERROR("  Resource '{}' script '{}' does not exist or is not a file", name_, script);
+      return false;
     }
-  }
 
-  // Sort for consistent load order
-  std::sort(script_files.begin(), script_files.end());
-
-  // Execute each script in the resource environment
-  for (const auto& script_path : script_files) {
-    if (!ExecuteScript(lua, script_path)) {
+    SPDLOG_DEBUG("  Loading script '{}'", script);
+    if (!ExecuteScript(lua, script_path.string())) {
       return false;
     }
   }

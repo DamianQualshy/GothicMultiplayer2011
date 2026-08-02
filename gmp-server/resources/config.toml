@@ -28,6 +28,10 @@ map_md5 = ""
 allow_modification = true
 hide_map = false
 respawn_time_seconds = 5
+resources = [
+  "default",
+  "prototype"
+]
 
 # --- Logging -----------------------------------------------------------------
 log_file = "log.txt"
