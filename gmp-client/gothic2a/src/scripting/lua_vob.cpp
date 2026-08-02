@@ -328,19 +328,19 @@ sol::table LuaVob::getPosition(sol::this_state s) const {
 
 /* luagmp (method)
 *
-* This method will set the euler rotation of the Vob in the world.
+* This method will set the euler rotation of the Vob in the world, in degrees.
 *
 * @name     setRotation
-* @param    (number) x    Rotation on X axis.
-* @param    (number) y    Rotation on Y axis.
-* @param    (number) z    Rotation on Z axis.
+* @param    (number) x    Rotation on X axis in degrees.
+* @param    (number) y    Rotation on Y axis in degrees.
+* @param    (number) z    Rotation on Z axis in degrees.
 *
 */
 void LuaVob::setRotation(float x, float y, float z) {
   if (auto* handle = vob()) {
     zMAT4 matrix = handle->GetNewTrafoObjToWorld();
     zVEC3 translation = matrix.GetTranslation();
-    matrix.SetByEulerAngles(zVEC3(x, y, z));
+    matrix.SetByEulerAngles(lua_helpers::LuaRotationToGothicEuler(zVEC3(x, y, z)));
     matrix.SetTranslation(translation);
     handle->SetTrafoObjToWorld(matrix);
   }
@@ -348,7 +348,7 @@ void LuaVob::setRotation(float x, float y, float z) {
 
 /* luagmp (method)
 *
-* This method will set the euler rotation of the vob in the world.
+* This method will return the euler rotation of the vob in the world, in degrees.
 *
 * @name     getRotation
 * @return   ({x, y, z})   Table containing x,y,z rotation.
@@ -362,7 +362,7 @@ sol::table LuaVob::getRotation(sol::this_state s) const {
   float y = 0.0f;
   float z = 0.0f;
   if (auto* handle = vob()) {
-    zVEC3 euler = handle->GetNewTrafoObjToWorld().GetEulerAngles();
+    zVEC3 euler = lua_helpers::GothicEulerToLuaRotation(handle->GetNewTrafoObjToWorld().GetEulerAngles());
     x = euler.n[VX];
     y = euler.n[VY];
     z = euler.n[VZ];

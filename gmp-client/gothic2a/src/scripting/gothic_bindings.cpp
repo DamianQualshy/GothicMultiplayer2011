@@ -1779,7 +1779,11 @@ bool Function_SetPlayerAngle(std::int64_t id, float angle) {
     if (auto* npc = GetNpcById(id)) {
       const float radians = glm::radians(angle);
       const zVEC3 heading_vector(std::sin(radians), 0.0F, std::cos(radians));
-      npc->SetHeadingYWorld(heading_vector);
+      npc->SetHeadingYWorld(npc->GetPositionWorld() + heading_vector);
+
+      if (auto* player = GetPlayerByIdSigned(id)) {
+        player->base_player().set_rotation(glm::vec3(heading_vector[VX], heading_vector[VY], heading_vector[VZ]));
+      }
       return true;
     }
     return false;
@@ -1815,7 +1819,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 * @version  0.3.0
 * @name     giveItem
 * @side     client
-* @category Player
+* @category Inventory
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name.
 * @param    (number) amount       Amount to give.

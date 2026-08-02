@@ -31,6 +31,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include "gothic_events.h"
+#include "lua_helpers.h"
 #include "shared/event.h"
 
 using namespace Gothic_II_Addon;
@@ -315,7 +316,8 @@ void ClientItemGroundManager::ApplyTransform(oCItem* item, std::int32_t amount, 
 
   item->amount = std::max<std::int32_t>(1, amount);
   zMAT4 matrix = item->GetNewTrafoObjToWorld();
-  matrix.SetByEulerAngles(zVEC3(rotation.x, rotation.y, rotation.z));
+  matrix.SetByEulerAngles(
+      lua_helpers::LuaRotationToGothicEuler(zVEC3(rotation.x, rotation.y, rotation.z)));
   matrix.SetTranslation(zVEC3(position.x, position.y, position.z));
   item->SetTrafoObjToWorld(matrix);
   ApplyPhysicsState(item, physics_enabled);

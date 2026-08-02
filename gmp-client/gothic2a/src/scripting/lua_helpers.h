@@ -81,6 +81,8 @@ Gothic_II_Addon::zCWayNet* GetWayNet();
 Gothic_II_Addon::zCWorld* GetGameWorld();
 
 sol::table MakeVec3Table(sol::state_view lua, const Gothic_II_Addon::zVEC3& position);
+Gothic_II_Addon::zVEC3 LuaRotationToGothicEuler(const Gothic_II_Addon::zVEC3& degrees);
+Gothic_II_Addon::zVEC3 GothicEulerToLuaRotation(const Gothic_II_Addon::zVEC3& radians);
 float GetAngleDegreesFromDirection(const Gothic_II_Addon::zVEC3& direction);
 void AddAngle(sol::table& tbl, const Gothic_II_Addon::zVEC3& direction);
 void AddWaypointAngle(sol::table& tbl, Gothic_II_Addon::zCWaypoint* waypoint);

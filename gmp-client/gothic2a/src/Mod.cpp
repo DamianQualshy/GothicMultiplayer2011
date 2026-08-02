@@ -224,7 +224,8 @@ glm::vec3 GetItemRotation(oCItem* item) {
     return glm::vec3{0.0f};
   }
 
-  return ToGlmVec3(item->GetNewTrafoObjToWorld().GetEulerAngles());
+  const zVEC3 euler = item->GetNewTrafoObjToWorld().GetEulerAngles();
+  return glm::vec3(-euler[VX] * DEGREE, -euler[VY] * DEGREE, -euler[VZ] * DEGREE);
 }
 
 glm::vec3 GetDropFallbackPosition(oCNpc* npc) {

@@ -2004,7 +2004,7 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
 * @version  0.3.0
 * @name     equipItem
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
 * @param    (number|nil) slot_id  Optional slot id. Defaults to -1 for first free slot.
@@ -2026,7 +2026,7 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 * @version  0.3.0
 * @name     unequipItem
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
 * @return   (boolean)             True on success.
@@ -2047,7 +2047,7 @@ bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) 
 * @version  0.3.0
 * @name     equipArmor
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Armor item instance name.
 * @return   (boolean)             True when the equip packet was sent.
@@ -2068,7 +2068,7 @@ bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
 * @version  0.3.0
 * @name     unequipArmor
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @return   (boolean)             True when an equipped armor item was found and unequipped.
 *
@@ -2090,7 +2090,7 @@ bool Function_UnequipArmor(std::uint32_t player_id) {
 * @version  0.3.0
 * @name     equipMeleeWeapon
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Melee weapon item instance name.
 * @return   (boolean)             True when the equip packet was sent.
@@ -2111,7 +2111,7 @@ bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& insta
 * @version  0.3.0
 * @name     unequipMeleeWeapon
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @return   (boolean)             True when an equipped melee weapon was found and unequipped.
 *
@@ -2133,7 +2133,7 @@ bool Function_UnequipMeleeWeapon(std::uint32_t player_id) {
 * @version  0.3.0
 * @name     equipRangedWeapon
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Ranged weapon item instance name.
 * @return   (boolean)             True when the equip packet was sent.
@@ -2154,7 +2154,7 @@ bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& inst
 * @version  0.3.0
 * @name     unequipRangedWeapon
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @return   (boolean)             True when an equipped ranged weapon was found and unequipped.
 *
@@ -2176,7 +2176,7 @@ bool Function_UnequipRangedWeapon(std::uint32_t player_id) {
 * @version  0.3.0
 * @name     equipHelmet
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Helmet item instance name.
 * @return   (boolean)             True when the equip packet was sent.
@@ -2197,7 +2197,7 @@ bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) 
 * @version  0.3.0
 * @name     unequipHelmet
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @return   (boolean)             True when an equipped helmet item was found and unequipped.
 *
@@ -2219,7 +2219,7 @@ bool Function_UnequipHelmet(std::uint32_t player_id) {
 * @version  0.3.0
 * @name     equipShield
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Shield item instance name.
 * @return   (boolean)             True when the equip packet was sent.
@@ -2240,7 +2240,7 @@ bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) 
 * @version  0.3.0
 * @name     unequipShield
 * @side     server
-* @category Inventory
+* @category Player
 * @param    (number) player_id    Target player id.
 * @return   (boolean)             True when an equipped shield item was found and unequipped.
 *

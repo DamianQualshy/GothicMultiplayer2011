@@ -262,6 +262,15 @@ sol::table MakeVec3Table(sol::state_view lua, const zVEC3& position) {
   return tbl;
 }
 
+zVEC3 LuaRotationToGothicEuler(const zVEC3& degrees) {
+  // Gothic's zMAT4 Euler helpers use radians and the opposite sign from zCVob::RotateWorld*.
+  return zVEC3(-degrees[VX] * RAD, -degrees[VY] * RAD, -degrees[VZ] * RAD);
+}
+
+zVEC3 GothicEulerToLuaRotation(const zVEC3& radians) {
+  return zVEC3(-radians[VX] * DEGREE, -radians[VY] * DEGREE, -radians[VZ] * DEGREE);
+}
+
 float GetAngleDegreesFromDirection(const zVEC3& direction) {
   const float x = direction[VX];
   const float z = direction[VZ];

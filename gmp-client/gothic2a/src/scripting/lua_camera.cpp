@@ -63,7 +63,7 @@ void SetMatrixPosition(zMAT4& matrix, const zVEC3& position) {
 
 void SetMatrixRotation(zMAT4& matrix, const zVEC3& rotation) {
   const zVEC3 translation = matrix.GetTranslation();
-  matrix.SetByEulerAngles(rotation);
+  matrix.SetByEulerAngles(lua_helpers::LuaRotationToGothicEuler(rotation));
   matrix.SetTranslation(translation);
 }
 
@@ -439,7 +439,7 @@ sol::table LuaCamera::getPosition(sol::this_state ts) {
   if (auto* vob = CameraVob()) {
     position = vob->GetPositionWorld();
   } else if (auto* camera = RenderCamera()) {
-    camera->GetCamPos(position);
+    position = camera->camMatrixInv.GetTranslation();
   }
 
   return lua_helpers::MakeVec3Table(lua, position);
@@ -447,13 +447,13 @@ sol::table LuaCamera::getPosition(sol::this_state ts) {
 
 /* luagmp (method)
 *
-* Sets the active camera Euler rotation.
+* Sets the active camera Euler rotation in degrees.
 * This puts the camera into manual movement mode until movementEnabled is set to true.
 *
 * @name     setRotation
-* @param    (number) x    X rotation.
-* @param    (number) y    Y rotation.
-* @param    (number) z    Z rotation.
+* @param    (number) x    X rotation in degrees.
+* @param    (number) y    Y rotation in degrees.
+* @param    (number) z    Z rotation in degrees.
 *
 */
 void LuaCamera::setRotation(float x, float y, float z) {
@@ -477,7 +477,7 @@ void LuaCamera::setRotationValue(sol::object value) {
 
 /* luagmp (method)
 *
-* Returns the active camera Euler rotation.
+* Returns the active camera Euler rotation in degrees.
 *
 * @name     getRotation
 * @return   ({x, y, z})   Table containing x,y,z rotation.
@@ -492,7 +492,7 @@ sol::table LuaCamera::getRotation(sol::this_state ts) {
     rotation = camera->camMatrixInv.GetEulerAngles();
   }
 
-  return lua_helpers::MakeVec3Table(lua, rotation);
+  return lua_helpers::MakeVec3Table(lua, lua_helpers::GothicEulerToLuaRotation(rotation));
 }
 
 /* luagmp (method)
