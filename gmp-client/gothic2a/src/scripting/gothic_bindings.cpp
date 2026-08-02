@@ -198,6 +198,54 @@ oCItem* GetNpcSlotItem(oCNpc* npc, const char* slot_name) {
   return npc->GetSlotItem(slot);
 }
 
+bool IsValidEquipmentSlotItem(oCItem* item, EquipmentSlot slot) {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return item && (item->wear & ITM_WEAR_TORSO) != 0;
+    case EquipmentSlot::MeleeWeapon:
+      return item && (item->HasFlag(ITM_FLAG_SWD) || item->HasFlag(ITM_FLAG_DAG) ||
+                  item->HasFlag(ITM_FLAG_AXE) || item->HasFlag(ITM_FLAG_2HD_SWD) ||
+                  item->HasFlag(ITM_FLAG_2HD_AXE));
+    case EquipmentSlot::RangedWeapon:
+      return item && (item->HasFlag(ITM_FLAG_BOW) || item->HasFlag(ITM_FLAG_CROSSBOW));
+    case EquipmentSlot::Helmet:
+      return item && (item->wear & ITM_WEAR_HEAD) != 0;
+    case EquipmentSlot::Shield:
+      return item && item->HasFlag(ITM_FLAG_SHIELD);
+  }
+
+  return false;
+}
+
+oCItem* GetCurrentMeleeWeapon(oCNpc* npc) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  switch (npc->GetWeaponMode()) {
+    case NPC_WEAPON_1HS:
+    case NPC_WEAPON_2HS:
+      return dynamic_cast<oCItem*>(npc->GetRightHand());
+    default:
+      return npc->GetEquippedMeleeWeapon();
+  }
+}
+
+oCItem* GetCurrentRangedWeapon(oCNpc* npc) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  switch (npc->GetWeaponMode()) {
+    case NPC_WEAPON_BOW:
+      return dynamic_cast<oCItem*>(npc->GetLeftHand());
+    case NPC_WEAPON_CBOW:
+      return dynamic_cast<oCItem*>(npc->GetRightHand());
+    default:
+      return npc->GetEquippedRangedWeapon();
+  }
+}
+
 oCItem* GetEquippedSlotItem(oCNpc* npc, EquipmentSlot slot) {
   if (!npc) {
     return nullptr;
@@ -207,9 +255,9 @@ oCItem* GetEquippedSlotItem(oCNpc* npc, EquipmentSlot slot) {
     case EquipmentSlot::Armor:
       return npc->GetEquippedArmor();
     case EquipmentSlot::MeleeWeapon:
-      return npc->GetEquippedMeleeWeapon();
+      return GetCurrentMeleeWeapon(npc);
     case EquipmentSlot::RangedWeapon:
-      return npc->GetEquippedRangedWeapon();
+      return GetCurrentRangedWeapon(npc);
     case EquipmentSlot::Helmet:
       return GetNpcSlotItem(npc, NPC_NODE_HELMET);
     case EquipmentSlot::Shield:
@@ -243,53 +291,166 @@ std::optional<std::string> CachedEquipmentSlotInstance(Gothic2APlayer* player, E
 
 std::optional<std::string> GetEquipmentSlotInstance(std::int64_t id, EquipmentSlot slot) {
   if (auto* player = GetPlayerByIdSigned(id)) {
-    auto live_instance = ItemInstanceName(GetEquippedSlotItem(player->GetNpc(), slot));
-    return live_instance.has_value() ? live_instance : CachedEquipmentSlotInstance(player, slot);
+    if (auto* npc = player->GetNpc()) {
+      return ItemInstanceName(GetEquippedSlotItem(npc, slot));
+    }
+
+    return CachedEquipmentSlotInstance(player, slot);
   }
 
   return ItemInstanceName(GetEquippedSlotItem(GetNpcById(id), slot));
 }
 
-oCItem* FindInventoryItem(oCNpc* npc, const std::string& instance, bool create_one) {
+struct InventoryItemLookup {
+  oCItem* item{};
+  bool created{};
+};
+
+InventoryItemLookup FindInventoryItem(oCNpc* npc, const std::string& instance, bool create_one) {
   if (!npc) {
-    return nullptr;
+    return {};
   }
 
-  auto* parser = zCParser::GetParser();
-  if (!parser) {
-    return nullptr;
+  auto instance_id = ResolveScriptInstance(instance);
+  if (!instance_id) {
+    return {};
   }
 
-  zSTRING instance_name(instance.c_str());
-  const int instance_id = parser->GetIndex(instance_name);
-  if (instance_id < 0) {
-    return nullptr;
+  if (auto* item = npc->inventory2.IsIn(*instance_id, 1)) {
+    return {item, false};
   }
 
   if (create_one) {
-    npc->CreateItems(instance_id, 1);
+    oCItem* item = zfactory ? zfactory->CreateItem(*instance_id) : nullptr;
+    if (!item) {
+      return {};
+    }
+
+    item->amount = 1;
+    npc->inventory2.Insert(item);
+    return {item, true};
   }
 
-  return npc->inventory2.IsIn(instance_id, 1);
+  return {};
+}
+
+void RemoveItemFromHandSlots(oCNpc* npc, oCItem* item) {
+  if (!npc || !item) {
+    return;
+  }
+
+  if (npc->GetRightHand() == item) {
+    zSTRING slot(NPC_NODE_RIGHTHAND);
+    npc->RemoveFromSlot(slot, 0, 1);
+  }
+
+  if (npc->GetLeftHand() == item) {
+    zSTRING slot(NPC_NODE_LEFTHAND);
+    npc->RemoveFromSlot(slot, 0, 1);
+  }
+}
+
+bool UnequipSlot(oCNpc* npc, EquipmentSlot slot) {
+  if (!npc) {
+    return false;
+  }
+
+  oCItem* item = GetEquippedSlotItem(npc, slot);
+  if (!item) {
+    return false;
+  }
+
+  npc->UnequipItem(item);
+  RemoveItemFromHandSlots(npc, item);
+  return GetEquippedSlotItem(npc, slot) != item;
 }
 
 bool EquipInventoryInstance(oCNpc* npc, const std::string& instance) {
-  if (auto* item = FindInventoryItem(npc, instance, true)) {
-    npc->EquipItem(item);
+  if (instance == "NULL") {
+    return false;
+  }
+
+  auto lookup = FindInventoryItem(npc, instance, true);
+  if (!lookup.item) {
+    return false;
+  }
+
+  if (lookup.item->HasFlag(ITM_FLAG_ACTIVE)) {
     return true;
   }
 
-  return false;
+  npc->Equip(lookup.item);
+  return lookup.item->HasFlag(ITM_FLAG_ACTIVE);
+}
+
+bool EquipSlotInstance(oCNpc* npc, EquipmentSlot slot, const std::string& instance) {
+  if (!npc) {
+    return false;
+  }
+
+  if (instance == "NULL") {
+    return UnequipSlot(npc, slot);
+  }
+
+  auto lookup = FindInventoryItem(npc, instance, true);
+  if (!lookup.item) {
+    return false;
+  }
+
+  if (!IsValidEquipmentSlotItem(lookup.item, slot)) {
+    if (lookup.created) {
+      const int amount = std::max(1, lookup.item->amount);
+      oCItem* removed = npc->RemoveFromInv(lookup.item, amount);
+      if (!removed) {
+        removed = lookup.item;
+      }
+      removed->RemoveVobFromWorld();
+    }
+    return false;
+  }
+
+  if (GetEquippedSlotItem(npc, slot) == lookup.item) {
+    return true;
+  }
+
+  switch (slot) {
+    case EquipmentSlot::MeleeWeapon:
+      switch (npc->GetWeaponMode()) {
+        case NPC_WEAPON_1HS:
+        case NPC_WEAPON_2HS:
+          npc->SetRightHand(lookup.item);
+          return GetEquippedSlotItem(npc, slot) == lookup.item;
+        default:
+          break;
+      }
+      break;
+    case EquipmentSlot::RangedWeapon:
+      switch (npc->GetWeaponMode()) {
+        case NPC_WEAPON_BOW:
+          npc->SetLeftHand(lookup.item);
+          return GetEquippedSlotItem(npc, slot) == lookup.item;
+        case NPC_WEAPON_CBOW:
+          npc->SetRightHand(lookup.item);
+          return GetEquippedSlotItem(npc, slot) == lookup.item;
+        default:
+          break;
+      }
+      break;
+    default:
+      break;
+  }
+
+  if (auto* current = GetEquippedSlotItem(npc, slot)) {
+    npc->UnequipItem(current);
+    RemoveItemFromHandSlots(npc, current);
+  }
+
+  npc->Equip(lookup.item);
+  return GetEquippedSlotItem(npc, slot) == lookup.item;
 }
 
 bool UnequipSlot(std::int64_t id, EquipmentSlot slot) {
-  auto* npc = GetNpcById(id);
-  if (auto* item = GetEquippedSlotItem(npc, slot)) {
-    npc->UnequipItem(item);
-    return true;
-  }
-
-  return false;
+  return UnequipSlot(GetNpcById(id), slot);
 }
 
 struct VideoModeSelection {
@@ -1836,7 +1997,18 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
       zSTRING instance_name(instance.c_str());
       const int instance_id = parser->GetIndex(instance_name);
       if (instance_id >= 0) {
-        npc->CreateItems(instance_id, amount);
+        if (auto* existing = npc->inventory2.IsIn(instance_id, 1)) {
+          existing->amount += amount;
+          return true;
+        }
+
+        oCItem* item = zfactory ? zfactory->CreateItem(instance_id) : nullptr;
+        if (!item) {
+          return false;
+        }
+
+        item->amount = amount;
+        npc->inventory2.Insert(item);
         return true;
       }
     }
@@ -1876,20 +2048,24 @@ bool Function_EquipItem(std::int64_t id, const std::string& instance) {
 *
 */
 bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
-  if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
-      zSTRING instance_name(instance.c_str());
-      const int instance_id = parser->GetIndex(instance_name);
-      if (instance_id >= 0) {
-        if (auto* item = npc->inventory2.IsIn(instance_id, 1)) {
-          npc->UnequipItem(item);
-          return true;
-        }
-      }
-    }
+  auto* npc = GetNpcById(id);
+  auto lookup = FindInventoryItem(npc, instance, false);
+  if (!lookup.item) {
+    return false;
   }
 
-  return false;
+  const bool was_equipped = lookup.item->HasFlag(ITM_FLAG_ACTIVE) ||
+                            npc->GetRightHand() == lookup.item ||
+                            npc->GetLeftHand() == lookup.item;
+  if (!was_equipped) {
+    return false;
+  }
+
+  npc->UnequipItem(lookup.item);
+  RemoveItemFromHandSlots(npc, lookup.item);
+  return !lookup.item->HasFlag(ITM_FLAG_ACTIVE) &&
+         npc->GetRightHand() != lookup.item &&
+         npc->GetLeftHand() != lookup.item;
 }
 
 /* luagmp (func)
@@ -1906,7 +2082,7 @@ bool Function_UnequipItem(std::int64_t id, const std::string& instance) {
 *
 */
 bool Function_EquipArmor(std::int64_t id, const std::string& instance) {
-  return EquipInventoryInstance(GetNpcById(id), instance);
+  return EquipSlotInstance(GetNpcById(id), EquipmentSlot::Armor, instance);
 }
 
 /* luagmp (func)
@@ -1939,7 +2115,7 @@ bool Function_UnequipArmor(std::int64_t id) {
 *
 */
 bool Function_EquipMeleeWeapon(std::int64_t id, const std::string& instance) {
-  return EquipInventoryInstance(GetNpcById(id), instance);
+  return EquipSlotInstance(GetNpcById(id), EquipmentSlot::MeleeWeapon, instance);
 }
 
 /* luagmp (func)
@@ -1972,7 +2148,7 @@ bool Function_UnequipMeleeWeapon(std::int64_t id) {
 *
 */
 bool Function_EquipRangedWeapon(std::int64_t id, const std::string& instance) {
-  return EquipInventoryInstance(GetNpcById(id), instance);
+  return EquipSlotInstance(GetNpcById(id), EquipmentSlot::RangedWeapon, instance);
 }
 
 /* luagmp (func)
@@ -2005,7 +2181,7 @@ bool Function_UnequipRangedWeapon(std::int64_t id) {
 *
 */
 bool Function_EquipHelmet(std::int64_t id, const std::string& instance) {
-  return EquipInventoryInstance(GetNpcById(id), instance);
+  return EquipSlotInstance(GetNpcById(id), EquipmentSlot::Helmet, instance);
 }
 
 /* luagmp (func)
@@ -2038,7 +2214,7 @@ bool Function_UnequipHelmet(std::int64_t id) {
 *
 */
 bool Function_EquipShield(std::int64_t id, const std::string& instance) {
-  return EquipInventoryInstance(GetNpcById(id), instance);
+  return EquipSlotInstance(GetNpcById(id), EquipmentSlot::Shield, instance);
 }
 
 /* luagmp (func)
@@ -2347,15 +2523,11 @@ void Function_ClearInventory() {
     return;
   }
 
-  if (auto* equippedArmor = player->GetEquippedArmor()) {
-    player->UnequipItem(equippedArmor);
-  }
-  if (auto* rangedWeapon = player->GetEquippedRangedWeapon()) {
-    player->UnequipItem(rangedWeapon);
-  }
-  if (auto* meleeWeapon = player->GetEquippedMeleeWeapon()) {
-    player->UnequipItem(meleeWeapon);
-  }
+  UnequipSlot(player, EquipmentSlot::Armor);
+  UnequipSlot(player, EquipmentSlot::RangedWeapon);
+  UnequipSlot(player, EquipmentSlot::MeleeWeapon);
+  UnequipSlot(player, EquipmentSlot::Helmet);
+  UnequipSlot(player, EquipmentSlot::Shield);
 
   player->inventory2.ClearInventory();
 }

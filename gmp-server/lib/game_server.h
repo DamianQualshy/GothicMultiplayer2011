@@ -135,6 +135,16 @@ public:
   bool GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);
   bool EquipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id = -1);
   bool UnequipItem(PlayerId player_id, const std::string& instance);
+  bool EquipArmor(PlayerId player_id, const std::string& instance);
+  bool UnequipArmor(PlayerId player_id);
+  bool EquipMeleeWeapon(PlayerId player_id, const std::string& instance);
+  bool UnequipMeleeWeapon(PlayerId player_id);
+  bool EquipRangedWeapon(PlayerId player_id, const std::string& instance);
+  bool UnequipRangedWeapon(PlayerId player_id);
+  bool EquipHelmet(PlayerId player_id, const std::string& instance);
+  bool UnequipHelmet(PlayerId player_id);
+  bool EquipShield(PlayerId player_id, const std::string& instance);
+  bool UnequipShield(PlayerId player_id);
   std::int32_t HasItem(PlayerId player_id, const std::string& instance) const;
   bool RemoveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);
   bool SetPlayerWorld(PlayerId player_id, const std::string& world, std::optional<std::string> start_point = std::nullopt);
@@ -211,6 +221,8 @@ public:
   std::uint32_t GetPort() const;
 
 private:
+  enum class EquipmentSlot { Armor, Helmet, Shield, MeleeWeapon, RangedWeapon };
+
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
   void HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier);
@@ -260,6 +272,13 @@ private:
   void RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground);
   void SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount);
   void SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount);
+  bool EquipItemInSlot(PlayerId player_id, const std::string& instance, EquipmentSlot slot);
+  bool UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot);
+  bool IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const;
+  std::int16_t EquipmentSlotPacketId(EquipmentSlot slot) const;
+  std::int16_t& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
+  std::optional<std::int16_t>& PendingEquipmentStateField(Player& player, EquipmentSlot slot) const;
+  void TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index) const;
   std::optional<std::string> ResolveItemInstance(std::string instance) const;
   std::int16_t ResolveItemIndex(PlayerId player_id, std::int16_t index, const char* field_name) const;
   void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;

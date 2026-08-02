@@ -25,6 +25,8 @@ SOFTWARE.
 
 #pragma once
 
+#include <cstdint>
+
 namespace Net {
 enum PacketReliability { UNRELIABLE, UNRELIABLE_SEQUENCED, RELIABLE, RELIABLE_ORDERED };
 
@@ -34,6 +36,13 @@ enum PacketPriority {
   MEDIUM_PRIORITY,
   LOW_PRIORITY,
 };
+
+constexpr std::int16_t EQUIP_SLOT_GENERIC = -1;
+constexpr std::int16_t EQUIP_SLOT_ARMOR = -2;
+constexpr std::int16_t EQUIP_SLOT_MELEE_WEAPON = -3;
+constexpr std::int16_t EQUIP_SLOT_RANGED_WEAPON = -4;
+constexpr std::int16_t EQUIP_SLOT_HELMET = -5;
+constexpr std::int16_t EQUIP_SLOT_SHIELD = -6;
 
 enum PacketID {
   WL_PREPARE_TO_JOIN,

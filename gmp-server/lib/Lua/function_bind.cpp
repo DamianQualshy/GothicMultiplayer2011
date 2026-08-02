@@ -137,20 +137,6 @@ sol::object EquipmentInstanceOrNil(std::int16_t index, sol::state_view lua) {
   return sol::make_object(lua, item->instance);
 }
 
-std::optional<std::string> FindItemInstanceByIndex(std::int16_t index, const char* action) {
-  if (index <= 0) {
-    return std::nullopt;
-  }
-
-  const auto* item = g_server->GetItemRegistry().FindByIndex(index);
-  if (!item) {
-    SPDLOG_WARN("{} found unknown equipped item index {}", action, index);
-    return std::nullopt;
-  }
-
-  return item->instance;
-}
-
 }  // namespace
 
 
@@ -2058,7 +2044,7 @@ bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
     return false;
   }
 
-  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->EquipArmor(player_id, ClampLuaText(instance, 255));
 }
 
 /* luagmp (func)
@@ -2074,13 +2060,11 @@ bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
 *
 */
 bool Function_UnequipArmor(std::uint32_t player_id) {
-  auto player_opt = GetPlayerOrWarn(player_id, "unequipArmor");
-  if (!player_opt.has_value()) {
+  if (!GetPlayerOrWarn(player_id, "unequipArmor")) {
     return false;
   }
 
-  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_armor_instance, "unequipArmor");
-  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+  return g_server->UnequipArmor(player_id);
 }
 
 /* luagmp (func)
@@ -2101,7 +2085,7 @@ bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& insta
     return false;
   }
 
-  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->EquipMeleeWeapon(player_id, ClampLuaText(instance, 255));
 }
 
 /* luagmp (func)
@@ -2117,13 +2101,11 @@ bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& insta
 *
 */
 bool Function_UnequipMeleeWeapon(std::uint32_t player_id) {
-  auto player_opt = GetPlayerOrWarn(player_id, "unequipMeleeWeapon");
-  if (!player_opt.has_value()) {
+  if (!GetPlayerOrWarn(player_id, "unequipMeleeWeapon")) {
     return false;
   }
 
-  auto instance = FindItemInstanceByIndex(player_opt->get().state.melee_weapon_instance, "unequipMeleeWeapon");
-  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+  return g_server->UnequipMeleeWeapon(player_id);
 }
 
 /* luagmp (func)
@@ -2144,7 +2126,7 @@ bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& inst
     return false;
   }
 
-  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->EquipRangedWeapon(player_id, ClampLuaText(instance, 255));
 }
 
 /* luagmp (func)
@@ -2160,13 +2142,11 @@ bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& inst
 *
 */
 bool Function_UnequipRangedWeapon(std::uint32_t player_id) {
-  auto player_opt = GetPlayerOrWarn(player_id, "unequipRangedWeapon");
-  if (!player_opt.has_value()) {
+  if (!GetPlayerOrWarn(player_id, "unequipRangedWeapon")) {
     return false;
   }
 
-  auto instance = FindItemInstanceByIndex(player_opt->get().state.ranged_weapon_instance, "unequipRangedWeapon");
-  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+  return g_server->UnequipRangedWeapon(player_id);
 }
 
 /* luagmp (func)
@@ -2187,7 +2167,7 @@ bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) 
     return false;
   }
 
-  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->EquipHelmet(player_id, ClampLuaText(instance, 255));
 }
 
 /* luagmp (func)
@@ -2203,13 +2183,11 @@ bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) 
 *
 */
 bool Function_UnequipHelmet(std::uint32_t player_id) {
-  auto player_opt = GetPlayerOrWarn(player_id, "unequipHelmet");
-  if (!player_opt.has_value()) {
+  if (!GetPlayerOrWarn(player_id, "unequipHelmet")) {
     return false;
   }
 
-  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_helmet_instance, "unequipHelmet");
-  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+  return g_server->UnequipHelmet(player_id);
 }
 
 /* luagmp (func)
@@ -2230,7 +2208,7 @@ bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) 
     return false;
   }
 
-  return g_server->EquipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->EquipShield(player_id, ClampLuaText(instance, 255));
 }
 
 /* luagmp (func)
@@ -2246,13 +2224,11 @@ bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) 
 *
 */
 bool Function_UnequipShield(std::uint32_t player_id) {
-  auto player_opt = GetPlayerOrWarn(player_id, "unequipShield");
-  if (!player_opt.has_value()) {
+  if (!GetPlayerOrWarn(player_id, "unequipShield")) {
     return false;
   }
 
-  auto instance = FindItemInstanceByIndex(player_opt->get().state.equipped_shield_instance, "unequipShield");
-  return instance.has_value() && g_server->UnequipItem(player_id, *instance);
+  return g_server->UnequipShield(player_id);
 }
 
 /* luagmp (func)

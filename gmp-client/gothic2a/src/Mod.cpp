@@ -270,16 +270,23 @@ bool ShouldSuppressLocalLifecycleEvents() {
   return s_suppress_local_lifecycle_events;
 }
 
-// Helper to clear items from NPC hands after death/unconscious
 void ClearNpcHands(oCNpc* npc) {
   if (!npc) {
     return;
   }
 
-  oCItem* rightHand = npc->GetRightHand() ? zDYNAMIC_CAST<oCItem>(npc->GetRightHand()) : nullptr;
-  oCItem* leftHand = npc->GetLeftHand() ? zDYNAMIC_CAST<oCItem>(npc->GetLeftHand()) : nullptr;
-  npc->SetRightHand(nullptr);
-  npc->SetLeftHand(nullptr);
+  zCVob* rightVob = npc->GetRightHand();
+  zCVob* leftVob = npc->GetLeftHand();
+  zSTRING rightSlot(NPC_NODE_RIGHTHAND);
+  zSTRING leftSlot(NPC_NODE_LEFTHAND);
+  oCItem* rightHand = zDYNAMIC_CAST<oCItem>(npc->RemoveFromSlot(rightSlot, 0, 1));
+  oCItem* leftHand = zDYNAMIC_CAST<oCItem>(npc->RemoveFromSlot(leftSlot, 0, 1));
+  if (!rightHand) {
+    rightHand = zDYNAMIC_CAST<oCItem>(rightVob);
+  }
+  if (!leftHand) {
+    leftHand = zDYNAMIC_CAST<oCItem>(leftVob);
+  }
   if (rightHand) {
     rightHand->RemoveVobFromWorld();
   }

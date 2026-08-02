@@ -134,15 +134,42 @@ void CloseSpellBook(oCNpc* npc) {
   }
 }
 
+oCItem* RemoveHandItem(oCNpc* npc, bool right_hand) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  zCVob* current_vob = right_hand ? npc->GetRightHand() : npc->GetLeftHand();
+  if (!current_vob) {
+    return nullptr;
+  }
+
+  zSTRING slot(right_hand ? NPC_NODE_RIGHTHAND : NPC_NODE_LEFTHAND);
+  oCItem* removed_item = dynamic_cast<oCItem*>(npc->RemoveFromSlot(slot, 0, 1));
+  return removed_item ? removed_item : dynamic_cast<oCItem*>(current_vob);
+}
+
+void RemoveItemFromHandSlots(oCNpc* npc, oCItem* item) {
+  if (!npc || !item) {
+    return;
+  }
+
+  if (npc->GetRightHand() == item) {
+    RemoveHandItem(npc, true);
+  }
+
+  if (npc->GetLeftHand() == item) {
+    RemoveHandItem(npc, false);
+  }
+}
+
 void ClearNpcHandsForLifecycle(oCNpc* npc) {
   if (!npc) {
     return;
   }
 
-  oCItem* right_hand = dynamic_cast<oCItem*>(npc->GetRightHand());
-  oCItem* left_hand = dynamic_cast<oCItem*>(npc->GetLeftHand());
-  npc->SetRightHand(nullptr);
-  npc->SetLeftHand(nullptr);
+  oCItem* right_hand = RemoveHandItem(npc, true);
+  oCItem* left_hand = RemoveHandItem(npc, false);
   if (right_hand) {
     right_hand->RemoveVobFromWorld();
   }
@@ -315,15 +342,46 @@ bool IsShieldItem(oCItem* item) {
 }
 
 bool IsArmorItem(oCItem* item) {
-  return item && ((item->mainflag & ITM_CAT_ARMOR) != 0 || (item->wear & ITM_WEAR_TORSO) != 0);
+  return item && (item->wear & ITM_WEAR_TORSO) != 0;
 }
 
 bool IsMeleeWeaponItem(oCItem* item) {
-  return item && (item->mainflag & ITM_CAT_NF) != 0 && !IsShieldItem(item);
+  return item && (item->HasFlag(ITM_FLAG_SWD) || item->HasFlag(ITM_FLAG_DAG) ||
+                  item->HasFlag(ITM_FLAG_AXE) || item->HasFlag(ITM_FLAG_2HD_SWD) ||
+                  item->HasFlag(ITM_FLAG_2HD_AXE));
 }
 
 bool IsRangedWeaponItem(oCItem* item) {
-  return item && (item->mainflag & ITM_CAT_FF) != 0;
+  return item && (item->HasFlag(ITM_FLAG_BOW) || item->HasFlag(ITM_FLAG_CROSSBOW));
+}
+
+oCItem* GetCurrentMeleeWeapon(oCNpc* npc) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  switch (npc->GetWeaponMode()) {
+    case NPC_WEAPON_1HS:
+    case NPC_WEAPON_2HS:
+      return dynamic_cast<oCItem*>(npc->GetRightHand());
+    default:
+      return npc->GetEquippedMeleeWeapon();
+  }
+}
+
+oCItem* GetCurrentRangedWeapon(oCNpc* npc) {
+  if (!npc) {
+    return nullptr;
+  }
+
+  switch (npc->GetWeaponMode()) {
+    case NPC_WEAPON_BOW:
+      return dynamic_cast<oCItem*>(npc->GetLeftHand());
+    case NPC_WEAPON_CBOW:
+      return dynamic_cast<oCItem*>(npc->GetRightHand());
+    default:
+      return npc->GetEquippedRangedWeapon();
+  }
 }
 
 bool HasItemFlag(oCItem* item, int item_flag) {
@@ -471,6 +529,7 @@ void SyncEquippedCombatItem(oCNpc* npc, std::int16_t instance, oCItem* current, 
   if (instance == 0 || !IsNetworkItemInstance(instance)) {
     if (current) {
       npc->UnequipItem(current);
+      RemoveItemFromHandSlots(npc, current);
     }
     return;
   }
@@ -481,6 +540,7 @@ void SyncEquippedCombatItem(oCNpc* npc, std::int16_t instance, oCItem* current, 
 
   if (current) {
     npc->UnequipItem(current);
+    RemoveItemFromHandSlots(npc, current);
   }
 
   if (auto* item = GetOrCreateValidInventoryItem(npc, instance, is_valid_item)) {
@@ -595,6 +655,28 @@ void SyncEquippedSlotItem(oCNpc* npc, std::int16_t instance, const char* slot_na
   }
 
   npc->Equip(item);
+}
+
+bool SyncEquippedPacketSlot(oCNpc* npc, std::int16_t instance, std::int16_t slot_id) {
+  switch (slot_id) {
+    case EQUIP_SLOT_ARMOR:
+      SyncEquippedCombatItem(npc, instance, npc ? npc->GetEquippedArmor() : nullptr, IsArmorItem);
+      return true;
+    case EQUIP_SLOT_MELEE_WEAPON:
+      SyncEquippedCombatItem(npc, instance, GetCurrentMeleeWeapon(npc), IsMeleeWeaponItem);
+      return true;
+    case EQUIP_SLOT_RANGED_WEAPON:
+      SyncEquippedCombatItem(npc, instance, GetCurrentRangedWeapon(npc), IsRangedWeaponItem);
+      return true;
+    case EQUIP_SLOT_HELMET:
+      SyncEquippedSlotItem(npc, instance, NPC_NODE_HELMET, IsHelmetItem);
+      return true;
+    case EQUIP_SLOT_SHIELD:
+      SyncEquippedSlotItem(npc, instance, NPC_NODE_SHIELD, IsShieldItem);
+      return true;
+    default:
+      return false;
+  }
 }
 
 struct WorldTimerTickValues {
@@ -1172,8 +1254,10 @@ void NetGame::UpdatePlayerStats(short anim) {
   PlayerState state;
   state.position = Vec3ToGlmVec3(player->GetPositionWorld());
   state.nrot = Vec3ToGlmVec3(player->GetAtVectorWorld());
-  state.left_hand_item_instance = player->GetLeftHand() ? static_cast<short>(player->GetLeftHand()->GetInstance()) : 0;
-  state.right_hand_item_instance = player->GetRightHand() ? static_cast<short>(player->GetRightHand()->GetInstance()) : 0;
+  oCItem* left_hand_item = dynamic_cast<oCItem*>(player->GetLeftHand());
+  oCItem* right_hand_item = dynamic_cast<oCItem*>(player->GetRightHand());
+  state.left_hand_item_instance = left_hand_item ? static_cast<short>(left_hand_item->GetInstance()) : 0;
+  state.right_hand_item_instance = right_hand_item ? static_cast<short>(right_hand_item->GetInstance()) : 0;
   state.equipped_armor_instance = player->GetEquippedArmor() ? static_cast<short>(player->GetEquippedArmor()->GetInstance()) : 0;
   state.equipped_helmet_instance = GetSlotItemInstance(player, NPC_NODE_HELMET);
   state.equipped_shield_instance = GetSlotItemInstance(player, NPC_NODE_SHIELD);
@@ -1206,8 +1290,10 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.active_spell_nr = player->GetActiveSpellNr() > 0 ? static_cast<uint8_t>(player->GetActiveSpellNr()) : 0;
   state.active_spell_instance = GetActiveSpellItemInstance(player);
   state.head_direction = GetHeadDirectionByte(player);
-  state.melee_weapon_instance = player->GetEquippedMeleeWeapon() ? static_cast<short>(player->GetEquippedMeleeWeapon()->GetInstance()) : 0;
-  state.ranged_weapon_instance = player->GetEquippedRangedWeapon() ? static_cast<short>(player->GetEquippedRangedWeapon()->GetInstance()) : 0;
+  oCItem* melee_weapon = GetCurrentMeleeWeapon(player);
+  oCItem* ranged_weapon = GetCurrentRangedWeapon(player);
+  state.melee_weapon_instance = melee_weapon ? static_cast<short>(melee_weapon->GetInstance()) : 0;
+  state.ranged_weapon_instance = ranged_weapon ? static_cast<short>(ranged_weapon->GetInstance()) : 0;
 
   game_client->UpdatePlayerStats(state);
 }
@@ -1898,17 +1984,7 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
   }
 
   auto clear_hand_item = [&](bool right_hand) {
-    zCVob* current_vob = right_hand ? cplayer->npc->GetRightHand() : cplayer->npc->GetLeftHand();
-    if (!current_vob) {
-      return;
-    }
-
-    oCItem* removed_item = dynamic_cast<oCItem*>(current_vob);
-    if (right_hand) {
-      cplayer->npc->SetRightHand(nullptr);
-    } else {
-      cplayer->npc->SetLeftHand(nullptr);
-    }
+    oCItem* removed_item = RemoveHandItem(cplayer->npc, right_hand);
     if (removed_item) {
       if (right_hand) {
         this->PlayDrawSound(removed_item, cplayer->npc, false);
@@ -2107,10 +2183,10 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
   }
 
   // Update ranged weapon
-  SyncEquippedCombatItem(cplayer->npc, state.ranged_weapon_instance, cplayer->npc->GetEquippedRangedWeapon(), IsRangedWeaponItem);
+  SyncEquippedCombatItem(cplayer->npc, state.ranged_weapon_instance, GetCurrentRangedWeapon(cplayer->npc), IsRangedWeaponItem);
 
   // Update melee weapon
-  SyncEquippedCombatItem(cplayer->npc, state.melee_weapon_instance, cplayer->npc->GetEquippedMeleeWeapon(), IsMeleeWeaponItem);
+  SyncEquippedCombatItem(cplayer->npc, state.melee_weapon_instance, GetCurrentMeleeWeapon(cplayer->npc), IsMeleeWeaponItem);
 }
 
 void NetGame::OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) {
@@ -2246,8 +2322,6 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
 }
 
 void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {
-  (void)slot_id;
-
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
@@ -2259,22 +2333,31 @@ void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_in
     return;
   }
 
-  oCItem* item = cplayer->npc->inventory2.IsIn(*index, 1);
-  if (!item) {
-    item = CreateNetworkItem(*index);
-    if (!item) {
-      SPDLOG_WARN("Could not create item instance {}", item_instance);
-      return;
-    }
-    item->amount = 1;
-    cplayer->npc->inventory2.Insert(item);
-  }
-
   const bool suppress = cplayer->IsLocalPlayer();
   if (suppress) {
     SetSuppressLocalEquipEvents(true);
   }
-  cplayer->npc->EquipItem(item);
+
+  if (!SyncEquippedPacketSlot(cplayer->npc, static_cast<std::int16_t>(*index), slot_id)) {
+    oCItem* item = cplayer->npc->inventory2.IsIn(*index, 1);
+    if (!item) {
+      item = CreateNetworkItem(*index);
+      if (!item) {
+        SPDLOG_WARN("Could not create item instance {}", item_instance);
+        if (suppress) {
+          SetSuppressLocalEquipEvents(false);
+        }
+        return;
+      }
+      item->amount = 1;
+      cplayer->npc->inventory2.Insert(item);
+    }
+
+    if (!item->HasFlag(ITM_FLAG_ACTIVE) && cplayer->npc->GetRightHand() != item && cplayer->npc->GetLeftHand() != item) {
+      cplayer->npc->Equip(item);
+    }
+  }
+
   if (suppress) {
     SetSuppressLocalEquipEvents(false);
   }
@@ -2302,6 +2385,7 @@ void NetGame::OnItemUnequipped(std::uint64_t player_id, const std::string& item_
     SetSuppressLocalEquipEvents(true);
   }
   cplayer->npc->UnequipItem(item);
+  RemoveItemFromHandSlots(cplayer->npc, item);
   if (suppress) {
     SetSuppressLocalEquipEvents(false);
   }

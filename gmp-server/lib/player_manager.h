@@ -113,6 +113,11 @@ public:
     std::optional<std::int32_t> respawn_time_ms;
     PlayerState state;
     std::uint32_t state_sequence{0};
+    std::optional<std::int16_t> pending_equipped_armor_instance;
+    std::optional<std::int16_t> pending_equipped_helmet_instance;
+    std::optional<std::int16_t> pending_equipped_shield_instance;
+    std::optional<std::int16_t> pending_melee_weapon_instance;
+    std::optional<std::int16_t> pending_ranged_weapon_instance;
   };
 
   PlayerManager() = default;

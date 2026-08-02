@@ -92,6 +92,16 @@ constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
                                                 SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
                                                 SKY_SETTING_LIGHTNING;
+constexpr std::int32_t kItemFlagDag = 1 << 13;
+constexpr std::int32_t kItemFlagSword = 1 << 14;
+constexpr std::int32_t kItemFlagAxe = 1 << 15;
+constexpr std::int32_t kItemFlagTwoHandedSword = 1 << 16;
+constexpr std::int32_t kItemFlagTwoHandedAxe = 1 << 17;
+constexpr std::int32_t kItemFlagShield = 1 << 18;
+constexpr std::int32_t kItemFlagBow = 1 << 19;
+constexpr std::int32_t kItemFlagCrossbow = 1 << 20;
+constexpr std::int32_t kItemWearTorso = 1;
+constexpr std::int32_t kItemWearHead = 2;
 
 bool SelectConfiguredResources(const ResourceManager& resource_manager, const std::vector<std::string>& resource_names,
                                std::vector<ResourceManager::DiscoveredResource>& selected_resources) {
@@ -568,6 +578,19 @@ void RemoveInventoryItem(PlayerManager::Player& player, const std::string& insta
   } else {
     it->second = next_amount;
   }
+}
+
+std::int16_t MergePendingEquipmentState(std::optional<std::int16_t>& pending, std::int16_t current, std::int16_t incoming) {
+  if (!pending.has_value()) {
+    return incoming;
+  }
+
+  if (incoming == *pending) {
+    pending.reset();
+    return incoming;
+  }
+
+  return current;
 }
 
 void SendPlayerAttributeUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, PlayerAttributeId attribute_id,
@@ -1616,33 +1639,45 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     return item_index == 0 ? std::nullopt : std::optional<std::int32_t>{item_index};
   };
 
-  updated_player.state.position = packet.state.position;
-  updated_player.state.nrot = packet.state.nrot;
-  updated_player.state.left_hand_item_instance = packet.state.left_hand_item_instance;
-  updated_player.state.right_hand_item_instance = packet.state.right_hand_item_instance;
-  updated_player.state.equipped_armor_instance = packet.state.equipped_armor_instance;
-  updated_player.state.equipped_helmet_instance = packet.state.equipped_helmet_instance;
-  updated_player.state.equipped_shield_instance = packet.state.equipped_shield_instance;
-  updated_player.state.equipped_amulet_instance = packet.state.equipped_amulet_instance;
-  updated_player.state.equipped_belt_instance = packet.state.equipped_belt_instance;
-  updated_player.state.equipped_ring_left_instance = packet.state.equipped_ring_left_instance;
-  updated_player.state.equipped_ring_right_instance = packet.state.equipped_ring_right_instance;
-  updated_player.state.animation = packet.state.animation;
-  updated_player.state.animation_name = SanitizePlayerAnimationName(std::move(packet.state.animation_name));
-  updated_player.state.weapon_mode = packet.state.weapon_mode;
-  updated_player.state.active_spell_nr = packet.state.active_spell_nr;
-  updated_player.state.active_spell_instance = packet.state.active_spell_instance;
-  updated_player.state.head_direction = packet.state.head_direction;
-  updated_player.state.melee_weapon_instance = packet.state.melee_weapon_instance;
-  updated_player.state.ranged_weapon_instance = packet.state.ranged_weapon_instance;
-  ResolvePlayerStateItemIndexes(updated_player.player_id, updated_player.state);
+  auto client_state = packet.state;
+  ResolvePlayerStateItemIndexes(updated_player.player_id, client_state);
+
+  updated_player.state.position = client_state.position;
+  updated_player.state.nrot = client_state.nrot;
+  updated_player.state.left_hand_item_instance = client_state.left_hand_item_instance;
+  updated_player.state.right_hand_item_instance = client_state.right_hand_item_instance;
+  updated_player.state.equipped_armor_instance =
+      MergePendingEquipmentState(updated_player.pending_equipped_armor_instance, updated_player.state.equipped_armor_instance,
+                                 client_state.equipped_armor_instance);
+  updated_player.state.equipped_helmet_instance =
+      MergePendingEquipmentState(updated_player.pending_equipped_helmet_instance, updated_player.state.equipped_helmet_instance,
+                                 client_state.equipped_helmet_instance);
+  updated_player.state.equipped_shield_instance =
+      MergePendingEquipmentState(updated_player.pending_equipped_shield_instance, updated_player.state.equipped_shield_instance,
+                                 client_state.equipped_shield_instance);
+  updated_player.state.equipped_amulet_instance = client_state.equipped_amulet_instance;
+  updated_player.state.equipped_belt_instance = client_state.equipped_belt_instance;
+  updated_player.state.equipped_ring_left_instance = client_state.equipped_ring_left_instance;
+  updated_player.state.equipped_ring_right_instance = client_state.equipped_ring_right_instance;
+  updated_player.state.animation = client_state.animation;
+  updated_player.state.animation_name = SanitizePlayerAnimationName(std::move(client_state.animation_name));
+  updated_player.state.weapon_mode = client_state.weapon_mode;
+  updated_player.state.active_spell_nr = client_state.active_spell_nr;
+  updated_player.state.active_spell_instance = client_state.active_spell_instance;
+  updated_player.state.head_direction = client_state.head_direction;
+  updated_player.state.melee_weapon_instance =
+      MergePendingEquipmentState(updated_player.pending_melee_weapon_instance, updated_player.state.melee_weapon_instance,
+                                 client_state.melee_weapon_instance);
+  updated_player.state.ranged_weapon_instance =
+      MergePendingEquipmentState(updated_player.pending_ranged_weapon_instance, updated_player.state.ranged_weapon_instance,
+                                 client_state.ranged_weapon_instance);
   if (updated_player.tod != 0 || (updated_player.flags & PlayerManager::PL_UNCONCIOUS) != 0) {
     ClearTransientCombatState(updated_player);
   }
 
   if (updated_player.tod == 0) {
-    const auto requested_health = std::clamp<std::int32_t>(packet.state.health_points, 0, updated_player.max_health);
-    const auto requested_mana = std::clamp<std::int32_t>(packet.state.mana_points, 0, updated_player.max_mana);
+    const auto requested_health = std::clamp<std::int32_t>(client_state.health_points, 0, updated_player.max_health);
+    const auto requested_mana = std::clamp<std::int32_t>(client_state.mana_points, 0, updated_player.max_mana);
     bool died = false;
     const auto effective_health = requested_health > old_health ? static_cast<std::int32_t>(old_health) : requested_health;
 
@@ -2859,7 +2894,7 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
   AdvancePlayerStateSequence(player);
 
   const auto packet = MakePlayerStateUpdatePacket(player);
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
 }
 
@@ -3306,7 +3341,7 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
   AdvancePlayerStateSequence(player);
 
   const auto packet = MakePlayerStateUpdatePacket(player);
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
 }
 
@@ -3513,7 +3548,7 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
   packet.item_instance = std::move(*item_instance);
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
 }
 
@@ -3538,7 +3573,7 @@ bool GameServer::EquipItem(PlayerId player_id, const std::string& instance, std:
   packet.slot_id = static_cast<std::int16_t>(std::clamp<std::int32_t>(
       slot_id, std::numeric_limits<std::int16_t>::min(), std::numeric_limits<std::int16_t>::max()));
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
 }
 
@@ -3561,8 +3596,200 @@ bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
   packet.player_id = player.player_id;
   packet.item_instance = std::move(*item_instance);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
+}
+
+bool GameServer::EquipArmor(PlayerId player_id, const std::string& instance) {
+  return EquipItemInSlot(player_id, instance, EquipmentSlot::Armor);
+}
+
+bool GameServer::UnequipArmor(PlayerId player_id) {
+  return UnequipItemInSlot(player_id, EquipmentSlot::Armor);
+}
+
+bool GameServer::EquipMeleeWeapon(PlayerId player_id, const std::string& instance) {
+  return EquipItemInSlot(player_id, instance, EquipmentSlot::MeleeWeapon);
+}
+
+bool GameServer::UnequipMeleeWeapon(PlayerId player_id) {
+  return UnequipItemInSlot(player_id, EquipmentSlot::MeleeWeapon);
+}
+
+bool GameServer::EquipRangedWeapon(PlayerId player_id, const std::string& instance) {
+  return EquipItemInSlot(player_id, instance, EquipmentSlot::RangedWeapon);
+}
+
+bool GameServer::UnequipRangedWeapon(PlayerId player_id) {
+  return UnequipItemInSlot(player_id, EquipmentSlot::RangedWeapon);
+}
+
+bool GameServer::EquipHelmet(PlayerId player_id, const std::string& instance) {
+  return EquipItemInSlot(player_id, instance, EquipmentSlot::Helmet);
+}
+
+bool GameServer::UnequipHelmet(PlayerId player_id) {
+  return UnequipItemInSlot(player_id, EquipmentSlot::Helmet);
+}
+
+bool GameServer::EquipShield(PlayerId player_id, const std::string& instance) {
+  return EquipItemInSlot(player_id, instance, EquipmentSlot::Shield);
+}
+
+bool GameServer::UnequipShield(PlayerId player_id) {
+  return UnequipItemInSlot(player_id, EquipmentSlot::Shield);
+}
+
+bool GameServer::EquipItemInSlot(PlayerId player_id, const std::string& instance, EquipmentSlot slot) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("equip slot item called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto item_instance = ResolveItemInstance(instance);
+  if (!item_instance.has_value()) {
+    SPDLOG_WARN("equip slot item called with unknown item instance '{}'", SanitizeServerText(instance));
+    return false;
+  }
+
+  const auto* item = item_registry_.Find(*item_instance);
+  if (!item || !IsValidEquipmentItem(*item, slot)) {
+    SPDLOG_WARN("equip slot item called with item instance '{}' that does not fit the requested equipment slot", *item_instance);
+    return false;
+  }
+  if (item->index <= 0 || item->index > std::numeric_limits<std::int16_t>::max()) {
+    SPDLOG_WARN("equip slot item called with item instance '{}' using unsupported parser index {}", *item_instance, item->index);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  if (HasItem(player_id, *item_instance) <= 0) {
+    AddInventoryItem(player, *item_instance, 1);
+  }
+
+  const auto item_index = static_cast<std::int16_t>(item->index);
+  auto& state_field = EquipmentStateField(player.state, slot);
+  const bool changed = state_field != item_index;
+  state_field = item_index;
+  PendingEquipmentStateField(player, slot) = item_index;
+  if (changed) {
+    AdvancePlayerStateSequence(player);
+    TriggerEquipmentEvent(player.player_id, slot, static_cast<std::int32_t>(item_index));
+  }
+
+  return EquipItem(player_id, *item_instance, EquipmentSlotPacketId(slot));
+}
+
+bool GameServer::UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    SPDLOG_WARN("unequip slot item called for unknown player id {}", player_id);
+    return false;
+  }
+
+  auto& player = player_opt->get();
+  auto& state_field = EquipmentStateField(player.state, slot);
+  if (state_field <= 0) {
+    return false;
+  }
+
+  const auto* item = item_registry_.FindByIndex(state_field);
+  const auto old_index = state_field;
+  state_field = 0;
+  PendingEquipmentStateField(player, slot) = 0;
+  AdvancePlayerStateSequence(player);
+  TriggerEquipmentEvent(player.player_id, slot, std::nullopt);
+
+  return item ? UnequipItem(player_id, item->instance) : old_index > 0;
+}
+
+bool GameServer::IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return (item.wear.value_or(0) & kItemWearTorso) != 0;
+    case EquipmentSlot::Helmet:
+      return (item.wear.value_or(0) & kItemWearHead) != 0;
+    case EquipmentSlot::Shield:
+      return (item.flags & kItemFlagShield) != 0;
+    case EquipmentSlot::MeleeWeapon:
+      return (item.flags & (kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe)) != 0;
+    case EquipmentSlot::RangedWeapon:
+      return (item.flags & (kItemFlagBow | kItemFlagCrossbow)) != 0;
+  }
+
+  return false;
+}
+
+std::int16_t GameServer::EquipmentSlotPacketId(EquipmentSlot slot) const {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return EQUIP_SLOT_ARMOR;
+    case EquipmentSlot::Helmet:
+      return EQUIP_SLOT_HELMET;
+    case EquipmentSlot::Shield:
+      return EQUIP_SLOT_SHIELD;
+    case EquipmentSlot::MeleeWeapon:
+      return EQUIP_SLOT_MELEE_WEAPON;
+    case EquipmentSlot::RangedWeapon:
+      return EQUIP_SLOT_RANGED_WEAPON;
+  }
+
+  return EQUIP_SLOT_GENERIC;
+}
+
+std::int16_t& GameServer::EquipmentStateField(PlayerState& state, EquipmentSlot slot) const {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return state.equipped_armor_instance;
+    case EquipmentSlot::Helmet:
+      return state.equipped_helmet_instance;
+    case EquipmentSlot::Shield:
+      return state.equipped_shield_instance;
+    case EquipmentSlot::MeleeWeapon:
+      return state.melee_weapon_instance;
+    case EquipmentSlot::RangedWeapon:
+      return state.ranged_weapon_instance;
+  }
+
+  return state.equipped_armor_instance;
+}
+
+std::optional<std::int16_t>& GameServer::PendingEquipmentStateField(Player& player, EquipmentSlot slot) const {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      return player.pending_equipped_armor_instance;
+    case EquipmentSlot::Helmet:
+      return player.pending_equipped_helmet_instance;
+    case EquipmentSlot::Shield:
+      return player.pending_equipped_shield_instance;
+    case EquipmentSlot::MeleeWeapon:
+      return player.pending_melee_weapon_instance;
+    case EquipmentSlot::RangedWeapon:
+      return player.pending_ranged_weapon_instance;
+  }
+
+  return player.pending_equipped_armor_instance;
+}
+
+void GameServer::TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index) const {
+  switch (slot) {
+    case EquipmentSlot::Armor:
+      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipArmorName, OnPlayerEquipArmorEvent{player_id, item_index});
+      break;
+    case EquipmentSlot::Helmet:
+      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHelmetName, OnPlayerEquipHelmetEvent{player_id, item_index});
+      break;
+    case EquipmentSlot::Shield:
+      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipShieldName, OnPlayerEquipShieldEvent{player_id, item_index});
+      break;
+    case EquipmentSlot::MeleeWeapon:
+      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipMeleeWeaponName, OnPlayerEquipMeleeWeaponEvent{player_id, item_index});
+      break;
+    case EquipmentSlot::RangedWeapon:
+      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRangedWeaponName, OnPlayerEquipRangedWeaponEvent{player_id, item_index});
+      break;
+  }
 }
 
 std::int32_t GameServer::HasItem(PlayerId player_id, const std::string& instance) const {
@@ -3612,7 +3839,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   packet.item_instance = std::move(*item_instance);
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
 }
 

@@ -99,16 +99,18 @@ void ApplyAimingDeathAnimationFix() {
           !player->GetModel()->IsAnimationActive(DEAD2)) {
         player->GetModel()->StartAnimation(TDEADB);
         player->GetAnictrl()->StopTurnAnis();
-        oCItem* RHand = nullptr;
-        oCItem* LHand = nullptr;
-        if (player->GetRightHand()) {
-          RHand = dynamic_cast<oCItem*>(player->GetRightHand());
+        zCVob* rightVob = player->GetRightHand();
+        zCVob* leftVob = player->GetLeftHand();
+        zSTRING rightSlot(NPC_NODE_RIGHTHAND);
+        zSTRING leftSlot(NPC_NODE_LEFTHAND);
+        oCItem* RHand = dynamic_cast<oCItem*>(player->RemoveFromSlot(rightSlot, 0, 1));
+        oCItem* LHand = dynamic_cast<oCItem*>(player->RemoveFromSlot(leftSlot, 0, 1));
+        if (!RHand) {
+          RHand = dynamic_cast<oCItem*>(rightVob);
         }
-        if (player->GetLeftHand()) {
-          LHand = dynamic_cast<oCItem*>(player->GetLeftHand());
+        if (!LHand) {
+          LHand = dynamic_cast<oCItem*>(leftVob);
         }
-        player->SetRightHand(nullptr);
-        player->SetLeftHand(nullptr);
         if (RHand) {
           RHand->RemoveVobFromWorld();
         }

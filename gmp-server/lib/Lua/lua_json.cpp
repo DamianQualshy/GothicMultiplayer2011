@@ -25,8 +25,10 @@ SOFTWARE.
 #include "Lua/lua_json.h"
 
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -75,9 +77,20 @@ bool EncodeLuaValue(sol::state_view lua, const sol::object& value, Json& out, st
     case sol::type::boolean:
       out = value.as<bool>();
       return true;
-    case sol::type::number:
-      out = value.as<double>();
+    case sol::type::number: {
+      const double number = value.as<double>();
+      double integral = 0.0;
+      const double int64_min = -std::ldexp(1.0, 63);
+      const double int64_max_exclusive = std::ldexp(1.0, 63);
+      if (std::isfinite(number) && std::modf(number, &integral) == 0.0 &&
+          integral >= int64_min && integral < int64_max_exclusive) {
+        out = static_cast<std::int64_t>(integral);
+        return true;
+      }
+
+      out = number;
       return true;
+    }
     case sol::type::string:
       out = value.as<std::string>();
       return true;
@@ -193,7 +206,20 @@ bool DecodeJsonValue(sol::state_view lua, const Json& value, sol::object& out, s
     out = sol::make_object(lua, value.get<bool>());
     return true;
   }
-  if (value.is_number()) {
+  if (value.is_number_integer()) {
+    out = sol::make_object(lua, value.get<Json::number_integer_t>());
+    return true;
+  }
+  if (value.is_number_unsigned()) {
+    const auto number = value.get<Json::number_unsigned_t>();
+    if (number <= static_cast<Json::number_unsigned_t>(std::numeric_limits<Json::number_integer_t>::max())) {
+      out = sol::make_object(lua, static_cast<Json::number_integer_t>(number));
+    } else {
+      out = sol::make_object(lua, static_cast<double>(number));
+    }
+    return true;
+  }
+  if (value.is_number_float()) {
     out = sol::make_object(lua, value.get<double>());
     return true;
   }

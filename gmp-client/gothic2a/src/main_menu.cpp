@@ -200,14 +200,17 @@ void CMainMenu::PreparePlayerForMenuReentry() {
     player->UnequipItem(meleeWeapon);
   }
 
-  if (auto* rightHand = player->GetRightHand()) {
-    zCVob* leftHand = player->GetLeftHand();
-    player->SetRightHand(nullptr);
-    player->SetLeftHand(nullptr);
-    if (leftHand && leftHand != rightHand) {
-      leftHand->RemoveVobFromWorld();
-    }
+  zCVob* rightHand = player->GetRightHand();
+  zCVob* leftHand = player->GetLeftHand();
+  if (rightHand) {
+    zSTRING slot(NPC_NODE_RIGHTHAND);
+    player->RemoveFromSlot(slot, 0, 1);
     rightHand->RemoveVobFromWorld();
+  }
+  if (leftHand && leftHand != rightHand) {
+    zSTRING slot(NPC_NODE_LEFTHAND);
+    player->RemoveFromSlot(slot, 0, 1);
+    leftHand->RemoveVobFromWorld();
   }
 
   player->SetWeaponMode2(NPC_WEAPON_NONE);
