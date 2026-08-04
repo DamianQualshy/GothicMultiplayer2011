@@ -766,9 +766,12 @@ void ApplyDayLengthToEngine(float day_length_ms) {
   }
 }
 
+constexpr int kResourceStatusBaseY = 2800;
+constexpr int kResourceStatusLineHeight = 200;
+constexpr int kMaxResourceStatusLines = 5;
+
 zCOLOR kResourceInfoColor(0, 200, 255, 255);
 zCOLOR kResourceErrorColor(255, 0, 0, 255);
-zCOLOR kResourceSuccessColor(0, 255, 0, 255);
 
 struct MultiplayerMessageState {
   zCView* view{nullptr};
@@ -780,6 +783,22 @@ MultiplayerMessageState& GetMultiplayerMessageState() {
   return state;
 }
 
+void ClearResourceStatusLine(zCView* view, int y) {
+  if (!view) {
+    return;
+  }
+
+  for (zCList<zCViewText>* entry = view->textLines.GetNextInList(); entry;) {
+    zCList<zCViewText>* next = entry->GetNextInList();
+    zCViewText* text = entry->GetData();
+    if (text && text->posy >= y && text->posy < y + kResourceStatusLineHeight) {
+      view->textLines.Remove(text);
+      delete text;
+    }
+    entry = next;
+  }
+}
+
 void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR& color) {
   if (!ogame) {
     return;
@@ -788,22 +807,22 @@ void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR&
   if (!view) {
     return;
   }
-  constexpr int kBaseY = 2800;
-  constexpr int kLineHeight = 200;
-  constexpr int kMaxLines = 5;
-  static int line_index = 0;
   auto& state = GetMultiplayerMessageState();
   if (state.view != view) {
     state.view = view;
     state.line_index = 0;
   }
 
-  const int y = kBaseY + (state.line_index * kLineHeight);
+  const int y = kResourceStatusBaseY + (state.line_index * kResourceStatusLineHeight);
+  ClearResourceStatusLine(view, y);
   view->PrintTimedCX(y, message, duration_ms, &color);
-  state.line_index = (state.line_index + 1) % kMaxLines;
+  state.line_index = (state.line_index + 1) % kMaxResourceStatusLines;
+  view->SetFontColor(zCOLOR(255, 255, 255, 255));
 }
 
 void ClearMultiplayerStatusMessages() {
+  auto& state = GetMultiplayerMessageState();
+
   if (!ogame) {
     return;
   }
@@ -811,10 +830,14 @@ void ClearMultiplayerStatusMessages() {
   if (!view) {
     return;
   }
-  view->ClrPrintwin();
-  auto& state = GetMultiplayerMessageState();
+
+  for (int i = 0; i < kMaxResourceStatusLines; ++i) {
+    ClearResourceStatusLine(view, kResourceStatusBaseY + (i * kResourceStatusLineHeight));
+  }
+
   state.view = view;
   state.line_index = 0;
+  view->SetFontColor(zCOLOR(255, 255, 255, 255));
 }
 
 std::string BuildMultiplayerStatusMessage() {
@@ -1428,10 +1451,6 @@ void NetGame::OnResourcesReady() {
   SPDLOG_INFO("Client resources ready; player may join");
   SPDLOG_INFO("All required client resources downloaded and loaded");
   IsReadyToJoin = true;
-  PrintResourceStatusTimed("Client resources ready. You may join the server.", 10000.0f, kResourceSuccessColor);
-  
-  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
-  view->SetFontColor(zCOLOR(255, 255, 255));
 }
 
 void NetGame::OnMapChange(const std::string& map_name) {
