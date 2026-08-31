@@ -691,6 +691,56 @@ void RegisterProxies() {
     sol::object attacker = player_hit_event.attacker_id.has_value() ? sol::make_object(lua, player_hit_event.attacker_id.value()) : sol::lua_nil;
     args.callback(attacker, player_hit_event.victim_id, player_hit_event.damage, player_hit_event.damage_type);
   }};
+
+/* luagmp (event)
+*
+* This event is triggered when validated voice packets start arriving from a player.
+*
+* @version  0.3.0
+* @name     onPlayerVoiceStart
+* @side     server
+* @category Voice
+* @param    (number) player_id  Speaking player id.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerVoiceStartName] = {[](LuaProxyArgs args) {
+    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+    args.callback(event.player_id);
+  }};
+
+/* luagmp (event)
+*
+* This event is triggered after a player's validated voice traffic stops.
+*
+* @version  0.3.0
+* @name     onPlayerVoiceStop
+* @side     server
+* @category Voice
+* @param    (number) player_id  Player id.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerVoiceStopName] = {[](LuaProxyArgs args) {
+    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+    args.callback(event.player_id);
+  }};
+
+/* luagmp (event)
+*
+* This event is triggered when a player changes voice channels.
+*
+* @version  0.3.0
+* @name     onPlayerVoiceChannelChange
+* @side     server
+* @category Voice
+* @param    (number) player_id    Player id.
+* @param    (string) old_channel  Previous channel name.
+* @param    (string) new_channel  New channel name.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerVoiceChannelChangeName] = {[](LuaProxyArgs args) {
+    OnPlayerVoiceChannelChangeEvent event = std::any_cast<OnPlayerVoiceChannelChangeEvent>(args.event);
+    args.callback(event.player_id, event.old_channel, event.new_channel);
+  }};
 }
 
 std::optional<std::function<void(LuaProxyArgs)>> GetProxy(std::string event_name) {

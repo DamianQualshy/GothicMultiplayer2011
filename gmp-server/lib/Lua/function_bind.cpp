@@ -2434,6 +2434,113 @@ int Function_GetStreamerHeight() {
 
 /* luagmp (func)
 *
+* This function enables or disables the server voice chat system for every player.
+*
+* @version  0.3.0
+* @name     setVoiceEnabled
+* @side     server
+* @category Voice
+* @param    (boolean) enabled   Whether voice chat is enabled globally.
+* @return   (boolean)           True when the setting was applied.
+*
+*/
+bool Function_SetVoiceEnabled(bool enabled) {
+  return g_server->SetVoiceEnabled(enabled);
+}
+
+/* luagmp (func)
+*
+* This function returns whether the server voice chat system is enabled.
+*
+* @version  0.3.0
+* @name     getVoiceEnabled
+* @side     server
+* @category Voice
+* @return   (boolean)           True when voice chat is enabled globally.
+*
+*/
+bool Function_GetVoiceEnabled() {
+  return g_server->GetVoiceEnabled();
+}
+
+/* luagmp (func)
+*
+* This function returns whether a player is allowed to transmit voice.
+*
+* @version  0.3.0
+* @name     getVoiceEnabledForPlayer
+* @side     server
+* @category Voice
+* @param    (number) player_id  Player id.
+* @return   (boolean|nil)       True when the player may transmit, or nil when missing.
+*
+*/
+sol::optional<bool> Function_GetVoiceEnabledForPlayer(std::uint32_t player_id) {
+  if (!GetPlayerOrWarn(player_id, "getVoiceEnabledForPlayer")) {
+    return {};
+  }
+
+  const auto enabled = g_server->GetVoiceEnabledForPlayer(player_id);
+  if (!enabled.has_value()) {
+    return {};
+  }
+  return sol::optional<bool>{*enabled};
+}
+
+/* luagmp (func)
+*
+* This function enables or mutes voice transmission for one player. A disabled
+* player can still hear other players.
+*
+* @version  0.3.0
+* @name     setVoiceEnabledForPlayer
+* @side     server
+* @category Voice
+* @param    (number) player_id  Player id.
+* @param    (boolean) enabled   Whether this player may transmit voice.
+* @return   (boolean)           True when the player exists and the state was applied.
+*
+*/
+bool Function_SetVoiceEnabledForPlayer(std::uint32_t player_id, bool enabled) {
+  if (!GetPlayerOrWarn(player_id, "setVoiceEnabledForPlayer")) {
+    return false;
+  }
+  return g_server->SetVoiceEnabledForPlayer(player_id, enabled);
+}
+
+/* luagmp (func)
+*
+* This function changes the proximity range and assigns it to every player.
+*
+* @version  0.3.0
+* @name     setVoiceRange
+* @side     server
+* @category Voice
+* @param    (number) range      Voice range in game units; must be non-negative.
+* @return   (boolean)           True when the range was accepted.
+*
+*/
+bool Function_SetVoiceRange(int range) {
+  return g_server->SetVoiceRange(range);
+}
+
+/* luagmp (func)
+*
+* This function returns the global proximity voice range.
+*
+* @version  0.3.0
+* @name     getVoiceRange
+* @side     server
+* @category Voice
+* @return   (number)            Voice range in game units.
+*
+*/
+int Function_GetVoiceRange() {
+  return g_server->GetVoiceRange();
+}
+
+/* luagmp (func)
+*
 * This function will set the server time (hour, minute, optional day offset).
 *
 * @version  0.3.0
@@ -2646,6 +2753,13 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getStreamerRadius"] = Function_GetStreamerRadius;
   lua["setStreamerHeight"] = Function_SetStreamerHeight;
   lua["getStreamerHeight"] = Function_GetStreamerHeight;
+
+  lua["setVoiceEnabled"] = Function_SetVoiceEnabled;
+  lua["getVoiceEnabled"] = Function_GetVoiceEnabled;
+  lua["setVoiceRange"] = Function_SetVoiceRange;
+  lua["getVoiceRange"] = Function_GetVoiceRange;
+  lua["setVoiceEnabledForPlayer"] = Function_SetVoiceEnabledForPlayer;
+  lua["getVoiceEnabledForPlayer"] = Function_GetVoiceEnabledForPlayer;
 
   lua["setTime"] = Function_SetTime;
   lua["getTime"] = Function_GetTime;

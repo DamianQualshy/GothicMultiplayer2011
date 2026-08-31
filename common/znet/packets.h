@@ -1252,17 +1252,58 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerPositionUpdatePack
   return os;
 }
 
+// The client encodes 20 ms mono frames at 24 kbit/s. This cap leaves ample
+// VBR headroom while keeping one voice packet comfortably below the MTU.
+constexpr std::size_t kMaxVoiceFrameSize = 512;
+constexpr std::size_t kMaxVoiceChannelNameLength = 32;
+
 struct VoicePacket {
-  std::uint8_t packet_type;
-  std::uint32_t voice_data_size;
+  std::uint8_t packet_type{0};
+  // Zero in client-to-server packets. The server derives and overwrites it
+  // from the authenticated connection before relaying the frame.
+  std::uint32_t player_id{0};
+  std::uint32_t talkspurt_id{0};
+  std::uint32_t sequence{0};
+  std::uint8_t spatial{1};
+  std::uint32_t range{0};
   std::vector<std::uint8_t> voice_data;
 };
 
 template <typename S>
 void serialize(S& s, VoicePacket& packet) {
   s.value1b(packet.packet_type);
-  s.value4b(packet.voice_data_size);
-  s.container1b(packet.voice_data, packet.voice_data_size);
+  s.value4b(packet.player_id);
+  s.value4b(packet.talkspurt_id);
+  s.value4b(packet.sequence);
+  s.value1b(packet.spatial);
+  s.value4b(packet.range);
+  s.container1b(packet.voice_data, kMaxVoiceFrameSize);
+}
+
+struct VoiceConfigurationPacket {
+  std::uint8_t packet_type{0};
+  std::uint8_t enabled{0};
+  std::uint8_t transmit_enabled{0};
+  std::uint32_t range{0};
+};
+
+template <typename S>
+void serialize(S& s, VoiceConfigurationPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value1b(packet.enabled);
+  s.value1b(packet.transmit_enabled);
+  s.value4b(packet.range);
+}
+
+struct VoiceChannelPacket {
+  std::uint8_t packet_type{0};
+  std::string channel;
+};
+
+template <typename S>
+void serialize(S& s, VoiceChannelPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.text1b(packet.channel, kMaxVoiceChannelNameLength);
 }
 
 struct DisconnectionInfoPacket {
@@ -1445,6 +1486,9 @@ struct InitialInfoPacket {
   std::uint32_t player_id;
   std::string server_name;
   std::uint16_t max_slots{0};
+  std::uint8_t voice_enabled{0};
+  std::uint8_t voice_transmit_enabled{0};
+  std::uint32_t voice_range{0};
   std::string resource_token;
   std::string resource_base_path;
   std::string downloader_group;
@@ -1460,6 +1504,9 @@ void serialize(S& s, InitialInfoPacket& packet) {
   s.value4b(packet.player_id);
   s.text1b(packet.server_name, 64);
   s.value2b(packet.max_slots);
+  s.value1b(packet.voice_enabled);
+  s.value1b(packet.voice_transmit_enabled);
+  s.value4b(packet.voice_range);
   s.text1b(packet.resource_token, 64);
   s.text1b(packet.resource_base_path, 64);
   s.text1b(packet.downloader_group, 64);
@@ -1473,7 +1520,11 @@ inline std::ostream& operator<<(std::ostream& os, const InitialInfoPacket& packe
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", map_name: " << packet.map_name << ", player_id: " << packet.player_id
      << ", server_name: " << packet.server_name << ", max_slots: " << packet.max_slots
      << ", downloader_group: " << packet.downloader_group << ", resources: " << packet.client_resources.size()
-     << ", addon_vdfs: " << packet.addon_vdfs.size() << " }";
+     << ", addon_vdfs: " << packet.addon_vdfs.size()
+     << ", voice_enabled: " << static_cast<int>(packet.voice_enabled)
+     << ", voice_transmit_enabled: " << static_cast<int>(packet.voice_transmit_enabled)
+     << ", voice_range: " << packet.voice_range
+     << ", resources: " << packet.client_resources.size() << " }";
   return os;
 }
 

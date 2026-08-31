@@ -65,6 +65,9 @@ inline const std::string kEventOnPlayerRespawnName = "onPlayerRespawn";
 inline const std::string kEventOnPlayerSpawnForName = "onPlayerSpawnFor";
 inline const std::string kEventOnPlayerUnspawnForName = "onPlayerUnspawnFor";
 inline const std::string kEventOnPlayerHitName = "onPlayerHit";
+inline const std::string kEventOnPlayerVoiceStartName = "onPlayerVoiceStart";
+inline const std::string kEventOnPlayerVoiceStopName = "onPlayerVoiceStop";
+inline const std::string kEventOnPlayerVoiceChannelChangeName = "onPlayerVoiceChannelChange";
 
 struct OnTickEvent {};
 
@@ -227,4 +230,14 @@ struct OnPlayerHitEvent {
   std::uint64_t victim_id;
   std::int32_t damage;
   std::uint32_t damage_type;
+};
+
+struct OnPlayerVoiceChannelChangeEvent {
+  std::uint64_t player_id;
+  std::string old_channel;
+  std::string new_channel;
+};
+
+struct OnPlayerVoiceEvent {
+  std::uint64_t player_id;
 };

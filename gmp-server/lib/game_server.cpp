@@ -48,6 +48,7 @@ SOFTWARE.
 #include <iterator>
 #include <memory>
 #include <nlohmann/json.hpp>
+#include <opus/opus.h>
 #include <optional>
 #include <sstream>
 #include <stack>
@@ -83,6 +84,11 @@ namespace {
 constexpr std::size_t kMaxWorldNameLength = 32;
 constexpr std::size_t kMaxPlayerNameLength = 64;
 constexpr std::uint32_t kItemGroundChannel = 14;
+constexpr std::uint32_t kVoiceChannel = 5;
+constexpr std::uint32_t kMaxVoicePacketsPerSecond = 75;
+constexpr int kVoiceSampleRate = 48000;
+constexpr int kVoiceFrameSamples = 960;
+constexpr auto kVoiceActivityTimeout = std::chrono::milliseconds(400);
 constexpr const char* kDiagnosticsFileName = "diagnostic.txt";
 constexpr const char* kBanListFileName = "bans.json";
 constexpr const char* kItemRegistryPath = "data/instances/items.json";
@@ -95,6 +101,16 @@ constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
                                                 SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
                                                 SKY_SETTING_LIGHTNING;
+
+bool IsValidVoiceChannelName(std::string_view channel) {
+  if (channel.empty() || channel.size() > kMaxVoiceChannelNameLength) {
+    return false;
+  }
+  return std::all_of(channel.begin(), channel.end(), [](unsigned char character) {
+    return character >= 0x20 && character != 0x7f;
+  });
+}
+
 constexpr std::int32_t kItemFlagDag = 1 << 13;
 constexpr std::int32_t kItemFlagSword = 1 << 14;
 constexpr std::int32_t kItemFlagAxe = 1 << 15;
@@ -835,6 +851,9 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnForName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerUnspawnForName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerHitName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerVoiceStartName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerVoiceStopName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerVoiceChannelChangeName);
 }
 
 GameServer::~GameServer() {
@@ -1030,6 +1049,7 @@ void GameServer::Run() {
   }
 
   ProcessRespawns();
+  ProcessVoiceActivity(now);
 
   EventManager::Instance().TriggerEvent(kEventOnTickName, OnTickEvent{});
 
@@ -1242,6 +1262,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
         new_player->get().world = server_world_;
         new_player->get().virtual_world = 0;
+        new_player->get().voice_range = static_cast<std::uint32_t>(config_.Get<std::int32_t>("voice_range"));
       }
 
       // Send packet with initial information.
@@ -1251,6 +1272,12 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       packet.player_id = new_player_id;
       packet.server_name = GetHostname();
       packet.max_slots = static_cast<std::uint16_t>(max_slots);
+      if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
+        const Player& player = new_player->get();
+        packet.voice_enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
+        packet.voice_transmit_enabled = packet.voice_enabled != 0 && !player.voice_muted ? 1 : 0;
+        packet.voice_range = player.voice_range;
+      }
       packet.resource_token = resource_server_->IssueToken(p.id);
       packet.resource_base_path = "/public";
       packet.downloader_group = config_.Get<std::string>("downloader_group");
@@ -1337,6 +1364,9 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_VOICE:
       HandleVoice(p);
       break;
+    case PT_VOICE_CHANNEL:
+      HandleVoiceChannel(p);
+      break;
     default:
       DiagnosticsManager::Instance().RecordPacketRejected(packetIdentifier);
       SPDLOG_WARN("(S)He or it try to do something strange. It's packet ID: {}", packetIdentifier);
@@ -1372,6 +1402,8 @@ void GameServer::DeleteFromPlayerList(PlayerId player_id) {
   if (player_opt.has_value()) {
     UnstreamGroundItemsFromPlayer(player_opt->get(), false);
   }
+  EndPlayerVoiceActivity(player_id);
+  voice_rate_states_.erase(player_id);
   player_manager_.RemovePlayer(player_id);
 }
 
@@ -1864,20 +1896,141 @@ void GameServer::HandleLuaEvent(Packet p) {
 }
 
 void GameServer::HandleVoice(Packet p) {
-  // TODO: no need to resend player id right now, it won't be needed until we add 3d chat
-  if (p.length == 0) {
+  if (!config_.Get<bool>("voice_enabled")) {
     return;
   }
 
-  std::string data;
-  data.resize(p.length);
-  std::memcpy(data.data(), p.data, p.length);
-  player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
-    if (existing_player.connection != p.id) {
-      g_net_server->Send((unsigned char*)data.data(), p.length, IMMEDIATE_PRIORITY, UNRELIABLE, 5, existing_player.connection);
-      DiagnosticsManager::Instance().RecordOutgoingPacket(static_cast<std::uint8_t>(data[0]), p.length);
+  VoicePacket packet;
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "VoicePacket")) {
+    return;
+  }
+
+  auto sender_opt = GetIngamePlayerByConnection(p.id);
+  if (!sender_opt.has_value() || packet.talkspurt_id == 0 || packet.voice_data.empty() ||
+      packet.voice_data.size() > kMaxVoiceFrameSize) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+
+  Player& sender = sender_opt->get();
+  if (!sender.voice_enabled || sender.voice_muted) {
+    return;
+  }
+
+  const int frame_samples = opus_packet_get_nb_samples(packet.voice_data.data(),
+                                                       static_cast<opus_int32>(packet.voice_data.size()),
+                                                       kVoiceSampleRate);
+  if (frame_samples != kVoiceFrameSamples) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+
+  const auto now = std::chrono::steady_clock::now();
+  VoiceRateState& rate = voice_rate_states_[sender.player_id];
+  if (rate.window_started.time_since_epoch().count() == 0 || now - rate.window_started >= std::chrono::seconds(1)) {
+    rate.window_started = now;
+    rate.packets_in_window = 0;
+  }
+  if (++rate.packets_in_window > kMaxVoicePacketsPerSecond) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+
+  const bool spatial = IsVoiceChannelSpatial(sender.voice_channel);
+  const float voice_range = static_cast<float>(sender.voice_range);
+  if (spatial && voice_range <= 0.0f) {
+    return;
+  }
+
+  MarkPlayerVoiceActive(sender.player_id, now);
+  packet.player_id = sender.player_id;
+  packet.spatial = spatial ? 1 : 0;
+  packet.range = sender.voice_range;
+  const float voice_range_squared = voice_range * voice_range;
+  player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+    if (viewer.player_id == sender.player_id || !viewer.voice_enabled || viewer.voice_channel != sender.voice_channel) {
+      return;
     }
+
+    if (spatial) {
+      if (!IsSameVisibilityScope(viewer, sender)) {
+        return;
+      }
+      const glm::vec3 delta = viewer.state.position - sender.state.position;
+      const float distance_squared = delta.x * delta.x + delta.y * delta.y + delta.z * delta.z;
+      if (distance_squared > voice_range_squared) {
+        return;
+      }
+    }
+
+    SerializeAndSend(packet, HIGH_PRIORITY, UNRELIABLE, viewer.connection, kVoiceChannel);
   });
+}
+
+void GameServer::HandleVoiceChannel(Packet p) {
+  VoiceChannelPacket packet;
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "VoiceChannelPacket")) {
+    return;
+  }
+
+  auto player_opt = GetIngamePlayerByConnection(p.id);
+  if (!player_opt.has_value() || !IsValidVoiceChannelName(packet.channel)) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+
+  Player& player = player_opt->get();
+  if (player.voice_channel == packet.channel) {
+    return;
+  }
+
+  const std::string old_channel = player.voice_channel;
+  EndPlayerVoiceActivity(player.player_id);
+  player.voice_channel = packet.channel;
+  EventManager::Instance().TriggerEvent(
+      kEventOnPlayerVoiceChannelChangeName,
+      OnPlayerVoiceChannelChangeEvent{player.player_id, old_channel, player.voice_channel});
+}
+
+void GameServer::SendVoiceConfiguration(const Player& player) {
+  VoiceConfigurationPacket packet{};
+  packet.packet_type = PT_VOICE_CONFIG;
+  packet.enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
+  packet.transmit_enabled = packet.enabled != 0 && !player.voice_muted ? 1 : 0;
+  packet.range = player.voice_range;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection, kVoiceChannel);
+}
+
+bool GameServer::IsVoiceChannelSpatial(const std::string& channel) const {
+  auto setting = voice_channel_spatial_.find(channel);
+  return setting == voice_channel_spatial_.end() ? true : setting->second;
+}
+
+void GameServer::MarkPlayerVoiceActive(PlayerId player_id, std::chrono::steady_clock::time_point now) {
+  const bool inserted = active_voice_players_.insert_or_assign(player_id, now).second;
+  if (inserted) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerVoiceStartName, OnPlayerVoiceEvent{player_id});
+  }
+}
+
+void GameServer::EndPlayerVoiceActivity(PlayerId player_id) {
+  if (active_voice_players_.erase(player_id) != 0) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerVoiceStopName, OnPlayerVoiceEvent{player_id});
+  }
+}
+
+void GameServer::ProcessVoiceActivity(std::chrono::steady_clock::time_point now) {
+  std::vector<PlayerId> expired_players;
+  expired_players.reserve(active_voice_players_.size());
+  for (const auto& [player_id, last_packet_at] : active_voice_players_) {
+    if (now - last_packet_at >= kVoiceActivityTimeout) {
+      expired_players.push_back(player_id);
+    }
+  }
+
+  for (const PlayerId player_id : expired_players) {
+    EndPlayerVoiceActivity(player_id);
+  }
 }
 
 void GameServer::SendAdminAuthStatus(const Player& player) {
@@ -4012,6 +4165,81 @@ bool GameServer::SetStreamerHeight(std::int32_t height) {
 
 std::int32_t GameServer::GetStreamerHeight() const {
   return config_.Get<std::int32_t>("stream_height");
+}
+
+bool GameServer::SetVoiceEnabled(bool enabled) {
+  if (config_.Get<bool>("voice_enabled") == enabled) {
+    return true;
+  }
+
+  config_.Set<bool>("voice_enabled", enabled);
+  if (!enabled) {
+    std::vector<PlayerId> active_players;
+    active_players.reserve(active_voice_players_.size());
+    for (const auto& [player_id, last_packet_at] : active_voice_players_) {
+      (void)last_packet_at;
+      active_players.push_back(player_id);
+    }
+    for (PlayerId player_id : active_players) {
+      EndPlayerVoiceActivity(player_id);
+    }
+  }
+
+  player_manager_.ForEachPlayer([this](Player& player) { SendVoiceConfiguration(player); });
+  return true;
+}
+
+bool GameServer::SetVoiceRange(std::int32_t range) {
+  if (range < 0) {
+    SPDLOG_WARN("setVoiceRange called with invalid range {}", range);
+    return false;
+  }
+
+  config_.Set<std::int32_t>("voice_range", range);
+  player_manager_.ForEachPlayer([this, range](Player& player) {
+    player.voice_range = static_cast<std::uint32_t>(range);
+    if (range == 0 && IsVoiceChannelSpatial(player.voice_channel)) {
+      EndPlayerVoiceActivity(player.player_id);
+    }
+    SendVoiceConfiguration(player);
+  });
+  return true;
+}
+
+bool GameServer::SetVoiceEnabledForPlayer(PlayerId player_id, bool enabled) {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return false;
+  }
+
+  Player& player = player_opt->get();
+  const bool muted = !enabled;
+  if (player.voice_muted == muted) {
+    return true;
+  }
+
+  player.voice_muted = muted;
+  if (muted) {
+    EndPlayerVoiceActivity(player_id);
+  }
+  SendVoiceConfiguration(player);
+  return true;
+}
+
+bool GameServer::GetVoiceEnabled() const {
+  return config_.Get<bool>("voice_enabled");
+}
+
+std::int32_t GameServer::GetVoiceRange() const {
+  return config_.Get<std::int32_t>("voice_range");
+}
+
+std::optional<bool> GameServer::GetVoiceEnabledForPlayer(PlayerId player_id) const {
+  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!player_opt.has_value()) {
+    return std::nullopt;
+  }
+  return !player_opt->get().voice_muted;
 }
 
 bool GameServer::SetTime(std::int32_t hour, std::int32_t min, std::int32_t day) {

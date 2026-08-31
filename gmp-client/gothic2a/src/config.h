@@ -90,6 +90,18 @@ public:
     return debug_console_enabled_;
   }
 
+  bool IsVoiceChatEnabled() const {
+    return voice_chat_enabled_;
+  }
+
+  int GetVoicePushToTalkKey() const {
+    return voice_push_to_talk_key_;
+  }
+
+  float GetVoiceOutputVolume() const {
+    return static_cast<float>(voice_output_volume_percent_) / 100.0f;
+  }
+
   static Config& Instance() {
     static Config instance;
     return instance;
@@ -108,4 +120,7 @@ private:
   bool mcp_pipe_enabled_ = false;
   // Whether to spawn external debug console window (enabled by default)
   bool debug_console_enabled_ = true;
+  bool voice_chat_enabled_ = true;
+  int voice_push_to_talk_key_ = KEY_K;
+  int voice_output_volume_percent_ = 100;
 };

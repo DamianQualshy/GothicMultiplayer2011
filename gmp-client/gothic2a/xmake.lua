@@ -5,8 +5,8 @@ target("ClientMain")
     add_files("src/**.cpp")
     add_includedirs("src/gothic-patches")
     add_includedirs("src")
-    
-    add_deps("common", "SharedLib", "AddonSupport", "ZenKit", "LuaRuntime", "ResourceLoader", "zNetInterface", "Client.Net", "Client.Resources", "SDL3", "BugTrap", "gothic_api")
+
+    add_deps("common", "SharedLib", "AddonSupport", "ZenKit", "LuaRuntime", "ResourceLoader", "zNetInterface", "Client.Net", "Client.Resources", "Client.Voice", "SDL3", "BugTrap", "gothic_api")
     add_packages("spdlog", "fmt", "cpp-httplib", "dylib", "glm", "bitsery", "nlohmann_json", "polyhook2", "asmjit", "sol2", "minimp3", "stb")
     -- D3D9 for legacy renderer, D3D11/DXGI/D3DCompiler for modern renderer
     add_syslinks("wsock32", "ws2_32", "Iphlpapi", "user32", "gdi32", "kernel32", "d3d9", "d3d11", "dxgi", "d3dcompiler")

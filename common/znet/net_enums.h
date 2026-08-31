@@ -113,6 +113,8 @@ enum PacketID {
   PT_PLAYER_WORLD_ENTER,
   PT_PLAYER_PING_UPDATE,
   PT_ADMIN_AUTH,
+  PT_VOICE_CONFIG,
+  PT_VOICE_CHANNEL,
 };
 
 inline const char* PacketIDToString(PacketID id) {
@@ -251,6 +253,10 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_PLAYER_PING_UPDATE";
     case PT_ADMIN_AUTH:
       return "PT_ADMIN_AUTH";
+    case PT_VOICE_CONFIG:
+      return "PT_VOICE_CONFIG";
+    case PT_VOICE_CHANNEL:
+      return "PT_VOICE_CHANNEL";
   }
   return "UNKNOWN";
 }

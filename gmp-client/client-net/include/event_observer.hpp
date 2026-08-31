@@ -28,6 +28,7 @@ SOFTWARE.
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "common_structs.h"
 
@@ -60,6 +61,11 @@ public:
                                      std::int16_t rain_start_hour, std::int16_t rain_start_min,
                                      std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
                                      float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) {}
+
+  // Native voice chat events
+  virtual void OnVoiceConfiguration(bool enabled, bool transmit_enabled, std::uint32_t range) {}
+  virtual void OnVoiceFrame(std::uint32_t player_id, std::uint32_t talkspurt_id, std::uint32_t sequence,
+                            bool spatial, std::uint32_t range, const std::vector<std::uint8_t>& encoded_data) {}
 
   // Player events
   virtual void OnLocalPlayerJoined(gmp::client::Player& player) {}

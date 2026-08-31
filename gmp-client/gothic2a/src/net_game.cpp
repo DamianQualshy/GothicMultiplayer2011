@@ -41,6 +41,7 @@ SOFTWARE.
 #include <glm/glm.hpp>
 #include <iomanip>
 #include <list>
+#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -82,6 +83,17 @@ extern CIngame* global_ingame;
 using namespace Net;
 
 namespace {
+constexpr auto kVoiceActivityTimeout = std::chrono::milliseconds(400);
+
+bool IsValidVoiceChannelName(const std::string& channel) {
+  if (channel.empty() || channel.size() > kMaxVoiceChannelNameLength) {
+    return false;
+  }
+  return std::all_of(channel.begin(), channel.end(), [](unsigned char character) {
+    return character >= 0x20 && character != 0x7f;
+  });
+}
+
 oCMenu_Status* GetStatusMenu() {
   zSTRING status_menu_name("MENU_STATUS");
   if (auto* menu = dynamic_cast<oCMenu_Status*>(zCMenu::GetByName(status_menu_name))) {
@@ -804,6 +816,7 @@ NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_run
 }
 
 void NetGame::Shutdown() {
+  StopVoiceChat();
   EventManager::Instance().Reset();
   pending_local_spawn_position_.reset();
   if (game_client) {
@@ -864,6 +877,227 @@ float NetGame::GetDayLengthMs() const {
   return day_length_ms_;
 }
 
+bool NetGame::IsVoiceChatAvailable() const {
+  return server_voice_enabled_;
+}
+
+bool NetGame::IsVoiceChatEnabled() const {
+  return IsVoiceChatAvailable() && Config::Instance().IsVoiceChatEnabled() && script_voice_enabled_;
+}
+
+void NetGame::SetVoiceChatScriptEnabled(bool enabled) {
+  const bool was_enabled = IsVoiceChatEnabled();
+  script_voice_enabled_ = enabled;
+  const bool is_enabled = IsVoiceChatEnabled();
+
+  if (is_enabled && IsInGame) {
+    StartVoiceChat();
+  } else if (!is_enabled) {
+    StopVoiceChat();
+  }
+
+  if (was_enabled != is_enabled) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{is_enabled, GetVoiceChatRange()});
+  }
+}
+
+float NetGame::GetVoiceChatRange() const {
+  if (!IsVoiceChatAvailable()) {
+    return 0.0f;
+  }
+
+  if (!script_voice_range_.has_value()) {
+    return voice_range_;
+  }
+
+  return std::min(voice_range_, *script_voice_range_);
+}
+
+bool NetGame::SetVoiceChatRange(float range) {
+  if (!std::isfinite(range) || range < 0.0f) {
+    return false;
+  }
+
+  const float previous_range = GetVoiceChatRange();
+  script_voice_range_ = range;
+  const float current_range = GetVoiceChatRange();
+  if (previous_range != current_range) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{IsVoiceChatEnabled(), current_range});
+  }
+  return true;
+}
+
+float NetGame::GetVoiceChatOutputVolume() const {
+  return script_voice_output_volume_;
+}
+
+void NetGame::SetVoiceChatOutputVolume(float volume) {
+  if (!std::isfinite(volume)) {
+    return;
+  }
+  script_voice_output_volume_ = std::clamp(volume, 0.0f, 1.0f);
+  voice_playback_.SetMasterVolume(Config::Instance().GetVoiceOutputVolume() * script_voice_output_volume_);
+}
+
+int NetGame::GetVoiceChatPushToTalkKey() const {
+  return script_voice_push_to_talk_key_.value_or(Config::Instance().GetVoicePushToTalkKey());
+}
+
+bool NetGame::SetVoiceChatPushToTalkKey(int key) {
+  if (key <= 0 || key > std::numeric_limits<std::uint8_t>::max()) {
+    return false;
+  }
+
+  script_voice_push_to_talk_key_ = key;
+  return true;
+}
+
+std::vector<std::string> NetGame::GetVoiceChatInputDevices() const {
+  return voice_capture_.GetInputDevices();
+}
+
+std::string NetGame::GetVoiceChatInputDevice() const {
+  return voice_capture_.GetInputDevice();
+}
+
+bool NetGame::SetVoiceChatInputDevice(const std::string& device_name) {
+  if (device_name == voice_capture_.GetInputDevice()) {
+    return true;
+  }
+
+  const std::string previous_device = voice_capture_.GetInputDevice();
+  if (!voice_capture_.SetInputDevice(device_name)) {
+    return false;
+  }
+
+  if (!voice_capture_.IsCapturing()) {
+    return true;
+  }
+
+  SetVoiceTransmitting(false);
+  voice_capture_.StopCapture();
+  if (voice_capture_.StartCapture()) {
+    return true;
+  }
+
+  voice_capture_.SetInputDevice(previous_device);
+  voice_capture_.StartCapture();
+  return false;
+}
+
+std::vector<std::string> NetGame::GetVoiceChatOutputDevices() const {
+  return voice_playback_.GetOutputDevices();
+}
+
+std::string NetGame::GetVoiceChatOutputDevice() const {
+  return voice_playback_.GetOutputDevice();
+}
+
+bool NetGame::SetVoiceChatOutputDevice(const std::string& device_name) {
+  if (device_name == voice_playback_.GetOutputDevice()) {
+    return true;
+  }
+
+  const std::string previous_device = voice_playback_.GetOutputDevice();
+  if (!voice_playback_.SetOutputDevice(device_name)) {
+    return false;
+  }
+
+  if (!voice_playback_.IsPlaying()) {
+    return true;
+  }
+
+  voice_playback_.StopPlayback();
+  if (voice_playback_.StartPlayback()) {
+    return true;
+  }
+
+  voice_playback_.SetOutputDevice(previous_device);
+  voice_playback_.StartPlayback();
+  return false;
+}
+
+const std::string& NetGame::GetVoiceChatChannel() const {
+  return voice_channel_;
+}
+
+bool NetGame::SetVoiceChatChannel(const std::string& channel) {
+  if (!IsValidVoiceChannelName(channel)) {
+    return false;
+  }
+  if (channel == voice_channel_) {
+    return true;
+  }
+  if (IsInGame && (!game_client || !game_client->SendVoiceChannel(channel))) {
+    return false;
+  }
+
+  const std::string old_channel = voice_channel_;
+  voice_channel_ = channel;
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChannelChangeName,
+                                        gmp::gothic::OnVoiceChannelChangeEvent{old_channel, voice_channel_});
+  return true;
+}
+
+bool NetGame::IsVoiceChatTransmitting() const {
+  return voice_capture_.IsTransmitting();
+}
+
+bool NetGame::IsPlayerVoiceTalking(std::uint64_t player_id) const {
+  if (player_id == 0 || player_id > std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+  return active_voice_players_.contains(static_cast<std::uint32_t>(player_id));
+}
+
+bool NetGame::IsPlayerVoiceMuted(std::uint64_t player_id) const {
+  if (player_id == 0 || player_id > std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+  return muted_voice_players_.contains(static_cast<std::uint32_t>(player_id));
+}
+
+bool NetGame::SetPlayerVoiceMuted(std::uint64_t player_id, bool muted) {
+  if (player_id == 0 || player_id > std::numeric_limits<std::uint32_t>::max()) {
+    return false;
+  }
+
+  const auto voice_player_id = static_cast<std::uint32_t>(player_id);
+  if (muted) {
+    muted_voice_players_.insert(voice_player_id);
+    voice_playback_.RemovePlayer(voice_player_id);
+  } else {
+    muted_voice_players_.erase(voice_player_id);
+  }
+  return true;
+}
+
+float NetGame::GetPlayerVoiceVolume(std::uint64_t player_id) const {
+  if (player_id == 0 || player_id > std::numeric_limits<std::uint32_t>::max()) {
+    return 1.0f;
+  }
+
+  auto volume = voice_player_volumes_.find(static_cast<std::uint32_t>(player_id));
+  return volume == voice_player_volumes_.end() ? 1.0f : volume->second;
+}
+
+bool NetGame::SetPlayerVoiceVolume(std::uint64_t player_id, float volume) {
+  if (player_id == 0 || player_id > std::numeric_limits<std::uint32_t>::max() || !std::isfinite(volume)) {
+    return false;
+  }
+
+  const auto voice_player_id = static_cast<std::uint32_t>(player_id);
+  const float clamped_volume = std::clamp(volume, 0.0f, 1.0f);
+  if (clamped_volume == 1.0f) {
+    voice_player_volumes_.erase(voice_player_id);
+  } else {
+    voice_player_volumes_[voice_player_id] = clamped_volume;
+  }
+  return true;
+}
+
 void NetGame::UpdateClientEventState() {
   if (ogame && ogame->GetWorldTimer()) {
     int hour = 0;
@@ -907,6 +1141,16 @@ bool NetGame::Connect(std::string_view full_address) {
   server_requested_map_.clear();
   map.Clear();
 
+  const bool voice_was_enabled = IsVoiceChatEnabled();
+  StopVoiceChat();
+  server_voice_enabled_ = false;
+  server_voice_transmit_enabled_ = false;
+  voice_range_ = 0.0f;
+  if (voice_was_enabled) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{false, 0.0f});
+  }
+  ResetVoiceChatScriptState();
   game_client->ConnectAsync(full_address);
   // Return true to indicate the connection attempt was started.
   // Actual connection status is reported by RakNet packets pumped in HandleNetwork().
@@ -931,6 +1175,126 @@ void NetGame::HandleNetwork() {
   if (game_client) {
     game_client->HandleNetwork();
   }
+  UpdateVoiceChat();
+}
+
+void NetGame::StartVoiceChat() {
+  if (!IsVoiceChatEnabled() || !IsInGame) {
+    return;
+  }
+
+  voice_playback_.SetMasterVolume(Config::Instance().GetVoiceOutputVolume() * script_voice_output_volume_);
+  if (!voice_playback_.IsPlaying()) {
+    voice_playback_.StartPlayback();
+  }
+  if (server_voice_transmit_enabled_ && !voice_capture_.IsCapturing()) {
+    voice_capture_.StartCapture();
+  } else if (!server_voice_transmit_enabled_ && voice_capture_.IsCapturing()) {
+    SetVoiceTransmitting(false);
+    voice_capture_.StopCapture();
+  }
+}
+
+void NetGame::StopVoiceChat() {
+  SetVoiceTransmitting(false);
+  voice_capture_.StopCapture();
+  voice_playback_.StopPlayback();
+  ClearPlayerVoiceActivity();
+}
+
+void NetGame::UpdateVoiceChat() {
+  UpdatePlayerVoiceActivity();
+  if (!voice_capture_.IsCapturing() || !game_client) {
+    return;
+  }
+
+  const bool push_to_talk_pressed = IsVoiceChatEnabled() && server_voice_transmit_enabled_ && IsInGame && zinput &&
+                                    !CChat::GetInstance()->IsInputActive() &&
+                                    zinput->KeyPressed(GetVoiceChatPushToTalkKey());
+  SetVoiceTransmitting(push_to_talk_pressed);
+  if (!push_to_talk_pressed) {
+    return;
+  }
+
+  for (auto& frame : voice_capture_.ConsumeEncodedFrames()) {
+    game_client->SendVoiceFrame(frame.talkspurt_id, frame.sequence, frame.data);
+  }
+}
+
+void NetGame::SetVoiceTransmitting(bool transmitting) {
+  const bool was_transmitting = voice_capture_.IsTransmitting();
+  voice_capture_.SetTransmitting(transmitting);
+  const bool is_transmitting = voice_capture_.IsTransmitting();
+  if (was_transmitting == is_transmitting) {
+    return;
+  }
+
+  EventManager::Instance().TriggerEvent(is_transmitting ? gmp::gothic::kEventOnVoiceTransmitStartName
+                                                        : gmp::gothic::kEventOnVoiceTransmitStopName,
+                                        0);
+}
+
+void NetGame::MarkPlayerVoiceActive(std::uint32_t player_id) {
+  const auto now = std::chrono::steady_clock::now();
+  const bool started = active_voice_players_.insert_or_assign(player_id, now).second;
+  if (started) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerVoiceStartName,
+                                          gmp::gothic::OnPlayerVoiceEvent{player_id});
+  }
+}
+
+void NetGame::EndPlayerVoiceActivity(std::uint32_t player_id) {
+  if (active_voice_players_.erase(player_id) == 0) {
+    return;
+  }
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerVoiceStopName,
+                                        gmp::gothic::OnPlayerVoiceEvent{player_id});
+}
+
+void NetGame::UpdatePlayerVoiceActivity() {
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<std::uint32_t> stopped_players;
+  for (auto it = active_voice_players_.begin(); it != active_voice_players_.end();) {
+    if (now - it->second >= kVoiceActivityTimeout) {
+      stopped_players.push_back(it->first);
+      it = active_voice_players_.erase(it);
+    } else {
+      ++it;
+    }
+  }
+
+  for (std::uint32_t player_id : stopped_players) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerVoiceStopName,
+                                          gmp::gothic::OnPlayerVoiceEvent{player_id});
+  }
+}
+
+void NetGame::ClearPlayerVoiceActivity() {
+  std::vector<std::uint32_t> stopped_players;
+  stopped_players.reserve(active_voice_players_.size());
+  for (const auto& [player_id, last_frame] : active_voice_players_) {
+    (void)last_frame;
+    stopped_players.push_back(player_id);
+  }
+  active_voice_players_.clear();
+
+  for (std::uint32_t player_id : stopped_players) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerVoiceStopName,
+                                          gmp::gothic::OnPlayerVoiceEvent{player_id});
+  }
+}
+
+void NetGame::ResetVoiceChatScriptState() {
+  script_voice_enabled_ = true;
+  script_voice_range_.reset();
+  script_voice_push_to_talk_key_.reset();
+  script_voice_output_volume_ = 1.0f;
+  voice_capture_.SetInputDevice("");
+  voice_playback_.SetOutputDevice("");
+  voice_channel_ = "default";
+  muted_voice_players_.clear();
+  voice_player_volumes_.clear();
+  voice_playback_.SetMasterVolume(Config::Instance().GetVoiceOutputVolume());
 }
 
 bool NetGame::IsConnected() {
@@ -1261,6 +1625,16 @@ void NetGame::SyncGameTime() {
 
 void NetGame::Disconnect() {
   ++content_activation_generation_;
+  const bool voice_was_enabled = IsVoiceChatEnabled();
+  StopVoiceChat();
+  server_voice_enabled_ = false;
+  server_voice_transmit_enabled_ = false;
+  voice_range_ = 0.0f;
+  if (voice_was_enabled) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{false, 0.0f});
+  }
+  ResetVoiceChatScriptState();
   pending_local_spawn_position_.reset();
   IsInGame = false;
   IsReadyToJoin = false;
@@ -1353,6 +1727,16 @@ void NetGame::OnConnectionFailed(const std::string& error) {
 
 void NetGame::OnDisconnected() {
   SPDLOG_INFO("Disconnected from server");
+  const bool voice_was_enabled = IsVoiceChatEnabled();
+  StopVoiceChat();
+  server_voice_enabled_ = false;
+  server_voice_transmit_enabled_ = false;
+  voice_range_ = 0.0f;
+  if (voice_was_enabled) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{false, 0.0f});
+  }
+  ResetVoiceChatScriptState();
   IsReadyToJoin = false;
 }
 
@@ -1483,6 +1867,9 @@ void NetGame::ActivateDownloadedContent(std::uint64_t generation) {
     return;
   }
 
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                        gmp::gothic::OnVoiceChatStateEvent{IsVoiceChatEnabled(), GetVoiceChatRange()});
+
   SPDLOG_INFO("Client resources ready; player may join");
   SPDLOG_INFO("All required client resources downloaded and loaded");
   IsReadyToJoin = true;
@@ -1541,6 +1928,60 @@ void NetGame::OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_typ
   }
 }
 
+void NetGame::OnVoiceConfiguration(bool enabled, bool transmit_enabled, std::uint32_t range) {
+  const bool was_enabled = IsVoiceChatEnabled();
+  const float previous_range = GetVoiceChatRange();
+  server_voice_enabled_ = enabled;
+  server_voice_transmit_enabled_ = enabled && transmit_enabled;
+  voice_range_ = enabled ? static_cast<float>(range) : 0.0f;
+  if (!server_voice_enabled_) {
+    StopVoiceChat();
+  } else if (IsInGame) {
+    StartVoiceChat();
+  }
+
+  const bool is_enabled = IsVoiceChatEnabled();
+  if (was_enabled != is_enabled || previous_range != GetVoiceChatRange()) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                          gmp::gothic::OnVoiceChatStateEvent{is_enabled, GetVoiceChatRange()});
+  }
+}
+
+void NetGame::OnVoiceFrame(std::uint32_t player_id, std::uint32_t talkspurt_id, std::uint32_t sequence,
+                           bool spatial, std::uint32_t range, const std::vector<std::uint8_t>& encoded_data) {
+  if (!IsVoiceChatEnabled() || !::player) {
+    return;
+  }
+
+  float spatial_gain = 1.0f;
+  if (spatial) {
+    const float local_range = GetVoiceChatRange();
+    if (range == 0 || local_range <= 0.0f) {
+      return;
+    }
+    const float effective_range = std::min(static_cast<float>(range), local_range);
+    Gothic2APlayer* remote_player = GetPlayerById(player_id);
+    if (!remote_player || !remote_player->GetNpc()) {
+      return;
+    }
+    const zVEC3 delta = remote_player->GetNpc()->GetPositionWorld() - ::player->GetPositionWorld();
+    const float distance = std::sqrt(delta[VX] * delta[VX] + delta[VY] * delta[VY] + delta[VZ] * delta[VZ]);
+    spatial_gain = std::clamp(1.0f - distance / effective_range, 0.0f, 1.0f);
+    if (spatial_gain <= 0.0f) {
+      return;
+    }
+  }
+
+  MarkPlayerVoiceActive(player_id);
+  const float player_volume = GetPlayerVoiceVolume(player_id);
+  if (IsPlayerVoiceMuted(player_id)) {
+    return;
+  }
+
+  const float gain = spatial_gain * player_volume;
+  voice_playback_.PlayVoice(player_id, talkspurt_id, sequence, encoded_data, gain);
+}
+
 void NetGame::OnLocalPlayerJoined(gmp::client::Player& player) {
   SPDLOG_INFO("Local player registered with id {}", player.id());
 }
@@ -1552,6 +1993,8 @@ void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   }
 
   this->IsInGame = true;
+  game_client->SendVoiceChannel(voice_channel_);
+  StartVoiceChat();
 
   Gothic2APlayer* local_player = GetPlayerById(player.id());
   if (local_player == nullptr) {
@@ -1650,6 +2093,11 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
 }
 
 void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {
+  if (player_id <= std::numeric_limits<std::uint32_t>::max()) {
+    const auto voice_player_id = static_cast<std::uint32_t>(player_id);
+    EndPlayerVoiceActivity(voice_player_id);
+    voice_playback_.RemovePlayer(voice_player_id);
+  }
   for (size_t i = 0; i < this->players.size(); i++) {
     if (!this->players[i]) {
       continue;
@@ -1658,6 +2106,7 @@ void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_na
     if (this->players[i]->base_player().id() == player_id) {
       if (this->players[i]->IsLocalPlayer()) {
         SPDLOG_INFO("Local player '{}' (id {}) was unspawned", this->players[i]->GetName(), player_id);
+        StopVoiceChat();
         pending_local_spawn_position_.reset();
         this->IsInGame = false;
         this->players[i]->base_player().set_has_spawned(false);

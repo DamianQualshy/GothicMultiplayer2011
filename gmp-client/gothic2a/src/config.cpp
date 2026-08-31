@@ -30,6 +30,7 @@ SOFTWARE.
 
 #include <exception>
 #include <filesystem>
+#include <algorithm>
 #include <map>
 #include <string>
 #include <string_view>
@@ -135,6 +136,15 @@ void Config::LoadConfigFromFile() {
     debug_console_enabled_ = *debug_console_opt;
   }
 
+  voice_chat_enabled_ = toml.GetValue<bool>("voice_enabled", voice_chat_enabled_);
+  voice_push_to_talk_key_ = toml.GetValue<int>("voice_push_to_talk_key", voice_push_to_talk_key_);
+  voice_output_volume_percent_ = toml.GetValue<int>("voice_output_volume", voice_output_volume_percent_);
+  if (voice_push_to_talk_key_ <= 0 || voice_push_to_talk_key_ > 255) {
+    SPDLOG_WARN("Invalid voice_push_to_talk_key {}; using KEY_K", voice_push_to_talk_key_);
+    voice_push_to_talk_key_ = KEY_K;
+  }
+  voice_output_volume_percent_ = std::clamp(voice_output_volume_percent_, 0, 100);
+
   // If nickname is empty, the user didn't set up the config yet.
   is_default_ = Nickname.IsEmpty();
 }
@@ -148,6 +158,9 @@ void Config::DefaultSettings() {
   renderer_type_ = RendererType::D3D9;
   mcp_pipe_enabled_ = false;
   debug_console_enabled_ = true;
+  voice_chat_enabled_ = true;
+  voice_push_to_talk_key_ = KEY_K;
+  voice_output_volume_percent_ = 100;
   vsync_enabled = true;
   is_default_ = true;
 };
@@ -176,6 +189,9 @@ void Config::SaveConfigToFile() {
   toml["vsync_enabled"] = toml::value(vsync_enabled);
   toml["mcp_pipe_enabled"] = toml::value(mcp_pipe_enabled_);
   toml["debug_console_enabled"] = toml::value(debug_console_enabled_);
+  toml["voice_enabled"] = toml::value(voice_chat_enabled_);
+  toml["voice_push_to_talk_key"] = toml::value(voice_push_to_talk_key_);
+  toml["voice_output_volume"] = toml::value(voice_output_volume_percent_);
 
   // Save renderer type as string
   std::string renderer_str;

@@ -61,6 +61,8 @@ const std::unordered_map<std::string, std::variant<std::string, std::vector<std:
     {"allow_modification", true},
     {"hide_map", false},
     {"respawn_time_seconds", 5},
+    {"voice_enabled", true},
+    {"voice_range", 3500},
     {"resources", std::vector<std::string>{std::string("default"), std::string("prototype")}},
     {"addon_vdfs", std::vector<std::string>{}},
     {"downloader_group", std::string("")},
@@ -226,7 +228,7 @@ void Config::ValidateAndFixValues() {
     values_["log_level"] = default_log_level;
   }
 
-  for (const auto* key : {"seconds_per_game_minute", "stream_radius", "stream_height"}) {
+  for (const auto* key : {"seconds_per_game_minute", "stream_radius", "stream_height", "voice_range"}) {
     auto& value = std::get<std::int32_t>(values_.at(key));
     if (value < 0) {
       auto default_value = std::get<std::int32_t>(kDefault_Config_Values.at(key));
@@ -256,6 +258,8 @@ void Config::LogConfigValues() const {
   SPDLOG_INFO("* {:<18}: {}", "Allow modification", bool_to_string(Get<bool>("allow_modification")));
   SPDLOG_INFO("* {:<18}: {}", "Hide map", bool_to_string(Get<bool>("hide_map")));
   SPDLOG_INFO("* {:<18}: {}", "Respawn time", fmt::format("{}s", Get<std::int32_t>("respawn_time_seconds")));
+  SPDLOG_INFO("* {:<18}: {}", "Voice chat", bool_to_string(Get<bool>("voice_enabled")));
+  SPDLOG_INFO("* {:<18}: {}", "Voice range", Get<std::int32_t>("voice_range"));
 
   SPDLOG_INFO("");
   SPDLOG_INFO("-= Resourcepacks =-");

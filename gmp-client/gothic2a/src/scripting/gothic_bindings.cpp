@@ -61,6 +61,7 @@ SOFTWARE.
 #include "lua_sky.h"
 #include "lua_way.h"
 #include "lua_interface.h"
+#include "lua_voice.h"
 
 using namespace Gothic_II_Addon;
 
@@ -3727,6 +3728,7 @@ void BindGothicSpecific(sol::state& lua) {
   BindSky(lua);
   BindInterface(lua);
   BindItemGround(lua);
+  BindVoiceChat(lua);
 
   // Constants
   lua["PLANET_SUN"] = 0;

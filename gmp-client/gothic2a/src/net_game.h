@@ -28,6 +28,8 @@ SOFTWARE.
 #include <memory>
 #include <optional>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "CSyncFuncs.h"
@@ -39,6 +41,8 @@ SOFTWARE.
 #include "game_client.hpp"
 #include "gothic2a_player.hpp"
 #include "gothic_task_scheduler.h"
+#include "VoiceCapture.h"
+#include "VoicePlayback.h"
 
 struct MD5Sum {
   BYTE data[16];
@@ -87,6 +91,30 @@ public:
   void SetDayLengthMs(float day_length_ms);
   float GetDayLengthMs() const;
 
+  bool IsVoiceChatAvailable() const;
+  bool IsVoiceChatEnabled() const;
+  void SetVoiceChatScriptEnabled(bool enabled);
+  float GetVoiceChatRange() const;
+  bool SetVoiceChatRange(float range);
+  float GetVoiceChatOutputVolume() const;
+  void SetVoiceChatOutputVolume(float volume);
+  int GetVoiceChatPushToTalkKey() const;
+  bool SetVoiceChatPushToTalkKey(int key);
+  std::vector<std::string> GetVoiceChatInputDevices() const;
+  std::string GetVoiceChatInputDevice() const;
+  bool SetVoiceChatInputDevice(const std::string& device_name);
+  std::vector<std::string> GetVoiceChatOutputDevices() const;
+  std::string GetVoiceChatOutputDevice() const;
+  bool SetVoiceChatOutputDevice(const std::string& device_name);
+  const std::string& GetVoiceChatChannel() const;
+  bool SetVoiceChatChannel(const std::string& channel);
+  bool IsVoiceChatTransmitting() const;
+  bool IsPlayerVoiceTalking(std::uint64_t player_id) const;
+  bool IsPlayerVoiceMuted(std::uint64_t player_id) const;
+  bool SetPlayerVoiceMuted(std::uint64_t player_id, bool muted);
+  float GetPlayerVoiceVolume(std::uint64_t player_id) const;
+  bool SetPlayerVoiceVolume(std::uint64_t player_id, float volume);
+
   // Task scheduler hook - called from render hook
   static void __stdcall ProcessTaskScheduler();
 
@@ -125,6 +153,9 @@ public:
   void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type, std::int16_t rain_start_hour, std::int16_t rain_start_min,
                              std::int16_t rain_stop_hour, std::int16_t rain_stop_min, float wind_scale, bool dont_rain, float rain_weight,
                              bool render_lightning) override;
+  void OnVoiceConfiguration(bool enabled, bool transmit_enabled, std::uint32_t range) override;
+  void OnVoiceFrame(std::uint32_t player_id, std::uint32_t talkspurt_id, std::uint32_t sequence,
+                    bool spatial, std::uint32_t range, const std::vector<std::uint8_t>& encoded_data) override;
   void OnLocalPlayerJoined(gmp::client::Player& player) override;
   void OnLocalPlayerSpawned(gmp::client::Player& player) override;
   void OnPlayerJoined(gmp::client::Player& player) override;
@@ -192,6 +223,15 @@ private:
   void UpdateClientEventState();
   void ActivateDownloadedContent(std::uint64_t generation);
   void ShowConnectionProgressError(const std::string& message);
+  void StartVoiceChat();
+  void StopVoiceChat();
+  void UpdateVoiceChat();
+  void SetVoiceTransmitting(bool transmitting);
+  void MarkPlayerVoiceActive(std::uint32_t player_id);
+  void EndPlayerVoiceActivity(std::uint32_t player_id);
+  void UpdatePlayerVoiceActivity();
+  void ClearPlayerVoiceActivity();
+  void ResetVoiceChatScriptState();
 
   std::optional<GameTimeSnapshot> last_game_time_;
   std::optional<PendingLocalSpawnPosition> pending_local_spawn_position_;
@@ -206,6 +246,19 @@ private:
   std::string connection_progress_message_;
   std::string connection_progress_banner_;
   std::chrono::steady_clock::time_point connection_progress_error_until_{};
+  gmp::voice::VoiceCapture voice_capture_;
+  gmp::voice::VoicePlayback voice_playback_;
+  bool server_voice_enabled_{false};
+  bool server_voice_transmit_enabled_{false};
+  float voice_range_{0.0f};
+  bool script_voice_enabled_{true};
+  std::optional<float> script_voice_range_;
+  std::optional<int> script_voice_push_to_talk_key_;
+  float script_voice_output_volume_{1.0f};
+  std::string voice_channel_{"default"};
+  std::unordered_set<std::uint32_t> muted_voice_players_;
+  std::unordered_map<std::uint32_t, float> voice_player_volumes_;
+  std::unordered_map<std::uint32_t, std::chrono::steady_clock::time_point> active_voice_players_;
 
 public:
   std::optional<std::uint64_t> GetPlayerIdByNpc(oCNpc* npc);

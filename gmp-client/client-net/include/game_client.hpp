@@ -84,6 +84,9 @@ public:
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
+  bool SendVoiceFrame(std::uint32_t talkspurt_id, std::uint32_t sequence,
+                      const std::vector<std::uint8_t>& encoded_data);
+  bool SendVoiceChannel(const std::string& channel);
   bool SendLuaEventToServer(const std::string& event_name, std::uint32_t source_element, const std::string& payload);
   void UpdatePlayerStats(const PlayerState& state);
   void SyncGameTime();
@@ -169,6 +172,8 @@ private:
   void OnSkySettings(Packet packet);
   void OnPlayerPingUpdate(Packet packet);
   void OnAdminAuth(Packet packet);
+  void OnVoiceConfiguration(Packet packet);
+  void OnVoice(Packet packet);
   void OnLeftGame(Packet packet);
   void OnLuaEvent(Packet packet);
   void OnDisconnectOrLostConnection(Packet packet);

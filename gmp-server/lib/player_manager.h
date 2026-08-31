@@ -91,6 +91,10 @@ public:
     std::uint8_t is_ingame;
     std::uint8_t passed_crc_test;
     bool is_admin{false};
+    bool voice_enabled{true};
+    bool voice_muted{false};
+    std::string voice_channel{"default"};
+    std::uint32_t voice_range{0};
 
     std::int16_t health;
     std::int16_t max_health{100};

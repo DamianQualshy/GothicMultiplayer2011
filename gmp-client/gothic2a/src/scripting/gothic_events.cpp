@@ -630,6 +630,96 @@ void RegisterGothicEventProxies() {
     OnPlayerPingEvent event = std::any_cast<OnPlayerPingEvent>(args.event);
     args.callback(event.player_id, event.ping);
   };
+
+/* luagmp (event)
+*
+* This event is triggered when the effective voice chat state changes.
+*
+* @version  0.3.0
+* @name     onVoiceChatStateChange
+* @side     client
+* @category Voice
+* @param    (boolean) enabled  True when voice chat is available and enabled locally.
+* @param    (number) range     Server-configured proximity range in game units.
+*
+*/
+  g_gothic_event_proxies[kEventOnVoiceChatStateChangeName] = [](LuaProxyArgs args) {
+    OnVoiceChatStateEvent event = std::any_cast<OnVoiceChatStateEvent>(args.event);
+    args.callback(event.enabled, event.range);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when the local player starts transmitting voice.
+*
+* @version  0.3.0
+* @name     onVoiceTransmitStart
+* @side     client
+* @category Voice
+*
+*/
+  g_gothic_event_proxies[kEventOnVoiceTransmitStartName] = [](LuaProxyArgs args) { args.callback(); };
+
+/* luagmp (event)
+*
+* This event is triggered when the local player stops transmitting voice.
+*
+* @version  0.3.0
+* @name     onVoiceTransmitStop
+* @side     client
+* @category Voice
+*
+*/
+  g_gothic_event_proxies[kEventOnVoiceTransmitStopName] = [](LuaProxyArgs args) { args.callback(); };
+
+/* luagmp (event)
+*
+* This event is triggered when the local player changes voice channels.
+*
+* @version  0.3.0
+* @name     onVoiceChannelChange
+* @side     client
+* @category Voice
+* @param    (string) old_channel  Previous channel name.
+* @param    (string) new_channel  New channel name.
+*
+*/
+  g_gothic_event_proxies[kEventOnVoiceChannelChangeName] = [](LuaProxyArgs args) {
+    OnVoiceChannelChangeEvent event = std::any_cast<OnVoiceChannelChangeEvent>(args.event);
+    args.callback(event.old_channel, event.new_channel);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when a remote player starts speaking.
+*
+* @version  0.3.0
+* @name     onPlayerVoiceStart
+* @side     client
+* @category Voice
+* @param    (number) player_id  Speaking player id.
+*
+*/
+  g_gothic_event_proxies[kEventOnPlayerVoiceStartName] = [](LuaProxyArgs args) {
+    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+    args.callback(event.player_id);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered after a remote player's voice activity ends.
+*
+* @version  0.3.0
+* @name     onPlayerVoiceStop
+* @side     client
+* @category Voice
+* @param    (number) player_id  Player id.
+*
+*/
+  g_gothic_event_proxies[kEventOnPlayerVoiceStopName] = [](LuaProxyArgs args) {
+    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+    args.callback(event.player_id);
+  };
 }
 
 void RegisterGothicEventsInManager() {
@@ -666,6 +756,12 @@ void RegisterGothicEventsInManager() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDeadName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangePingName);
+  EventManager::Instance().RegisterEvent(kEventOnVoiceChatStateChangeName);
+  EventManager::Instance().RegisterEvent(kEventOnVoiceTransmitStartName);
+  EventManager::Instance().RegisterEvent(kEventOnVoiceTransmitStopName);
+  EventManager::Instance().RegisterEvent(kEventOnVoiceChannelChangeName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerVoiceStartName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerVoiceStopName);
 }
 
 std::optional<std::function<void(LuaProxyArgs)>> GetProxy(const std::string& event_name) {

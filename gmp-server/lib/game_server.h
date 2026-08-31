@@ -163,6 +163,12 @@ public:
   std::int32_t GetStreamerRadius() const;
   bool SetStreamerHeight(std::int32_t height);
   std::int32_t GetStreamerHeight() const;
+  bool SetVoiceEnabled(bool enabled);
+  bool SetVoiceRange(std::int32_t range);
+  bool SetVoiceEnabledForPlayer(PlayerId player_id, bool enabled);
+  bool GetVoiceEnabled() const;
+  std::int32_t GetVoiceRange() const;
+  std::optional<bool> GetVoiceEnabledForPlayer(PlayerId player_id) const;
   bool SetTime(std::int32_t hour, std::int32_t min, std::int32_t day = 0);
   GothicClock::Time GetTime() const;
   bool SetDayLength(float day_length_ms);
@@ -224,6 +230,11 @@ public:
 private:
   enum class EquipmentSlot { Armor, Helmet, Shield, MeleeWeapon, RangedWeapon };
 
+  struct VoiceRateState {
+    std::chrono::steady_clock::time_point window_started{};
+    std::uint32_t packets_in_window{0};
+  };
+
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
   void HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier);
@@ -235,6 +246,12 @@ private:
   void HandlePlayerWorldEnter(Packet p);
   void HandleLuaEvent(Packet p);
   void HandleVoice(Packet p);
+  void HandleVoiceChannel(Packet p);
+  void SendVoiceConfiguration(const Player& player);
+  bool IsVoiceChannelSpatial(const std::string& channel) const;
+  void MarkPlayerVoiceActive(PlayerId player_id, std::chrono::steady_clock::time_point now);
+  void EndPlayerVoiceActivity(PlayerId player_id);
+  void ProcessVoiceActivity(std::chrono::steady_clock::time_point now);
   void SomeoneJoinGame(Packet p);
   void HandlePlayerUpdate(Packet p);
   void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
@@ -309,6 +326,9 @@ private:
   std::atomic<bool> main_thread_running = false;
   std::vector<ClientResourceDescriptor> client_resource_descriptors_;
   std::unique_ptr<ServerAddonContext> addon_context_;
+  std::unordered_map<PlayerId, VoiceRateState> voice_rate_states_;
+  std::unordered_map<PlayerId, std::chrono::steady_clock::time_point> active_voice_players_;
+  std::unordered_map<std::string, bool> voice_channel_spatial_;
 
   std::unique_ptr<ResourceServer> resource_server_;
 };

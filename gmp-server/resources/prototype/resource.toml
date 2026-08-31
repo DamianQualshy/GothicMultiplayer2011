@@ -4,5 +4,6 @@ description = "Prototype resource for testing and development"
 
 scripts = [
   "server/acp.lua",
+  "server/voice.lua",
   "server/main.lua"
 ]

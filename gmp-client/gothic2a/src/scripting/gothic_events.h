@@ -67,6 +67,12 @@ constexpr const char* kEventOnPlayerRespawnName = "onPlayerRespawn";
 constexpr const char* kEventOnPlayerSpawnName = "onPlayerSpawn";
 constexpr const char* kEventOnPlayerDeadName = "onPlayerDead";
 constexpr const char* kEventOnPlayerChangePingName = "onPlayerChangePing";
+constexpr const char* kEventOnVoiceChatStateChangeName = "onVoiceChatStateChange";
+constexpr const char* kEventOnVoiceTransmitStartName = "onVoiceTransmitStart";
+constexpr const char* kEventOnVoiceTransmitStopName = "onVoiceTransmitStop";
+constexpr const char* kEventOnVoiceChannelChangeName = "onVoiceChannelChange";
+constexpr const char* kEventOnPlayerVoiceStartName = "onPlayerVoiceStart";
+constexpr const char* kEventOnPlayerVoiceStopName = "onPlayerVoiceStop";
 
 // Gothic-specific event structs
 struct OnKeyEvent {
@@ -158,6 +164,20 @@ struct OnPlayerMessageEvent {
   std::uint8_t g;
   std::uint8_t b;
   std::string message;
+};
+
+struct OnVoiceChatStateEvent {
+  bool enabled;
+  float range;
+};
+
+struct OnVoiceChannelChangeEvent {
+  std::string old_channel;
+  std::string new_channel;
+};
+
+struct OnPlayerVoiceEvent {
+  std::uint64_t player_id;
 };
 
 // Bind Gothic-specific events to Lua

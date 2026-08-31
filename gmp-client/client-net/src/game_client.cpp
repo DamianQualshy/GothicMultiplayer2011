@@ -52,6 +52,7 @@ using namespace Net;
 Net::NetClient* g_netclient = nullptr;
 
 constexpr std::uint32_t kPlayerStateChannel = 1;
+constexpr std::uint32_t kVoiceChannel = 5;
 
 bool ParseEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port) {
   host.assign(full_address.begin(), full_address.end());
@@ -169,6 +170,8 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
   packet_handlers_[PT_PLAYER_PING_UPDATE] = [this](Packet p) { OnPlayerPingUpdate(p); };
   packet_handlers_[PT_ADMIN_AUTH] = [this](Packet p) { OnAdminAuth(p); };
+  packet_handlers_[PT_VOICE_CONFIG] = [this](Packet p) { OnVoiceConfiguration(p); };
+  packet_handlers_[PT_VOICE] = [this](Packet p) { OnVoice(p); };
   packet_handlers_[PT_LEFT_GAME] = [this](Packet p) { OnLeftGame(p); };
   packet_handlers_[PT_LUA_EVENT] = [this](Packet p) { OnLuaEvent(p); };
 }
@@ -467,6 +470,33 @@ void GameClient::SendPlayerDeath(std::optional<std::uint32_t> killer_id) {
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
 
+bool GameClient::SendVoiceFrame(std::uint32_t talkspurt_id, std::uint32_t sequence,
+                                const std::vector<std::uint8_t>& encoded_data) {
+  if (!is_in_game_ || !g_netclient || encoded_data.empty() || encoded_data.size() > kMaxVoiceFrameSize || talkspurt_id == 0) {
+    return false;
+  }
+
+  VoicePacket packet{};
+  packet.packet_type = PT_VOICE;
+  packet.talkspurt_id = talkspurt_id;
+  packet.sequence = sequence;
+  packet.voice_data = encoded_data;
+  SerializeAndSend(packet, HIGH_PRIORITY, UNRELIABLE, kVoiceChannel);
+  return true;
+}
+
+bool GameClient::SendVoiceChannel(const std::string& channel) {
+  if (!is_in_game_ || !g_netclient || channel.empty() || channel.size() > kMaxVoiceChannelNameLength) {
+    return false;
+  }
+
+  VoiceChannelPacket packet{};
+  packet.packet_type = PT_VOICE_CHANNEL;
+  packet.channel = channel;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, kVoiceChannel);
+  return true;
+}
+
 void GameClient::UpdatePlayerStats(const PlayerState& state) {
   if (!is_in_game_) {
     return;
@@ -524,6 +554,8 @@ void GameClient::OnInitialInfo(Packet p) {
 
   server_name_ = packet.server_name;
   max_slots_ = packet.max_slots;
+  event_observer_.OnVoiceConfiguration(packet.voice_enabled != 0, packet.voice_transmit_enabled != 0,
+                                       packet.voice_range);
 
   SPDLOG_INFO("Initial info received: map='{}', server='{}', base_path='{}', group='{}', resources={}, addon_vdfs={}", packet.map_name,
               server_name_.empty() ? "<unknown>" : server_name_,
@@ -1719,6 +1751,39 @@ void GameClient::OnAdminAuth(Packet p) {
 
   admin_authenticated_ = packet.authenticated != 0;
   event_observer_.OnAdminAuthChanged(admin_authenticated_);
+}
+
+void GameClient::OnVoiceConfiguration(Packet p) {
+  VoiceConfigurationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second || packet.enabled > 1 || packet.transmit_enabled > 1) {
+    SPDLOG_WARN("Failed to deserialize VoiceConfigurationPacket");
+    return;
+  }
+
+  event_observer_.OnVoiceConfiguration(packet.enabled != 0, packet.transmit_enabled != 0, packet.range);
+}
+
+void GameClient::OnVoice(Packet p) {
+  VoicePacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (!state.second) {
+    SPDLOG_WARN("Failed to deserialize VoicePacket");
+    return;
+  }
+  if (packet.player_id == 0 || packet.talkspurt_id == 0 || packet.spatial > 1 || packet.voice_data.empty() ||
+      packet.voice_data.size() > kMaxVoiceFrameSize) {
+    SPDLOG_WARN("Rejected invalid VoicePacket");
+    return;
+  }
+  if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
+    return;
+  }
+
+  event_observer_.OnVoiceFrame(packet.player_id, packet.talkspurt_id, packet.sequence, packet.spatial != 0,
+                               packet.range, packet.voice_data);
 }
 
 void GameClient::OnLuaEvent(Packet p) {

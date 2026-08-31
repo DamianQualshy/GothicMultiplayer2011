@@ -28,6 +28,9 @@ map_md5 = ""
 allow_modification = true
 hide_map = false
 respawn_time_seconds = 5
+# Native proximity voice chat. Clients use push-to-talk (K by default).
+voice_enabled = true
+voice_range = 3500
 
 # --- Resourcepack ------------------------------------------------------------
 resources = [
