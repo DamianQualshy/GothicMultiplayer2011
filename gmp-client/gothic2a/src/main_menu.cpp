@@ -40,6 +40,7 @@ SOFTWARE.
 #include "CSyncFuncs.h"
 #include "ExtendedServerList.h"
 #include "config.h"
+#include "content/content_transition_manager.h"
 #include "interface.h"
 #include "keyboard.h"
 #include "language.h"
@@ -173,9 +174,14 @@ void __stdcall CMainMenu::ReLaunchMenuCallback() {
 
 void CMainMenu::ReLaunchMainMenu() {
   zinput->ClearKeyBuffer();
-  if (!memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21)) {
+  const bool reload_base_world = NetGame::Instance().ConsumeBaseWorldReloadRequest();
+  if (!reload_base_world && !memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21)) {
   }  // jest mapa
   else {
+    if (reload_base_world) {
+      SPDLOG_INFO("Reloading base NEWWORLD after addon content deactivation");
+    }
+    gmp::gothic::PrepareDisconnectLoadingScreen();
     Patch::ChangeLevelEnabled(true);
     ogame->ChangeLevel("NEWWORLD\\NEWWORLD.ZEN", zSTRING("????"));
     Patch::ChangeLevelEnabled(false);

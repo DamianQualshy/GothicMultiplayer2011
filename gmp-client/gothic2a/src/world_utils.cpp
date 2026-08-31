@@ -34,10 +34,12 @@ void UnlockLockable(oCMobLockable& lockable) {
 }
 
 void EmptyAndUnlockContainer(oCMobContainer& container) {
-  for (zCListSort<oCItem>* entry = &container.containList; entry; entry = entry->next) {
+  for (zCListSort<oCItem>* entry = container.containList.next; entry;) {
+    zCListSort<oCItem>* next = entry->next;
     if (auto* item = entry->data) {
       item->RemoveVobFromWorld();
     }
+    entry = next;
   }
 
   container.containList.DeleteListDatas();
@@ -58,35 +60,52 @@ void CleanupWorldObjects(oCWorld* world) {
     return;
   }
 
-  for (zCTree<zCVob>* node = world->globalVobTree.firstChild; node; node = node->next) {
+  for (zCTree<zCVob>* node = world->globalVobTree.firstChild; node;) {
+    zCTree<zCVob>* next = node->next;
     if (!node->data) {
+      node = next;
       continue;
     }
 
     if (auto* item = zDYNAMIC_CAST<oCItem>(node->data)) {
       item->RemoveVobFromWorld();
+      node = next;
       continue;
     }
 
     if (auto* container = zDYNAMIC_CAST<oCMobContainer>(node->data)) {
       EmptyAndUnlockContainer(*container);
+      node = next;
       continue;
     }
 
     if (auto* door = zDYNAMIC_CAST<oCMobDoor>(node->data)) {
       UnlockLockable(*door);
     }
+    node = next;
   }
 }
 
 void DeleteAllNpcsAndDisableSpawning() {
-  zCListSort<oCNpc>* NpcList = ogame->GetGameWorld()->voblist_npcs;
-  int size = NpcList->GetNumInList();
-  for (int i = 0; i < size; i++) {
-    NpcList = NpcList->next;
-    oCNpc* NpcOnList = NpcList->GetData();
-    if (NpcOnList->GetInstance() != 11471)
-      NpcOnList->Disable();
+  if (!ogame || !ogame->GetGameWorld()) {
+    return;
   }
-  ogame->GetSpawnManager()->SetSpawningEnabled(0);
+
+  auto* npc_list = ogame->GetGameWorld()->voblist_npcs;
+  const int size = npc_list ? npc_list->GetNumInList() : 0;
+  for (int i = 0; npc_list && i < size; ++i) {
+    npc_list = npc_list->next;
+    if (!npc_list || !npc_list->GetData()) {
+      continue;
+    }
+
+    // The parser index of PC_HERO is not stable after an addon GOTHIC.DAT is
+    // loaded. Exclude the actual current hero rather than a magic instance id.
+    if (npc_list->GetData() != Gothic_II_Addon::player) {
+      npc_list->GetData()->Disable();
+    }
+  }
+  if (ogame->GetSpawnManager()) {
+    ogame->GetSpawnManager()->SetSpawningEnabled(0);
+  }
 }

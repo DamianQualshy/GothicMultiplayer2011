@@ -52,3 +52,27 @@ target("ClientResourcePackagerTest")
     add_tests("default")
     set_rundir(os.projectdir())
     set_default(false)
+
+target("AddonItemValidatorTest")
+    set_kind("binary")
+    add_files("addon_item_validator_test.cpp")
+    add_deps("Server")
+    add_packages("gtest", "spdlog", "nlohmann_json")
+    add_tests("default")
+    set_rundir(os.projectdir())
+    if is_plat("windows") then
+        add_cxflags("/utf-8")
+    end
+    set_default(false)
+
+target("AddonConfigTest")
+    set_kind("binary")
+    add_files("addon_config_test.cpp")
+    add_deps("Server")
+    add_packages("gtest", "spdlog", "toml11", "libsodium")
+    add_tests("default")
+    set_rundir(os.projectdir())
+    if is_plat("windows") then
+        add_cxflags("/utf-8")
+    end
+    set_default(false)

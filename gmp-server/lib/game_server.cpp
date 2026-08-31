@@ -85,8 +85,11 @@ constexpr std::size_t kMaxPlayerNameLength = 64;
 constexpr std::uint32_t kItemGroundChannel = 14;
 constexpr const char* kDiagnosticsFileName = "diagnostic.txt";
 constexpr const char* kBanListFileName = "bans.json";
-constexpr const char* kItemRegistryPath = "instances/items.json";
-constexpr const char* kAnimationRegistryPath = "instances/anims.json";
+constexpr const char* kItemRegistryPath = "data/instances/items.json";
+constexpr const char* kAnimationRegistryPath = "data/instances/anims.json";
+constexpr const char* kPublicDataPath = "data/public";
+// Hard upper bound for one server's advertised client content transfer.
+constexpr std::uint64_t kMaximumAdvertisedDownloadSize = 4ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::string_view kFrame = "-========================================-";
 constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
@@ -880,6 +883,14 @@ bool GameServer::Init() {
     return false;
   }
 
+  addon_context_ = std::make_unique<ServerAddonContext>();
+  std::string addon_error;
+  if (!addon_context_->Initialize(config_.Get<std::vector<std::string>>("addon_vdfs"), std::filesystem::current_path(), item_registry_,
+                                  addon_error)) {
+    SPDLOG_CRITICAL("Server addon initialization failed: {}", addon_error);
+    return false;
+  }
+
   if (!g_net_server->Start(port, slots)) {
     SPDLOG_CRITICAL("Failed to start server on port {}", port);
     return false;
@@ -933,7 +944,47 @@ bool GameServer::Init() {
     return false;
   }
 
-  resource_server_ = std::make_unique<ResourceServer>(bound_port, std::filesystem::absolute("public"));
+  std::uint64_t advertised_download_size = 0;
+  const auto add_download_size = [&advertised_download_size](std::uint64_t size) {
+    if (size > std::numeric_limits<std::uint64_t>::max() - advertised_download_size) {
+      return false;
+    }
+    advertised_download_size += size;
+    return true;
+  };
+  for (const auto& descriptor : client_resource_descriptors_) {
+    if (!add_download_size(descriptor.archive_size) || !add_download_size(descriptor.manifest_size)) {
+      SPDLOG_ERROR("Advertised client resource download size overflow");
+      return false;
+    }
+  }
+  if (!addon_context_->Empty()) {
+    const auto& bundle = addon_context_->TransportBundle().descriptor;
+    if (!add_download_size(bundle.archive_size) || !add_download_size(bundle.manifest_size)) {
+      SPDLOG_ERROR("Advertised addon download size overflow");
+      return false;
+    }
+  }
+  if (advertised_download_size > kMaximumAdvertisedDownloadSize) {
+    SPDLOG_CRITICAL("Configured resources require {} bytes, exceeding the hardcoded maximum download size of {} bytes", advertised_download_size,
+                    kMaximumAdvertisedDownloadSize);
+    return false;
+  }
+  SPDLOG_INFO("Advertised client download size: {} bytes", advertised_download_size);
+
+  resource_server_ = std::make_unique<ResourceServer>(
+      bound_port, std::filesystem::absolute(kPublicDataPath),
+      static_cast<std::size_t>(config_.Get<std::int32_t>("downloader_file_max_chunk")),
+      static_cast<std::uint32_t>(config_.Get<std::int32_t>("downloader_rate_limit")),
+      static_cast<std::uint32_t>(config_.Get<std::int32_t>("downloader_download_timeout_seconds")));
+  if (!addon_context_->Empty()) {
+    const auto& bundle = addon_context_->TransportBundle();
+    if (!resource_server_->RegisterAllowedAsset(bundle.descriptor.archive_path, bundle.archive_path) ||
+        !resource_server_->RegisterAllowedAsset(bundle.descriptor.manifest_path, bundle.manifest_path)) {
+      SPDLOG_ERROR("Failed to register addon bundle downloads");
+      return false;
+    }
+  }
   if (!resource_server_->Start()) {
     return false;
   }
@@ -1202,6 +1253,7 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       packet.max_slots = static_cast<std::uint16_t>(max_slots);
       packet.resource_token = resource_server_->IssueToken(p.id);
       packet.resource_base_path = "/public";
+      packet.downloader_group = config_.Get<std::string>("downloader_group");
       packet.client_resources.reserve(client_resource_descriptors_.size());
       for (const auto& descriptor : client_resource_descriptors_) {
         ClientResourceInfoEntry entry;
@@ -1212,8 +1264,14 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
         entry.archive_path = descriptor.archive_path;
         entry.archive_sha256 = descriptor.archive_sha256;
         entry.archive_size = descriptor.archive_size;
+        entry.manifest_size = descriptor.manifest_size;
         packet.client_resources.push_back(std::move(entry));
       }
+      packet.addon_vdfs.reserve(addon_context_->Archives().size());
+      for (const auto& addon : addon_context_->Archives()) {
+        packet.addon_vdfs.push_back(addon.descriptor);
+      }
+      packet.addon_bundle = addon_context_->TransportBundle().descriptor;
       SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, p.id, 9);
     }
       SPDLOG_INFO("Incoming connection from {}. Now connected users: {}.", FormatConnectionDetails(p.id), player_manager_.GetPlayerCount());

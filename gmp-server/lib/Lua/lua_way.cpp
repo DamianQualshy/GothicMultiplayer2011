@@ -482,7 +482,7 @@ public:
 
 private:
   static std::filesystem::path WaypointsRootPath() {
-    return std::filesystem::current_path() / "navigation";
+    return std::filesystem::current_path() / "data/navigation";
   }
 
   std::unordered_map<std::string, WaynetGraph> cache_;

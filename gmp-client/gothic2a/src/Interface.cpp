@@ -54,12 +54,11 @@ void ExitMainMenu() {
   // Miejsce na ewentualny kod
 }
 
-void ExitToBigMainMenu() {
+void ReturnToBigMainMenuAfterDisconnect() {
   auto pos = player->trafoObjToWorld.GetTranslation();
   player->ResetPos(pos);
   player->RefreshNpc();
   MainMenu = NULL;
-  NetGame::Instance().Disconnect();
   if (global_ingame) {
     delete global_ingame;
     global_ingame = nullptr;
@@ -67,6 +66,11 @@ void ExitToBigMainMenu() {
   CMainMenu::GetInstance()->ReLaunchMainMenu();
   HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)InterfaceLoop);
   HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)CIngame::Loop);
+}
+
+void ExitToBigMainMenu() {
+  NetGame::Instance().Disconnect();
+  ReturnToBigMainMenuAfterDisconnect();
 }
 
 void ExitToMainmenu() {

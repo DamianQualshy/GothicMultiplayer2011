@@ -42,7 +42,7 @@ namespace lua::bindings {
 
 namespace {
 
-constexpr std::string_view kDataRoot = "data";
+constexpr std::string_view kDataRoot = "data/internal";
 constexpr std::size_t kMaxTomlBytes = 1024 * 1024;
 constexpr std::size_t kMaxEntries = 4096;
 constexpr int kMaxDepth = 32;
@@ -440,13 +440,13 @@ std::optional<TomlFile> LoadTomlFile(const std::string& relative_path, std::stri
 
 /* luagmp (func)
 *
-* Open a read-only TOML file relative to the server data directory.
+* Open a read-only TOML file relative to the server data/internal directory.
 *
 * @version  0.3.0
 * @name     TOML
 * @side     server
 * @category File
-* @param    (string) relative_path  Path under the data directory.
+* @param    (string) relative_path  Path under the data/internal directory.
 * @return   (TomlFile|nil)          File handle or nil on error.
 *
 */

@@ -24,7 +24,7 @@ SOFTWARE.
 
 #pragma once
 
-#include <chrono>
+#include <string>
 
 #include "menu/menu_context.hpp"
 #include "menu/states/menu_state.hpp"
@@ -49,11 +49,18 @@ private:
   bool shouldExitMenuAfterConnection_;
   bool enteringCustomIP_;
   bool connectionAttemptInProgress_;
-  std::chrono::steady_clock::time_point connectionStartTime_;
+  zCView* connectionBackground_{nullptr};
+  zCView* connectionProgressFrame_{nullptr};
+  zCView* connectionProgressFill_{nullptr};
+  zCView* connectionBannerText_{nullptr};
+  zCView* connectionProgressText_{nullptr};
+  int renderedConnectionProgressPercent_{-1};
+  std::string renderedConnectionProgressMessage_;
+  std::string renderedConnectionBanner_;
 
 public:
   explicit ServerListState(MenuContext& context);
-  ~ServerListState() override = default;
+  ~ServerListState() override;
 
   // MenuState interface
   void OnEnter() override;
@@ -68,6 +75,7 @@ private:
   void RenderServerList();
   void RenderCustomIPEntry();
   void RenderConnectionProgress();
+  void CloseConnectionProgress();
   void HandleInput();
   void HandleCommonInput();
   void HandleServerListInput();

@@ -44,6 +44,7 @@ SOFTWARE.
 #include "CChat.h"
 #include "ZenGin/Gothic_II_Addon/API/zParser_Const.h"
 #include "ZenGin/zGothicAPI.h"
+#include "content/gothic_vfs_overlay.h"
 #include "net_game.h"
 #include "nlohmann/json.hpp"
 #include "spdlog/spdlog.h"
@@ -349,20 +350,21 @@ void AddProtectionsJson(nlohmann::ordered_json& item_json, const Gothic_II_Addon
 }
 
 void AddConditionsJson(nlohmann::ordered_json& item_json, const Gothic_II_Addon::oCItem& item) {
+  bool has_condition = false;
+  for (int i = 0; i < Gothic_II_Addon::ITM_COND_MAX; ++i) {
+    has_condition |= item.cond_atr[i] != 0 || item.cond_value[i] != 0;
+  }
+  if (!has_condition) {
+    return;
+  }
+
   nlohmann::ordered_json conditions_json = nlohmann::ordered_json::array();
   for (int i = 0; i < Gothic_II_Addon::ITM_COND_MAX; ++i) {
     const int attribute = item.cond_atr[i];
     const int value = item.cond_value[i];
-    if (attribute == 0 || value == 0) {
-      continue;
-    }
-
     conditions_json.push_back(nlohmann::ordered_json{{"attribute", attribute}, {"value", value}});
   }
-
-  if (!conditions_json.empty()) {
-    item_json["conditions"] = std::move(conditions_json);
-  }
+  item_json["conditions"] = std::move(conditions_json);
 }
 
 nlohmann::ordered_json MakeItemJson(Gothic_II_Addon::zCParser* parser, int index, Gothic_II_Addon::oCItem& item) {
@@ -416,7 +418,12 @@ bool CollectItemsJson(std::vector<nlohmann::ordered_json>& items_json) {
   const int symbol_count = parser->symtab.GetNumInList();
   for (int index = 0; index < symbol_count; ++index) {
     zCPar_Symbol* symbol = parser->GetSymbol(index);
-    if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || parser->GetBaseClass(symbol) != item_class_index) {
+    if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || (symbol->flags & zPAR_FLAG_CONST) == 0 ||
+        (symbol->flags & zPAR_FLAG_EXTERNAL) != 0 || parser->GetBaseClass(symbol) != item_class_index) {
+      continue;
+    }
+    const std::string symbol_name = ToString(symbol->name);
+    if (ToUpperAscii(symbol_name) == "ITEM") {
       continue;
     }
     if (!exported_indexes.insert(index).second) {
@@ -425,7 +432,7 @@ bool CollectItemsJson(std::vector<nlohmann::ordered_json>& items_json) {
 
     oCItem* item = zfactory->CreateItem(index);
     if (!item) {
-      SPDLOG_WARN("Cannot generate items: failed to create item instance '{}'.", ToString(symbol->name));
+      SPDLOG_WARN("Cannot generate items: failed to create item instance '{}'.", symbol_name);
       continue;
     }
 
@@ -616,10 +623,18 @@ void CollectMdsCandidatesFromPhysicalFilesystem(std::vector<std::string>& candid
   }
 }
 
+void CollectMdsCandidatesFromAddonOverlay(std::vector<std::string>& candidates,
+                                          std::unordered_set<std::string>& seen_files) {
+  for (const std::string& path : gmp::gothic::GothicVfsOverlay::Instance().EnumerateActiveFiles()) {
+    AddMdsCandidate(candidates, seen_files, std::filesystem::path(path).filename().string());
+  }
+}
+
 std::vector<std::string> DiscoverRuntimeMdsCandidates() {
   std::vector<std::string> candidates;
   std::unordered_set<std::string> seen_files;
   CollectMdsCandidatesFromPhysicalFilesystem(candidates, seen_files);
+  CollectMdsCandidatesFromAddonOverlay(candidates, seen_files);
   std::sort(candidates.begin(), candidates.end());
   return candidates;
 }

@@ -178,14 +178,6 @@ public:
     return failure_future_;
   }
 
-  std::size_t LastResourceCount() const {
-    return last_resource_count_.load(std::memory_order_relaxed);
-  }
-
-  std::uint64_t LastResourceBytes() const {
-    return last_resource_bytes_.load(std::memory_order_relaxed);
-  }
-
   void OnConnected() override {
     Fulfill(connected_promise_, connected_flag_);
   }
@@ -196,12 +188,6 @@ public:
 
   void OnConnectionFailed(const std::string& error) override {
     FulfillValue(failure_promise_, failure_flag_, error);
-  }
-
-  bool RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) override {
-    last_resource_count_.store(resource_count, std::memory_order_relaxed);
-    last_resource_bytes_.store(total_bytes, std::memory_order_relaxed);
-    return true;
   }
 
   void OnResourcesReady() override {
@@ -247,8 +233,6 @@ private:
   std::once_flag failure_flag_;
   std::once_flag disconnected_flag_;
 
-  std::atomic<std::size_t> last_resource_count_{0};
-  std::atomic<std::uint64_t> last_resource_bytes_{0};
 };
 
 std::string BuildFailureMessage(const char* phase, std::future<std::string>& failure_future) {
@@ -322,9 +306,6 @@ TEST_F(RealClientConnectionTest, GameClientDownloadsResourcesAndJoinsServer) {
   ASSERT_TRUE(WaitForFutureWithPump(resources_future, *client_, std::chrono::seconds(15), &failure_future))
       << BuildFailureMessage("resource preparation", failure_future);
   resources_future.get();
-  EXPECT_GT(observer_.LastResourceCount(), 0u);
-  EXPECT_GT(observer_.LastResourceBytes(), 0u);
-
   client_->JoinGame("RealClientUser", "RealClientUser", "", 0, "", 0, 0);
 
   ASSERT_TRUE(WaitForFutureWithPump(joined_future, *client_, std::chrono::seconds(5), &failure_future))

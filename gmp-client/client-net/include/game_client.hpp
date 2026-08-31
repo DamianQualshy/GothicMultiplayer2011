@@ -52,6 +52,7 @@ public:
   enum class ConnectionState { Disconnected, Connecting, Connected, Failed };
 
   using ResourcePayload = ResourceDownloader::ResourcePayload;
+  using AddonPayload = ResourceDownloader::AddonPayload;
 
   GameClient(EventObserver& eventObserver, gmp::TaskScheduler& taskScheduler);
   ~GameClient();
@@ -106,6 +107,7 @@ public:
   std::uint32_t GetMaxSlots() const { return max_slots_; }
 
   std::vector<ResourcePayload> ConsumeDownloadedResources();
+  std::vector<AddonPayload> ConsumeDownloadedAddons();
 
 private:
   struct Packet {

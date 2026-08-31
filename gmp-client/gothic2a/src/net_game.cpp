@@ -32,47 +32,47 @@ SOFTWARE.
 #include <bitsery/traits/vector.h>
 #include <spdlog/spdlog.h>
 #include <wincrypt.h>
-#include "hooking/MemoryPatch.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <ctime>
 #include <filesystem>
-#include <iomanip>
-#include "Mod.h"
-#include "shared/lua_runtime/lua_value_codec.h"
 #include <glm/glm.hpp>
+#include <iomanip>
 #include <list>
 #include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
 
+#include "CActiveAniID.h"
 #include "CChat.h"
 #include "CIngame.h"
-#include "CActiveAniID.h"
 #include "Interface.h"
+#include "Mod.h"
 #include "ZenGin/zGothicAPI.h"
 #include "config.h"
 #include "dev/dev_tools.h"
 #include "gmp_core.h"
-#include "scripting/item_ground.h"
+#include "hooking/MemoryPatch.h"
 #include "language.h"
 #include "net_enums.h"
 #include "packets.h"
 #include "patch.h"
 #include "player_name_utils.hpp"
-#include "sky_utils.h"
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
+#include "scripting/item_ground.h"
 #include "scripting/lua_camera.h"
 #include "scripting/lua_draw3d.h"
 #include "scripting/lua_sound3d.h"
 #include "scripting/process_input.h"
-#include "version.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/lua_value_codec.h"
+#include "sky_utils.h"
 #include "sol/sol.hpp"
+#include "version.h"
 
 const char* LANG_DIR = ".\\Multiplayer\\Localization\\";
 
@@ -346,8 +346,7 @@ bool IsArmorItem(oCItem* item) {
 }
 
 bool IsMeleeWeaponItem(oCItem* item) {
-  return item && (item->HasFlag(ITM_FLAG_SWD) || item->HasFlag(ITM_FLAG_DAG) ||
-                  item->HasFlag(ITM_FLAG_AXE) || item->HasFlag(ITM_FLAG_2HD_SWD) ||
+  return item && (item->HasFlag(ITM_FLAG_SWD) || item->HasFlag(ITM_FLAG_DAG) || item->HasFlag(ITM_FLAG_AXE) || item->HasFlag(ITM_FLAG_2HD_SWD) ||
                   item->HasFlag(ITM_FLAG_2HD_AXE));
 }
 
@@ -565,9 +564,8 @@ void SyncEquippedInventoryItem(oCNpc* npc, std::int16_t instance, int item_flag)
   }
 
   const auto remaining_items = GetActiveInventoryItems(npc, item_flag);
-  const auto already_equipped = std::any_of(remaining_items.begin(), remaining_items.end(), [instance](oCItem* item) {
-    return item && item->GetInstance() == static_cast<int>(instance);
-  });
+  const auto already_equipped = std::any_of(remaining_items.begin(), remaining_items.end(),
+                                            [instance](oCItem* item) { return item && item->GetInstance() == static_cast<int>(instance); });
   if (already_equipped) {
     return;
   }
@@ -689,9 +687,7 @@ WorldTimerTickValues ReadWorldTimerTicks() {
   constexpr DWORD kTicksPerHourAddr = 0x0083E168;
   constexpr DWORD kTicksPerMinuteAddr = 0x00AB3764;
   constexpr DWORD kTicksPerDayAddr = 0x00AB371C;
-  return { *reinterpret_cast<float*>(kTicksPerHourAddr),
-           *reinterpret_cast<float*>(kTicksPerMinuteAddr),
-           *reinterpret_cast<float*>(kTicksPerDayAddr) };
+  return {*reinterpret_cast<float*>(kTicksPerHourAddr), *reinterpret_cast<float*>(kTicksPerMinuteAddr), *reinterpret_cast<float*>(kTicksPerDayAddr)};
 }
 
 void WriteWorldTimerTicks(const WorldTimerTickValues& values) {
@@ -726,8 +722,8 @@ void ApplyGameTimeToEngine(const STime& time) {
   const float ticks_per_day = PositiveOrFallback(ticks.ticks_per_day, Gothic_II_Addon::WLD_TICKSPERDAY);
   const float ticks_per_hour = PositiveOrFallback(ticks.ticks_per_hour, Gothic_II_Addon::WLD_TICKSPERHOUR);
   const float ticks_per_minute = PositiveOrFallback(ticks.ticks_per_minute, Gothic_II_Addon::WLD_TICKSPERMIN);
-  const float full_time = static_cast<float>(day) * ticks_per_day + static_cast<float>(hour) * ticks_per_hour +
-                          static_cast<float>(min) * ticks_per_minute;
+  const float full_time =
+      static_cast<float>(day) * ticks_per_day + static_cast<float>(hour) * ticks_per_hour + static_cast<float>(min) * ticks_per_minute;
   timer->SetFullTime(full_time);
 }
 
@@ -766,80 +762,6 @@ void ApplyDayLengthToEngine(float day_length_ms) {
   }
 }
 
-constexpr int kResourceStatusBaseY = 2800;
-constexpr int kResourceStatusLineHeight = 200;
-constexpr int kMaxResourceStatusLines = 5;
-
-zCOLOR kResourceInfoColor(0, 200, 255, 255);
-zCOLOR kResourceErrorColor(255, 0, 0, 255);
-
-struct MultiplayerMessageState {
-  zCView* view{nullptr};
-  int line_index{0};
-};
-
-MultiplayerMessageState& GetMultiplayerMessageState() {
-  static MultiplayerMessageState state;
-  return state;
-}
-
-void ClearResourceStatusLine(zCView* view, int y) {
-  if (!view) {
-    return;
-  }
-
-  for (zCList<zCViewText>* entry = view->textLines.GetNextInList(); entry;) {
-    zCList<zCViewText>* next = entry->GetNextInList();
-    zCViewText* text = entry->GetData();
-    if (text && text->posy >= y && text->posy < y + kResourceStatusLineHeight) {
-      view->textLines.Remove(text);
-      delete text;
-    }
-    entry = next;
-  }
-}
-
-void PrintResourceStatusTimed(const zSTRING& message, float duration_ms, zCOLOR& color) {
-  if (!ogame) {
-    return;
-  }
-  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
-  if (!view) {
-    return;
-  }
-  auto& state = GetMultiplayerMessageState();
-  if (state.view != view) {
-    state.view = view;
-    state.line_index = 0;
-  }
-
-  const int y = kResourceStatusBaseY + (state.line_index * kResourceStatusLineHeight);
-  ClearResourceStatusLine(view, y);
-  view->PrintTimedCX(y, message, duration_ms, &color);
-  state.line_index = (state.line_index + 1) % kMaxResourceStatusLines;
-  view->SetFontColor(zCOLOR(255, 255, 255, 255));
-}
-
-void ClearMultiplayerStatusMessages() {
-  auto& state = GetMultiplayerMessageState();
-
-  if (!ogame) {
-    return;
-  }
-  auto* view = ogame->array_view[oCGame::GAME_VIEW_SCREEN];
-  if (!view) {
-    return;
-  }
-
-  for (int i = 0; i < kMaxResourceStatusLines; ++i) {
-    ClearResourceStatusLine(view, kResourceStatusBaseY + (i * kResourceStatusLineHeight));
-  }
-
-  state.view = view;
-  state.line_index = 0;
-  view->SetFontColor(zCOLOR(255, 255, 255, 255));
-}
-
 std::string BuildMultiplayerStatusMessage() {
   std::string tag = GIT_TAG;
   std::string commit = GIT_COMMIT;
@@ -861,12 +783,17 @@ std::string BuildMultiplayerStatusMessage() {
   return message.str();
 }
 
-}// namespace
+}  // namespace
 
-NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_runtime(nullptr) {
+NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_runtime(nullptr), content_transition_manager(nullptr) {
   task_scheduler = std::make_unique<gmp::GothicTaskScheduler>();
   game_client = std::make_unique<gmp::client::GameClient>(*this, *task_scheduler);
   resource_runtime = std::make_unique<ClientResourceRuntime>();
+  content_transition_manager = std::make_unique<gmp::gothic::ContentTransitionManager>();
+  std::string content_error;
+  if (!content_transition_manager->Initialize(content_error)) {
+    SPDLOG_ERROR("Addon content initialization failed: {}", content_error);
+  }
   resource_runtime->SetServerInfoProvider(*game_client);
   resource_runtime->SetResetCallback([]() {
     gmp::gothic::ResetGothicEvents();
@@ -886,10 +813,6 @@ void NetGame::Shutdown() {
     delete p;
   }
   players.clear();
-}
-
-void NetGame::ClearMultiplayerMessages() {
-  ClearMultiplayerStatusMessages();
 }
 
 void __stdcall NetGame::ProcessTaskScheduler() {
@@ -966,13 +889,23 @@ void NetGame::UpdateClientEventState() {
 
     gmp::gothic::ClientItemGroundManager::Instance().RefreshPending();
   }
-
 }
 
 bool NetGame::Connect(std::string_view full_address) {
-  if (!game_client) {
+  if (!game_client || !content_transition_manager) {
+    ShowConnectionProgressError("Connection could not be initialized");
     return false;
   }
+
+  std::string content_error;
+  if (!content_transition_manager->BeginConnection(content_error)) {
+    SPDLOG_ERROR("Connection blocked by content lifecycle: {}", content_error);
+    ShowConnectionProgressError("Connection failed: " + content_error);
+    return false;
+  }
+
+  server_requested_map_.clear();
+  map.Clear();
 
   game_client->ConnectAsync(full_address);
   // Return true to indicate the connection attempt was started.
@@ -1033,8 +966,7 @@ std::optional<std::uint64_t> NetGame::GetPlayerIdByNpc(oCNpc* npc) {
   return std::nullopt;
 }
 
-void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id,
-                                   bool trigger_event) {
+void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id, bool trigger_event) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   const auto normalized_life_state = NormalizeLifeState(life_state, cplayer ? cplayer->base_player().health() : 0);
   if (!cplayer || !cplayer->GetNpc()) {
@@ -1190,14 +1122,14 @@ void NetGame::SendCastSpell(oCNpc* Target, short SpellId) {
   game_client->SendCastSpell(target_id, static_cast<std::uint16_t>(SpellId));
 }
 
-void NetGame::SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position,
-                           const glm::vec3& rotation, bool physics_enabled) {
+void NetGame::SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position, const glm::vec3& rotation,
+                           bool physics_enabled) {
   if (!game_client) {
     return;
   }
 
-  game_client->SendDropItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, position,
-                            rotation, physics_enabled);
+  game_client->SendDropItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, position, rotation,
+                            physics_enabled);
 }
 
 void NetGame::SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id) {
@@ -1328,11 +1260,17 @@ void NetGame::SyncGameTime() {
 }
 
 void NetGame::Disconnect() {
+  ++content_activation_generation_;
   pending_local_spawn_position_.reset();
   IsInGame = false;
   IsReadyToJoin = false;
   if (global_ingame) {
     global_ingame->IgnoreFirstSync = true;
+  }
+
+  if (resource_runtime) {
+    gmp::gothic::CleanupGothicViews();
+    resource_runtime->UnloadResources();
   }
 
   if (game_client) {
@@ -1342,10 +1280,45 @@ void NetGame::Disconnect() {
   Gothic2APlayer::DeleteAllPlayers();
   CChat::GetInstance()->ClearChat();
 
-  if (resource_runtime) {
-    gmp::gothic::CleanupGothicViews();
-    resource_runtime->UnloadResources();
+  if (content_transition_manager) {
+    const bool had_addon_archives = content_transition_manager->HasActiveAddonArchives();
+    std::string content_error;
+    if (!content_transition_manager->DeactivateServerContent(content_error)) {
+      SPDLOG_ERROR("Failed to restore base Gothic content during disconnect: {}", content_error);
+    }
+    if (had_addon_archives) {
+      base_world_reload_required_ = true;
+      SPDLOG_INFO("Base-world reload scheduled to release addon-backed world resources");
+    }
   }
+}
+
+bool NetGame::ConsumeBaseWorldReloadRequest() {
+  const bool required = base_world_reload_required_;
+  base_world_reload_required_ = false;
+  return required;
+}
+
+NetGame::ConnectionProgressDisplay NetGame::GetConnectionProgressDisplay() const {
+  return {connection_progress_visible_, connection_progress_failed_,
+          connection_progress_failed_ && std::chrono::steady_clock::now() >= connection_progress_error_until_,
+          connection_progress_percent_, connection_progress_message_, connection_progress_banner_};
+}
+
+void NetGame::ClearConnectionProgressDisplay() {
+  connection_progress_visible_ = false;
+  connection_progress_failed_ = false;
+  connection_progress_percent_ = 0;
+  connection_progress_message_.clear();
+  connection_progress_banner_.clear();
+}
+
+void NetGame::ShowConnectionProgressError(const std::string& message) {
+  connection_progress_visible_ = true;
+  connection_progress_failed_ = true;
+  connection_progress_percent_ = 0;
+  connection_progress_message_ = message;
+  connection_progress_error_until_ = std::chrono::steady_clock::now() + std::chrono::seconds(5);
 }
 
 // ============================================================================
@@ -1354,31 +1327,43 @@ void NetGame::Disconnect() {
 
 void NetGame::OnConnectionStarted() {
   SPDLOG_INFO("Connection attempt started...");
-  std::string message = BuildMultiplayerStatusMessage();
-  PrintResourceStatusTimed(message.c_str(), 10000.0f, kResourceInfoColor);
+  connection_progress_visible_ = true;
+  connection_progress_failed_ = false;
+  connection_progress_percent_ = 0;
+  connection_progress_message_ = "Connecting to server...";
+  connection_progress_banner_ = BuildMultiplayerStatusMessage();
+  if (content_transition_manager) {
+    content_transition_manager->MarkDownloading();
+  }
 }
 
 void NetGame::OnConnected() {
   SPDLOG_INFO("Successfully connected to server");
+  connection_progress_message_ = "Preparing resource downloads...";
 }
 
 void NetGame::OnConnectionFailed(const std::string& error) {
   SPDLOG_ERROR("Connection failed: {}", error);
   IsReadyToJoin = false;
-  // Could show error message to user here
+  if (content_transition_manager) {
+    content_transition_manager->AbortConnection();
+  }
+  ShowConnectionProgressError("Connection failed: " + error);
 }
 
 void NetGame::OnDisconnected() {
   SPDLOG_INFO("Disconnected from server");
   IsReadyToJoin = false;
-  if (resource_runtime) {
-    gmp::gothic::CleanupGothicViews();
-    resource_runtime->UnloadResources();
-  }
 }
 
 void NetGame::OnConnectionLost() {
   SPDLOG_WARN("Connection lost");
+  if (connection_progress_visible_ && !IsInGame) {
+    ShowConnectionProgressError("Connection to the server was lost");
+    Disconnect();
+    return;
+  }
+  const bool return_to_menu = IsInGame;
   Disconnect();
   if (player) {
     auto pos = player->GetPositionWorld();
@@ -1387,45 +1372,61 @@ void NetGame::OnConnectionLost() {
   IsInGame = false;
   IsReadyToJoin = false;
   CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s", Language::Instance()[Language::DISCONNECTED].ToChar());
+  if (return_to_menu) {
+    GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
+  }
 }
 
 void NetGame::OnAdminAuthChanged(bool authenticated) {
   debug::DevTools::Instance().SetNoclipAllowed(authenticated);
 }
 
-bool NetGame::RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) {
-  if (resource_count == 0 || total_bytes == 0) {
-    return true;
-  }
-
-  const double total_mb = static_cast<double>(total_bytes) / (1024.0 * 1024.0);
-  SPDLOG_INFO("Server requires downloading {} resource pack(s) ({:.2f} MiB)", resource_count, total_mb);
-  std::ostringstream message;
-  message << "Server requires downloading " << std::fixed << std::setprecision(2) << total_mb << " MiB of client resources";
-  PrintResourceStatusTimed(message.str().c_str(), 10000.0f, kResourceInfoColor);
-
-  return true;
+void NetGame::OnResourceDownloadPhase(const std::string& phase) {
+  connection_progress_visible_ = true;
+  connection_progress_failed_ = false;
+  connection_progress_message_ = phase;
 }
 
-void NetGame::OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) {
+void NetGame::OnResourceDownloadProgress(const std::string& /*resource_name*/, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) {
   if (total_bytes == 0) {
     return;
   }
   const double percent = (static_cast<double>(downloaded_bytes) / static_cast<double>(total_bytes)) * 100.0;
-  SPDLOG_INFO("Downloading resources... {} ({:.2f}% complete)", resource_name, percent);
+  connection_progress_visible_ = true;
+  connection_progress_failed_ = false;
+  connection_progress_percent_ = std::clamp(static_cast<int>(percent), 0, 100);
+  connection_progress_message_ = "Downloading resource packs...";
 }
 
 void NetGame::OnResourceDownloadFailed(const std::string& reason) {
   SPDLOG_ERROR("Resource download failed: {}", reason);
   IsReadyToJoin = false;
-  std::string message = "Resource download failed: " + reason;
-  PrintResourceStatusTimed(message.c_str(), 10000.0f, kResourceErrorColor);
+  ShowConnectionProgressError("Download failed: " + reason);
   Disconnect();
 }
 
 void NetGame::OnResourcesReady() {
-  SPDLOG_INFO("Client signaled that resources are ready; consuming payloads");
+  const auto generation = ++content_activation_generation_;
+  connection_progress_percent_ = 100;
+  connection_progress_message_ = "Preparing game content...";
+  SPDLOG_INFO("Client signaled that resources are ready; deferring content activation to the next frame boundary");
+  GMPCore::Instance().DeferToNextFrame([generation]() { NetGame::Instance().ActivateDownloadedContent(generation); });
+}
+
+void NetGame::ActivateDownloadedContent(std::uint64_t generation) {
+  if (generation != content_activation_generation_) {
+    SPDLOG_DEBUG("Ignoring stale deferred content activation");
+    return;
+  }
+  if (!game_client || !game_client->IsConnected()) {
+    SPDLOG_DEBUG("Ignoring deferred content activation after disconnect");
+    return;
+  }
+
+  SPDLOG_INFO("Activating downloaded content at the frame boundary");
+  connection_progress_message_ = "Mounting addons...";
   auto payloads = game_client->ConsumeDownloadedResources();
+  auto addon_payloads = game_client->ConsumeDownloadedAddons();
 
   if (!resource_runtime) {
     SPDLOG_ERROR("Client resource runtime is unavailable; disconnecting");
@@ -1433,8 +1434,42 @@ void NetGame::OnResourcesReady() {
     return;
   }
 
-  SPDLOG_INFO("Loading {} resource payload(s) into runtime", payloads.size());
+  if (!content_transition_manager) {
+    OnResourceDownloadFailed("Addon content transition manager unavailable");
+    return;
+  }
+
+  std::vector<std::filesystem::path> addon_paths;
+  addon_paths.reserve(addon_payloads.size());
+  std::size_t gothic_dat_count = 0;
+  for (const auto& addon : addon_payloads) {
+    addon_paths.push_back(addon.cached_path);
+    gothic_dat_count += addon.descriptor.contains_gothic_dat ? 1U : 0U;
+  }
+  if (gothic_dat_count > 1) {
+    OnResourceDownloadFailed("Server announced more than one addon GOTHIC.DAT");
+    return;
+  }
+
+  if (!addon_paths.empty()) {
+    connection_progress_message_ = "Mounting addon VDFs...";
+  }
   std::string error_message;
+  if (gothic_dat_count == 1) {
+    connection_progress_message_ = "Loading Gothic.dat...";
+  }
+  if (!content_transition_manager->ActivateServerContent(addon_paths, gothic_dat_count == 1, error_message)) {
+    OnResourceDownloadFailed("Failed to activate server addon content: " + error_message);
+    return;
+  }
+
+  if (!addon_paths.empty() && !server_requested_map_.empty()) {
+    map = server_requested_map_.c_str();
+    SPDLOG_INFO("Addon content active; server world '{}' will be reloaded even if it is already open", server_requested_map_);
+  }
+
+  SPDLOG_INFO("Loading {} resource payload(s) into runtime", payloads.size());
+  connection_progress_message_ = "Loading client resources...";
   if (game_client->player_manager().HasLocalPlayer()) {
     resource_runtime->GetLuaState()["heroId"] = static_cast<int>(game_client->player_manager().GetLocalPlayer().id());
   } else {
@@ -1451,9 +1486,11 @@ void NetGame::OnResourcesReady() {
   SPDLOG_INFO("Client resources ready; player may join");
   SPDLOG_INFO("All required client resources downloaded and loaded");
   IsReadyToJoin = true;
+  ClearConnectionProgressDisplay();
 }
 
 void NetGame::OnMapChange(const std::string& map_name) {
+  server_requested_map_ = map_name;
   if (!ogame || !ogame->GetGameWorld()) {
     return;
   }
@@ -1481,10 +1518,9 @@ void NetGame::OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_m
   this->ForceHideMap = flags & 0x04;
 }
 
-void NetGame::OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
-                                    std::int16_t rain_start_hour, std::int16_t rain_start_min,
-                                    std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
-                                    float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) {
+void NetGame::OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type, std::int16_t rain_start_hour, std::int16_t rain_start_min,
+                                    std::int16_t rain_stop_hour, std::int16_t rain_stop_min, float wind_scale, bool dont_rain, float rain_weight,
+                                    bool render_lightning) {
   if (flags & SKY_SETTING_WEATHER) {
     gmp::gothic::ApplyWeatherType(weather_type);
   }
@@ -1656,6 +1692,10 @@ void NetGame::OnPlayerNameUpdate(std::uint64_t player_id, const std::string& nam
 }
 
 void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string& instance) {
+  if (instance.empty()) {
+    return;
+  }
+
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
@@ -1705,9 +1745,8 @@ void NetGame::OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_
   cplayer->base_player().set_talent(talent_id, talent_value);
 }
 
-void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& body_model, std::int16_t body_texture,
-                                   const std::string& head_model, std::int16_t head_texture, std::int16_t teeth_texture,
-                                   std::int16_t skin_color) {
+void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
+                                   std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
@@ -1942,8 +1981,7 @@ void NetGame::OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& wo
     return;
   }
 
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldChangeName,
-                                        gmp::gothic::OnWorldChangeEvent{world_name, start_point});
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnWorldChangeName, gmp::gothic::OnWorldChangeEvent{world_name, start_point});
 
   GMPCore::Instance().DeferToNextFrame([player_id, world_name, start_point]() {
     NetGame& net_game = NetGame::Instance();
@@ -2144,7 +2182,9 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     }
   }
 
-  const int target_health = life_state == PLAYER_LIFE_DEAD ? 0 : life_state == PLAYER_LIFE_UNCONSCIOUS ? 1 : ClampAliveHealth(cplayer->npc, state.health_points);
+  const int target_health = life_state == PLAYER_LIFE_DEAD          ? 0
+                            : life_state == PLAYER_LIFE_UNCONSCIOUS ? 1
+                                                                    : ClampAliveHealth(cplayer->npc, state.health_points);
   cplayer->base_player().set_health(static_cast<short>(target_health));
   cplayer->base_player().set_update_health_packet_counter(0);
   if (cplayer->npc->GetAttribute(NPC_ATR_HITPOINTS) != target_health) {
@@ -2238,8 +2278,7 @@ void NetGame::OnPlayerStandUp(std::uint64_t player_id) {
 }
 
 void NetGame::OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName,
-                                        gmp::gothic::OnPlayerPingEvent{player_id, ping});
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName, gmp::gothic::OnPlayerPingEvent{player_id, ping});
 }
 
 void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {
@@ -2283,8 +2322,8 @@ void NetGame::OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) 
   }
 }
 
-void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
-                                 bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {
+void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount, bool physics_enabled,
+                                 const glm::vec3& position, const glm::vec3& rotation) {
   gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, item_instance, amount, physics_enabled, position, rotation);
 }
 

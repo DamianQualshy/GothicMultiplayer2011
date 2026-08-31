@@ -1376,7 +1376,48 @@ struct ClientResourceInfoEntry {
   std::string archive_path;
   std::string archive_sha256;
   std::uint64_t archive_size{0};
+  std::uint64_t manifest_size{0};
 };
+
+struct AddonVdfInfoEntry {
+  std::string logical_name;
+  std::string sha256;
+  std::uint64_t size{0};
+  bool contains_gothic_dat{false};
+};
+
+template <typename S>
+void serialize(S& s, AddonVdfInfoEntry& entry) {
+  s.text1b(entry.logical_name, 255);
+  s.text1b(entry.sha256, 64);
+  s.value8b(entry.size);
+  s.value1b(entry.contains_gothic_dat);
+}
+
+inline std::ostream& operator<<(std::ostream& os, const AddonVdfInfoEntry& entry) {
+  os << "AddonVdfInfoEntry { logical_name: " << entry.logical_name << ", size: " << entry.size
+     << ", contains_gothic_dat: " << entry.contains_gothic_dat << " }";
+  return os;
+}
+
+struct AddonBundleInfoEntry {
+  std::string archive_path;
+  std::string archive_sha256;
+  std::uint64_t archive_size{0};
+  std::string manifest_path;
+  std::string manifest_sha256;
+  std::uint64_t manifest_size{0};
+};
+
+template <typename S>
+void serialize(S& s, AddonBundleInfoEntry& entry) {
+  s.text1b(entry.archive_path, 255);
+  s.text1b(entry.archive_sha256, 64);
+  s.value8b(entry.archive_size);
+  s.text1b(entry.manifest_path, 255);
+  s.text1b(entry.manifest_sha256, 64);
+  s.value8b(entry.manifest_size);
+}
 
 template <typename S>
 void serialize(S& s, ClientResourceInfoEntry& entry) {
@@ -1387,11 +1428,13 @@ void serialize(S& s, ClientResourceInfoEntry& entry) {
   s.text1b(entry.archive_path, 255);
   s.text1b(entry.archive_sha256, 64);
   s.value8b(entry.archive_size);
+  s.value8b(entry.manifest_size);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const ClientResourceInfoEntry& entry) {
   os << "ClientResourceInfoEntry { name: " << entry.name << ", version: " << entry.version << ", manifest_path: " << entry.manifest_path
-     << ", archive_path: " << entry.archive_path << ", archive_size: " << entry.archive_size << " }";
+     << ", archive_path: " << entry.archive_path << ", archive_size: " << entry.archive_size << ", manifest_size: " << entry.manifest_size
+     << " }";
   return os;
 }
 
@@ -1404,7 +1447,10 @@ struct InitialInfoPacket {
   std::uint16_t max_slots{0};
   std::string resource_token;
   std::string resource_base_path;
+  std::string downloader_group;
   std::vector<ClientResourceInfoEntry> client_resources;
+  std::vector<AddonVdfInfoEntry> addon_vdfs;
+  AddonBundleInfoEntry addon_bundle;
 };
 
 template <typename S>
@@ -1416,14 +1462,18 @@ void serialize(S& s, InitialInfoPacket& packet) {
   s.value2b(packet.max_slots);
   s.text1b(packet.resource_token, 64);
   s.text1b(packet.resource_base_path, 64);
+  s.text1b(packet.downloader_group, 64);
   s.container(packet.client_resources, 128);
+  s.container(packet.addon_vdfs, 32);
+  s.object(packet.addon_bundle);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const InitialInfoPacket& packet) {
   os << "InitialInfoPacket {"
      << " packet_type: " << static_cast<int>(packet.packet_type) << ", map_name: " << packet.map_name << ", player_id: " << packet.player_id
      << ", server_name: " << packet.server_name << ", max_slots: " << packet.max_slots
-     << ", resources: " << packet.client_resources.size() << " }";
+     << ", downloader_group: " << packet.downloader_group << ", resources: " << packet.client_resources.size()
+     << ", addon_vdfs: " << packet.addon_vdfs.size() << " }";
   return os;
 }
 

@@ -59,6 +59,7 @@ struct Response;
 #include "item_ground_manager.h"
 #include "resource_manager.h"
 #include "resource_server.h"
+#include "server_addon_context.h"
 #include "znet_server.h"
 #include "gothic_clock.h"
 #include "gothic_weather.h"
@@ -307,6 +308,7 @@ private:
   std::thread main_thread;
   std::atomic<bool> main_thread_running = false;
   std::vector<ClientResourceDescriptor> client_resource_descriptors_;
+  std::unique_ptr<ServerAddonContext> addon_context_;
 
   std::unique_ptr<ResourceServer> resource_server_;
 };

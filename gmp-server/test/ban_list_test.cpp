@@ -45,6 +45,7 @@ public:
   MOCK_METHOD(bool, Start, (std::uint32_t, std::uint32_t), (override));
   MOCK_METHOD(bool, Send, (unsigned char*, std::uint32_t, Net::PacketPriority, Net::PacketReliability, std::uint32_t, Net::ConnectionHandle), (override));
   MOCK_METHOD(bool, Send, (const char*, std::uint32_t, Net::PacketPriority, Net::PacketReliability, std::uint32_t, Net::ConnectionHandle), (override));
+  MOCK_METHOD(void, CloseConnection, (Net::ConnectionHandle, bool), (override));
   MOCK_METHOD(void, AddToBanList, (const char*, std::uint32_t), (override));
   MOCK_METHOD(void, AddToBanList, (Net::ConnectionHandle, std::uint32_t), (override));
   MOCK_METHOD(void, RemoveFromBanList, (const char*), (override));

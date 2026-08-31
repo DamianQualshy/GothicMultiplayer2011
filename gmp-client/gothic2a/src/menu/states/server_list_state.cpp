@@ -24,9 +24,13 @@ SOFTWARE.
 
 #include "server_list_state.hpp"
 
+#include <algorithm>
+#include <string>
+
 #include <spdlog/spdlog.h>
 
 #include "gmp_core.h"
+#include "content/content_transition_manager.h"
 #include "language.h"
 #include "world_utils.hpp"
 #include "Patch.h"
@@ -40,6 +44,27 @@ SOFTWARE.
 namespace menu {
 namespace states {
 
+namespace {
+
+constexpr int kProgressFrameLeft = 1000;
+constexpr int kProgressFrameTop = 6800;
+constexpr int kProgressFrameRight = 7192;
+constexpr int kProgressFrameBottom = 7300;
+constexpr int kProgressFillInsetX = 900;
+constexpr int kProgressFillInsetY = 75;
+constexpr int kBannerTextLeft = 700;
+constexpr int kBannerTextTop = 5600;
+constexpr int kBannerTextRight = 7492;
+constexpr int kBannerTextBottom = 6050;
+constexpr int kProgressTextLeft = 700;
+constexpr int kProgressTextTop = 6100;
+constexpr int kProgressTextRight = 7492;
+constexpr int kProgressTextBottom = 6700;
+constexpr const char* kProgressFrameTexture = "PROGRESS.TGA";
+constexpr const char* kProgressFillTexture = "PROGRESS_BAR.TGA";
+
+}  // namespace
+
 ServerListState::ServerListState(MenuContext& context)
     : context_(context),
       shouldReturnToMainMenu_(false),
@@ -48,6 +73,8 @@ ServerListState::ServerListState(MenuContext& context)
       enteringCustomIP_(false),
       connectionAttemptInProgress_(false) {
 }
+
+ServerListState::~ServerListState() { CloseConnectionProgress(); }
 
 void ServerListState::OnEnter() {
   SPDLOG_INFO("Entering server list state, extended server list at {:p}", (void*)context_.extendedServerList);
@@ -83,6 +110,7 @@ void ServerListState::OnEnter() {
 
 void ServerListState::OnExit() {
   SPDLOG_INFO("Exiting server list state");
+  CloseConnectionProgress();
 
   // Restore logo (unless we're connecting to a server)
   if (context_.logoView && !shouldExitMenuAfterConnection_) {
@@ -99,19 +127,33 @@ StateResult ServerListState::Update() {
   // Check if we should initiate connection (for fast join or user selection)
   if (shouldConnectToServer_) {
     ConnectToServer();
-    shouldConnectToServer_ = false;                           // Only call ConnectToServer once
-    connectionAttemptInProgress_ = true;                      // Mark that we're attempting to connect
-    connectionStartTime_ = std::chrono::steady_clock::now();  // Record start time for animation
+    shouldConnectToServer_ = false;       // Only call ConnectToServer once
+    connectionAttemptInProgress_ = true;  // Mark that we're attempting to connect
   }
+
+  const auto progress = NetGame::Instance().GetConnectionProgressDisplay();
+  if (progress.visible) {
+    context_.sceneManager.Update();
+    RenderConnectionProgress();
+    if (progress.failure_expired) {
+      NetGame::Instance().ClearConnectionProgressDisplay();
+      NetGame::Instance().Disconnect();
+      connectionAttemptInProgress_ = false;
+      context_.selectedServerIP.Clear();
+      context_.selectedServerIndex = 0;
+      enteringCustomIP_ = false;
+      shouldReturnToMainMenu_ = true;
+    }
+    return StateResult::Continue;
+  }
+  CloseConnectionProgress();
 
   // Check packet-driven connection status only if we have an active connection attempt
   if (connectionAttemptInProgress_ && NetGame::Instance().game_client) {
     auto connState = NetGame::Instance().game_client->GetConnectionState();
 
     if (connState == gmp::client::GameClient::ConnectionState::Connecting) {
-      // Still connecting - show progress UI
-      context_.sceneManager.Update();
-      RenderConnectionProgress();
+      // OnConnectionStarted owns the visible progress state while connecting.
       return StateResult::Continue;
     } else if (connState == gmp::client::GameClient::ConnectionState::Connected) {
       // Connection successful - schedule game setup to run outside render loop
@@ -291,30 +333,110 @@ void ServerListState::ConnectToServer() {
 }
 
 void ServerListState::RenderConnectionProgress() {
-  // Render "Connecting..." message to user centered on screen
-  zSTRING connectingMsg = "Connecting";
-  int msgWidth = context_.screen->FontSize(connectingMsg);
-  int centerX = (8192 - msgWidth) / 2;
-  context_.screen->Print(centerX, 4096, connectingMsg);
-
-  // Add animated dots below the message (time-based, FPS independent)
-  auto now = std::chrono::steady_clock::now();
-  auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - connectionStartTime_).count();
-
-  // Cycle through 0-3 dots every 500ms (full cycle = 2 seconds)
-  int dotCount = (elapsed / 500) % 4;
-
-  zSTRING dots;
-  for (int i = 0; i < dotCount + 1; i++) {
-    dots += ".";
+  if (!connectionBackground_) {
+    connectionBackground_ = new zCView(0, 0, 8192, 8192, VIEW_ITEM);
+    connectionBackground_->InsertBack(zSTRING(gmp::gothic::kGmpLoadingScreenTexture));
+    context_.screen->InsertItem(connectionBackground_);
   }
-  int dotsWidth = context_.screen->FontSize(dots);
-  int dotsCenterX = (8192 - dotsWidth) / 2;
-  context_.screen->Print(dotsCenterX, 4300, dots);
+  if (!connectionProgressFrame_) {
+    connectionProgressFrame_ =
+        new zCView(kProgressFrameLeft, kProgressFrameTop, kProgressFrameRight, kProgressFrameBottom, VIEW_ITEM);
+    connectionProgressFrame_->InsertBack(zSTRING(kProgressFrameTexture));
+    connectionProgressFrame_->SetAlphaBlendFunc(zRND_ALPHA_FUNC_BLEND);
+    connectionProgressFrame_->SetTransparency(255);
+    context_.screen->InsertItem(connectionProgressFrame_);
+  }
+  if (!connectionProgressFill_) {
+    connectionProgressFill_ = new zCView(
+        kProgressFrameLeft + kProgressFillInsetX, kProgressFrameTop + kProgressFillInsetY,
+        kProgressFrameRight - kProgressFillInsetX, kProgressFrameBottom - kProgressFillInsetY, VIEW_ITEM);
+    connectionProgressFill_->InsertBack(zSTRING(kProgressFillTexture));
+    connectionProgressFill_->SetAlphaBlendFunc(zRND_ALPHA_FUNC_BLEND);
+    connectionProgressFill_->SetTransparency(255);
+    context_.screen->InsertItem(connectionProgressFill_);
+  }
+  if (!connectionProgressText_) {
+    connectionProgressText_ =
+        new zCView(kProgressTextLeft, kProgressTextTop, kProgressTextRight, kProgressTextBottom, VIEW_ITEM);
+    const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+    connectionProgressText_->SetFont(zSTRING(font.c_str()));
+    connectionProgressText_->SetFontColor(zCOLOR(255, 255, 255, 255));
+    context_.screen->InsertItem(connectionProgressText_);
+  }
+  if (!connectionBannerText_) {
+    connectionBannerText_ =
+        new zCView(kBannerTextLeft, kBannerTextTop, kBannerTextRight, kBannerTextBottom, VIEW_ITEM);
+    const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+    connectionBannerText_->SetFont(zSTRING(font.c_str()));
+    connectionBannerText_->SetFontColor(zCOLOR(0, 200, 255, 255));
+    context_.screen->InsertItem(connectionBannerText_);
+  }
+
+  const auto progress = NetGame::Instance().GetConnectionProgressDisplay();
+  const int percent = std::clamp(progress.percent, 0, 100);
+  const int maximum_fill_width =
+      (kProgressFrameRight - kProgressFrameLeft) - (2 * kProgressFillInsetX);
+  connectionProgressFill_->SetSize((maximum_fill_width * percent) / 100,
+                                   (kProgressFrameBottom - kProgressFrameTop) - (2 * kProgressFillInsetY));
+
+  if (percent != renderedConnectionProgressPercent_ || progress.message != renderedConnectionProgressMessage_) {
+    std::string text = progress.message;
+    if (!progress.failed) {
+      text += " (" + std::to_string(percent) + "%)";
+    }
+    connectionProgressText_->ClrPrintwin();
+    connectionProgressText_->PrintCXY(zSTRING(text.c_str()));
+    renderedConnectionProgressPercent_ = percent;
+    renderedConnectionProgressMessage_ = progress.message;
+  }
+  if (progress.banner != renderedConnectionBanner_) {
+    connectionBannerText_->ClrPrintwin();
+    if (!progress.banner.empty()) {
+      connectionBannerText_->PrintCXY(zSTRING(progress.banner.c_str()));
+    }
+    renderedConnectionBanner_ = progress.banner;
+  }
+}
+
+void ServerListState::CloseConnectionProgress() {
+  if (connectionBannerText_) {
+    context_.screen->RemoveItem(connectionBannerText_);
+    delete connectionBannerText_;
+    connectionBannerText_ = nullptr;
+  }
+  if (connectionProgressText_) {
+    context_.screen->RemoveItem(connectionProgressText_);
+    delete connectionProgressText_;
+    connectionProgressText_ = nullptr;
+  }
+  if (connectionProgressFill_) {
+    context_.screen->RemoveItem(connectionProgressFill_);
+    delete connectionProgressFill_;
+    connectionProgressFill_ = nullptr;
+  }
+  if (connectionProgressFrame_) {
+    context_.screen->RemoveItem(connectionProgressFrame_);
+    delete connectionProgressFrame_;
+    connectionProgressFrame_ = nullptr;
+  }
+  if (connectionBackground_) {
+    context_.screen->RemoveItem(connectionBackground_);
+    delete connectionBackground_;
+    connectionBackground_ = nullptr;
+  }
+  renderedConnectionProgressPercent_ = -1;
+  renderedConnectionProgressMessage_.clear();
+  renderedConnectionBanner_.clear();
 }
 
 void ServerListState::ScheduleGameSetup() {
   SPDLOG_INFO("Connection successful, scheduling deferred game setup...");
+
+  if (!ogame || !ogame->GetGameWorld()) {
+    SPDLOG_ERROR("Cannot set up the server world because the Gothic game world is unavailable");
+    NetGame::Instance().Disconnect();
+    return;
+  }
 
   // Handle initial network sync (safe during render)
   NetGame::Instance().HandleNetwork();
@@ -328,11 +450,18 @@ void ServerListState::ScheduleGameSetup() {
     // Level change must be deferred to BEFORE the next render frame starts.
     // ChangeLevel destroys world/camera state, which would crash if done during rendering.
     // Capture player position now before level change.
-    zVEC3 spawnPosition = context_.player->GetPositionWorld();
+    // MenuContext keeps the hero pointer from menu creation. Use Gothic's
+    // current global hero first because content activation/level changes can
+    // replace that object before this setup runs.
+    oCNpc* current_player = ::player ? ::player : context_.player;
+    if (!current_player || !ogame || !ogame->GetGameWorld()) {
+      SPDLOG_ERROR("Cannot set up the server world because the Gothic game or hero is unavailable");
+      NetGame::Instance().Disconnect();
+      return;
+    }
+    zVEC3 spawnPosition = current_player->GetPositionWorld();
     zSTRING mapName = NetGame::Instance().map;
-    oCNpc* player = context_.player;
-
-    GMPCore::Instance().DeferToNextFrame([spawnPosition, mapName, player]() {
+    GMPCore::Instance().DeferToNextFrame([spawnPosition, mapName]() {
       SPDLOG_INFO("Executing deferred game setup (level change to {})...", mapName.ToChar());
 
       // Now safe to change level - we're at the start of the frame, before rendering
@@ -340,9 +469,17 @@ void ServerListState::ScheduleGameSetup() {
       ogame->ChangeLevel(mapName, zSTRING("????"));
       Patch::ChangeLevelEnabled(false);
 
+      if (!ogame->GetGameWorld() || !::player) {
+        SPDLOG_ERROR("Gothic failed to create the server world or hero during level change");
+        NetGame::Instance().Disconnect();
+        return;
+      }
+
       // Clean up NPCs and world objects
       DeleteAllNpcsAndDisableSpawning();
-      player->trafoObjToWorld.SetTranslation(spawnPosition);
+      // ChangeLevel replaces the Gothic hero object. Never retain or touch the
+      // pre-transition pointer; use the newly-created global hero instead.
+      ::player->trafoObjToWorld.SetTranslation(spawnPosition);
       CleanupWorldObjects(ogame->GetGameWorld());
 
       // Join game

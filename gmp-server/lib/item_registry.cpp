@@ -306,6 +306,10 @@ std::size_t ItemRegistry::Size() const {
   return items_.size();
 }
 
+const std::vector<ItemRegistry::Item>& ItemRegistry::Items() const {
+  return items_;
+}
+
 std::string ItemRegistry::NormalizeInstanceName(std::string_view instance) {
   std::string normalized(instance);
   std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char ch) {

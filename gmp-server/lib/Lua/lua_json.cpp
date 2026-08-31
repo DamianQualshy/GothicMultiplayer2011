@@ -43,7 +43,7 @@ namespace lua::bindings {
 
 namespace {
 
-constexpr std::string_view kDataRoot = "data";
+constexpr std::string_view kDataRoot = "data/internal";
 constexpr std::size_t kMaxJsonBytes = 1024 * 1024;
 constexpr std::size_t kMaxEntries = 4096;
 constexpr int kMaxDepth = 32;
@@ -499,13 +499,13 @@ std::optional<JsonFile> LoadJsonFile(const std::string& relative_path, std::stri
 
 /* luagmp (func)
 *
-* Open a JSON file relative to the server data directory.
+* Open a JSON file relative to the server data/internal directory.
 *
 * @version  0.3.0
 * @name     JSON
 * @side     server
 * @category File
-* @param    (string) relative_path  Path under the data directory.
+* @param    (string) relative_path  Path under the data/internal directory.
 * @return   (JsonFile|nil)          File handle or nil on error.
 *
 */

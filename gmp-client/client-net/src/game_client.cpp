@@ -315,6 +315,10 @@ std::vector<GameClient::ResourcePayload> GameClient::ConsumeDownloadedResources(
   return resource_downloader_.ConsumeDownloadedResources();
 }
 
+std::vector<GameClient::AddonPayload> GameClient::ConsumeDownloadedAddons() {
+  return resource_downloader_.ConsumeDownloadedAddons();
+}
+
 bool GameClient::HandlePacket(unsigned char* data, std::uint32_t size) {
   try {
     SPDLOG_TRACE("Received packet: {}", (int)data[0]);
@@ -521,13 +525,18 @@ void GameClient::OnInitialInfo(Packet p) {
   server_name_ = packet.server_name;
   max_slots_ = packet.max_slots;
 
-  SPDLOG_INFO("Initial info received: map='{}', server='{}', base_path='{}', resources={}", packet.map_name,
+  SPDLOG_INFO("Initial info received: map='{}', server='{}', base_path='{}', group='{}', resources={}, addon_vdfs={}", packet.map_name,
               server_name_.empty() ? "<unknown>" : server_name_,
-              packet.resource_base_path.empty() ? "/public" : packet.resource_base_path, packet.client_resources.size());
+              packet.resource_base_path.empty() ? "/public" : packet.resource_base_path,
+              packet.downloader_group.empty() ? "<ip_port>" : packet.downloader_group, packet.client_resources.size(),
+              packet.addon_vdfs.size());
 
   resource_downloader_.SetDownloadToken(packet.resource_token);
   resource_downloader_.SetBasePath(packet.resource_base_path.empty() ? "/public" : packet.resource_base_path);
+  resource_downloader_.SetStoreGroup(packet.downloader_group);
   resource_downloader_.AnnounceResources(std::move(packet.client_resources));
+  resource_downloader_.AnnounceAddons(std::move(packet.addon_vdfs));
+  resource_downloader_.AnnounceAddonBundle(std::move(packet.addon_bundle));
 
   auto local_player = player_manager_.CreateLocalPlayer(packet.player_id);
   outgoing_state_sequence_ = 0;
@@ -894,7 +903,9 @@ void GameClient::OnExistingPlayers(Packet p) {
     event_observer_.OnPlayerSpawned(*player);
 
     // Mirror the update callbacks that used to arrive as separate packets.
-    event_observer_.OnPlayerInstanceUpdate(existing_player.player_id, existing_player.instance);
+    if (!existing_player.instance.empty()) {
+      event_observer_.OnPlayerInstanceUpdate(existing_player.player_id, existing_player.instance);
+    }
     event_observer_.OnPlayerColorUpdate(existing_player.player_id, existing_player.name_color_r, existing_player.name_color_g, existing_player.name_color_b);
     if (!existing_player.body_model.empty() || !existing_player.head_model.empty()) {
       event_observer_.OnPlayerVisualUpdate(existing_player.player_id, existing_player.body_model, existing_player.body_texture, existing_player.head_model,
@@ -941,7 +952,9 @@ void GameClient::OnPlayerSpawn(Packet p) {
   const bool is_local_spawn = has_local_player && (player_manager_.GetLocalPlayer().id() == static_cast<std::uint64_t>(packet.player_id));
 
   const auto emit_snapshot_callbacks = [&](std::uint32_t player_id) {
-    event_observer_.OnPlayerInstanceUpdate(player_id, packet.instance);
+    if (!packet.instance.empty()) {
+      event_observer_.OnPlayerInstanceUpdate(player_id, packet.instance);
+    }
     event_observer_.OnPlayerColorUpdate(player_id, packet.name_color_r, packet.name_color_g, packet.name_color_b);
     if (!packet.body_model.empty() || !packet.head_model.empty()) {
       event_observer_.OnPlayerVisualUpdate(player_id, packet.body_model, packet.body_texture, packet.head_model, packet.head_texture,

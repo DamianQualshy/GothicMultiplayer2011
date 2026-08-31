@@ -74,6 +74,7 @@ public:
   bool Contains(std::string_view instance) const;
   bool ContainsIndex(std::int32_t index) const;
   std::size_t Size() const;
+  const std::vector<Item>& Items() const;
 
   static std::string NormalizeInstanceName(std::string_view instance);
 

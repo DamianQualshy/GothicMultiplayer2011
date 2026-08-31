@@ -3533,20 +3533,6 @@ void Function_ExitGame() {
 
 /* luagmp (func)
 *
-* This function will clear multiplayer status messages shown while joining the server.
-*
-* @version  0.3.0
-* @name     clearMultiplayerMessages
-* @side     client
-* @category Game
-*
-*/
-void Function_ClearMultiplayerMessages() {
-  NetGame::Instance().ClearMultiplayerMessages();
-}
-
-/* luagmp (func)
-*
 * This function will enable/disable opening GMP menu with ESC.
 *
 * @version  0.3.0
@@ -3719,7 +3705,6 @@ void BindGothicSpecific(sol::state& lua) {
   lua["getNetworkStats"] = Function_GetNetworkStats;
 
   lua["exitGame"] = Function_ExitGame;
-  lua["clearMultiplayerMessages"] = Function_ClearMultiplayerMessages;
   lua["enableGMPMenu"] = Function_EnableGMPMenu;
   lua["openGMPMenu"] = Function_OpenGMPMenu;
   lua["closeGMPMenu"] = Function_CloseGMPMenu;

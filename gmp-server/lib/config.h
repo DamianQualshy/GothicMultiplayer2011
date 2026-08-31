@@ -28,6 +28,7 @@ SOFTWARE.
 #include <array>
 #include <cassert>
 #include <cstdint>
+#include <filesystem>
 #include <ostream>
 #include <string>
 #include <stdexcept>
@@ -40,6 +41,7 @@ SOFTWARE.
 class Config {
 public:
   Config();
+  explicit Config(std::filesystem::path config_path);
 
   template <typename T>
   const T& Get(const std::string& key) const {
@@ -78,6 +80,7 @@ protected:
   void DeriveKeysFromSeed();
 
   std::unordered_map<std::string, std::variant<std::string, std::vector<std::string>, std::int32_t, bool>> values_;
+  std::filesystem::path config_path_;
 
   // Cached binary keys - computed once from seed, reused for all subsequent calls
   std::vector<std::uint8_t> cached_public_key_;

@@ -24,19 +24,21 @@ SOFTWARE.
 
 #pragma once
 
+#include <chrono>
 #include <memory>
-#include <string>
 #include <optional>
+#include <string>
 #include <vector>
 
 #include "CSyncFuncs.h"
 #include "HooksManager.h"
 #include "ZenGin/zGothicAPI.h"
+#include "client_resources/client_resource_runtime.h"
+#include "content/content_transition_manager.h"
 #include "event_observer.hpp"
 #include "game_client.hpp"
 #include "gothic2a_player.hpp"
 #include "gothic_task_scheduler.h"
-#include "client_resources/client_resource_runtime.h"
 
 struct MD5Sum {
   BYTE data[16];
@@ -52,13 +54,21 @@ union STime {
 
 class NetGame : public CSyncFuncs, public gmp::client::EventObserver {
 public:
+  struct ConnectionProgressDisplay {
+    bool visible{false};
+    bool failed{false};
+    bool failure_expired{false};
+    int percent{0};
+    std::string message;
+    std::string banner;
+  };
+
   void HandleNetwork();
-  void ClearMultiplayerMessages();
   bool IsConnected();
   bool Connect(std::string_view full_address);
   void JoinGame();
-  void SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position,
-                    const glm::vec3& rotation, bool physics_enabled);
+  void SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position, const glm::vec3& rotation,
+                    bool physics_enabled);
   void SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id);
   void SendPlayerWorldEnter(const std::string& world_name);
   void SendCastSpell(oCNpc* Target, short SpellId);
@@ -70,6 +80,9 @@ public:
   void UpdatePlayerStats(short anim);
   void SyncGameTime();
   void Disconnect();
+  bool ConsumeBaseWorldReloadRequest();
+  ConnectionProgressDisplay GetConnectionProgressDisplay() const;
+  void ClearConnectionProgressDisplay();
   void RestoreHealth();
   void SetDayLengthMs(float day_length_ms);
   float GetDayLengthMs() const;
@@ -94,6 +107,7 @@ public:
   std::unique_ptr<gmp::GothicTaskScheduler> task_scheduler;
   std::unique_ptr<gmp::client::GameClient> game_client;
   std::unique_ptr<ClientResourceRuntime> resource_runtime;
+  std::unique_ptr<gmp::gothic::ContentTransitionManager> content_transition_manager;
 
   // EventObserver interface implementation
   void OnConnectionStarted() override;
@@ -102,16 +116,15 @@ public:
   void OnDisconnected() override;
   void OnConnectionLost() override;
   void OnAdminAuthChanged(bool authenticated) override;
-  bool RequestResourceDownloadConsent(std::size_t resource_count, std::uint64_t total_bytes) override;
+  void OnResourceDownloadPhase(const std::string& phase) override;
   void OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) override;
   void OnResourceDownloadFailed(const std::string& reason) override;
   void OnResourcesReady() override;
   void OnMapChange(const std::string& map_name) override;
   void OnGameInfoReceived(std::uint32_t raw_game_time, float day_length_ms, std::uint8_t flags) override;
-  void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type,
-                             std::int16_t rain_start_hour, std::int16_t rain_start_min,
-                             std::int16_t rain_stop_hour, std::int16_t rain_stop_min,
-                             float wind_scale, bool dont_rain, float rain_weight, bool render_lightning) override;
+  void OnSkySettingsReceived(std::uint8_t flags, std::int32_t weather_type, std::int16_t rain_start_hour, std::int16_t rain_start_min,
+                             std::int16_t rain_stop_hour, std::int16_t rain_stop_min, float wind_scale, bool dont_rain, float rain_weight,
+                             bool render_lightning) override;
   void OnLocalPlayerJoined(gmp::client::Player& player) override;
   void OnLocalPlayerSpawned(gmp::client::Player& player) override;
   void OnPlayerJoined(gmp::client::Player& player) override;
@@ -143,8 +156,8 @@ public:
   void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
   void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) override;
   void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) override;
-  void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
-                          bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) override;
+  void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount, bool physics_enabled,
+                          const glm::vec3& position, const glm::vec3& rotation) override;
   void OnItemGroundDestroy(std::uint32_t item_ground_id) override;
   void OnItemsGroundDestroy() override;
   void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
@@ -153,8 +166,7 @@ public:
   void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
   void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) override;
-  void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b,
-                       const std::string& message) override;
+  void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& message) override;
   void OnLuaEvent(const std::string& event_name, std::uint32_t source_element, const std::string& payload) override;
 
 private:
@@ -178,11 +190,22 @@ private:
   void ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id, bool trigger_event);
   void ApplyPendingLocalSpawnPosition();
   void UpdateClientEventState();
+  void ActivateDownloadedContent(std::uint64_t generation);
+  void ShowConnectionProgressError(const std::string& message);
 
   std::optional<GameTimeSnapshot> last_game_time_;
   std::optional<PendingLocalSpawnPosition> pending_local_spawn_position_;
   std::string last_world_name_;
+  std::string server_requested_map_;
   float day_length_ms_{0.0f};
+  std::uint64_t content_activation_generation_{0};
+  bool base_world_reload_required_{false};
+  bool connection_progress_visible_{false};
+  bool connection_progress_failed_{false};
+  int connection_progress_percent_{0};
+  std::string connection_progress_message_;
+  std::string connection_progress_banner_;
+  std::chrono::steady_clock::time_point connection_progress_error_until_{};
 
 public:
   std::optional<std::uint64_t> GetPlayerIdByNpc(oCNpc* npc);
