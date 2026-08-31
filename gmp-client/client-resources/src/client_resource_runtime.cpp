@@ -32,6 +32,7 @@ SOFTWARE.
 #include <memory>
 #include <string_view>
 
+#include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/shared_bind.h"
 #include "shared/event.h"
 
@@ -264,7 +265,9 @@ void ClientResourceRuntime::SetupRequire(ResourceInstance& instance) {
 
         gmp::resource::LoadedFile& file = *file_opt;
 
-        sol::load_result chunk = lua_state.load_buffer(reinterpret_cast<const char*>(file.data.data()), file.data.size(), used_path.c_str());
+        const std::string chunk_name = "@" + used_path;
+        sol::load_result chunk =
+            lua_state.load_buffer(reinterpret_cast<const char*>(file.data.data()), file.data.size(), chunk_name.c_str());
         if (!chunk.valid()) {
           sol::error err = chunk;
           throw err;
@@ -327,10 +330,12 @@ bool ClientResourceRuntime::ExecuteEntryPoints(ResourceInstance& instance, std::
       return false;
     }
 
-    sol::load_result chunk = lua.load_buffer(reinterpret_cast<const char*>(file.data.data()), file.data.size(), entrypoint.c_str());
+    const std::string chunk_name = "@" + entrypoint;
+    sol::load_result chunk = lua.load_buffer(reinterpret_cast<const char*>(file.data.data()), file.data.size(), chunk_name.c_str());
     if (!chunk.valid()) {
       sol::error err = chunk;
-      error_message = fmt::format("Resource '{}': syntax error in '{}': {}", instance.name, entrypoint, err.what());
+      ::lua::diagnostics::LogSyntaxError(err.what(), {instance.name, "loading entrypoint", entrypoint});
+      error_message = fmt::format("Resource '{}': failed to load entrypoint '{}'", instance.name, entrypoint);
       return false;
     }
 
@@ -353,7 +358,8 @@ bool ClientResourceRuntime::ExecuteEntryPoints(ResourceInstance& instance, std::
     sol::protected_function_result result = pf();
     if (!result.valid()) {
       sol::error err = result;
-      error_message = fmt::format("Resource '{}': runtime error in '{}': {}", instance.name, entrypoint, err.what());
+      ::lua::diagnostics::LogRuntimeError(err.what(), {instance.name, "executing entrypoint", entrypoint});
+      error_message = fmt::format("Resource '{}': failed to execute entrypoint '{}'", instance.name, entrypoint);
       return false;
     }
     CaptureLifecycleHooks(instance);
@@ -397,7 +403,8 @@ bool ClientResourceRuntime::InvokeLifecycle(ResourceInstance& instance, const ch
     sol::protected_function_result result = pf();
     if (!result.valid()) {
       sol::error err = result;
-      error_message = fmt::format("Resource '{}': error in {}: {}", instance.name, hook, err.what());
+      ::lua::diagnostics::LogRuntimeError(err.what(), {instance.name, "lifecycle hook", hook});
+      error_message = fmt::format("Resource '{}': lifecycle hook '{}' failed", instance.name, hook);
       return false;
     }
     return true;

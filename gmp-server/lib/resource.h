@@ -89,8 +89,11 @@ private:
   void CaptureLifecycleHook(const char* hook);
 
   // Call lifecycle hooks
-  void CallOnResourceStart();
+  bool CallOnResourceStart();
   void CallOnResourceStop();
+
+  // Remove everything registered or retained by a failed/stopped resource.
+  void ResetRuntimeState(TimerManager& timer_manager);
 
   std::string name_;
   sol::environment env_;

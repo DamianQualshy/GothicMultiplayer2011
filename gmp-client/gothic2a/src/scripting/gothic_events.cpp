@@ -38,6 +38,7 @@ SOFTWARE.
 #include "item_ground.h"
 #include "net_game.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/lua_value_codec.h"
 
 namespace gmp::gothic {
@@ -62,7 +63,7 @@ struct LuaEventCallback {
     sol::protected_function_result result = callback(std::forward<Args>(callback_args)...);
     if (!result.valid()) {
       sol::error error = result;
-      SPDLOG_ERROR("Lua event handler '{}' failed: {}", event_name, error.what());
+      ::lua::diagnostics::LogRuntimeError(error.what(), {"", "event handler", event_name});
     }
     return result;
   }

@@ -40,6 +40,7 @@ SOFTWARE.
 #include "lua_item.h"
 #include "lua_item_ground.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/lua_value_codec.h"
 
 namespace lua {
@@ -50,11 +51,12 @@ namespace {
 struct LuaEventCallback {
   sol::protected_function callback;
   std::string event_name;
+  std::string resource_name;
 
   LuaEventCallback() = default;
 
-  LuaEventCallback(sol::protected_function callback, std::string event_name)
-      : callback(std::move(callback)), event_name(std::move(event_name)) {}
+  LuaEventCallback(sol::protected_function callback, std::string event_name, std::string resource_name)
+      : callback(std::move(callback)), event_name(std::move(event_name)), resource_name(std::move(resource_name)) {}
 
   lua_State* lua_state() {
     return callback.lua_state();
@@ -65,7 +67,7 @@ struct LuaEventCallback {
     sol::protected_function_result result = callback(std::forward<Args>(callback_args)...);
     if (!result.valid()) {
       sol::error error = result;
-      SPDLOG_ERROR("Lua event handler '{}' failed: {}", event_name, error.what());
+      ::lua::diagnostics::LogRuntimeError(error.what(), {resource_name, "event handler", event_name});
     }
     return result;
   }
@@ -768,7 +770,7 @@ void BindEvents(sol::state& lua) {
       ResourceManager::ScopedResourceContext ctx(resource_opt->get());
       LuaProxyArgs args;
       args.event = event;
-      args.callback = LuaEventCallback(lua_callback, event_name);
+      args.callback = LuaEventCallback(lua_callback, event_name, owner_name);
       (*proxy)(args);
     };
     

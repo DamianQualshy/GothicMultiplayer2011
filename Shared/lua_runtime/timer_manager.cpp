@@ -27,6 +27,8 @@ SOFTWARE.
 
 #include <algorithm>
 
+#include "lua_diagnostics.h"
+
 namespace {
 constexpr std::chrono::milliseconds kMinimumInterval{50};
 }
@@ -150,7 +152,8 @@ void TimerManager::ProcessTimers() {
       sol::protected_function_result result = callback(sol::as_args(arguments));
       if (!result.valid()) {
         sol::error error = result;
-        SPDLOG_ERROR("Timer {} callback failed: {}", id, error.what());
+        ::lua::diagnostics::LogRuntimeError(error.what(),
+                                            {owner_resource, "timer callback", "timer " + std::to_string(id)});
       }
     };
 

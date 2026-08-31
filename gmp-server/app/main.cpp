@@ -77,7 +77,7 @@ void RegisterSignalHandlers() {
 #endif
 
 void WaitForExitAfterStartupFailure() {
-  SPDLOG_ERROR("Press Enter to exit.");
+  SPDLOG_INFO("Press Enter to exit.");
   std::string line;
   std::getline(std::cin, line);
 }

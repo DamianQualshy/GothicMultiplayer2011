@@ -155,6 +155,22 @@ TEST_F(ResourceManagerTest, LoadResourceFailsWhenScriptErrors) {
   EXPECT_EQ(0u, resource_opt->get().GetGeneration());
 }
 
+TEST_F(ResourceManagerTest, LoadResourceFailsWhenStartHookHasMissingArguments) {
+  lua_script.GetLuaState().set_function("__requiresArgument", [](int value) { return value; });
+  CreateTestResource("bad_start_resource", R"(
+    function onResourceStart()
+      __requiresArgument()
+    end
+  )");
+
+  EXPECT_FALSE(manager.LoadResource("bad_start_resource", lua_script));
+
+  auto resource_opt = manager.GetResource("bad_start_resource");
+  ASSERT_TRUE(resource_opt.has_value());
+  EXPECT_FALSE(resource_opt->get().IsLoaded());
+  EXPECT_EQ(0u, resource_opt->get().GetGeneration());
+}
+
 TEST_F(ResourceManagerTest, GenerationOnlyAdvancesOnSuccessfulLoad) {
   const std::string resource_name = "flaky_resource";
   CreateTestResource(resource_name, R"(

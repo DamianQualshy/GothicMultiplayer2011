@@ -940,7 +940,6 @@ bool GameServer::Init() {
 
   for (const auto& resource : configured_resources) {
     if (!resource_manager_->LoadResource(resource.name, *lua_script_)) {
-      SPDLOG_ERROR("Failed to load configured resource '{}'", resource.name);
       return false;
     }
   }

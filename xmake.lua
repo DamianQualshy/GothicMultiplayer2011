@@ -27,6 +27,14 @@ set_languages("c++20")
 set_defaultarchs("linux|x64", "windows|x86")
 set_runtimes("MT")
 
+-- sol2 otherwise converts missing or invalid Lua arguments with unchecked
+-- lua_to* calls (for example, a missing integer becomes 0). Enable the one
+-- safety feature needed by bindings without changing sol2's reference/object
+-- ABI. The local compatibility header also avoids sol2 3.3's heap-allocating
+-- function-signature formatter on argument failures.
+add_defines("SOL_SAFE_FUNCTION_CALLS=1")
+add_includedirs("Shared/lua_runtime/sol2_compat")
+
 -- Set output directory for binaries
 set_rundir("$(builddir)/bin")
 set_configdir("$(builddir)/config")

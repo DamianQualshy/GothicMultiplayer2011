@@ -1,6 +1,6 @@
 -- MIT License
 
--- Copyright (c) 2025 Gothic Multiplayer Team.
+-- Copyright (c) 2026 Gothic Multiplayer Team.
 
 -- Permission is hereby granted, free of charge, to any person obtaining a copy
 -- of this software and associated documentation files (the "Software"), to deal
@@ -20,26 +20,11 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
-target("LuaRuntime")
-    set_kind("static")
-    
-    -- Source files
-    -- Note: script_base.h is header-only template (policy-based design)
-    add_files("spdlog_bind.cpp", "lua_utility.cpp", "timer_manager.cpp", "shared_bind.cpp", "lua_math.cpp", "lua_value_codec.cpp",
-              "lua_diagnostics.cpp")
-    
-    -- Headers
-    add_headerfiles("*.h")
-    
-    -- Include directories
-    -- Public include allows: #include "shared/lua_runtime/script_base.h"
-    add_includedirs("$(projectdir)", {public = true})
-    
-    -- Dependencies
-    add_deps("SharedLib")
-    add_packages("sol2", "spdlog", "fmt", "nlohmann_json", {public = true})
-    
-    -- Not built by default (only when needed by client/server)
+target("LuaDiagnosticsTest")
+    set_kind("binary")
+    add_files("lua_diagnostics_test.cpp")
+    add_deps("LuaRuntime")
+    add_packages("gtest")
+    add_tests("default")
+    set_rundir(os.projectdir())
     set_default(false)
-
-includes("test")
