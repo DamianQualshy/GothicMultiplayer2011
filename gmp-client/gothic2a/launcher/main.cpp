@@ -79,6 +79,11 @@ private:
 
 class GMPLauncher {
 private:
+  struct RuntimeFile {
+    std::string fileName;
+    fs::path targetPath;
+  };
+
   std::string gothicPath;
   std::string gmpDllPath;
   std::string workingDirectory;
@@ -121,6 +126,19 @@ private:
     std::wstring result(size - 1, 0);
     MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &result[0], size);
     return result;
+  }
+
+  fs::path GetGMPDllPath() {
+    return Utf8ToWide(gmpDllPath);
+  }
+
+  fs::path GetGMPDllDirectory() {
+    fs::path dllPath = GetGMPDllPath();
+    fs::path dllDirectory = dllPath.parent_path();
+    if (dllDirectory.empty()) {
+      dllDirectory = Utf8ToWide(workingDirectory);
+    }
+    return dllDirectory;
   }
 
   // Helper function to convert UTF-16 string to UTF-8
@@ -415,8 +433,8 @@ private:
     return body;
   }
 
-  bool InstallDownloadedDll(const std::vector<std::uint8_t>& dllBytes) {
-    const fs::path targetPath = Utf8ToWide(gmpDllPath);
+  bool InstallDownloadedFile(const RuntimeFile& file, const std::vector<std::uint8_t>& fileBytes) {
+    const fs::path& targetPath = file.targetPath;
     fs::path tempPath = targetPath;
     tempPath += L".download";
 
@@ -426,13 +444,13 @@ private:
     {
       std::ofstream output(tempPath, std::ios::binary | std::ios::trunc);
       if (!output) {
-        SPDLOG_ERROR("Failed to create temporary GMP.dll download file: {}", WideToUtf8(tempPath.wstring()));
+        SPDLOG_ERROR("Failed to create temporary {} download file: {}", file.fileName, WideToUtf8(tempPath.wstring()));
         return false;
       }
 
-      output.write(reinterpret_cast<const char*>(dllBytes.data()), static_cast<std::streamsize>(dllBytes.size()));
+      output.write(reinterpret_cast<const char*>(fileBytes.data()), static_cast<std::streamsize>(fileBytes.size()));
       if (!output) {
-        SPDLOG_ERROR("Failed to write temporary GMP.dll download file: {}", WideToUtf8(tempPath.wstring()));
+        SPDLOG_ERROR("Failed to write temporary {} download file: {}", file.fileName, WideToUtf8(tempPath.wstring()));
         return false;
       }
     }
@@ -440,7 +458,7 @@ private:
     if (fs::exists(targetPath)) {
       fs::remove(targetPath, ec);
       if (ec) {
-        SPDLOG_ERROR("Failed to remove existing GMP.dll: {}", ec.message());
+        SPDLOG_ERROR("Failed to remove existing {}: {}", file.fileName, ec.message());
         fs::remove(tempPath, ec);
         return false;
       }
@@ -448,69 +466,97 @@ private:
 
     fs::rename(tempPath, targetPath, ec);
     if (ec) {
-      SPDLOG_ERROR("Failed to install downloaded GMP.dll: {}", ec.message());
+      SPDLOG_ERROR("Failed to install downloaded {}: {}", file.fileName, ec.message());
       fs::remove(tempPath, ec);
       return false;
     }
 
-    SPDLOG_INFO("Installed updated GMP.dll");
+    SPDLOG_INFO("Installed updated {}", file.fileName);
     return true;
   }
 
-  bool UpdateGMPDllIfAvailable() {
-    if (!updateEnabled) {
-      SPDLOG_INFO("GMP.dll update check disabled");
-      return true;
-    }
+  bool UpdateRuntimeFile(const RuntimeFile& file, const std::vector<std::uint8_t>* checksumBytesOverride = nullptr) {
+    std::optional<std::vector<std::uint8_t>> downloadedChecksumBytes;
+    const std::vector<std::uint8_t>* checksumBytes = checksumBytesOverride;
 
-    if (Trim(updateSourceUrl).empty()) {
-      SPDLOG_INFO("No GMP.dll update source configured; skipping update check");
-      return true;
-    }
-
-    const std::string checksumUrl = BuildUpdateUrl("GMP.dll.sha256");
-    const std::string dllUrl = BuildUpdateUrl("GMP.dll");
-
-    SPDLOG_INFO("Checking GMP.dll update source...");
-    const auto checksumBytes = DownloadUrl(checksumUrl, 4096);
     if (!checksumBytes) {
-      SPDLOG_WARN("Could not reach GMP.dll update source; using local file if available");
-      return true;
+      downloadedChecksumBytes = DownloadUrl(BuildUpdateUrl(file.fileName + ".sha256"), 4096);
+      if (!downloadedChecksumBytes) {
+        SPDLOG_ERROR("Failed to download {} checksum from update source", file.fileName);
+        return false;
+      }
+      checksumBytes = &*downloadedChecksumBytes;
     }
 
     const std::string checksumText(checksumBytes->begin(), checksumBytes->end());
     const auto expectedChecksum = ExtractSHA256(checksumText);
     if (!expectedChecksum) {
-      SPDLOG_WARN("Update source did not provide a valid GMP.dll SHA-256 checksum; using local file if available");
-      return true;
+      SPDLOG_ERROR("Update source did not provide a valid {} SHA-256 checksum", file.fileName);
+      return false;
     }
 
-    const fs::path localDllPath = Utf8ToWide(gmpDllPath);
-    if (fs::exists(localDllPath)) {
-      const auto localChecksum = ComputeFileSHA256(localDllPath);
+    if (fs::exists(file.targetPath)) {
+      const auto localChecksum = ComputeFileSHA256(file.targetPath);
       if (localChecksum && *localChecksum == *expectedChecksum) {
-        SPDLOG_INFO("Local GMP.dll is up to date");
+        SPDLOG_INFO("Local {} is up to date", file.fileName);
         return true;
       }
 
-      SPDLOG_INFO("Local GMP.dll checksum differs from update source; downloading replacement");
+      SPDLOG_INFO("Local {} checksum differs from update source; downloading replacement", file.fileName);
     } else {
-      SPDLOG_INFO("GMP.dll is missing; downloading from update source");
+      SPDLOG_INFO("{} is missing; downloading from update source", file.fileName);
     }
 
-    const auto dllBytes = DownloadUrl(dllUrl);
-    if (!dllBytes) {
-      SPDLOG_ERROR("Update source is reachable, but GMP.dll download failed");
+    const auto fileBytes = DownloadUrl(BuildUpdateUrl(file.fileName));
+    if (!fileBytes) {
+      SPDLOG_ERROR("Update source is reachable, but {} download failed", file.fileName);
       return false;
     }
 
-    const auto downloadedChecksum = ComputeSHA256(*dllBytes);
+    const auto downloadedChecksum = ComputeSHA256(*fileBytes);
     if (!downloadedChecksum || *downloadedChecksum != *expectedChecksum) {
-      SPDLOG_ERROR("Downloaded GMP.dll checksum mismatch; refusing to install it");
+      SPDLOG_ERROR("Downloaded {} checksum mismatch; refusing to install it", file.fileName);
       return false;
     }
 
-    return InstallDownloadedDll(*dllBytes);
+    return InstallDownloadedFile(file, *fileBytes);
+  }
+
+  bool UpdateRuntimeFilesIfAvailable() {
+    if (!updateEnabled) {
+      SPDLOG_INFO("Runtime DLL update check disabled");
+      return true;
+    }
+
+    if (Trim(updateSourceUrl).empty()) {
+      SPDLOG_INFO("No runtime DLL update source configured; skipping update check");
+      return true;
+    }
+
+    const fs::path dllDirectory = GetGMPDllDirectory();
+    const std::vector<RuntimeFile> runtimeFiles = {
+        {"GMP.dll", GetGMPDllPath()},
+        {"znet.dll", dllDirectory / L"znet.dll"},
+    };
+
+    SPDLOG_INFO("Checking runtime DLL update source...");
+    const auto probeChecksumBytes = DownloadUrl(BuildUpdateUrl(runtimeFiles.front().fileName + ".sha256"), 4096);
+    if (!probeChecksumBytes) {
+      SPDLOG_WARN("Could not reach runtime DLL update source; using local files if available");
+      return true;
+    }
+
+    if (!UpdateRuntimeFile(runtimeFiles.front(), &*probeChecksumBytes)) {
+      return false;
+    }
+
+    for (std::size_t i = 1; i < runtimeFiles.size(); ++i) {
+      if (!UpdateRuntimeFile(runtimeFiles[i])) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
 public:
@@ -543,12 +589,12 @@ public:
   bool ValidateDependencies() {
     SPDLOG_INFO("Validating GMP.dll dependencies...");
 
-    // Check for required dependencies in the working directory
-    std::vector<std::string> requiredDlls = {"SDL3.dll", "BugTrap.dll"};
+    const fs::path dllDirectory = GetGMPDllDirectory();
+    std::vector<std::string> requiredDlls = {"SDL3.dll", "BugTrap.dll", "znet.dll"};
 
     bool allFound = true;
     for (const auto& dll : requiredDlls) {
-      fs::path dllPath = fs::path(Utf8ToWide(workingDirectory)) / Utf8ToWide(dll);
+      fs::path dllPath = dllDirectory / Utf8ToWide(dll);
       if (!fs::exists(dllPath)) {
         SPDLOG_WARN("Required dependency not found: {}", WideToUtf8(dllPath.wstring()));
         allFound = false;
@@ -829,8 +875,8 @@ public:
     SPDLOG_INFO("  --dll <path>      Path to GMP.dll (default: GMP.dll in launcher directory)");
     SPDLOG_INFO("  --workdir <path>  Working directory for Gothic2.exe (default: launcher directory)");
     SPDLOG_INFO("  --update-source <url>");
-    SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll and GMP.dll.sha256");
-    SPDLOG_INFO("  --no-update       Skip the GMP.dll update check");
+    SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll, znet.dll, and .sha256 files");
+    SPDLOG_INFO("  --no-update       Skip the runtime DLL update check");
     SPDLOG_INFO("  --debug, -d       Pause after injection to attach IDA/debugger");
     SPDLOG_INFO("  --help, -h        Show this help message");
     SPDLOG_INFO("");
@@ -849,8 +895,8 @@ public:
     // Parse command line arguments
     ParseCommandLine(argc, argv);
 
-    if (!UpdateGMPDllIfAvailable()) {
-      SPDLOG_ERROR("GMP.dll update failed. Launch aborted.");
+    if (!UpdateRuntimeFilesIfAvailable()) {
+      SPDLOG_ERROR("Runtime DLL update failed. Launch aborted.");
       return 1;
     }
 

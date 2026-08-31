@@ -56,7 +56,7 @@ option_end()
 
 option("gmp_update_source_url")
     set_showmenu(true)
-    set_description("Base HTTP(S) URL where GMPLauncher downloads GMP.dll and GMP.dll.sha256")
+    set_description("Base HTTP(S) URL where GMPLauncher downloads GMP.dll, znet.dll, and their .sha256 files")
     set_default("")
 option_end()
 
