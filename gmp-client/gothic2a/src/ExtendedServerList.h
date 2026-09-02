@@ -26,6 +26,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 #include <vector>
 
 #include "CServerList.h"
@@ -49,6 +50,13 @@ struct FavoriteServerEndpoint {
   std::uint16_t port;
 };
 
+enum class FavoriteAddResult {
+  Added,
+  AlreadyExists,
+  InvalidEndpoint,
+  SaveFailed,
+};
+
 class ExtendedServerList {
 public:
   ExtendedServerList(CServerList& server_list);
@@ -61,9 +69,10 @@ public:
   void nextTab();
   void prevTab();
   void loadFav(const char* file);
-  void saveFav(const char* file);
+  bool saveFav(const char* file);
   void HandleInput();
   void addSelectedToFav();
+  FavoriteAddResult AddFavorite(std::string_view endpoint);
   bool RefreshList();
   bool getSelectedServer(void* buffer, int size);
   void fillTables();

@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Обрані",
   "SRVLIST_NAME": "Назва",
   "SRVLIST_MAP": "Карта",
-  "SRVLIST_PLAYERNUMBER": "Гравці"
+  "SRVLIST_PLAYERNUMBER": "Гравці",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Вибір  [LEFT/RIGHT] Вкладки  [ENTER] Підключитися",
+  "SRVLIST_HINT_FAVOURITES": "[A] Додати/видалити обране  [F] Додати сервер за адресою",
+  "SRVLIST_HINT_OTHER": "[W] або [/] Пряме підключення  [R] Оновити  [ESC] Назад",
+  "SRVLIST_DIRECT_TITLE": "Пряме підключення - введіть IP[:порт]",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Додати до обраного - введіть IP[:порт]",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Підтвердити  [W], [/] або [ESC] Скасувати  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Неправильна адреса. Використайте IP або IP:порт.",
+  "SRVLIST_FAVOURITE_ADDED": "Сервер додано до обраного.",
+  "SRVLIST_FAVOURITE_EXISTS": "Сервер уже в обраному.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не вдалося зберегти обране."
 }

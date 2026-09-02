@@ -50,12 +50,14 @@ SOFTWARE.
 #include <fstream>
 #include <limits>
 #include <string>
+#include <utility>
 
 #include <nlohmann/json.hpp>
 
 #pragma warning (disable : 4101)
 
 #include "StandardFonts.h"
+#include "game_client.hpp"
 #include "hooking/MemoryPatch.h"
 #include <stdio.h>
 #include <spdlog/spdlog.h>
@@ -227,6 +229,7 @@ void ExtendedServerList::addSelectedToFav(){
 	}
 
 	loadFav(kDefaultFavoritesFile);
+	const auto previous_favorites = favorite_servers_;
 
 	const auto already_favorited = std::any_of(
 	        favorite_servers_.begin(), favorite_servers_.end(),
@@ -247,7 +250,10 @@ void ExtendedServerList::addSelectedToFav(){
 		favorite_servers_.push_back({selected_server.ip, static_cast<std::uint16_t>(selected_server.port)});
 	}
 
-	saveFav(kDefaultFavoritesFile);
+	if (!saveFav(kDefaultFavoritesFile)) {
+		favorite_servers_ = previous_favorites;
+		return;
+	}
 
 	wait_result = WaitForSingleObject(srvList_access, INFINITE);
 	if (wait_result == WAIT_OBJECT_0) {
@@ -256,7 +262,43 @@ void ExtendedServerList::addSelectedToFav(){
 	}
 }
 
-void ExtendedServerList::saveFav(const char * file){
+FavoriteAddResult ExtendedServerList::AddFavorite(std::string_view endpoint) {
+	std::string host;
+	std::uint32_t port = 0;
+	if (!gmp::client::ParseServerEndpoint(endpoint, host, port)) {
+		return FavoriteAddResult::InvalidEndpoint;
+	}
+
+	loadFav(kDefaultFavoritesFile);
+	const auto rebuild_tables = [this]() {
+		const DWORD wait_result = WaitForSingleObject(srvList_access, INFINITE);
+		if (wait_result == WAIT_OBJECT_0) {
+			fillTables();
+			ReleaseMutex(srvList_access);
+		}
+	};
+	const auto already_favorited = std::any_of(
+	    favorite_servers_.begin(), favorite_servers_.end(),
+	    [&host, port](const FavoriteServerEndpoint& favorite) {
+		    return favorite.ip == host && favorite.port == static_cast<std::uint16_t>(port);
+	    });
+	if (already_favorited) {
+		rebuild_tables();
+		return FavoriteAddResult::AlreadyExists;
+	}
+
+	favorite_servers_.push_back({std::move(host), static_cast<std::uint16_t>(port)});
+	if (!saveFav(kDefaultFavoritesFile)) {
+		favorite_servers_.pop_back();
+		return FavoriteAddResult::SaveFailed;
+	}
+
+	rebuild_tables();
+
+	return FavoriteAddResult::Added;
+}
+
+bool ExtendedServerList::saveFav(const char * file){
 	const std::filesystem::path favorites_path = ResolveFavoritesPath(file);
 	const std::filesystem::path parent_path = favorites_path.parent_path();
 
@@ -265,7 +307,7 @@ void ExtendedServerList::saveFav(const char * file){
 		std::filesystem::create_directories(parent_path, ec);
 		if (ec) {
 			SPDLOG_ERROR("Failed to create directory '{}' for favorites: {}", parent_path.string(), ec.message());
-			return;
+			return false;
 		}
 	}
 
@@ -277,10 +319,16 @@ void ExtendedServerList::saveFav(const char * file){
 	std::ofstream favorites_file(favorites_path, std::ios::trunc);
 	if (!favorites_file.is_open()) {
 		SPDLOG_ERROR("Failed to open favorites file '{}' for writing.", favorites_path.string());
-		return;
+		return false;
 	}
 
 	favorites_file << favorites_json.dump(2);
+	favorites_file.flush();
+	if (!favorites_file.good()) {
+		SPDLOG_ERROR("Failed to write favorites file '{}'.", favorites_path.string());
+		return false;
+	}
+	return true;
 }
 
 void ExtendedServerList::HandleInput(){

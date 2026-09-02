@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Избранные",
   "SRVLIST_NAME": "Имя",
   "SRVLIST_MAP": "Карта",
-  "SRVLIST_PLAYERNUMBER": "Игроки"
+  "SRVLIST_PLAYERNUMBER": "Игроки",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Выбор  [LEFT/RIGHT] Вкладки  [ENTER] Подключиться",
+  "SRVLIST_HINT_FAVOURITES": "[A] Добавить/удалить избранное  [F] Добавить сервер по адресу",
+  "SRVLIST_HINT_OTHER": "[W] или [/] Прямое подключение  [R] Обновить  [ESC] Назад",
+  "SRVLIST_DIRECT_TITLE": "Прямое подключение - введите IP[:порт]",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Добавить в избранное - введите IP[:порт]",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Подтвердить  [W], [/] или [ESC] Отмена  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Неверный адрес. Используйте IP или IP:порт.",
+  "SRVLIST_FAVOURITE_ADDED": "Сервер добавлен в избранное.",
+  "SRVLIST_FAVOURITE_EXISTS": "Сервер уже в избранном.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не удалось сохранить избранное."
 }

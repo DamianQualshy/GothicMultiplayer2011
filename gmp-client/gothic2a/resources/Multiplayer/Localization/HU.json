@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Kedvencek Lista",
   "SRVLIST_NAME": "Server Név",
   "SRVLIST_MAP": "Server Térkép",
-  "SRVLIST_PLAYERNUMBER": "Online Játékosok"
+  "SRVLIST_PLAYERNUMBER": "Online Játékosok",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Kiválasztás  [LEFT/RIGHT] Fülek  [ENTER] Csatlakozás",
+  "SRVLIST_HINT_FAVOURITES": "[A] Kedvenc hozzáadása/törlése  [F] Kedvenc hozzáadása címmel",
+  "SRVLIST_HINT_OTHER": "[W] vagy [/] Közvetlen kapcsolat  [R] Frissítés  [ESC] Vissza",
+  "SRVLIST_DIRECT_TITLE": "Közvetlen kapcsolat - IP[:port] megadása",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Kedvenc hozzáadása - IP[:port] megadása",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Jóváhagyás  [W], [/] vagy [ESC] Mégse  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Érvénytelen cím. Használjon IP vagy IP:port formátumot.",
+  "SRVLIST_FAVOURITE_ADDED": "Szerver hozzáadva a kedvencekhez.",
+  "SRVLIST_FAVOURITE_EXISTS": "A szerver már a kedvencek között van.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "A kedvenc mentése sikertelen."
 }

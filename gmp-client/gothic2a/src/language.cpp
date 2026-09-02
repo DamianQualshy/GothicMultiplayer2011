@@ -171,7 +171,7 @@ const LanguageManager::LanguageInfo* LanguageManager::GetLanguage(int index) con
 // ============================================================================
 
 namespace {
-constexpr std::size_t kStringCount = static_cast<std::size_t>(Language::SRVLIST_PLAYERNUMBER) + 1;
+constexpr std::size_t kStringCount = static_cast<std::size_t>(Language::SRVLIST_FAVOURITE_SAVE_FAILED) + 1;
 constexpr std::array<std::string_view, 4> kKnownFontPrefixes = {"CP1250_", "CP1251_", "CP1252_", "CP1254_"};
 
 const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
@@ -198,7 +198,17 @@ const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "SRVLIST_FAVOURITES",
                                                            "SRVLIST_NAME",
                                                            "SRVLIST_MAP",
-                                                           "SRVLIST_PLAYERNUMBER"};
+                                                           "SRVLIST_PLAYERNUMBER",
+                                                           "SRVLIST_HINT_NAVIGATION",
+                                                           "SRVLIST_HINT_FAVOURITES",
+                                                           "SRVLIST_HINT_OTHER",
+                                                           "SRVLIST_DIRECT_TITLE",
+                                                           "SRVLIST_ADD_FAVOURITE_TITLE",
+                                                           "SRVLIST_ENTRY_HINT",
+                                                           "SRVLIST_INVALID_ENDPOINT",
+                                                           "SRVLIST_FAVOURITE_ADDED",
+                                                           "SRVLIST_FAVOURITE_EXISTS",
+                                                           "SRVLIST_FAVOURITE_SAVE_FAILED"};
 
 
 std::string_view GetFontPrefixForEncoding(localization::LanguageEncoding encoding) {

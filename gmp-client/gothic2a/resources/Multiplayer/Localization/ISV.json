@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Omiljeny spisok",
   "SRVLIST_NAME": "Nazva servera",
   "SRVLIST_MAP": "Mapa servera",
-  "SRVLIST_PLAYERNUMBER": "Onlajn igrači"
+  "SRVLIST_PLAYERNUMBER": "Onlajn igrači",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Izbor  [LEFT/RIGHT] Vkladky  [ENTER] Priključiti",
+  "SRVLIST_HINT_FAVOURITES": "[A] Dodati/odstraniti omiljeny  [F] Dodati omiljeny adresom",
+  "SRVLIST_HINT_OTHER": "[W] ili [/] Prjamo priključenje  [R] Obnoviti  [ESC] Nazad",
+  "SRVLIST_DIRECT_TITLE": "Prjamo priključenje - vpišite IP[:port]",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Dodati omiljeny - vpišite IP[:port]",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Potvrditi  [W], [/] ili [ESC] Odměniti  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Nevalidna adresa. Upotrebite IP ili IP:port.",
+  "SRVLIST_FAVOURITE_ADDED": "Server dodany do omiljenih.",
+  "SRVLIST_FAVOURITE_EXISTS": "Server už jest v omiljenih.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Ne možno zapisati omiljeny server."
 }

@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Favourites",
   "SRVLIST_NAME": "Name",
   "SRVLIST_MAP": "Map",
-  "SRVLIST_PLAYERNUMBER": "Players"
+  "SRVLIST_PLAYERNUMBER": "Players",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Wybierz  [LEFT/RIGHT] Zakładki  [ENTER] Połącz",
+  "SRVLIST_HINT_FAVOURITES": "[A] Dodaj/usuń wybrany ulubiony  [F] Dodaj ulubiony po adresie",
+  "SRVLIST_HINT_OTHER": "[W] lub [/] Połącz bezpośrednio  [R] Odśwież  [ESC] Wróć",
+  "SRVLIST_DIRECT_TITLE": "Połączenie bezpośrednie - wpisz IP[:port]",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Dodaj ulubiony - wpisz IP[:port]",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Potwierdź  [W], [/] lub [ESC] Anuluj  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Nieprawidłowy adres. Użyj IP lub IP:port.",
+  "SRVLIST_FAVOURITE_ADDED": "Serwer dodano do ulubionych.",
+  "SRVLIST_FAVOURITE_EXISTS": "Serwer jest już w ulubionych.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Nie udało się zapisać ulubionego."
 }

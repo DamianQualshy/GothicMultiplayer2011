@@ -25,6 +25,7 @@ SOFTWARE.
 #include "server_list_state.hpp"
 
 #include <algorithm>
+#include <cstdint>
 #include <string>
 
 #include <spdlog/spdlog.h>
@@ -60,8 +61,24 @@ constexpr int kProgressTextLeft = 700;
 constexpr int kProgressTextTop = 6100;
 constexpr int kProgressTextRight = 7492;
 constexpr int kProgressTextBottom = 6700;
+constexpr int kListStatusTop = 6650;
+constexpr int kListNavigationHintTop = 7050;
+constexpr int kListFavoriteHintTop = 7400;
+constexpr int kListOtherHintTop = 7750;
+constexpr int kEndpointTitleTop = 3150;
+constexpr int kEndpointValueTop = 3850;
+constexpr int kEndpointErrorTop = 4550;
+constexpr int kEndpointHintTop = 7350;
 constexpr const char* kProgressFrameTexture = "PROGRESS.TGA";
 constexpr const char* kProgressFillTexture = "PROGRESS_BAR.TGA";
+
+void PrintCentered(zCView* view, int y, const char* text) {
+  if (!view || !text) {
+    return;
+  }
+  const int x = std::max(0, (8192 - view->FontSize(text)) / 2);
+  view->Print(x, y, text);
+}
 
 }  // namespace
 
@@ -70,7 +87,7 @@ ServerListState::ServerListState(MenuContext& context)
       shouldReturnToMainMenu_(false),
       shouldConnectToServer_(false),
       shouldExitMenuAfterConnection_(false),
-      enteringCustomIP_(false),
+      endpointEntryMode_(EndpointEntryMode::None),
       connectionAttemptInProgress_(false) {
 }
 
@@ -94,7 +111,9 @@ void ServerListState::OnEnter() {
     // Normal entry - start in server list mode
     context_.selectedServerIndex = 0;
     context_.selectedServerIP.Clear();
-    enteringCustomIP_ = false;
+    endpointEntryMode_ = EndpointEntryMode::None;
+    endpointEntryError_.clear();
+    serverListStatus_.clear();
 
     // Refresh server list
     if (context_.extendedServerList) {
@@ -103,7 +122,7 @@ void ServerListState::OnEnter() {
   } else {
     // Fast join mode - auto-connect
     SPDLOG_INFO("Fast join to: {}", context_.selectedServerIP.ToChar());
-    enteringCustomIP_ = true;       // We're in custom IP mode
+    endpointEntryMode_ = EndpointEntryMode::DirectConnect;
     shouldConnectToServer_ = true;  // Trigger immediate connection
   }
 }
@@ -141,7 +160,7 @@ StateResult ServerListState::Update() {
       connectionAttemptInProgress_ = false;
       context_.selectedServerIP.Clear();
       context_.selectedServerIndex = 0;
-      enteringCustomIP_ = false;
+      endpointEntryMode_ = EndpointEntryMode::None;
       shouldReturnToMainMenu_ = true;
     }
     return StateResult::Continue;
@@ -179,7 +198,7 @@ StateResult ServerListState::Update() {
   HandleCommonInput();
 
   // Then handle mode-specific input and rendering
-  if (enteringCustomIP_) {
+  if (endpointEntryMode_ != EndpointEntryMode::None) {
     RenderCustomIPEntry();
     HandleCustomIPInput();
   } else {
@@ -209,14 +228,48 @@ void ServerListState::RenderServerList() {
     context_.extendedServerList->HandleInput();
     context_.extendedServerList->Draw();
   }
+
+  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_10_WHITE.TGA");
+  context_.screen->SetFont(font.c_str());
+  if (!serverListStatus_.empty() && std::chrono::steady_clock::now() < serverListStatusExpiresAt_) {
+    context_.screen->SetFontColor({80, 220, 120});
+    PrintCentered(context_.screen, kListStatusTop, serverListStatus_.c_str());
+  } else {
+    serverListStatus_.clear();
+  }
+  context_.screen->SetFontColor({255, 255, 255});
+  PrintCentered(context_.screen, kListNavigationHintTop,
+                Language::Instance()[Language::SRVLIST_HINT_NAVIGATION].ToChar());
+  PrintCentered(context_.screen, kListFavoriteHintTop,
+                Language::Instance()[Language::SRVLIST_HINT_FAVOURITES].ToChar());
+  PrintCentered(context_.screen, kListOtherHintTop,
+                Language::Instance()[Language::SRVLIST_HINT_OTHER].ToChar());
 }
 
 void ServerListState::RenderCustomIPEntry() {
-  // Display custom IP entry
-  const auto font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
-  context_.screen->SetFont(font.c_str());
+  const auto title = endpointEntryMode_ == EndpointEntryMode::AddFavorite
+                         ? Language::Instance()[Language::SRVLIST_ADD_FAVOURITE_TITLE].ToChar()
+                         : Language::Instance()[Language::SRVLIST_DIRECT_TITLE].ToChar();
+
+  const auto large_font = Language::Instance().ApplyFontPrefix("FONT_OLD_20_WHITE.TGA");
+  context_.screen->SetFont(large_font.c_str());
   context_.screen->SetFontColor({255, 255, 255});
-  context_.screen->PrintCXY(context_.selectedServerIP);
+  PrintCentered(context_.screen, kEndpointTitleTop, title);
+
+  context_.screen->SetFontColor({80, 220, 120});
+  PrintCentered(context_.screen, kEndpointValueTop,
+                context_.selectedServerIP.IsEmpty() ? "IP[:port]" : context_.selectedServerIP.ToChar());
+
+  if (!endpointEntryError_.empty()) {
+    context_.screen->SetFontColor({255, 80, 80});
+    PrintCentered(context_.screen, kEndpointErrorTop, endpointEntryError_.c_str());
+  }
+
+  const auto small_font = Language::Instance().ApplyFontPrefix("FONT_OLD_10_WHITE.TGA");
+  context_.screen->SetFont(small_font.c_str());
+  context_.screen->SetFontColor({255, 255, 255});
+  PrintCentered(context_.screen, kEndpointHintTop,
+                Language::Instance()[Language::SRVLIST_ENTRY_HINT].ToChar());
 }
 
 void ServerListState::HandleInput() {
@@ -224,30 +277,59 @@ void ServerListState::HandleInput() {
 }
 
 void ServerListState::HandleCommonInput() {
-  // ESC to return to main menu (works in both modes)
   if (context_.input->KeyPressed(KEY_ESCAPE)) {
     context_.input->ClearKeyBuffer();
+    if (endpointEntryMode_ != EndpointEntryMode::None) {
+      CancelEndpointEntry();
+      return;
+    }
     shouldReturnToMainMenu_ = true;
     return;
   }
 
-  // Enter to connect (works in both modes)
   if (context_.input->KeyPressed(KEY_RETURN)) {
-    SPDLOG_INFO("Enter pressed, mode: {}, IP: '{}'", enteringCustomIP_ ? "custom IP" : "server list", context_.selectedServerIP.ToChar());
+    context_.input->ClearKeyBuffer();
+    SPDLOG_INFO("Enter pressed, endpoint entry mode: {}, IP: '{}'", static_cast<int>(endpointEntryMode_),
+                context_.selectedServerIP.ToChar());
 
-    if (enteringCustomIP_) {
-      // Custom IP mode - connect to typed IP
-      if (!context_.selectedServerIP.IsEmpty()) {
-        SPDLOG_INFO("Connecting to custom IP: {}", context_.selectedServerIP.ToChar());
-        context_.input->ClearKeyBuffer();
-        shouldConnectToServer_ = true;
-      } else {
-        SPDLOG_WARN("Cannot connect: IP address is empty");
+    if (endpointEntryMode_ == EndpointEntryMode::AddFavorite) {
+      if (!context_.extendedServerList) {
+        endpointEntryError_ = Language::Instance()[Language::SRVLIST_FAVOURITE_SAVE_FAILED].ToChar();
+        return;
       }
+
+      const auto result = context_.extendedServerList->AddFavorite(context_.selectedServerIP.ToChar());
+      switch (result) {
+        case FavoriteAddResult::Added:
+          serverListStatus_ = Language::Instance()[Language::SRVLIST_FAVOURITE_ADDED].ToChar();
+          serverListStatusExpiresAt_ = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+          context_.extendedServerList->selectTab(TAB_FAV);
+          CancelEndpointEntry();
+          break;
+        case FavoriteAddResult::AlreadyExists:
+          serverListStatus_ = Language::Instance()[Language::SRVLIST_FAVOURITE_EXISTS].ToChar();
+          serverListStatusExpiresAt_ = std::chrono::steady_clock::now() + std::chrono::seconds(4);
+          context_.extendedServerList->selectTab(TAB_FAV);
+          CancelEndpointEntry();
+          break;
+        case FavoriteAddResult::InvalidEndpoint:
+          endpointEntryError_ = Language::Instance()[Language::SRVLIST_INVALID_ENDPOINT].ToChar();
+          break;
+        case FavoriteAddResult::SaveFailed:
+          endpointEntryError_ = Language::Instance()[Language::SRVLIST_FAVOURITE_SAVE_FAILED].ToChar();
+          break;
+      }
+    } else if (endpointEntryMode_ == EndpointEntryMode::DirectConnect) {
+      std::string host;
+      std::uint32_t port = 0;
+      if (!gmp::client::ParseServerEndpoint(context_.selectedServerIP.ToChar(), host, port)) {
+        endpointEntryError_ = Language::Instance()[Language::SRVLIST_INVALID_ENDPOINT].ToChar();
+        return;
+      }
+      SPDLOG_INFO("Connecting to custom IP: {}", context_.selectedServerIP.ToChar());
+      shouldConnectToServer_ = true;
     } else {
-      // Server list mode - connect to selected server
       if (context_.selectedServerIndex != -1) {
-        // Get selected server IP
         context_.selectedServerIP.Clear();
         char buffer[256];
         if (context_.extendedServerList && context_.extendedServerList->getSelectedServer(buffer, sizeof(buffer))) {
@@ -264,39 +346,33 @@ void ServerListState::HandleCommonInput() {
 }
 
 void ServerListState::HandleServerListInput() {
-  // W to enter custom IP mode
   if (context_.input->KeyPressed(KEY_W)) {
     context_.input->ClearKeyBuffer();
-    enteringCustomIP_ = true;
-    context_.selectedServerIndex = -1;
-    context_.selectedServerIP.Clear();
+    BeginEndpointEntry(EndpointEntryMode::DirectConnect);
     return;
   }
 
-  // Slash key to enter custom IP mode
   if (context_.input->KeyToggled(KEY_SLASH)) {
-    enteringCustomIP_ = true;
-    context_.selectedServerIndex = -1;
-    context_.selectedServerIP.Clear();
+    BeginEndpointEntry(EndpointEntryMode::DirectConnect);
+    return;
+  }
+
+  if (context_.input->KeyPressed(KEY_F)) {
+    context_.input->ClearKeyBuffer();
+    BeginEndpointEntry(EndpointEntryMode::AddFavorite);
     return;
   }
 }
 
 void ServerListState::HandleCustomIPInput() {
-  // W to cancel custom IP entry and return to server list
   if (context_.input->KeyPressed(KEY_W)) {
     context_.input->ClearKeyBuffer();
-    enteringCustomIP_ = false;
-    context_.selectedServerIndex = 0;
-    context_.selectedServerIP.Clear();
+    CancelEndpointEntry();
     return;
   }
 
-  // Slash key to return to server list
   if (context_.input->KeyToggled(KEY_SLASH)) {
-    enteringCustomIP_ = false;
-    context_.selectedServerIndex = 0;
-    context_.selectedServerIP.Clear();
+    CancelEndpointEntry();
     return;
   }
 
@@ -310,17 +386,34 @@ void ServerListState::HandleCustomIPInput() {
   char x[2] = {0, 0};
   x[0] = GInput::GetCharacterFormKeyboard(true);
 
-  // Add character (printable ASCII, but exclude Enter)
-  if (x[0] > 0x20 && x[0] != 0x0D) {
+  // Keep endpoint input bounded so it remains usable on the fixed-size menu.
+  if (x[0] > 0x20 && x[0] != 0x0D && context_.selectedServerIP.Length() < 255) {
     context_.selectedServerIP += x;
+    endpointEntryError_.clear();
     SPDLOG_DEBUG("Added character, IP now: '{}'", context_.selectedServerIP.ToChar());
   }
 
   // Backspace
   if ((x[0] == 0x08) && (context_.selectedServerIP.Length() > 0)) {
     context_.selectedServerIP.DeleteRight(1);
+    endpointEntryError_.clear();
     SPDLOG_DEBUG("Backspace, IP now: '{}'", context_.selectedServerIP.ToChar());
   }
+}
+
+void ServerListState::BeginEndpointEntry(EndpointEntryMode mode) {
+  endpointEntryMode_ = mode;
+  endpointEntryError_.clear();
+  serverListStatus_.clear();
+  context_.selectedServerIndex = -1;
+  context_.selectedServerIP.Clear();
+}
+
+void ServerListState::CancelEndpointEntry() {
+  endpointEntryMode_ = EndpointEntryMode::None;
+  endpointEntryError_.clear();
+  context_.selectedServerIndex = 0;
+  context_.selectedServerIP.Clear();
 }
 
 void ServerListState::ConnectToServer() {
@@ -501,7 +594,8 @@ void ServerListState::HandleConnectionFailure() {
   // Reset to normal server list mode
   context_.selectedServerIP.Clear();
   context_.selectedServerIndex = 0;
-  enteringCustomIP_ = false;
+  endpointEntryMode_ = EndpointEntryMode::None;
+  endpointEntryError_.clear();
 
   // Refresh server list
   if (context_.extendedServerList) {

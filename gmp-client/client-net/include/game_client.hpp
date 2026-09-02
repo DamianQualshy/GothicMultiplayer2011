@@ -47,6 +47,10 @@ SOFTWARE.
 
 namespace gmp::client {
 
+constexpr std::uint32_t kDefaultServerPort = 57005;
+
+bool ParseServerEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port);
+
 class GameClient : public Net::NetClient::PacketHandler {
 public:
   enum class ConnectionState { Disconnected, Connecting, Connected, Failed };

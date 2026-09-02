@@ -33,11 +33,12 @@ SOFTWARE.
 
 #include <algorithm>
 #include <cassert>
+#include <charconv>
 #include <cctype>
 #include <dylib.hpp>
 #include <iomanip>
-#include <sstream>
 #include <stdexcept>
+#include <system_error>
 #include <utility>
 
 #include "net_enums.h"
@@ -54,23 +55,34 @@ Net::NetClient* g_netclient = nullptr;
 constexpr std::uint32_t kPlayerStateChannel = 1;
 constexpr std::uint32_t kVoiceChannel = 5;
 
-bool ParseEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port) {
+bool ParseServerEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port) {
+  const auto first_character = full_address.find_first_not_of(" \t\r\n");
+  if (first_character == std::string_view::npos) {
+    return false;
+  }
+  const auto last_character = full_address.find_last_not_of(" \t\r\n");
+  full_address = full_address.substr(first_character, last_character - first_character + 1);
+
   host.assign(full_address.begin(), full_address.end());
-  port = 0xDEAD;
+  port = kDefaultServerPort;
 
   const size_t pos = host.find_last_of(':');
   if (pos != std::string::npos) {
-    const std::string port_text = host.substr(pos + 1);
-    std::istringstream iss(port_text);
-    int parsed_port = 0;
-    if (!(iss >> parsed_port) || parsed_port <= 0 || parsed_port > 65535) {
+    const std::string_view port_text(host.data() + pos + 1, host.size() - pos - 1);
+    std::uint32_t parsed_port = 0;
+    const auto [end, error] = std::from_chars(port_text.data(), port_text.data() + port_text.size(), parsed_port);
+    if (error != std::errc{} || end != port_text.data() + port_text.size() || parsed_port == 0 ||
+        parsed_port > 65535) {
       return false;
     }
-    port = static_cast<std::uint32_t>(parsed_port);
+    port = parsed_port;
     host.erase(pos);
   }
 
-  return !host.empty();
+  if (host.empty() || host.find(':') != std::string::npos) {
+    return false;
+  }
+  return std::none_of(host.begin(), host.end(), [](unsigned char character) { return std::isspace(character); });
 }
 
 std::string GetConnectionFailureMessage(std::uint8_t message) {
@@ -184,7 +196,7 @@ void GameClient::ConnectAsync(std::string_view full_address) {
 
   std::string host;
   std::uint32_t port = 0;
-  if (!ParseEndpoint(full_address, host, port)) {
+  if (!ParseServerEndpoint(full_address, host, port)) {
     const std::string error = "Invalid server endpoint";
     {
       std::lock_guard<std::mutex> lock(connection_mutex_);

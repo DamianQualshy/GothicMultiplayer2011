@@ -24,5 +24,15 @@
   "SRVLIST_FAVOURITES": "Favourites",
   "SRVLIST_NAME": "Name",
   "SRVLIST_MAP": "Map",
-  "SRVLIST_PLAYERNUMBER": "Players"
+  "SRVLIST_PLAYERNUMBER": "Players",
+  "SRVLIST_HINT_NAVIGATION": "[UP/DOWN] Select  [LEFT/RIGHT] Tabs  [ENTER] Connect",
+  "SRVLIST_HINT_FAVOURITES": "[A] Add/remove selected favourite  [F] Add favourite by address",
+  "SRVLIST_HINT_OTHER": "[W] or [/] Direct connect  [R] Refresh  [ESC] Back",
+  "SRVLIST_DIRECT_TITLE": "Direct connection - enter IP[:port]",
+  "SRVLIST_ADD_FAVOURITE_TITLE": "Add favourite - enter IP[:port]",
+  "SRVLIST_ENTRY_HINT": "[ENTER] Confirm  [W], [/] or [ESC] Cancel  [F1] Localhost",
+  "SRVLIST_INVALID_ENDPOINT": "Invalid address. Use IP or IP:port.",
+  "SRVLIST_FAVOURITE_ADDED": "Server added to favourites.",
+  "SRVLIST_FAVOURITE_EXISTS": "Server is already in favourites.",
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Could not save the favourite."
 }

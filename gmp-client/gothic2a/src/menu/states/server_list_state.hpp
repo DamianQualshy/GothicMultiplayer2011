@@ -24,6 +24,7 @@ SOFTWARE.
 
 #pragma once
 
+#include <chrono>
 #include <string>
 
 #include "menu/menu_context.hpp"
@@ -37,18 +38,29 @@ namespace states {
  *
  * This state displays the server list and allows players to:
  * - Browse available servers
- * - Enter a custom IP address
+ * - Add or remove favourite servers
+ * - Add a private server to favourites by address
+ * - Enter an address for a direct connection
  * - Connect to a selected server
  */
 class ServerListState : public MenuState {
 private:
+  enum class EndpointEntryMode {
+    None,
+    DirectConnect,
+    AddFavorite,
+  };
+
   MenuContext& context_;
 
   bool shouldReturnToMainMenu_;
   bool shouldConnectToServer_;
   bool shouldExitMenuAfterConnection_;
-  bool enteringCustomIP_;
+  EndpointEntryMode endpointEntryMode_;
   bool connectionAttemptInProgress_;
+  std::string endpointEntryError_;
+  std::string serverListStatus_;
+  std::chrono::steady_clock::time_point serverListStatusExpiresAt_;
   zCView* connectionBackground_{nullptr};
   zCView* connectionProgressFrame_{nullptr};
   zCView* connectionProgressFill_{nullptr};
@@ -80,6 +92,8 @@ private:
   void HandleCommonInput();
   void HandleServerListInput();
   void HandleCustomIPInput();
+  void BeginEndpointEntry(EndpointEntryMode mode);
+  void CancelEndpointEntry();
   void ConnectToServer();
   void ScheduleGameSetup();
   void HandleConnectionFailure();
