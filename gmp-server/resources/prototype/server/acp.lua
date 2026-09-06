@@ -313,7 +313,7 @@ local function cmdPos(playerId, params)
     return
   end
 
-  local file = JSON(positionStorePath)
+  local file = JSON.open(positionStorePath)
   if not file then
     sendMessageToPlayer(playerId, 255, 0, 0, string.format('ACP: Cannot open %s', positionStorePath))
     return

@@ -39,9 +39,10 @@ SOFTWARE.
 class LanguageManager {
 public:
   struct LanguageInfo {
-    std::string filename;  // e.g., "English.json"
+    std::string filename;  // e.g., "EN.json"
     zSTRING displayName;   // Localized display name from JSON
     localization::LanguageEncoding encoding;
+    int displayOrder;      // JSON ORDER; append new languages to keep saved numeric indexes stable
   };
 
   LanguageManager() = default;
@@ -63,6 +64,16 @@ public:
   // Get a specific language by index
   const LanguageInfo* GetLanguage(int index) const;
 
+  // Find a discovered language by its JSON filename stem, e.g. "EN"
+  int GetLanguageIndex(std::string_view languageCode) const;
+
+  // Load one of the discovered languages and make it active
+  bool LoadLanguage(int index);
+
+  int GetActiveLanguageIndex() const {
+    return activeLanguageIndex_;
+  }
+
   // Get the number of available languages
   size_t GetLanguageCount() const {
     return availableLanguages_.size();
@@ -76,6 +87,7 @@ public:
   // Clear all loaded data to prevent zSTRING destructor issues during shutdown
   void Clear() {
     availableLanguages_.clear();
+    activeLanguageIndex_ = -1;
   }
 
   // Singleton instance for convenience
@@ -84,6 +96,7 @@ public:
 private:
   std::vector<LanguageInfo> availableLanguages_;
   std::string languageDir_;
+  int activeLanguageIndex_{-1};
 };
 
 class Language {

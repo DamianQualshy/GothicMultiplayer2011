@@ -126,11 +126,10 @@ void ChooseLanguageState::ApplySelectedLanguage() {
     return;
   }
 
-  zSTRING path = LanguageManager::Instance().GetLanguageDir().c_str();
-  path += langInfo->filename.c_str();
-
   SPDLOG_INFO("Applying language: {}", langInfo->filename);
-  context_.language.LoadFromJsonFile(path.ToChar());
+  if (!LanguageManager::Instance().LoadLanguage(selectedLanguage_)) {
+    return;
+  }
 
   // Update config
   context_.config.lang = selectedLanguage_;

@@ -22,6 +22,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include "Lua/lua_toml.h"
+
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -35,8 +37,6 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 #include <toml.hpp>
-
-#include "sol/sol.hpp"
 
 namespace lua::bindings {
 
@@ -245,10 +245,24 @@ bool ValidateTomlValue(const TomlValue& value, std::string& error, int depth, st
   return true;
 }
 
-class TomlFile {
+/* luagmp (class)
+ *
+ * Read-only TOML document returned by TOML.open(). Nested sections and arrays
+ * are returned as TOML values. Use getOr() when a missing value should fall
+ * back without replacing configured false.
+ *
+ * @version  0.3.0
+ * @name     TOML
+ * @side     server
+ * @category File
+ *
+ */
+class TOML {
 public:
-  TomlFile(std::shared_ptr<const TomlValue> root, std::vector<TomlPathEntry> path = {})
+  TOML(std::shared_ptr<const TomlValue> root, std::vector<TomlPathEntry> path = {})
       : root_(std::move(root)), path_(std::move(path)) {}
+
+  static sol::object Open(const std::string& relative_path, sol::this_state ts);
 
   const TomlValue* Value() const {
     if (!root_) {
@@ -257,42 +271,16 @@ public:
     return ResolvePath(*root_, path_);
   }
 
-  sol::object At(sol::state_view lua, const sol::object& key) const {
-    const TomlValue* value = Value();
-    if (!value) {
-      return sol::make_object(lua, sol::lua_nil);
-    }
-
-    auto entry = PathEntryFromLuaKey(key);
-    if (!entry) {
-      return sol::make_object(lua, sol::lua_nil);
-    }
-
-    if (entry->is_index) {
-      if (!value->is_array()) {
-        return sol::make_object(lua, sol::lua_nil);
-      }
-
-      const auto& array = value->as_array();
-      if (entry->index >= array.size()) {
-        return sol::make_object(lua, sol::lua_nil);
-      }
-    } else {
-      if (!value->is_table()) {
-        return sol::make_object(lua, sol::lua_nil);
-      }
-
-      const auto& table = value->as_table();
-      if (table.find(entry->key) == table.end()) {
-        return sol::make_object(lua, sol::lua_nil);
-      }
-    }
-
-    auto child_path = path_;
-    child_path.push_back(std::move(*entry));
-    return PathToLuaValue(lua, std::move(child_path));
-  }
-
+  /* luagmp (method)
+   *
+   * Return true when a key or nested path exists. A string path uses dots as
+   * separators; a table path can be used for dynamic or literal key segments.
+   *
+   * @name     has
+   * @param    (string|table|number) path  Key, dotted path, path table, or array index.
+   * @return   (boolean)                   True if the value exists.
+   *
+   */
   bool Has(const sol::object& path) const {
     auto suffix = PathFromLuaValue(path);
     if (!suffix) {
@@ -304,7 +292,17 @@ public:
     return root_ && ResolvePath(*root_, full_path) != nullptr;
   }
 
-  sol::object Get(sol::state_view lua, const sol::object& path) const {
+  /* luagmp (method)
+   *
+   * Return a value by key or nested path. Missing keys return nil.
+   *
+   * @name     get
+   * @param    (string|table|number) path  Key, dotted path, path table, or array index.
+   * @return   (any|nil)                   Value or nil when missing.
+   *
+   */
+  sol::object Get(const sol::object& path, sol::this_state ts) const {
+    sol::state_view lua(ts);
     auto suffix = PathFromLuaValue(path);
     if (!suffix) {
       return sol::make_object(lua, sol::lua_nil);
@@ -318,7 +316,19 @@ public:
     return PathToLuaValue(lua, std::move(full_path));
   }
 
-  sol::object GetOr(sol::state_view lua, const sol::object& path, const sol::object& fallback) const {
+  /* luagmp (method)
+   *
+   * Return a value by key or nested path, or the fallback only when the value is
+   * missing. This preserves configured false values.
+   *
+   * @name     getOr
+   * @param    (string|table|number) path  Key, dotted path, path table, or array index.
+   * @param    (any) fallback              Value returned when path is missing.
+   * @return   (any)                       Configured value or fallback.
+   *
+   */
+  sol::object GetOr(const sol::object& path, const sol::object& fallback, sol::this_state ts) const {
+    sol::state_view lua(ts);
     auto suffix = PathFromLuaValue(path);
     if (!suffix) {
       return fallback;
@@ -332,7 +342,17 @@ public:
     return PathToLuaValue(lua, std::move(full_path));
   }
 
-  sol::table Entries(sol::state_view lua) const {
+  /* luagmp (method)
+   *
+   * Return a Lua table containing the entries of this document, section, or array.
+   * The returned table is a snapshot; nested TOML sections remain read-only.
+   *
+   * @name     entries
+   * @return   (table) Entries table.
+   *
+   */
+  sol::table Entries(sol::this_state ts) const {
+    sol::state_view lua(ts);
     sol::table entries = lua.create_table();
     const TomlValue* value = Value();
     if (!value) {
@@ -368,7 +388,7 @@ private:
     }
 
     if (value->is_table() || value->is_array()) {
-      return sol::make_object(lua, TomlFile(root_, std::move(path)));
+      return sol::make_object(lua, TOML(root_, std::move(path)));
     }
     if (value->is_boolean()) {
       return sol::make_object(lua, value->as_boolean());
@@ -390,7 +410,7 @@ private:
   std::vector<TomlPathEntry> path_;
 };
 
-std::optional<TomlFile> LoadTomlFile(const std::string& relative_path, std::string& error) {
+std::optional<TOML> LoadTOML(const std::string& relative_path, std::string& error) {
   auto resolved = ResolveDataPath(relative_path);
   if (!resolved) {
     error = "Invalid TOML path";
@@ -433,27 +453,22 @@ std::optional<TomlFile> LoadTomlFile(const std::string& relative_path, std::stri
     return std::nullopt;
   }
 
-  return TomlFile(std::make_shared<TomlValue>(std::move(data)));
+  return TOML(std::make_shared<TomlValue>(std::move(data)));
 }
 
-}  // namespace
-
-/* luagmp (func)
-*
-* Open a read-only TOML file relative to the server data/internal directory.
-*
-* @version  0.3.0
-* @name     TOML
-* @side     server
-* @category File
-* @param    (string) relative_path  Path under the data/internal directory.
-* @return   (TomlFile|nil)          File handle or nil on error.
-*
-*/
-sol::object Function_TOML(const std::string& relative_path, sol::this_state ts) {
+/* luagmp (method)
+ *
+ * Open a read-only TOML file relative to the server data/internal directory.
+ *
+ * @name     open
+ * @param    (string) relative_path  Path under the data/internal directory.
+ * @return   (TOML|nil)          File handle or nil on error.
+ *
+ */
+sol::object TOML::Open(const std::string& relative_path, sol::this_state ts) {
   sol::state_view lua(ts);
   std::string error;
-  auto file = LoadTomlFile(relative_path, error);
+  auto file = LoadTOML(relative_path, error);
   if (!file) {
     if (!error.empty() && error != "Invalid TOML path") {
       SPDLOG_WARN("TOML open failed for '{}': {}", relative_path, error);
@@ -463,94 +478,15 @@ sol::object Function_TOML(const std::string& relative_path, sol::this_state ts) 
   return sol::make_object(lua, std::move(*file));
 }
 
+}  // namespace
+
 void BindToml(sol::state& lua) {
-/* luagmp (class)
-*
-* Read-only TOML document returned by TOML(). Values can be accessed with
-* normal field or index syntax, including nested sections. Use get_or when a
-* missing value should fall back without replacing configured false.
-*
-* @version  0.3.0
-* @name     TomlFile
-* @side     server
-* @category File
-*
-*/
-  sol::table methods = lua.create_table();
-
-/* luagmp (method)
-*
-* Return true when a key or nested path exists. A string path uses dots as
-* separators; a table path can be used for dynamic or literal key segments.
-*
-* @name     has
-* @param    (string|table|number) path  Key, dotted path, path table, or array index.
-* @return   (bool)                      True if the value exists.
-*
-*/
-  methods.set_function("has", [](const TomlFile& file, const sol::object& path) { return file.Has(path); });
-
-/* luagmp (method)
-*
-* Return a value by key or nested path. Missing keys return nil.
-*
-* @name     get
-* @param    (string|table|number) path  Key, dotted path, path table, or array index.
-* @return   (any|nil)                   Value or nil when missing.
-*
-*/
-  methods.set_function("get", [](const TomlFile& file, const sol::object& path, sol::this_state ts) {
-    return file.Get(sol::state_view(ts), path);
-  });
-
-/* luagmp (method)
-*
-* Return a value by key or nested path, or the fallback only when the value is
-* missing. This preserves configured false values.
-*
-* @name     get_or
-* @param    (string|table|number) path  Key, dotted path, path table, or array index.
-* @param    (any) fallback              Value returned when path is missing.
-* @return   (any)                       Configured value or fallback.
-*
-*/
-  methods.set_function("get_or", [](const TomlFile& file, const sol::object& path, const sol::object& fallback, sol::this_state ts) {
-    return file.GetOr(sol::state_view(ts), path, fallback);
-  });
-
-/* luagmp (method)
-*
-* Return a Lua table containing the entries of this document, section, or array.
-* The returned table is a snapshot; nested TOML sections remain read-only.
-*
-* @name     entries
-* @return   (table) Entries table.
-*
-*/
-  methods.set_function("entries", [](const TomlFile& file, sol::this_state ts) { return file.Entries(sol::state_view(ts)); });
-
-  sol::usertype<TomlFile> toml_type = lua.new_usertype<TomlFile>("TomlFile", sol::no_constructor);
-  toml_type[sol::meta_function::index] = [methods](const TomlFile& file, const sol::object& key, sol::this_state ts) -> sol::object {
-    sol::state_view lua_state(ts);
-    if (key.get_type() == sol::type::string) {
-      const std::string key_name = key.as<std::string>();
-      sol::object method = methods[key_name];
-      if (method.valid() && method.get_type() != sol::type::nil) {
-        return method;
-      }
-    }
-    return file.At(lua_state, key);
-  };
-  toml_type[sol::meta_function::new_index] = [](sol::this_state ts, const TomlFile&, const sol::object&, const sol::object&) -> int {
-    return luaL_error(ts, "TomlFile is read-only");
-  };
-  toml_type[sol::meta_function::pairs] = [](const TomlFile& file, sol::this_state ts) {
-    sol::state_view lua_state(ts);
-    sol::function next = lua_state["next"];
-    return std::make_tuple(next, file.Entries(lua_state), sol::make_object(lua_state, sol::lua_nil));
-  };
-
-  lua["TOML"] = Function_TOML;
+  sol::usertype<TOML> toml_type = lua.new_usertype<TOML>("TOML", sol::no_constructor);
+  toml_type.set_function("open", &TOML::Open);
+  toml_type["has"] = &TOML::Has;
+  toml_type["get"] = &TOML::Get;
+  toml_type["getOr"] = &TOML::GetOr;
+  toml_type["entries"] = &TOML::Entries;
 }
 
 }  // namespace lua::bindings

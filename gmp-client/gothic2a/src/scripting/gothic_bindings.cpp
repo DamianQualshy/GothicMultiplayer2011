@@ -45,6 +45,7 @@ SOFTWARE.
 #include "gmp_core.h"
 #include "Interface.h"
 #include "item_ground.h"
+#include "language.h"
 
 #include "lua_discord.h"
 #include "lua_chat.h"
@@ -3491,7 +3492,7 @@ std::int32_t Function_GetFpsRate() {
 * @version  0.3.0
 * @name     getNetworkStats
 * @side     client
-* @category Game
+* @category Multiplayer
 * @note     Packet loss fields are ratios from 0.0 to 1.0.
 * @note     Send buffer fields aggregate low, medium, and high priority packets.
 * @return   ({packetReceived, packetlossTotal, packetlossLastSecond, messagesInResendBuffer, messageInSendBuffer, bytesInResendBuffer, bytesInSendBuffer})  Table containing current network statistics.
@@ -3520,6 +3521,21 @@ sol::object Function_GetNetworkStats(sol::this_state ts) {
 
 /* luagmp (func)
 *
+* This function will return the language currently used by the client.
+*
+* @version  0.3.0
+* @name     getLanguageIndex
+* @side     client
+* @category Multiplayer
+* @return   (number)  Language index selected in the client settings.
+*
+*/
+int Function_GetLanguageIndex() {
+  return LanguageManager::Instance().GetActiveLanguageIndex();
+}
+
+/* luagmp (func)
+*
 * This function will close the game immediately.
 *
 * @version  0.3.0
@@ -3539,7 +3555,7 @@ void Function_ExitGame() {
 * @version  0.3.0
 * @name     enableGMPMenu
 * @side     client
-* @category Game
+* @category Multiplayer
 * @param    (boolean) enable  True to allow ESC to open/close GMP menu, false to ignore ESC for GMP menu.
 *
 */
@@ -3554,7 +3570,7 @@ void Function_EnableGMPMenu(bool enable) {
 * @version  0.3.0
 * @name     openGMPMenu
 * @side     client
-* @category Game
+* @category Multiplayer
 *
 */
 void Function_OpenGMPMenu() {
@@ -3568,7 +3584,7 @@ void Function_OpenGMPMenu() {
 * @version  0.3.0
 * @name     closeGMPMenu
 * @side     client
-* @category Game
+* @category Multiplayer
 *
 */
 void Function_CloseGMPMenu() {
@@ -3704,6 +3720,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["getAvailableResolutions"] = Function_GetAvailableResolutions;
   lua["getFpsRate"] = Function_GetFpsRate;
   lua["getNetworkStats"] = Function_GetNetworkStats;
+  lua["getLanguageIndex"] = Function_GetLanguageIndex;
 
   lua["exitGame"] = Function_ExitGame;
   lua["enableGMPMenu"] = Function_EnableGMPMenu;
@@ -3733,6 +3750,17 @@ void BindGothicSpecific(sol::state& lua) {
   // Constants
   lua["PLANET_SUN"] = 0;
   lua["PLANET_MOON"] = 1;
+
+  const auto& languageManager = LanguageManager::Instance();
+  lua["LANG_EN"] = languageManager.GetLanguageIndex("EN");
+  lua["LANG_PL"] = languageManager.GetLanguageIndex("PL");
+  lua["LANG_DE"] = languageManager.GetLanguageIndex("DE");
+  lua["LANG_RU"] = languageManager.GetLanguageIndex("RU");
+  lua["LANG_CZSK"] = languageManager.GetLanguageIndex("CZSK");
+  lua["LANG_ISV"] = languageManager.GetLanguageIndex("ISV");
+  lua["LANG_UA"] = languageManager.GetLanguageIndex("UA");
+  lua["LANG_IT"] = languageManager.GetLanguageIndex("IT");
+  lua["LANG_HU"] = languageManager.GetLanguageIndex("HU");
 }
 
 void CleanupGothicViews() {
@@ -3762,5 +3790,96 @@ void CleanupGothicViews() {
 * @category Sky
 * @side     client
 * @name     PLANET_MOON
+*
+*/
+
+
+/* luagmp (const)
+*
+* English language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_EN
+*
+*/
+
+/* luagmp (const)
+*
+* Polish language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_PL
+*
+*/
+
+/* luagmp (const)
+*
+* German language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_DE
+*
+*/
+
+/* luagmp (const)
+*
+* Russian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_RU
+*
+*/
+
+/* luagmp (const)
+*
+* Czech/Slovakian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_CZSK
+*
+*/
+
+/* luagmp (const)
+*
+* Interslavic language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_ISV
+*
+*/
+
+/* luagmp (const)
+*
+* Ukrainian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_UA
+*
+*/
+
+/* luagmp (const)
+*
+* Italian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_IT
+*
+*/
+
+/* luagmp (const)
+*
+* Hungarian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_HU
 *
 */

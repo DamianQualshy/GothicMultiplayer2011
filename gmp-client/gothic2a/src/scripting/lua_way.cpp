@@ -43,7 +43,7 @@ namespace gmp::gothic {
 * @version  0.3.0
 * @name     toggleDrawWaynet
 * @side     client
-* @category Game
+* @category Render
 * @param    (boolean) enabled    True to render waynet, false to disable.
 *
 */

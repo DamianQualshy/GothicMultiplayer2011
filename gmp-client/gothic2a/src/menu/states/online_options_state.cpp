@@ -260,8 +260,9 @@ void OnlineOptionsState::AdjustOption(OptionItem option, int direction) {
       if (newIndex == context_.config.lang)
         return;
 
-      // Load new language
-      LanguageManager::Instance().LoadLanguages(LanguageManager::Instance().GetLanguageDir().c_str(), newIndex);
+      if (!LanguageManager::Instance().LoadLanguage(newIndex)) {
+        return;
+      }
 
       context_.config.lang = newIndex;
       context_.config.SaveConfigToFile();

@@ -151,7 +151,6 @@ void Config::LoadConfigFromFile() {
 
 void Config::DefaultSettings() {
   Nickname.Clear();
-  // 0 - polski, 1 - angielski
   lang = 0;
   window_position_.reset();
   console_position_.reset();

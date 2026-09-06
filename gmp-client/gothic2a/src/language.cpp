@@ -27,10 +27,14 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
 #include <array>
 #include <fstream>
+#include <iterator>
+#include <limits>
 #include <nlohmann/json.hpp>
 #include <string_view>
+#include <system_error>
 
 #include "localization_utils.h"
 
@@ -46,57 +50,36 @@ LanguageManager& LanguageManager::Instance() {
 void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) {
   languageDir_ = languageDir;
   availableLanguages_.clear();
+  activeLanguageIndex_ = -1;
 
-  const std::string indexPath = languageDir_ + "index";
-  std::ifstream ifs(indexPath, std::ifstream::in);
-
-  if (!ifs.is_open()) {
-    SPDLOG_ERROR("LanguageManager: Couldn't find language index file {}", indexPath);
-    // Add a fallback language
-    LanguageInfo fallback;
-    fallback.filename = "English.json";
-    fallback.displayName = zSTRING("English");
-    fallback.encoding = localization::LanguageEncoding::kCp1252;
-    availableLanguages_.push_back(fallback);
-    SPDLOG_INFO("LanguageManager: Added fallback English language");
-
-    // Load the fallback language
-    std::string langPath = languageDir_ + fallback.filename;
-    Language::Instance().LoadFromJsonFile(langPath);
-    return;
+  std::vector<std::filesystem::path> languageFiles;
+  std::error_code error;
+  for (std::filesystem::directory_iterator it(languageDir_, error), end; it != end; it.increment(error)) {
+    if (error) {
+      break;
+    }
+    if (it->is_regular_file(error) && !error && it->path().extension() == ".json") {
+      languageFiles.push_back(it->path());
+    }
   }
 
-  // Read language file names from index
-  std::vector<std::string> languageFiles;
-  std::string line;
-  while (std::getline(ifs, line)) {
-    // Remove carriage return if present
-    if (!line.empty() && line.back() == '\r') {
-      line.pop_back();
-    }
-    if (line.empty()) {
-      continue;
-    }
-    languageFiles.push_back(line);
-  }
-
-  // Remove duplicate at the end if exists
-  if (languageFiles.size() >= 2 && languageFiles.back() == languageFiles[languageFiles.size() - 2]) {
-    languageFiles.pop_back();
+  if (error) {
+    SPDLOG_ERROR("LanguageManager: Failed to scan language directory {}: {}", languageDir_, error.message());
   }
 
   // Load metadata for each language file
-  for (const auto& filename : languageFiles) {
-    const std::string langPath = languageDir_ + filename;
+  for (const auto& langPath : languageFiles) {
+    const std::string filename = langPath.filename().string();
     std::ifstream langFile(langPath, std::ifstream::in);
 
     if (!langFile.is_open()) {
-      SPDLOG_ERROR("LanguageManager: Couldn't open language file {}", langPath);
+      SPDLOG_ERROR("LanguageManager: Couldn't open language file {}", langPath.string());
       // Add with filename as fallback
       LanguageInfo info;
       info.filename = filename;
       info.displayName = zSTRING(filename.c_str());
       info.encoding = localization::LanguageEncoding::kNone;
+      info.displayOrder = std::numeric_limits<int>::max();
       availableLanguages_.push_back(info);
       continue;
     }
@@ -107,6 +90,14 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
 
       LanguageInfo info;
       info.filename = filename;
+      info.displayOrder = std::numeric_limits<int>::max();
+      if (const auto order = jsonData.find("ORDER"); order != jsonData.end() && order->is_number_integer()) {
+        info.displayOrder = order->get<int>();
+      }
+      if (info.displayOrder < 0 || info.displayOrder == std::numeric_limits<int>::max()) {
+        SPDLOG_WARN("LanguageManager: Language file {} has no valid non-negative ORDER; placing it last", filename);
+        info.displayOrder = std::numeric_limits<int>::max();
+      }
 
       // Get display name from JSON
       auto rawLanguageName = jsonData.value("LANGUAGE", std::string{});
@@ -115,7 +106,7 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
       }
 
       // Detect encoding and convert from UTF-8
-      info.encoding = localization::DetectLanguageEncoding(rawLanguageName, langPath);
+      info.encoding = localization::DetectLanguageEncoding(rawLanguageName, langPath.string());
       const auto localizedName = localization::ConvertFromUtf8(rawLanguageName, info.encoding);
       info.displayName = zSTRING(localizedName.c_str());
 
@@ -123,13 +114,32 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
       SPDLOG_DEBUG("LanguageManager: Loaded language {} ({})", filename, localizedName);
 
     } catch (const std::exception& ex) {
-      SPDLOG_ERROR("LanguageManager: Failed to parse language file {}: {}", langPath, ex.what());
+      SPDLOG_ERROR("LanguageManager: Failed to parse language file {}: {}", langPath.string(), ex.what());
       // Add with filename as fallback
       LanguageInfo info;
       info.filename = filename;
       info.displayName = zSTRING(filename.c_str());
       info.encoding = localization::LanguageEncoding::kNone;
+      info.displayOrder = std::numeric_limits<int>::max();
       availableLanguages_.push_back(info);
+    }
+  }
+
+  std::sort(availableLanguages_.begin(), availableLanguages_.end(), [](const LanguageInfo& lhs, const LanguageInfo& rhs) {
+    if (lhs.displayOrder != rhs.displayOrder) {
+      return lhs.displayOrder < rhs.displayOrder;
+    }
+    return lhs.filename < rhs.filename;
+  });
+
+  for (std::size_t index = 1; index < availableLanguages_.size(); ++index) {
+    const auto& previous = availableLanguages_[index - 1];
+    const auto& current = availableLanguages_[index];
+    if (current.displayOrder != std::numeric_limits<int>::max() && current.displayOrder == previous.displayOrder) {
+      SPDLOG_WARN("LanguageManager: Language files {} and {} use duplicate ORDER {}",
+                  previous.filename,
+                  current.filename,
+                  current.displayOrder);
     }
   }
 
@@ -148,15 +158,7 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
     targetIndex = 0;
   }
 
-  const auto& langInfo = availableLanguages_[targetIndex];
-  std::string langPath = languageDir_ + langInfo.filename;
-
-  SPDLOG_INFO("LanguageManager: Loading active language: {} from {}", langInfo.displayName.ToChar(), langPath);
-
-  bool success = Language::Instance().LoadFromJsonFile(langPath);
-  if (!success) {
-    SPDLOG_ERROR("LanguageManager: Failed to load language file {}", langPath);
-  }
+  LoadLanguage(targetIndex);
 }
 
 const LanguageManager::LanguageInfo* LanguageManager::GetLanguage(int index) const {
@@ -164,6 +166,32 @@ const LanguageManager::LanguageInfo* LanguageManager::GetLanguage(int index) con
     return nullptr;
   }
   return &availableLanguages_[index];
+}
+
+int LanguageManager::GetLanguageIndex(std::string_view languageCode) const {
+  const auto language = std::find_if(availableLanguages_.begin(), availableLanguages_.end(), [languageCode](const LanguageInfo& info) {
+    return std::filesystem::path(info.filename).stem().string() == languageCode;
+  });
+  return language == availableLanguages_.end() ? -1 : static_cast<int>(std::distance(availableLanguages_.begin(), language));
+}
+
+bool LanguageManager::LoadLanguage(int index) {
+  const auto* language = GetLanguage(index);
+  if (!language) {
+    SPDLOG_ERROR("LanguageManager: Invalid language index {}", index);
+    return false;
+  }
+
+  const auto languagePath = std::filesystem::path(languageDir_) / language->filename;
+  SPDLOG_INFO("LanguageManager: Loading active language: {} from {}", language->displayName.ToChar(), languagePath.string());
+
+  if (!Language::Instance().LoadFromJsonFile(languagePath)) {
+    SPDLOG_ERROR("LanguageManager: Failed to load language file {}", languagePath.string());
+    return false;
+  }
+
+  activeLanguageIndex_ = index;
+  return true;
 }
 
 // ============================================================================

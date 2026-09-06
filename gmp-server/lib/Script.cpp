@@ -9,13 +9,11 @@
 #include "Lua/function_bind.h"
 #include "Lua/lua_item.h"
 #include "Lua/lua_json.h"
+#include "Lua/lua_toml.h"
+#include "Lua/lua_database.h"
 #include "Lua/lua_item_ground.h"
 #include "Lua/lua_sky.h"
 #include "Lua/lua_way.h"
-
-namespace lua::bindings {
-void BindToml(sol::state& lua);
-}
 
 LuaScript::LuaScript() {
   BindDomainSpecific();
@@ -29,6 +27,7 @@ void LuaScript::BindDomainSpecific() {
   lua::bindings::BindItemGround(lua_);
   lua::bindings::BindJson(lua_);
   lua::bindings::BindToml(lua_);
+  lua::bindings::BindDatabase(lua_);
   lua::bindings::BindWay(lua_);
   lua::bindings::BindSky(lua_);
 }

@@ -66,6 +66,19 @@ add_rules("mode.debug", "mode.release", "mode.releasedbg")
 add_requires("spdlog 1.15.1", {configs = {fmt_external = true}})
 -- Pulling in gtest_main doesn't work, due to a runtime conflict MT (static) vs MD (dynamic), so we still have to define it ourselves
 add_requires("gtest 1.16.*", {configs = {main = true}})
+add_requires("sqlite3 3.53.0+400", {configs = {
+    explain_comments = false,
+    dbpage_vtab = false,
+    stmt_vtab = false,
+    dbstat_vtab = false,
+    math_functions = false,
+    omit_deprecated = true
+}})
+add_requires("mariadb-connector-c 3.4.9", {configs = {
+    curl = false,
+    dyncol = false,
+    external_zlib = true
+}})
 add_requires("fmt 11.0.2",
              "toml11 4.4.*", 
              "lua 5.4.7",
