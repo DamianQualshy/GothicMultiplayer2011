@@ -25,6 +25,7 @@ SOFTWARE.
 
 // clang-format off
 #include <windows.h>
+#include <psapi.h>
 #include <tlhelp32.h>
 #include <wincrypt.h>
 #include <winhttp.h>
@@ -45,6 +46,8 @@ SOFTWARE.
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "windows_paths.h"
 
 namespace fs = std::filesystem;
 
@@ -84,13 +87,18 @@ private:
     fs::path targetPath;
   };
 
+  static constexpr std::array<const wchar_t*, 4> runtimeDlls = {
+      L"SDL3.dll", L"BugTrap.dll", L"discord_game_sdk.dll", L"znet.dll"};
+
   std::string gothicPath;
   std::string gmpDllPath;
   std::string workingDirectory;
+  fs::path launcherDirectory;
   std::string updateSourceUrl;
   std::shared_ptr<spdlog::logger> logger;
   bool waitForDebugger = false;
   bool updateEnabled = true;
+  bool initialBreakpointHandled = false;
 
   void InitializeLogger() {
     try {
@@ -99,7 +107,8 @@ private:
       console_sink->set_level(spdlog::level::debug);
 
       // Create file sink
-      auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>("gmp_launcher.log", true);
+      auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
+          WideToUtf8((launcherDirectory / L"GMPLauncher.log").wstring()), true);
       file_sink->set_level(spdlog::level::debug);
 
       // Create logger with both sinks
@@ -123,8 +132,9 @@ private:
     int size = MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, nullptr, 0);
     if (size <= 0)
       return {};
-    std::wstring result(size - 1, 0);
-    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, &result[0], size);
+    std::wstring result(size, 0);
+    MultiByteToWideChar(CP_UTF8, 0, utf8.c_str(), -1, result.data(), size);
+    result.pop_back();
     return result;
   }
 
@@ -148,8 +158,9 @@ private:
     int size = WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, nullptr, 0, nullptr, nullptr);
     if (size <= 0)
       return {};
-    std::string result(size - 1, 0);
-    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, &result[0], size, nullptr, nullptr);
+    std::string result(size, 0);
+    WideCharToMultiByte(CP_UTF8, 0, wide.c_str(), -1, result.data(), size, nullptr, nullptr);
+    result.pop_back();
     return result;
   }
 
@@ -439,6 +450,11 @@ private:
     tempPath += L".download";
 
     std::error_code ec;
+    fs::create_directories(targetPath.parent_path(), ec);
+    if (ec) {
+      SPDLOG_ERROR("Failed to create runtime directory: {}", ec.message());
+      return false;
+    }
     fs::remove(tempPath, ec);
 
     {
@@ -561,42 +577,66 @@ private:
 
 public:
   GMPLauncher() {
+    launcherDirectory = gmp::paths::ModulePath().parent_path();
     InitializeLogger();
-    // Use UTF-8 encoding for current path
-    workingDirectory = WideToUtf8(fs::current_path().wstring());
-
-    // Default paths (can be overridden by command line)
-    gothicPath = workingDirectory + "\\Gothic2.exe";
-    gmpDllPath = workingDirectory + "\\GMP.dll";
+    // Installed layout: Gothic2/Multiplayer/GMPLauncher.exe and Runtime/GMP.dll.
+    const fs::path systemDirectory = launcherDirectory.parent_path() / L"System";
+    gothicPath = WideToUtf8((systemDirectory / L"Gothic2.exe").wstring());
+    gmpDllPath = WideToUtf8((launcherDirectory / L"Runtime" / L"GMP.dll").wstring());
+    workingDirectory = WideToUtf8(systemDirectory.wstring());
     updateSourceUrl = GMP_UPDATE_SOURCE_URL;
   }
 
   bool ValidatePaths() {
     // Convert to wide strings for filesystem operations
-    if (!fs::exists(Utf8ToWide(gothicPath))) {
+    if (!fs::is_regular_file(Utf8ToWide(gothicPath))) {
       SPDLOG_ERROR("Gothic2.exe not found at: {}", gothicPath);
       return false;
     }
 
-    if (!fs::exists(Utf8ToWide(gmpDllPath))) {
+    if (!fs::is_regular_file(Utf8ToWide(gmpDllPath))) {
       SPDLOG_ERROR("GMP.dll not found at: {}", gmpDllPath);
+      return false;
+    }
+
+    if (!fs::is_directory(Utf8ToWide(workingDirectory))) {
+      SPDLOG_ERROR("Game working directory not found: {}", workingDirectory);
       return false;
     }
 
     return true;
   }
 
+  bool IsExpectedRemoteModule(HANDLE process, DWORD moduleAddress, const fs::path& expectedPath) {
+    std::vector<wchar_t> buffer(512);
+    for (;;) {
+      const DWORD length = GetModuleFileNameExW(process, reinterpret_cast<HMODULE>(static_cast<std::uintptr_t>(moduleAddress)),
+                                              buffer.data(), static_cast<DWORD>(buffer.size()));
+      if (length == 0) {
+        return false;
+      }
+      if (length < buffer.size()) {
+        const fs::path loadedPath(std::wstring(buffer.data(), length));
+        std::error_code error;
+        if (fs::equivalent(loadedPath, expectedPath, error)) {
+          return true;
+        }
+        SPDLOG_ERROR("DLL resolved to an unexpected location: {}", WideToUtf8(loadedPath.wstring()));
+        return false;
+      }
+      buffer.resize(buffer.size() * 2);
+    }
+  }
+
   bool ValidateDependencies() {
     SPDLOG_INFO("Validating GMP.dll dependencies...");
 
     const fs::path dllDirectory = GetGMPDllDirectory();
-    std::vector<std::string> requiredDlls = {"SDL3.dll", "BugTrap.dll", "znet.dll"};
-
     bool allFound = true;
-    for (const auto& dll : requiredDlls) {
-      fs::path dllPath = dllDirectory / Utf8ToWide(dll);
-      if (!fs::exists(dllPath)) {
-        SPDLOG_WARN("Required dependency not found: {}", WideToUtf8(dllPath.wstring()));
+    for (const auto* dll : runtimeDlls) {
+      fs::path dllPath = dllDirectory / dll;
+      if (!fs::is_regular_file(dllPath)) {
+        SPDLOG_ERROR("Required dependency not found: {}", WideToUtf8(dllPath.wstring()));
         allFound = false;
       } else {
         SPDLOG_INFO("Found: {}", WideToUtf8(dllPath.wstring()));
@@ -604,8 +644,8 @@ public:
     }
 
     if (!allFound) {
-      SPDLOG_WARN("Missing dependencies may cause injection to fail.");
-      SPDLOG_WARN("Make sure all required DLL files are in the same directory as GMP.dll");
+      SPDLOG_ERROR("Missing dependencies will cause injection to fail.");
+      SPDLOG_ERROR("Install the required runtime DLLs alongside GMP.dll before launching.");
     } else {
       SPDLOG_INFO("All dependencies found!");
     }
@@ -614,24 +654,24 @@ public:
   }
 
   // Inject DLL while acting as the debugger - handles debug events to allow injection
-  bool InjectDLL(HANDLE hProcess, DWORD processId, const std::string& dllPath) {
-    SPDLOG_INFO("Injecting DLL as debugger...");
+  bool InjectDLL(HANDLE hProcess, DWORD processId, const fs::path& dllPath) {
+    SPDLOG_INFO("Loading {} in Gothic2.exe...", WideToUtf8(dllPath.wstring()));
 
-    // Get the address of LoadLibraryA in kernel32.dll
+    // Both the launcher and Gothic are x86. Use the wide API for installation paths.
     HMODULE hKernel32 = GetModuleHandleA("kernel32.dll");
     if (!hKernel32) {
       SPDLOG_ERROR("Failed to get handle to kernel32.dll");
       return false;
     }
 
-    FARPROC pLoadLibraryA = GetProcAddress(hKernel32, "LoadLibraryA");
-    if (!pLoadLibraryA) {
-      SPDLOG_ERROR("Failed to get address of LoadLibraryA");
+    FARPROC pLoadLibraryW = GetProcAddress(hKernel32, "LoadLibraryW");
+    if (!pLoadLibraryW) {
+      SPDLOG_ERROR("Failed to get address of LoadLibraryW");
       return false;
     }
 
     // Allocate memory in the target process for the DLL path
-    SIZE_T dllPathSize = dllPath.length() + 1;
+    SIZE_T dllPathSize = (dllPath.native().size() + 1) * sizeof(wchar_t);
     LPVOID pDllPath = VirtualAllocEx(hProcess, nullptr, dllPathSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     if (!pDllPath) {
       DWORD error = GetLastError();
@@ -640,16 +680,16 @@ public:
     }
 
     // Write the DLL path to the allocated memory
-    SIZE_T bytesWritten;
-    if (!WriteProcessMemory(hProcess, pDllPath, dllPath.c_str(), dllPathSize, &bytesWritten)) {
+    SIZE_T bytesWritten = 0;
+    if (!WriteProcessMemory(hProcess, pDllPath, dllPath.c_str(), dllPathSize, &bytesWritten) || bytesWritten != dllPathSize) {
       DWORD error = GetLastError();
       SPDLOG_ERROR("Failed to write DLL path to target process. Error: {}", error);
       VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
       return false;
     }
 
-    // Create a remote thread that calls LoadLibraryA with our DLL path
-    HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0, (LPTHREAD_START_ROUTINE)pLoadLibraryA, pDllPath, 0, nullptr);
+    // Create a remote thread that calls LoadLibraryW with our absolute DLL path.
+    HANDLE hRemoteThread = CreateRemoteThread(hProcess, nullptr, 0, (LPTHREAD_START_ROUTINE)pLoadLibraryW, pDllPath, 0, nullptr);
 
     if (!hRemoteThread) {
       DWORD error = GetLastError();
@@ -662,7 +702,7 @@ public:
 
     // Pump debug events until the remote thread completes
     // This is necessary because we're the debugger - the process won't run without us
-    DEBUG_EVENT debugEvent;
+    DEBUG_EVENT debugEvent = {};
     bool injectionComplete = false;
     bool injectionSuccess = false;
     DWORD startTime = GetTickCount();
@@ -678,9 +718,23 @@ public:
         DWORD continueStatus = DBG_CONTINUE;
 
         switch (debugEvent.dwDebugEventCode) {
+          case CREATE_PROCESS_DEBUG_EVENT:
+            if (debugEvent.u.CreateProcessInfo.hFile) {
+              CloseHandle(debugEvent.u.CreateProcessInfo.hFile);
+            }
+            break;
+
+          case LOAD_DLL_DEBUG_EVENT:
+            if (debugEvent.u.LoadDll.hFile) {
+              CloseHandle(debugEvent.u.LoadDll.hFile);
+            }
+            break;
+
           case EXCEPTION_DEBUG_EVENT:
-            // For first-chance exceptions, let the process handle them
-            if (debugEvent.u.Exception.dwFirstChance) {
+            // Consume the loader breakpoint; let Gothic handle other exceptions.
+            if (!initialBreakpointHandled && debugEvent.u.Exception.ExceptionRecord.ExceptionCode == EXCEPTION_BREAKPOINT) {
+              initialBreakpointHandled = true;
+            } else {
               continueStatus = DBG_EXCEPTION_NOT_HANDLED;
             }
             break;
@@ -709,17 +763,21 @@ public:
         injectionComplete = true;
 
         DWORD exitCode;
-        if (GetExitCodeThread(hRemoteThread, &exitCode) && exitCode != 0) {
-          SPDLOG_INFO("DLL injection successful! LoadLibraryA returned: 0x{:x}", exitCode);
+        if (GetExitCodeThread(hRemoteThread, &exitCode) && exitCode != 0 && IsExpectedRemoteModule(hProcess, exitCode, dllPath)) {
+          SPDLOG_INFO("Loaded {} at 0x{:x}", WideToUtf8(dllPath.filename().wstring()), exitCode);
           injectionSuccess = true;
         } else {
-          SPDLOG_ERROR("LoadLibraryA returned NULL - DLL injection failed");
+          SPDLOG_ERROR("LoadLibraryW failed for {}. Check its dependencies and x86 architecture.", WideToUtf8(dllPath.wstring()));
         }
       }
     }
 
     CloseHandle(hRemoteThread);
-    VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
+    // On timeout the remote thread may still be reading its argument. The caller
+    // terminates the failed child; leave the allocation alive until then.
+    if (injectionComplete) {
+      VirtualFreeEx(hProcess, pDllPath, 0, MEM_RELEASE);
+    }
 
     return injectionSuccess;
   }
@@ -762,8 +820,20 @@ public:
 
     SPDLOG_INFO("Gothic2.exe created as debuggee. Process ID: {}", pi.dwProcessId);
 
-    // Inject the DLL - the process is stopped at initial breakpoint, we're the debugger
-    bool injectionSuccess = InjectDLL(pi.hProcess, pi.dwProcessId, gmpDllPath);
+    // Preload private imports by absolute path before GMP's import table is
+    // resolved. This does not change Gothic's process-wide DLL search order.
+    bool injectionSuccess = true;
+    const fs::path runtimeDirectory = GetGMPDllDirectory();
+    for (const auto* name : runtimeDlls) {
+      const fs::path dependency = runtimeDirectory / name;
+      if (!InjectDLL(pi.hProcess, pi.dwProcessId, dependency)) {
+        injectionSuccess = false;
+        break;
+      }
+    }
+    if (injectionSuccess) {
+      injectionSuccess = InjectDLL(pi.hProcess, pi.dwProcessId, GetGMPDllPath());
+    }
 
     if (!injectionSuccess) {
       SPDLOG_ERROR("DLL injection failed. Terminating Gothic2.exe process.");
@@ -779,7 +849,11 @@ public:
     SPDLOG_INFO("Detaching launcher debugger...");
     if (!DebugActiveProcessStop(pi.dwProcessId)) {
       DWORD error = GetLastError();
-      SPDLOG_WARN("Failed to detach debugger (error {})", error);
+      SPDLOG_ERROR("Failed to detach debugger (error {})", error);
+      TerminateProcess(pi.hProcess, 1);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      return false;
     } else {
       SPDLOG_INFO("Debugger detached.");
     }
@@ -802,6 +876,10 @@ public:
     if (ResumeThread(pi.hThread) == (DWORD)-1) {
       DWORD error = GetLastError();
       SPDLOG_ERROR("Failed to resume main thread. Error: {}", error);
+      TerminateProcess(pi.hProcess, 1);
+      CloseHandle(pi.hThread);
+      CloseHandle(pi.hProcess);
+      return false;
     }
 
     SPDLOG_INFO("Gothic2.exe running with GMP.dll injected!");
@@ -843,6 +921,7 @@ public:
   }
 
   void ParseCommandLine(int argc, wchar_t* argv[]) {
+    bool workdirSpecified = false;
     for (int i = 1; i < argc; i++) {
       std::wstring arg = argv[i];
 
@@ -852,6 +931,7 @@ public:
         gmpDllPath = WideToUtf8(argv[++i]);
       } else if (arg == L"--workdir" && i + 1 < argc) {
         workingDirectory = WideToUtf8(argv[++i]);
+        workdirSpecified = true;
       } else if (arg == L"--update-source" && i + 1 < argc) {
         updateSourceUrl = WideToUtf8(argv[++i]);
       } else if (arg == L"--no-update") {
@@ -863,6 +943,12 @@ public:
         exit(0);
       }
     }
+    // Resolve overrides once against the invoking directory. The child's working
+    // directory must not change the meaning of --dll or --gothic.
+    gothicPath = WideToUtf8(fs::absolute(Utf8ToWide(gothicPath)).lexically_normal().wstring());
+    gmpDllPath = WideToUtf8(fs::absolute(GetGMPDllPath()).lexically_normal().wstring());
+    workingDirectory = WideToUtf8((workdirSpecified ? fs::absolute(Utf8ToWide(workingDirectory)).lexically_normal()
+                                                  : fs::path(Utf8ToWide(gothicPath)).parent_path()).wstring());
   }
 
   void PrintHelp() {
@@ -871,9 +957,10 @@ public:
     SPDLOG_INFO("Usage: GMPLauncher.exe [options]");
     SPDLOG_INFO("");
     SPDLOG_INFO("Options:");
-    SPDLOG_INFO("  --gothic <path>   Path to Gothic2.exe (default: Gothic2.exe in launcher directory)");
-    SPDLOG_INFO("  --dll <path>      Path to GMP.dll (default: GMP.dll in launcher directory)");
-    SPDLOG_INFO("  --workdir <path>  Working directory for Gothic2.exe (default: launcher directory)");
+    SPDLOG_INFO("  --gothic <path>   Path to Gothic2.exe (default: ../System/Gothic2.exe beside Multiplayer)");
+    SPDLOG_INFO("  --dll <path>      Path to GMP.dll (default: Runtime/GMP.dll beside the launcher)");
+    SPDLOG_INFO("  --workdir <path>  Working directory for Gothic2.exe (default: Gothic2.exe directory)");
+    SPDLOG_INFO("                    Relative overrides are resolved against the invoking directory.");
     SPDLOG_INFO("  --update-source <url>");
     SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll, znet.dll, and .sha256 files");
     SPDLOG_INFO("  --no-update       Skip the runtime DLL update check");
@@ -881,7 +968,7 @@ public:
     SPDLOG_INFO("  --help, -h        Show this help message");
     SPDLOG_INFO("");
     SPDLOG_INFO("Example:");
-    SPDLOG_INFO("  GMPLauncher.exe --gothic \"C:\\Gothic2\\Gothic2.exe\" --dll \"C:\\GMP\\GMP.dll\"");
+    SPDLOG_INFO("  GMPLauncher.exe --gothic \"C:\\Gothic2\\System\\Gothic2.exe\" --dll \"C:\\GMP\\GMP.dll\"");
     SPDLOG_INFO("");
     SPDLOG_INFO("Debugging with IDA/debugger:");
     SPDLOG_INFO("  GMPLauncher.exe --debug");
@@ -907,8 +994,9 @@ public:
       return 1;
     }
 
-    // Check for dependencies (warning only, don't fail)
-    ValidateDependencies();
+    if (!ValidateDependencies()) {
+      return 1;
+    }
 
     // Launch Gothic2.exe with GMP.dll injection and monitor startup
     bool launchSuccess = LaunchAndInject();

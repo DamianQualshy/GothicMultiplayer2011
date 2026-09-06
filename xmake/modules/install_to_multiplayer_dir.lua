@@ -20,10 +20,10 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
-local function _copy_file(target)
-    local file = target:targetfile()
+local function _copy_file(target, options)
+    local file = options.file or target:targetfile()
     if not file or not os.isfile(file) then
-        return  -- nothing to copy
+        raise("Required install file is missing: " .. (file or target:name()))
     end
 
     local root = target:installdir()
@@ -31,13 +31,10 @@ local function _copy_file(target)
         return
     end
 
-    -- Gothic sometimes uses "system", sometimes "System"
-    local lower = path.join(root, "system")
-    local upper = path.join(root, "System")
-
-    local dst = os.isdir(lower) and lower
-            or os.isdir(upper) and upper
-            or lower            -- default if neither exists
+    local dst = path.join(root, "Multiplayer")
+    if not options.launcher then
+        dst = path.join(dst, "Runtime")
+    end
 
     if not os.isdir(dst) then
         os.mkdir(dst)
@@ -54,8 +51,8 @@ local function _copy_file(target)
     end
 end
 
-function main(target)
-    if is_plat("windows") then
-        _copy_file(target)
+function main(target, options)
+    if target:is_plat("windows") then
+        _copy_file(target, options or {})
     end
 end

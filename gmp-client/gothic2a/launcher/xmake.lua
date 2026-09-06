@@ -23,12 +23,14 @@
 target("GMPLauncher")
     set_kind("binary")
     add_files("main.cpp")
+    add_includedirs("../../../common")
+    add_defines("_WIN32_WINNT=0x0601", "WINVER=0x0601")
     
     if is_plat("windows") then
         add_files("resource.rc")
     end
 
-    add_syslinks("kernel32", "user32", "advapi32", "winhttp")
+    add_syslinks("kernel32", "user32", "advapi32", "winhttp", "psapi")
     add_packages("spdlog")
 
     local update_source_url = get_config("gmp_update_source_url")
@@ -43,4 +45,6 @@ target("GMPLauncher")
     -- Set working directory for debugging
     set_rundir("$(projectdir)")
 
-    on_install("install_to_system_dir")
+    on_install(function (target)
+        import("install_to_multiplayer_dir")(target, {launcher = true})
+    end)

@@ -12,4 +12,4 @@ target("ClientRakNetShared")
     add_packages("spdlog")
     set_basename("znet")
 
-    on_install("install_to_system_dir")
+    on_install("install_to_multiplayer_dir")

@@ -30,6 +30,7 @@ SOFTWARE.
 
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <algorithm>
 #include <map>
 #include <string>
@@ -38,16 +39,27 @@ SOFTWARE.
 
 #include "renderer/renderer_config.h"
 #include "shared/toml_wrapper.h"
+#include "windows_paths.h"
 
 using namespace Gothic_II_Addon;
 
 namespace {
 constexpr std::string_view kConfigFileName = "GMP_Config.toml";
 
+TomlWrapper ReadConfigFile(const std::filesystem::path& path) {
+  // Opening the filesystem path directly preserves Unicode installation paths.
+  std::ifstream input(path, std::ios::binary);
+  if (!input) {
+    throw std::runtime_error("Cannot open GMP configuration");
+  }
+  return TomlWrapper::CreateFromStream(input, std::string(kConfigFileName));
+}
+
 }  // namespace
 
 Config::Config() {
-  config_file_path_ = std::filesystem::current_path() / kConfigFileName;
+  const auto system_directory = gmp::paths::ModulePath().parent_path();
+  config_file_path_ = system_directory.parent_path() / L"Multiplayer" / kConfigFileName;
   LoadConfigFromFile();
 }
 
@@ -57,14 +69,14 @@ void Config::LoadConfigFromFile() {
   DefaultSettings();
 
   if (!std::filesystem::exists(config_file_path_)) {
-    SPDLOG_INFO("GMP configuration not found at {}. Writing defaults.", config_file_path_.string());
+    SPDLOG_INFO("GMP configuration not found in Multiplayer. Writing defaults.");
     SaveConfigToFile();
     return;
   }
 
   TomlWrapper toml;
   try {
-    toml = TomlWrapper::CreateFromFile(config_file_path_.string());
+    toml = ReadConfigFile(config_file_path_);
     is_default_ = false;
   } catch (const std::exception& ex) {
     SPDLOG_INFO("Using default GMP configuration: {}", ex.what());
@@ -207,7 +219,18 @@ void Config::SaveConfigToFile() {
   }
   toml["renderer_type"] = toml::value(renderer_str);
 
-  toml.Serialize(config_file_path_.string());
+  try {
+    std::filesystem::create_directories(config_file_path_.parent_path());
+    std::ofstream output;
+    output.exceptions(std::ios::failbit | std::ios::badbit);
+    output.open(config_file_path_, std::ios::binary | std::ios::trunc);
+    toml.Serialize(output);
+    output.close();
+  } catch (const std::exception& ex) {
+    SPDLOG_ERROR("Failed to save GMP configuration: {}", ex.what());
+    return;
+  }
+
   is_default_ = Nickname.IsEmpty();
 }
 

@@ -23,6 +23,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#ifdef _WIN32
+#include "windows_paths.h"
+#endif
+
 #include "game_client.hpp"
 
 #include <bitsery/adapter/buffer.h>
@@ -1902,8 +1906,27 @@ void GameClient::OnConnectionFailedPacket(Packet p) {
 
 void LoadNetworkLibrary() {
   try {
+#ifdef _WIN32
+    // Client.Net is linked into GMP.dll (or a test executable). Locate znet
+    // beside that module, even after Gothic changes the working directory.
+    static const char module_anchor = 0;
+    static HMODULE lib = [] {
+      const auto library_path = gmp::paths::ContainingModulePath(&module_anchor).parent_path() / L"znet.dll";
+      HMODULE module = LoadLibraryW(library_path.c_str());
+      if (!module) {
+        throw std::system_error(GetLastError(), std::system_category(), "Loading znet.dll beside the client module");
+      }
+      return module;
+    }();
+    // Keep the DLL loaded for the lifetime of its NetClient objects.
+    auto create_net_client_func = reinterpret_cast<Net::NetClient* (*)()>(GetProcAddress(lib, "CreateNetClient"));
+    if (!create_net_client_func) {
+      throw std::runtime_error("znet.dll does not export CreateNetClient");
+    }
+#else
     static dylib lib("znet");
     auto create_net_client_func = lib.get_function<Net::NetClient*()>("CreateNetClient");
+#endif
     g_netclient = create_net_client_func();
   } catch (std::exception& ex) {
     SPDLOG_ERROR("LoadNetworkLibrary error: {}", ex.what());
