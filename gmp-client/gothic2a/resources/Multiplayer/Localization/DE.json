@@ -3,9 +3,8 @@
   "LANGUAGE": "Deutsch (German)",
   "WRITE_NICKNAME": "Gib deinen Nicknamen ein:",
   "MMENU_CHSERVER": "Spielen",
-  "MMENU_OPTIONS": "Einstellungen",
+  "MMENU_OPTIONS": "Spieleinstellungen",
   "MMENU_LEAVEGAME": "Beenden",
-  "MMENU_ONLINEOPTIONS": "Zusätzliche Optionen",
   "MMENU_BACK": "Zurück",
   "MMENU_NICKNAME": "Nickname:",
   "MMENU_ANTIALIASING": "Anti-Aliasing",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Ungültige Adresse. IP oder IP:Port verwenden.",
   "SRVLIST_FAVOURITE_ADDED": "Server zu Favoriten hinzugefügt.",
   "SRVLIST_FAVOURITE_EXISTS": "Server ist bereits ein Favorit.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Favorit konnte nicht gespeichert werden."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Favorit konnte nicht gespeichert werden.",
+  "MMENU_GMP_OPTIONS": "Multiplayer-Optionen",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Anzeige",
+  "MMENU_VOICE_ENABLED": "Sprachchat",
+  "MMENU_VOICE_PTT_KEY": "Push-to-Talk-Taste",
+  "MMENU_VOICE_VOLUME": "Sprachchat-Lautstärke",
+  "MMENU_EXTENDED_MENU_SCENES": "Erweiterte Menüszenen",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Immer im Vordergrund",
+  "MMENU_VSYNC": "Vertikale Synchronisierung",
+  "MMENU_RENDERER": "Renderer",
+  "MMENU_RESTART_REQUIRED": "Diese Änderung erfordert einen Neustart."
 }

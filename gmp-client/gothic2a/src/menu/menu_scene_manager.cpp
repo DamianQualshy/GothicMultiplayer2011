@@ -51,7 +51,30 @@ SceneManager::~SceneManager() {
 void SceneManager::RegisterScene(const std::string& name, std::unique_ptr<MenuScene> scene, bool include_in_cycle) {
   scenes_[name] = std::move(scene);
   if (include_in_cycle) {
+    all_cycle_scene_names_.push_back(name);
     cycle_scene_names_.push_back(name);
+  }
+}
+
+void SceneManager::Configure(bool extended_scenes_enabled) {
+  if (extended_scenes_enabled) {
+    cycle_scene_names_ = all_cycle_scene_names_;
+  } else if (!all_cycle_scene_names_.empty()) {
+    cycle_scene_names_.assign(1, all_cycle_scene_names_.front());
+  } else {
+    cycle_scene_names_.clear();
+  }
+
+  active_scene_index_ = -1;
+  for (std::size_t index = 0; index < cycle_scene_names_.size(); ++index) {
+    if (cycle_scene_names_[index] == active_scene_name_) {
+      active_scene_index_ = static_cast<int>(index);
+      break;
+    }
+  }
+
+  if (!cycle_scene_names_.empty() && active_scene_ && active_scene_index_ < 0) {
+    ActivateScene(cycle_scene_names_.front());
   }
 }
 
@@ -195,6 +218,7 @@ void SceneManager::Cleanup() {
   active_scene_ = nullptr;
   active_scene_name_.clear();
   scenes_.clear();
+  all_cycle_scene_names_.clear();
   cycle_scene_names_.clear();
   active_scene_index_ = -1;
   RemoveCameraAnchor();

@@ -3,9 +3,8 @@
   "LANGUAGE": "Polski (Polish)",
   "WRITE_NICKNAME": "Podaj swój nick w grze:",
   "MMENU_CHSERVER": "Graj",
-  "MMENU_OPTIONS": "Ustawienia",
+  "MMENU_OPTIONS": "Ustawienia Gry",
   "MMENU_LEAVEGAME": "Wyjście",
-  "MMENU_ONLINEOPTIONS": "Opcje",
   "MMENU_BACK": "Wróć",
   "MMENU_NICKNAME": "Nickname: ",
   "MMENU_ANTIALIASING": "Wygładzanie krawędzi",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Nieprawidłowy adres. Użyj IP lub IP:port.",
   "SRVLIST_FAVOURITE_ADDED": "Serwer dodano do ulubionych.",
   "SRVLIST_FAVOURITE_EXISTS": "Serwer jest już w ulubionych.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Nie udało się zapisać ulubionego."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Nie udało się zapisać ulubionego.",
+  "MMENU_GMP_OPTIONS": "Opcje Multiplayer",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Wyświetlanie",
+  "MMENU_VOICE_ENABLED": "Czat głosowy",
+  "MMENU_VOICE_PTT_KEY": "Klawisz mówienia",
+  "MMENU_VOICE_VOLUME": "Głośność czatu głosowego",
+  "MMENU_EXTENDED_MENU_SCENES": "Rozszerzone sceny menu",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Zawsze na wierzchu",
+  "MMENU_VSYNC": "Synchronizacja pionowa",
+  "MMENU_RENDERER": "Renderer",
+  "MMENU_RESTART_REQUIRED": "Ta zmiana wymaga ponownego uruchomienia."
 }

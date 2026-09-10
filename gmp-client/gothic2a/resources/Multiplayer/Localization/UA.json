@@ -1,11 +1,10 @@
 {
-  "ORDER": 6,
+  "ORDER": 7,
   "LANGUAGE": "Українська (Ukrainian)",
   "WRITE_NICKNAME": "Введіть свій ігровий нікнейм:",
   "MMENU_CHSERVER": "Грати",
-  "MMENU_OPTIONS": "Налаштування",
+  "MMENU_OPTIONS": "Налаштування гри",
   "MMENU_LEAVEGAME": "Вийти",
-  "MMENU_ONLINEOPTIONS": "Параметри",
   "MMENU_BACK": "Назад",
   "MMENU_NICKNAME": "Нікнейм: ",
   "MMENU_ANTIALIASING": "Згладжування",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Неправильна адреса. Використайте IP або IP:порт.",
   "SRVLIST_FAVOURITE_ADDED": "Сервер додано до обраного.",
   "SRVLIST_FAVOURITE_EXISTS": "Сервер уже в обраному.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не вдалося зберегти обране."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не вдалося зберегти обране.",
+  "MMENU_GMP_OPTIONS": "Налаштування Multiplayer",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Екран",
+  "MMENU_VOICE_ENABLED": "Голосовий чат",
+  "MMENU_VOICE_PTT_KEY": "Клавіша активації мікрофона",
+  "MMENU_VOICE_VOLUME": "Гучність голосового чату",
+  "MMENU_EXTENDED_MENU_SCENES": "Розширені сцени меню",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Поверх інших вікон",
+  "MMENU_VSYNC": "Вертикальна синхронізація",
+  "MMENU_RENDERER": "Рендерер",
+  "MMENU_RESTART_REQUIRED": "Для цієї зміни потрібен перезапуск."
 }

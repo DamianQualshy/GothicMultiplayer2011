@@ -3,9 +3,8 @@
   "LANGUAGE": "Русский (Russian)",
   "WRITE_NICKNAME": "Введите свой ник в игре:",
   "MMENU_CHSERVER": "Играть!",
-  "MMENU_OPTIONS": "Настройки",
+  "MMENU_OPTIONS": "Настройки игры",
   "MMENU_LEAVEGAME": "Выход",
-  "MMENU_ONLINEOPTIONS": "Параметры",
   "MMENU_BACK": "Назад",
   "MMENU_NICKNAME": "Ник  имя: ",
   "MMENU_ANTIALIASING": "Сглаживание",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Неверный адрес. Используйте IP или IP:порт.",
   "SRVLIST_FAVOURITE_ADDED": "Сервер добавлен в избранное.",
   "SRVLIST_FAVOURITE_EXISTS": "Сервер уже в избранном.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не удалось сохранить избранное."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Не удалось сохранить избранное.",
+  "MMENU_GMP_OPTIONS": "Настройки Multiplayer",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Экран",
+  "MMENU_VOICE_ENABLED": "Голосовой чат",
+  "MMENU_VOICE_PTT_KEY": "Клавиша активации микрофона",
+  "MMENU_VOICE_VOLUME": "Громкость голосового чата",
+  "MMENU_EXTENDED_MENU_SCENES": "Расширенные сцены меню",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Поверх остальных окон",
+  "MMENU_VSYNC": "Вертикальная синхронизация",
+  "MMENU_RENDERER": "Рендерер",
+  "MMENU_RESTART_REQUIRED": "Для этого изменения требуется перезапуск."
 }

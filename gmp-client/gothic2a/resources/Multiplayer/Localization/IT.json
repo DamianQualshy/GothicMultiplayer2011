@@ -1,11 +1,10 @@
 {
-  "ORDER": 7,
+  "ORDER": 8,
   "LANGUAGE": "Italiano (Italian)",
   "WRITE_NICKNAME": "Scegliete il vostro soprannome:",
   "MMENU_CHSERVER": "Elenco server",
   "MMENU_OPTIONS": "Impostazioni di gioco",
   "MMENU_LEAVEGAME": "Esci da GMP",
-  "MMENU_ONLINEOPTIONS": "Opzioni multigiocatore",
   "MMENU_BACK": "Indietro",
   "MMENU_NICKNAME": "Nickname:",
   "MMENU_ANTIALIASING": "Anti-Aliasing",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Indirizzo non valido. Usa IP o IP:porta.",
   "SRVLIST_FAVOURITE_ADDED": "Server aggiunto ai preferiti.",
   "SRVLIST_FAVOURITE_EXISTS": "Il server è già nei preferiti.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Impossibile salvare il preferito."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Impossibile salvare il preferito.",
+  "MMENU_GMP_OPTIONS": "Opzioni Multiplayer",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Schermo",
+  "MMENU_VOICE_ENABLED": "Chat vocale",
+  "MMENU_VOICE_PTT_KEY": "Tasto push-to-talk",
+  "MMENU_VOICE_VOLUME": "Volume chat vocale",
+  "MMENU_EXTENDED_MENU_SCENES": "Scene menu estese",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Sempre in primo piano",
+  "MMENU_VSYNC": "Sincronizzazione verticale",
+  "MMENU_RENDERER": "Renderer",
+  "MMENU_RESTART_REQUIRED": "Questa modifica richiede il riavvio."
 }

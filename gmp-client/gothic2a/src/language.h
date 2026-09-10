@@ -42,14 +42,14 @@ public:
     std::string filename;  // e.g., "EN.json"
     zSTRING displayName;   // Localized display name from JSON
     localization::LanguageEncoding encoding;
-    int displayOrder;      // JSON ORDER; append new languages to keep saved numeric indexes stable
+    int displayOrder;      // JSON ORDER controls presentation only; config stores the filename stem
   };
 
   LanguageManager() = default;
 
   // Load all available languages from the specified directory
-  // Also loads the active language based on languageIndex (or defaults to English if invalid)
-  void LoadLanguages(const char* languageDir = ".\\Multiplayer\\Localization\\", int languageIndex = -1);
+  // Also loads the active language by JSON filename stem, e.g. "EN".
+  void LoadLanguages(const char* languageDir = ".\\Multiplayer\\Localization\\", std::string_view languageCode = "EN");
 
   // Check if languages have been loaded
   bool IsLoaded() const {
@@ -107,7 +107,6 @@ public:
     MMENU_CHSERVER,
     MMENU_OPTIONS,
     MMENU_LEAVEGAME,
-    MMENU_ONLINEOPTIONS,
     MMENU_BACK,
     MMENU_NICKNAME,
     MMENU_ANTIALIASING,
@@ -136,7 +135,18 @@ public:
     SRVLIST_INVALID_ENDPOINT,
     SRVLIST_FAVOURITE_ADDED,
     SRVLIST_FAVOURITE_EXISTS,
-    SRVLIST_FAVOURITE_SAVE_FAILED
+    SRVLIST_FAVOURITE_SAVE_FAILED,
+    MMENU_GMP_OPTIONS,
+    MMENU_GMP_CATEGORY,
+    MMENU_DISPLAY_CATEGORY,
+    MMENU_VOICE_ENABLED,
+    MMENU_VOICE_PTT_KEY,
+    MMENU_VOICE_VOLUME,
+    MMENU_EXTENDED_MENU_SCENES,
+    MMENU_WINDOW_ALWAYS_ON_TOP,
+    MMENU_VSYNC,
+    MMENU_RENDERER,
+    MMENU_RESTART_REQUIRED
   };
 
   bool LoadFromJsonFile(const std::filesystem::path& file);

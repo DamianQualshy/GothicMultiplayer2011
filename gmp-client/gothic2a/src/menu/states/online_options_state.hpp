@@ -24,46 +24,16 @@ SOFTWARE.
 
 #pragma once
 
-#include "Button.h"
-#include "Table.h"
 #include "menu/menu_context.hpp"
 #include "menu/states/menu_state.hpp"
 
-namespace menu {
-namespace states {
+namespace menu::states {
 
-/**
- * @brief State for GMP-specific online options.
- *
- * This state allows configuration of:
- * - Nickname
- * - Anti-aliasing
- * - Joystick
- * - Language
- * - Intro videos
- */
 class OnlineOptionsState : public MenuState {
-private:
-  MenuContext& context_;
-
-  enum class OptionItem {
-    NICKNAME = 0,
-    LANGUAGE = 1,
-    ANTIALIASING = 2,
-    JOYSTICK = 3,
-    INTRO_VIDEOS = 4,
-    BACK = 5,
-    OPTION_COUNT = 6
-  };
-
-  OptionItem selectedOption_;
-  bool shouldReturnToMainMenu_;
-
 public:
   explicit OnlineOptionsState(MenuContext& context);
   ~OnlineOptionsState() override;
 
-  // MenuState interface
   void OnEnter() override;
   void OnExit() override;
   StateResult Update() override;
@@ -73,16 +43,40 @@ public:
   }
 
 private:
-  void InitializeControls();
-  void RenderOptionsMenu();
+  enum class Page {
+    Categories,
+    Multiplayer,
+    Display,
+  };
+
+  void RenderMenu();
+  void RenderCategories();
+  void RenderMultiplayerOptions();
+  void RenderDisplayOptions();
+  void SetFont(bool small_font, bool highlighted);
+  void PrintCentered(int x, int width, int y, const zSTRING& text);
+  void PrintHeading(const zSTRING& text);
+  void PrintWideItem(int index, int y, const zSTRING& text);
+  void PrintOption(int index, int row, const zSTRING& label, const zSTRING& value, bool value_active);
+
   void HandleInput();
-  void ExecuteOption(OptionItem option);
-  void AdjustOption(OptionItem option, int direction);
+  void HandleNicknameInput();
+  void HandlePushToTalkInput();
+  void MoveSelection(int direction);
+  int GetItemCount() const;
+  void ActivateSelectedItem();
+  void AdjustSelectedItem(int direction);
+  void ChangeLanguage(int direction);
+  void GoBack();
 
-  G2W::Table* optionsTable_;
-  G2W::Button* backButton_;
-
+  MenuContext& context_;
+  Page page_;
+  int selectedItem_;
+  bool shouldReturnToMainMenu_;
+  bool editingNickname_;
+  bool capturingPushToTalk_;
+  zSTRING nicknameBeforeEdit_;
+  zCView* menuView_;
 };
 
-}  // namespace states
-}  // namespace menu
+}  // namespace menu::states

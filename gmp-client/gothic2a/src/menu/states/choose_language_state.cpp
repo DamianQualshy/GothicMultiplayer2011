@@ -26,6 +26,8 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
+#include <filesystem>
+
 #include "StandardFonts.h"
 #include "keyboard.h"
 #include "language.h"
@@ -74,9 +76,9 @@ void ChooseLanguageState::OnEnter() {
   SPDLOG_INFO("Entering first-launch setup state");
 
   // Set initial language from config if available
-  const auto& languages = LanguageManager::Instance().GetAvailableLanguages();
-  if (context_.config.lang >= 0 && context_.config.lang < static_cast<int>(languages.size())) {
-    selectedLanguage_ = context_.config.lang;
+  const int configuredLanguage = LanguageManager::Instance().GetLanguageIndex(context_.config.language);
+  if (configuredLanguage >= 0) {
+    selectedLanguage_ = configuredLanguage;
   }
 
   InitializeControls();
@@ -132,7 +134,7 @@ void ChooseLanguageState::ApplySelectedLanguage() {
   }
 
   // Update config
-  context_.config.lang = selectedLanguage_;
+  context_.config.language = std::filesystem::path(langInfo->filename).stem().string();
   context_.config.SaveConfigToFile();
 }
 
@@ -251,7 +253,9 @@ void ChooseLanguageState::HandleInput() {
         }
 
         context_.config.Nickname = currentNickname_;
-        context_.config.lang = selectedLanguage_;
+        if (const auto* language = LanguageManager::Instance().GetLanguage(selectedLanguage_)) {
+          context_.config.language = std::filesystem::path(language->filename).stem().string();
+        }
         context_.config.SaveConfigToFile();
         context_.input->ClearKeyBuffer();
         shouldTransitionToMainMenu_ = true;

@@ -841,7 +841,7 @@ void Initialize(void) {
     InstallFloorSlidingCrashfix();
     // SetupExceptionHandler();
     // Initialize language system
-    LanguageManager::Instance().LoadLanguages(".\\Multiplayer\\Localization\\", Config::Instance().lang);
+    LanguageManager::Instance().LoadLanguages(".\\Multiplayer\\Localization\\", Config::Instance().language);
     // Initialize music bridge for zCOptions integration
     gmp::audio::GothicMusicBridge::Initialize();
     // Initialize GMPCore - the central application owner

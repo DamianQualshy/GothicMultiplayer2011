@@ -47,7 +47,7 @@ LanguageManager& LanguageManager::Instance() {
   return instance;
 }
 
-void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) {
+void LanguageManager::LoadLanguages(const char* languageDir, std::string_view languageCode) {
   languageDir_ = languageDir;
   availableLanguages_.clear();
   activeLanguageIndex_ = -1;
@@ -151,10 +151,12 @@ void LanguageManager::LoadLanguages(const char* languageDir, int languageIndex) 
     return;
   }
 
-  // Default to English (index 0) if not specified or invalid
-  int targetIndex = languageIndex;
-  if (targetIndex < 0 || targetIndex >= static_cast<int>(availableLanguages_.size())) {
-    SPDLOG_WARN("LanguageManager: Invalid language index {}, defaulting to first language", languageIndex);
+  int targetIndex = GetLanguageIndex(languageCode);
+  if (targetIndex < 0) {
+    SPDLOG_WARN("LanguageManager: Unknown language code '{}'; defaulting to English", languageCode);
+    targetIndex = GetLanguageIndex("EN");
+  }
+  if (targetIndex < 0) {
     targetIndex = 0;
   }
 
@@ -199,15 +201,13 @@ bool LanguageManager::LoadLanguage(int index) {
 // ============================================================================
 
 namespace {
-constexpr std::size_t kStringCount = static_cast<std::size_t>(Language::SRVLIST_FAVOURITE_SAVE_FAILED) + 1;
 constexpr std::array<std::string_view, 4> kKnownFontPrefixes = {"CP1250_", "CP1251_", "CP1252_", "CP1254_"};
 
-const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
+constexpr auto kStringKeys = std::to_array<const char*>({"LANGUAGE",
                                                            "WRITE_NICKNAME",
                                                            "MMENU_CHSERVER",
                                                            "MMENU_OPTIONS",
                                                            "MMENU_LEAVEGAME",
-                                                           "MMENU_ONLINEOPTIONS",
                                                            "MMENU_BACK",
                                                            "MMENU_NICKNAME",
                                                            "MMENU_ANTIALIASING",
@@ -236,7 +236,18 @@ const std::array<const char*, kStringCount> kStringKeys = {"LANGUAGE",
                                                            "SRVLIST_INVALID_ENDPOINT",
                                                            "SRVLIST_FAVOURITE_ADDED",
                                                            "SRVLIST_FAVOURITE_EXISTS",
-                                                           "SRVLIST_FAVOURITE_SAVE_FAILED"};
+                                                           "SRVLIST_FAVOURITE_SAVE_FAILED",
+                                                           "MMENU_GMP_OPTIONS",
+                                                           "MMENU_GMP_CATEGORY",
+                                                           "MMENU_DISPLAY_CATEGORY",
+                                                           "MMENU_VOICE_ENABLED",
+                                                           "MMENU_VOICE_PTT_KEY",
+                                                           "MMENU_VOICE_VOLUME",
+                                                           "MMENU_EXTENDED_MENU_SCENES",
+                                                           "MMENU_WINDOW_ALWAYS_ON_TOP",
+                                                           "MMENU_VSYNC",
+                                                           "MMENU_RENDERER",
+                                                           "MMENU_RESTART_REQUIRED"});
 
 
 std::string_view GetFontPrefixForEncoding(localization::LanguageEncoding encoding) {
@@ -286,7 +297,7 @@ bool Language::LoadFromJsonFile(const std::filesystem::path& file) {
   encoding_ = encoding;
   fontPrefix_ = GetFontPrefixForEncoding(encoding);
 
-  data.resize(kStringCount);
+  data.resize(kStringKeys.size());
   for (std::size_t i = 0; i < kStringKeys.size(); ++i) {
     const auto key = kStringKeys[i];
     std::string value;

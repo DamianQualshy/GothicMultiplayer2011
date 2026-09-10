@@ -3,9 +3,8 @@
   "LANGUAGE": "English (English)",
   "WRITE_NICKNAME": "Type your ingame nickname:",
   "MMENU_CHSERVER": "Play",
-  "MMENU_OPTIONS": "Settings",
+  "MMENU_OPTIONS": "Game Settings",
   "MMENU_LEAVEGAME": "Exit",
-  "MMENU_ONLINEOPTIONS": "Options",
   "MMENU_BACK": "Back",
   "MMENU_NICKNAME": "Nickname: ",
   "MMENU_ANTIALIASING": "Antialiasing",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Invalid address. Use IP or IP:port.",
   "SRVLIST_FAVOURITE_ADDED": "Server added to favourites.",
   "SRVLIST_FAVOURITE_EXISTS": "Server is already in favourites.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Could not save the favourite."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Could not save the favourite.",
+  "MMENU_GMP_OPTIONS": "Multiplayer Options",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Display",
+  "MMENU_VOICE_ENABLED": "Voice chat",
+  "MMENU_VOICE_PTT_KEY": "Push-to-talk key",
+  "MMENU_VOICE_VOLUME": "Voice output volume",
+  "MMENU_EXTENDED_MENU_SCENES": "Extended menu scenes",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Always on top",
+  "MMENU_VSYNC": "Vertical synchronization",
+  "MMENU_RENDERER": "Renderer",
+  "MMENU_RESTART_REQUIRED": "Restart required for this change."
 }

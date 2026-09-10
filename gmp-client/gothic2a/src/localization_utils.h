@@ -28,6 +28,7 @@ SOFTWARE.
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <filesystem>
 #include <string>
 
 #ifdef _WIN32
@@ -69,7 +70,7 @@ inline bool KeywordMatches(const std::string& haystack, const char* keyword) {
 
 inline constexpr std::array<LanguageEncodingHint, 7> kEncodingHints = {
     {{LanguageEncoding::kCp1250, {"polish", "polski", "czech", "cesky", "hungarian", "magyar"}},
-     {LanguageEncoding::kCp1250, {"interslavic", "medzuslovjansky", nullptr, nullptr, nullptr, nullptr}},
+     {LanguageEncoding::kCp1250, {"slovak", "slovencina", "interslavic", "medzuslovjansky", nullptr, nullptr}},
      {LanguageEncoding::kCp1251, {"russian", "\u0440\u0443\u0441", "rossiya", nullptr, nullptr, nullptr}},
      {LanguageEncoding::kCp1251, {"ukrainian", "\u0443\u043a\u0440", nullptr, nullptr, nullptr, nullptr}},
      {LanguageEncoding::kCp1251, {"\u0440\u0443\u0441\u0441\u043a\u0438\u0439", nullptr, nullptr, nullptr, nullptr, nullptr}},
@@ -138,6 +139,9 @@ inline LanguageEncoding DetectLanguageEncoding(const std::string& language_field
     return LanguageEncoding::kCp1250;
   }
   if (path_contains("_cz") || path_contains("/cz") || path_contains("\\cz")) {
+    return LanguageEncoding::kCp1250;
+  }
+  if (path_contains("_sk") || path_contains("/sk") || path_contains("\\sk")) {
     return LanguageEncoding::kCp1250;
   }
   if (path_contains("_hu") || path_contains("/hu") || path_contains("\\hu")) {

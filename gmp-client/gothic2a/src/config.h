@@ -50,9 +50,10 @@ public:
   bool IsDefault() const;
 
   zSTRING Nickname;
-  int lang;
+  std::string language = "EN";
   enum class RendererType { D3D7, D3D9, D3D11 };
   bool vsync_enabled = true;
+  bool extended_menu_scenes = true;
 
   Config();
   ~Config();
@@ -70,8 +71,16 @@ public:
     return window_always_on_top_;
   }
 
+  void SetWindowAlwaysOnTop(bool enabled) {
+    window_always_on_top_ = enabled;
+  }
+
   RendererType GetRendererType() const {
     return renderer_type_;
+  }
+
+  void SetRendererType(RendererType renderer_type) {
+    renderer_type_ = renderer_type;
   }
 
   /**
@@ -94,13 +103,23 @@ public:
     return voice_chat_enabled_;
   }
 
+  void SetVoiceChatEnabled(bool enabled) {
+    voice_chat_enabled_ = enabled;
+  }
+
   int GetVoicePushToTalkKey() const {
     return voice_push_to_talk_key_;
+  }
+
+  void SetVoicePushToTalkKey(int key) {
+    voice_push_to_talk_key_ = key;
   }
 
   float GetVoiceOutputVolume() const {
     return static_cast<float>(voice_output_volume_percent_) / 100.0f;
   }
+
+  void SetVoiceOutputVolume(float volume);
 
   static Config& Instance() {
     static Config instance;

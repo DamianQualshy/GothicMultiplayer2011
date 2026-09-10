@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <array>
+#include <optional>
 #include <string_view>
 
 #include "ZenGin/zGothicAPI.h"
@@ -38,6 +39,9 @@ constexpr int kMaxTrackedCode = MAX_MOUSE_BTNS_AND_CODES;
 extern bool s_prevPressed[kMaxTrackedCode + 1];
 extern bool s_pressedThisFrame[kMaxTrackedCode + 1];
 extern bool s_toggledThisFrame[kMaxTrackedCode + 1];
+
+std::optional<int> FindKeyboardKeyCode(std::string_view name);
+std::string_view FindKeyboardKeyName(int code);
 
 // Process input and trigger key events
 void ProcessInput(zCInput* zinput);

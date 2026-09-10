@@ -47,6 +47,7 @@ public:
   ~SceneManager();
 
   void RegisterScene(const std::string& name, std::unique_ptr<MenuScene> scene, bool include_in_cycle = true);
+  void Configure(bool extended_scenes_enabled);
   bool ActivateScene(const std::string& name);
   bool ActivateNextScene();
   bool ActivateRandomScene();
@@ -68,6 +69,7 @@ private:
   bool weapon_visible_ = false;
   bool camera_anchor_in_world_ = false;
   std::unordered_map<std::string, std::unique_ptr<MenuScene>> scenes_;
+  std::vector<std::string> all_cycle_scene_names_;
   std::vector<std::string> cycle_scene_names_;
   MenuScene* active_scene_ = nullptr;
   std::string active_scene_name_;

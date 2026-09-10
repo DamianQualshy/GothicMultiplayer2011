@@ -120,6 +120,24 @@ void NormalizeCursorDelta(zCInput* zinput, float& dx, float& dy) {
 }
 }  // namespace
 
+std::optional<int> FindKeyboardKeyCode(std::string_view name) {
+  for (const auto& key : kKeyboardKeys) {
+    if (key.name == name) {
+      return key.code;
+    }
+  }
+  return std::nullopt;
+}
+
+std::string_view FindKeyboardKeyName(int code) {
+  for (const auto& key : kKeyboardKeys) {
+    if (key.code == code) {
+      return key.name;
+    }
+  }
+  return {};
+}
+
 void ProcessInput(zCInput* zinput) {
   if (!zinput) {
     return;

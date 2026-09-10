@@ -66,7 +66,6 @@ struct MenuContext {
   // ===== Menu State =====
   zSTRING selectedServerIP;
   int selectedServerIndex = -1;
-  bool writingNickname = false;
 
   // ===== Extended Server List =====
   ExtendedServerList* extendedServerList = nullptr;
@@ -95,6 +94,7 @@ struct MenuContext {
     options = zoptions;
 
     scenes::RegisterMenuScenes(sceneManager);
+    sceneManager.Configure(config.extended_menu_scenes);
     if (!sceneManager.ActivateRandomScene()) {
       sceneManager.ActivateScene(kDefaultSceneName);
     }

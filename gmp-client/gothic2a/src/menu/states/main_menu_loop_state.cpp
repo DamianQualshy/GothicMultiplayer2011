@@ -118,7 +118,7 @@ void MainMenuLoopState::RenderMenu() {
   // Online Options
   fcolor = (selectedMenuItem_ == ONLINE_OPTIONS) ? Highlighted : Normal;
   context_.screen->SetFontColor(fcolor);
-  context_.screen->Print(200, 4000, Language::Instance()[Language::MMENU_ONLINEOPTIONS]);
+  context_.screen->Print(200, 4000, Language::Instance()[Language::MMENU_GMP_OPTIONS]);
 
   // Leave Game
   fcolor = (selectedMenuItem_ == LEAVE_GAME) ? Highlighted : Normal;

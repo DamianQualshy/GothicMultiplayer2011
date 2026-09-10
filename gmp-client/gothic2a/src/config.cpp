@@ -28,16 +28,17 @@ SOFTWARE.
 
 #include <spdlog/spdlog.h>
 
+#include <algorithm>
+#include <cmath>
 #include <exception>
 #include <filesystem>
 #include <fstream>
-#include <algorithm>
 #include <map>
 #include <string>
 #include <string_view>
-#include <unordered_map>
 
 #include "renderer/renderer_config.h"
+#include "scripting/process_input.h"
 #include "shared/toml_wrapper.h"
 #include "windows_paths.h"
 
@@ -83,12 +84,12 @@ void Config::LoadConfigFromFile() {
     return;
   }
 
-  if (auto nickname_opt = toml.GetValue<std::string>("nickname"); nickname_opt) {
+  if (auto nickname_opt = toml.GetValue<std::string>("gmp", "nickname"); nickname_opt) {
     Nickname = nickname_opt->c_str();
   }
 
-  if (auto lang_opt = toml.GetValue<int>("language"); lang_opt) {
-    lang = *lang_opt;
+  if (auto language_opt = toml.GetValue<std::string>("gmp", "language"); language_opt && !language_opt->empty()) {
+    language = *language_opt;
   }
 
   if (std::optional<std::map<std::string, std::int32_t>> window_position = toml.GetValue<std::map<std::string, int>>("window_position")) {
@@ -119,16 +120,18 @@ void Config::LoadConfigFromFile() {
     }
   }
 
-  window_always_on_top_ = toml.GetValue<bool>("window_always_on_top", window_always_on_top_);
+  if (auto always_on_top = toml.GetValue<bool>("display", "window_always_on_top"); always_on_top) {
+    window_always_on_top_ = *always_on_top;
+  }
 
-  if (auto vsync_opt = toml.GetValue<bool>("vsync_enabled"); vsync_opt) {
+  if (auto vsync_opt = toml.GetValue<bool>("display", "vsync_enabled"); vsync_opt) {
     vsync_enabled = *vsync_opt;
   }
   // Propagate to renderer config (used by renderers during their init)
   RendererConfig::Instance().vsync_enabled = vsync_enabled;
 
   // Load renderer type (default: D3D9)
-  if (auto renderer_str = toml.GetValue<std::string>("renderer_type"); renderer_str) {
+  if (auto renderer_str = toml.GetValue<std::string>("display", "renderer_type"); renderer_str) {
     if (*renderer_str == "D3D7") {
       renderer_type_ = RendererType::D3D7;
     } else if (*renderer_str == "D3D9") {
@@ -139,21 +142,30 @@ void Config::LoadConfigFromFile() {
   }
 
   // MCP pipe enable flag
-  if (auto mcp_opt = toml.GetValue<bool>("mcp_pipe_enabled"); mcp_opt) {
+  if (auto mcp_opt = toml.GetValue<bool>("debug", "mcp_pipe_enabled"); mcp_opt) {
     mcp_pipe_enabled_ = *mcp_opt;
   }
 
   // Debug console enable flag
-  if (auto debug_console_opt = toml.GetValue<bool>("debug_console_enabled"); debug_console_opt) {
+  if (auto debug_console_opt = toml.GetValue<bool>("debug", "debug_console_enabled"); debug_console_opt) {
     debug_console_enabled_ = *debug_console_opt;
   }
 
-  voice_chat_enabled_ = toml.GetValue<bool>("voice_enabled", voice_chat_enabled_);
-  voice_push_to_talk_key_ = toml.GetValue<int>("voice_push_to_talk_key", voice_push_to_talk_key_);
-  voice_output_volume_percent_ = toml.GetValue<int>("voice_output_volume", voice_output_volume_percent_);
-  if (voice_push_to_talk_key_ <= 0 || voice_push_to_talk_key_ > 255) {
-    SPDLOG_WARN("Invalid voice_push_to_talk_key {}; using KEY_K", voice_push_to_talk_key_);
-    voice_push_to_talk_key_ = KEY_K;
+  if (auto voice_enabled = toml.GetValue<bool>("gmp", "voice_enabled"); voice_enabled) {
+    voice_chat_enabled_ = *voice_enabled;
+  }
+  if (auto voice_key = toml.GetValue<std::string>("gmp", "voice_push_to_talk_key"); voice_key) {
+    if (const auto key_code = gmp::gothic::FindKeyboardKeyCode(*voice_key); key_code) {
+      voice_push_to_talk_key_ = *key_code;
+    } else {
+      SPDLOG_WARN("Invalid voice_push_to_talk_key '{}'; using KEY_K", *voice_key);
+    }
+  }
+  if (auto voice_volume = toml.GetValue<int>("gmp", "voice_output_volume"); voice_volume) {
+    voice_output_volume_percent_ = *voice_volume;
+  }
+  if (auto extended_scenes = toml.GetValue<bool>("gmp", "extended_menu_scenes"); extended_scenes) {
+    extended_menu_scenes = *extended_scenes;
   }
   voice_output_volume_percent_ = std::clamp(voice_output_volume_percent_, 0, 100);
 
@@ -163,9 +175,10 @@ void Config::LoadConfigFromFile() {
 
 void Config::DefaultSettings() {
   Nickname.Clear();
-  lang = 0;
+  language = "EN";
   window_position_.reset();
   console_position_.reset();
+  window_always_on_top_ = false;
   renderer_type_ = RendererType::D3D9;
   mcp_pipe_enabled_ = false;
   debug_console_enabled_ = true;
@@ -173,38 +186,24 @@ void Config::DefaultSettings() {
   voice_push_to_talk_key_ = KEY_K;
   voice_output_volume_percent_ = 100;
   vsync_enabled = true;
+  extended_menu_scenes = true;
   is_default_ = true;
 };
 
 void Config::SaveConfigToFile() {
   TomlWrapper toml;
 
-  toml["nickname"] = Nickname.string();
-  toml["language"] = lang;
+  // TomlWrapper preserves insertion order. Keep these tables and their keys in
+  // the same user-facing order as the configuration documentation/menu.
+  toml["gmp"]["nickname"] = Nickname.string();
+  toml["gmp"]["language"] = language;
+  toml["gmp"]["voice_enabled"] = toml::value(voice_chat_enabled_);
+  const auto voice_key_name = gmp::gothic::FindKeyboardKeyName(voice_push_to_talk_key_);
+  toml["gmp"]["voice_push_to_talk_key"] =
+      toml::value(std::string(voice_key_name.empty() ? std::string_view{"KEY_K"} : voice_key_name));
+  toml["gmp"]["voice_output_volume"] = toml::value(voice_output_volume_percent_);
+  toml["gmp"]["extended_menu_scenes"] = toml::value(extended_menu_scenes);
 
-  if (window_position_) {
-    std::unordered_map<std::string, toml::value> window_position_map;
-    window_position_map["x"] = toml::value(window_position_->x);
-    window_position_map["y"] = toml::value(window_position_->y);
-    toml["window_position"] = window_position_map;
-  }
-
-  if (console_position_) {
-    std::unordered_map<std::string, toml::value> console_position_map;
-    console_position_map["x"] = toml::value(console_position_->x);
-    console_position_map["y"] = toml::value(console_position_->y);
-    toml["console_position"] = console_position_map;
-  }
-
-  toml["window_always_on_top"] = toml::value(window_always_on_top_);
-  toml["vsync_enabled"] = toml::value(vsync_enabled);
-  toml["mcp_pipe_enabled"] = toml::value(mcp_pipe_enabled_);
-  toml["debug_console_enabled"] = toml::value(debug_console_enabled_);
-  toml["voice_enabled"] = toml::value(voice_chat_enabled_);
-  toml["voice_push_to_talk_key"] = toml::value(voice_push_to_talk_key_);
-  toml["voice_output_volume"] = toml::value(voice_output_volume_percent_);
-
-  // Save renderer type as string
   std::string renderer_str;
   switch (renderer_type_) {
     case RendererType::D3D7:
@@ -217,7 +216,23 @@ void Config::SaveConfigToFile() {
       renderer_str = "D3D11";
       break;
   }
-  toml["renderer_type"] = toml::value(renderer_str);
+
+  toml["display"]["window_always_on_top"] = toml::value(window_always_on_top_);
+  toml["display"]["vsync_enabled"] = toml::value(vsync_enabled);
+  toml["display"]["renderer_type"] = toml::value(renderer_str);
+
+  toml["debug"]["mcp_pipe_enabled"] = toml::value(mcp_pipe_enabled_);
+  toml["debug"]["debug_console_enabled"] = toml::value(debug_console_enabled_);
+
+  if (window_position_) {
+    toml["window_position"]["x"] = toml::value(window_position_->x);
+    toml["window_position"]["y"] = toml::value(window_position_->y);
+  }
+
+  if (console_position_) {
+    toml["console_position"]["x"] = toml::value(console_position_->x);
+    toml["console_position"]["y"] = toml::value(console_position_->y);
+  }
 
   try {
     std::filesystem::create_directories(config_file_path_.parent_path());
@@ -248,6 +263,10 @@ const std::optional<Config::ConsolePosition>& Config::GetConsolePosition() const
 
 void Config::SetConsolePosition(ConsolePosition console_position) {
   console_position_ = console_position;
+}
+
+void Config::SetVoiceOutputVolume(float volume) {
+  voice_output_volume_percent_ = static_cast<int>(std::lround(std::clamp(volume, 0.0f, 1.0f) * 100.0f));
 }
 
 bool Config::IsDefault() const {

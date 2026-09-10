@@ -1,11 +1,10 @@
 {
-  "ORDER": 5,
+  "ORDER": 6,
   "LANGUAGE": "Medžuslovjansky (Interslavic)",
   "WRITE_NICKNAME": "Izberjete svoju nazvu:",
   "MMENU_CHSERVER": "Spisok Servera",
   "MMENU_OPTIONS": "Nastavjenja igry",
   "MMENU_LEAVEGAME": "Izhod GMP",
-  "MMENU_ONLINEOPTIONS": "Mnogoigračske nastavjenje",
   "MMENU_BACK": "Nazad",
   "MMENU_NICKNAME": "Nazva: ",
   "MMENU_ANTIALIASING": "Anti-Aliasing",
@@ -35,5 +34,16 @@
   "SRVLIST_INVALID_ENDPOINT": "Nevalidna adresa. Upotrebite IP ili IP:port.",
   "SRVLIST_FAVOURITE_ADDED": "Server dodany do omiljenih.",
   "SRVLIST_FAVOURITE_EXISTS": "Server už jest v omiljenih.",
-  "SRVLIST_FAVOURITE_SAVE_FAILED": "Ne možno zapisati omiljeny server."
+  "SRVLIST_FAVOURITE_SAVE_FAILED": "Ne možno zapisati omiljeny server.",
+  "MMENU_GMP_OPTIONS": "Nastrojenja Multiplayer",
+  "MMENU_GMP_CATEGORY": "Multiplayer",
+  "MMENU_DISPLAY_CATEGORY": "Prikaz",
+  "MMENU_VOICE_ENABLED": "Glasovy čet",
+  "MMENU_VOICE_PTT_KEY": "Klaviša govorenja",
+  "MMENU_VOICE_VOLUME": "Glasnost glasovogo četa",
+  "MMENU_EXTENDED_MENU_SCENES": "Razširjene sceny menu",
+  "MMENU_WINDOW_ALWAYS_ON_TOP": "Vsegda na vrhu",
+  "MMENU_VSYNC": "Vertikalna sinhronizacija",
+  "MMENU_RENDERER": "Renderer",
+  "MMENU_RESTART_REQUIRED": "Tuta izměna potrěbuje restart."
 }
