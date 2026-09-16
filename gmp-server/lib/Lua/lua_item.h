@@ -38,7 +38,6 @@ public:
   explicit LuaItem(std::string instance = {});
 
   std::string getInstance() const;
-  std::int32_t getIndex() const;
   std::int32_t getMainflag() const;
   std::int32_t getFlags() const;
   std::string getVisual() const;
@@ -64,7 +63,6 @@ private:
 };
 
 sol::object MakeItemObject(sol::state_view lua, std::string_view instance);
-sol::object MakeItemObjectByIndex(sol::state_view lua, std::int32_t index);
 
 void BindItem(sol::state& lua);
 

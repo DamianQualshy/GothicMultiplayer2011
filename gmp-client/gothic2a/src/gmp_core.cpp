@@ -92,7 +92,8 @@ void GMPCore::OnFrameStart() {
   // Execute all deferred actions at the start of the frame.
   // This runs on the main thread, BEFORE Gothic's rendering.
   // Safe for operations like ChangeLevel that invalidate world state.
-  while (!deferredActions_.empty()) {
+  const auto actions_to_run = deferredActions_.size();
+  for (std::size_t index = 0; index < actions_to_run; ++index) {
     auto action = std::move(deferredActions_.front());
     deferredActions_.pop();
     action();

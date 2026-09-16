@@ -180,8 +180,8 @@ ItemRegistry::Item ReadItem(const Json& object, std::size_t ordinal) {
   }
 
   item.index = ReadRequiredInt32(object, "index", context);
-  if (item.index < 0) {
-    throw std::runtime_error(context + " field 'index' must not be negative");
+  if (item.index <= 0) {
+    throw std::runtime_error(context + " field 'index' must be positive");
   }
 
   item.mainflag = ReadRequiredInt32(object, "mainflag", context);
@@ -225,7 +225,6 @@ bool ItemRegistry::Load(const std::filesystem::path& path) {
       throw std::runtime_error("root field 'items' must not be empty");
     }
 
-    std::unordered_map<std::int32_t, std::string> by_index;
     std::vector<Item> loaded_items;
     loaded_items.reserve(items.size());
 
@@ -238,12 +237,10 @@ bool ItemRegistry::Load(const std::filesystem::path& path) {
       if (by_instance_.contains(normalized)) {
         throw std::runtime_error("duplicate item instance '" + item.instance + "'");
       }
-      const auto [index_it, inserted] = by_index.emplace(item.index, item.instance);
-      if (!inserted) {
-        throw std::runtime_error("duplicate item index " + std::to_string(item.index) + " used by '" + index_it->second + "' and '" +
-                                 item.instance + "'");
+      if (const auto duplicate = by_index_.find(item.index); duplicate != by_index_.end()) {
+        throw std::runtime_error("duplicate item parser index " + std::to_string(item.index) + " used by '" +
+                                 loaded_items[duplicate->second].instance + "' and '" + item.instance + "'");
       }
-
       by_instance_.emplace(normalized, loaded_items.size());
       by_index_.emplace(item.index, loaded_items.size());
       loaded_items.push_back(std::move(item));

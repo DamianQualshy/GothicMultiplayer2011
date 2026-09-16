@@ -294,11 +294,11 @@ private:
   bool UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot);
   bool IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const;
   std::int16_t EquipmentSlotPacketId(EquipmentSlot slot) const;
-  std::int16_t& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
-  std::optional<std::int16_t>& PendingEquipmentStateField(Player& player, EquipmentSlot slot) const;
+  std::int32_t& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
+  std::optional<std::int32_t>& PendingEquipmentStateField(Player& player, EquipmentSlot slot) const;
   void TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index) const;
   std::optional<std::string> ResolveItemInstance(std::string instance) const;
-  std::int16_t ResolveItemIndex(PlayerId player_id, std::int16_t index, const char* field_name) const;
+  std::int32_t ResolveItemIndex(PlayerId player_id, std::int32_t index, const char* field_name) const;
   void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
   std::optional<std::reference_wrapper<Player>> GetIngamePlayerByConnection(Net::ConnectionHandle connection);
 

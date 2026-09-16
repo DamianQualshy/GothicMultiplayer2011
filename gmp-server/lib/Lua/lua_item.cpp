@@ -37,10 +37,6 @@ const ItemRegistry::Item* FindItem(std::string_view instance) {
   return g_server ? g_server->GetItemRegistry().Find(instance) : nullptr;
 }
 
-const ItemRegistry::Item* FindItemByIndex(std::int32_t index) {
-  return g_server ? g_server->GetItemRegistry().FindByIndex(index) : nullptr;
-}
-
 sol::table MakeNumberPairTable(sol::state_view lua, const char* first_name, std::int32_t first_value, const char* second_name,
                                std::int32_t second_value) {
   sol::table table = lua.create_table();
@@ -67,11 +63,6 @@ LuaItem::LuaItem(std::string instance) : instance_(std::move(instance)) {}
 std::string LuaItem::getInstance() const {
   const ItemRegistry::Item* item = FindItem(instance_);
   return item ? item->instance : std::string{};
-}
-
-std::int32_t LuaItem::getIndex() const {
-  const ItemRegistry::Item* item = FindItem(instance_);
-  return item ? item->index : 0;
 }
 
 std::int32_t LuaItem::getMainflag() const {
@@ -222,14 +213,6 @@ sol::object MakeItemObject(sol::state_view lua, std::string_view instance) {
   return sol::make_object(lua, LuaItem(item->instance));
 }
 
-sol::object MakeItemObjectByIndex(sol::state_view lua, std::int32_t index) {
-  const ItemRegistry::Item* item = FindItemByIndex(index);
-  if (item == nullptr) {
-    return sol::nil;
-  }
-  return sol::make_object(lua, LuaItem(item->instance));
-}
-
 void BindItem(sol::state& lua) {
 /* luagmp (class)
 *
@@ -252,16 +235,6 @@ void BindItem(sol::state& lua) {
 *
 */
   item_type["instance"] = sol::property(&LuaItem::getInstance);
-
-/* luagmp (property)
-*
-* Represents the Gothic parser symbol index for this item instance.
-*
-* @name     index
-* @return   (number)
-*
-*/
-  item_type["index"] = sol::property(&LuaItem::getIndex);
 
 /* luagmp (property)
 *
@@ -481,23 +454,6 @@ void BindItem(sol::state& lua) {
   item_type["getByInstance"] = [](std::string instance, sol::this_state state) {
     sol::state_view lua(state);
     return MakeItemObject(lua, instance);
-  };
-
-/* luagmp (method)
-*
-* Returns an item definition by Gothic parser symbol index.
-*
-* @version  0.3.0
-* @name     getByIndex
-* @side     server
-* @category Item
-* @param    (number) index  Gothic parser symbol index.
-* @return   (Item|nil) Item definition or nil if missing.
-*
-*/
-  item_type["getByIndex"] = [](std::int32_t index, sol::this_state state) {
-    sol::state_view lua(state);
-    return MakeItemObjectByIndex(lua, index);
   };
 
 /* luagmp (method)

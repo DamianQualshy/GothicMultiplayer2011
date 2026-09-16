@@ -543,7 +543,7 @@ int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, zCVob* vob) {
       position = fallback_position;
     }
 
-    NetGame::Instance().SendDropItem(item->GetInstance(), amount, instance_name, position, GetItemRotation(item), item->physicsEnabled != 0);
+    NetGame::Instance().SendDropItem(item->GetInstance(), amount, position, GetItemRotation(item), item->physicsEnabled != 0);
     item->RemoveVobFromWorld();
     dropItemTimeout = GetTickCount() + DROP_ITEM_TIMEOUT;
     return result;
@@ -576,7 +576,7 @@ int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* 
       gmp::gothic::ClientItemGroundManager::Instance().RememberPendingTake(instance_id, amount, previous_amount);
       gmp::gothic::ClientItemGroundManager::Instance().DetachItem(*item_ground_id);
     }
-    NetGame::Instance().SendTakeItem(instance_id, amount, instance_name, item_ground_id);
+    NetGame::Instance().SendTakeItem(instance_id, amount, item_ground_id);
     return result;
   }
 

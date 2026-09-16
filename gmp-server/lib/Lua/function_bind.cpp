@@ -124,7 +124,7 @@ std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std
   return player_opt;
 }
 
-sol::object EquipmentInstanceOrNil(std::int16_t index, sol::state_view lua) {
+sol::object EquipmentInstanceOrNil(std::int32_t index, sol::state_view lua) {
   if (index <= 0) {
     return sol::nil;
   }

@@ -32,6 +32,7 @@ SOFTWARE.
 
 #include "gmp_core.h"
 #include "content/content_transition_manager.h"
+#include "Interface.h"
 #include "language.h"
 #include "world_utils.hpp"
 #include "Patch.h"
@@ -71,6 +72,7 @@ constexpr int kEndpointErrorTop = 4550;
 constexpr int kEndpointHintTop = 7350;
 constexpr const char* kProgressFrameTexture = "PROGRESS.TGA";
 constexpr const char* kProgressFillTexture = "PROGRESS_BAR.TGA";
+constexpr int kNewGameSlot = -2;
 
 void PrintCentered(zCView* view, int y, const char* text) {
   if (!view || !text) {
@@ -555,16 +557,36 @@ void ServerListState::ScheduleGameSetup() {
     zVEC3 spawnPosition = current_player->GetPositionWorld();
     zSTRING mapName = NetGame::Instance().map;
     GMPCore::Instance().DeferToNextFrame([spawnPosition, mapName]() {
-      SPDLOG_INFO("Executing deferred game setup (level change to {})...", mapName.ToChar());
+      SPDLOG_INFO("Executing deferred game setup for {}...", mapName.ToChar());
 
-      // Now safe to change level - we're at the start of the frame, before rendering
-      Patch::ChangeLevelEnabled(true);
-      ogame->ChangeLevel(mapName, zSTRING("????"));
-      Patch::ChangeLevelEnabled(false);
+      auto fail_setup = [](const std::string& reason) {
+        SPDLOG_ERROR("Server game setup failed: {}", reason);
+        NetGame::Instance().Disconnect();
+        GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
+      };
+
+      auto* content = NetGame::Instance().content_transition_manager.get();
+      const bool recreate_session = content && content->HasActiveAddonArchives();
+      if (recreate_session) {
+        std::string error;
+        if (!content->StartServerGameSession(error)) {
+          fail_setup(error);
+          return;
+        }
+        if (!ogame) {
+          fail_setup("Gothic did not provide the recreated server game session");
+          return;
+        }
+        ogame->LoadGame(kNewGameSlot, mapName);
+      } else {
+        // Now safe to change level - we're at the start of the frame, before rendering.
+        Patch::ChangeLevelEnabled(true);
+        ogame->ChangeLevel(mapName, zSTRING("????"));
+        Patch::ChangeLevelEnabled(false);
+      }
 
       if (!ogame->GetGameWorld() || !::player) {
-        SPDLOG_ERROR("Gothic failed to create the server world or hero during level change");
-        NetGame::Instance().Disconnect();
+        fail_setup("Gothic failed to create the server world or hero");
         return;
       }
 
@@ -575,15 +597,38 @@ void ServerListState::ScheduleGameSetup() {
       ::player->trafoObjToWorld.SetTranslation(spawnPosition);
       CleanupWorldObjects(ogame->GetGameWorld());
 
+      std::string resource_error;
+      if (!NetGame::Instance().FinalizeDownloadedContent(resource_error)) {
+        fail_setup(resource_error);
+        return;
+      }
+
       // Join game
       NetGame::Instance().JoinGame();
     });
     SPDLOG_INFO("Level change deferred to next frame");
   } else {
-    // No level change needed, can complete setup immediately
-    DeleteAllNpcsAndDisableSpawning();
-    CleanupWorldObjects(ogame->GetGameWorld());
-    NetGame::Instance().JoinGame();
+    // Client resources may execute arbitrary Lua. Initialize them at the same
+    // frame boundary used for level changes, never from the menu render pass.
+    GMPCore::Instance().DeferToNextFrame([]() {
+      if (!ogame || !ogame->GetGameWorld() || !::player) {
+        SPDLOG_ERROR("Server game setup failed: Gothic game world or hero is unavailable");
+        NetGame::Instance().Disconnect();
+        GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
+        return;
+      }
+
+      DeleteAllNpcsAndDisableSpawning();
+      CleanupWorldObjects(ogame->GetGameWorld());
+      std::string resource_error;
+      if (!NetGame::Instance().FinalizeDownloadedContent(resource_error)) {
+        SPDLOG_ERROR("Server game setup failed: {}", resource_error);
+        NetGame::Instance().Disconnect();
+        GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
+        return;
+      }
+      NetGame::Instance().JoinGame();
+    });
   }
 }
 

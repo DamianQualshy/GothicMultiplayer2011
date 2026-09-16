@@ -68,14 +68,18 @@ inline bool KeywordMatches(const std::string& haystack, const char* keyword) {
   return haystack.find(keyword) != std::string::npos;
 }
 
-inline constexpr std::array<LanguageEncodingHint, 7> kEncodingHints = {
+inline constexpr std::array<LanguageEncodingHint, 10> kEncodingHints = {
     {{LanguageEncoding::kCp1250, {"polish", "polski", "czech", "cesky", "hungarian", "magyar"}},
      {LanguageEncoding::kCp1250, {"slovak", "slovencina", "interslavic", "medzuslovjansky", nullptr, nullptr}},
+     {LanguageEncoding::kCp1250, {"silesian", "slaski", "slonski", "slonsko", "slask", "slonsk"}},
      {LanguageEncoding::kCp1251, {"russian", "\u0440\u0443\u0441", "rossiya", nullptr, nullptr, nullptr}},
      {LanguageEncoding::kCp1251, {"ukrainian", "\u0443\u043a\u0440", nullptr, nullptr, nullptr, nullptr}},
      {LanguageEncoding::kCp1251, {"\u0440\u0443\u0441\u0441\u043a\u0438\u0439", nullptr, nullptr, nullptr, nullptr, nullptr}},
      {LanguageEncoding::kCp1252, {"english", "german", "deutsch", "italian", "italiano", nullptr}},
-     {LanguageEncoding::kCp1254, {"turkish", "turkce", "t\u00fcrk", nullptr, nullptr, nullptr}}}};
+     {LanguageEncoding::kCp1252, {"french", "francais", "fran\u00e7ais", "danish", "dansk", nullptr}},
+     {LanguageEncoding::kCp1252, {"spanish", "espanol", "espa\u00f1ol", nullptr, nullptr, nullptr}},
+     {LanguageEncoding::kCp1254, {"turkish", "turkce", "t\u00fcrk", nullptr, nullptr, nullptr}}
+    }};
 
 #ifdef _WIN32
 inline std::string ConvertUtf8ToCodePage(const std::string& text, unsigned int code_page) {

@@ -423,26 +423,24 @@ void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id) 
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
-void GameClient::SendDropItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
-                              const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled) {
+void GameClient::SendDropItem(std::int32_t instance, std::uint16_t amount, const glm::vec3& position,
+                              const glm::vec3& rotation, bool physics_enabled) {
   DropItemPacket packet;
   packet.packet_type = PT_DROPITEM;
   packet.item_instance = instance;
   packet.item_amount = amount;
-  packet.item_instance_name = instance_name;
   packet.position = position;
   packet.rotation = rotation;
   packet.physics_enabled = physics_enabled;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }
 
-void GameClient::SendTakeItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
+void GameClient::SendTakeItem(std::int32_t instance, std::uint16_t amount,
                               std::optional<std::uint32_t> item_ground_id) {
   TakeItemPacket packet;
   packet.packet_type = PT_TAKEITEM;
   packet.item_instance = instance;
   packet.item_amount = amount;
-  packet.item_instance_name = instance_name;
   packet.item_ground_id = item_ground_id;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
 }

@@ -102,7 +102,8 @@ sol::object MakeItemOrNil(sol::state_view lua, const std::optional<std::int32_t>
   if (!item_index.has_value()) {
     return sol::nil;
   }
-  return MakeItemObjectByIndex(lua, item_index.value());
+  const auto* item = g_server->GetItemRegistry().FindByIndex(*item_index);
+  return item ? MakeItemObject(lua, item->instance) : sol::make_object(lua, sol::nil);
 }
 
 void RegisterProxies() {

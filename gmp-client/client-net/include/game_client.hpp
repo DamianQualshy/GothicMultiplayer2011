@@ -79,10 +79,9 @@ public:
   // Send methods
   void SendChatMessage(const std::string& msg);
   void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id);
-  void SendDropItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
-                    const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled);
-  void SendTakeItem(std::uint16_t instance, std::uint16_t amount, const std::string& instance_name,
-                    std::optional<std::uint32_t> item_ground_id);
+  void SendDropItem(std::int32_t instance, std::uint16_t amount, const glm::vec3& position,
+                    const glm::vec3& rotation, bool physics_enabled);
+  void SendTakeItem(std::int32_t instance, std::uint16_t amount, std::optional<std::uint32_t> item_ground_id);
   void SendPlayerWorldEnter(const std::string& world_name);
   void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);

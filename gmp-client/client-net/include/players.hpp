@@ -34,6 +34,7 @@ SOFTWARE.
 #include <unordered_map>
 #include <string>
 #include <vector>
+#include <utility>
 
 #include "common_structs.h"
 
@@ -278,80 +279,80 @@ public:
   }
 
   // Items
-  std::uint16_t left_hand_item() const {
+  std::int32_t left_hand_item() const {
     return left_hand_item_instance_;
   }
-  void set_left_hand_item(std::uint16_t instance) {
+  void set_left_hand_item(std::int32_t instance) {
     left_hand_item_instance_ = instance;
   }
 
-  std::uint16_t right_hand_item() const {
+  std::int32_t right_hand_item() const {
     return right_hand_item_instance_;
   }
-  void set_right_hand_item(std::uint16_t instance) {
+  void set_right_hand_item(std::int32_t instance) {
     right_hand_item_instance_ = instance;
   }
 
-  std::uint16_t equipped_armor() const {
+  std::int32_t equipped_armor() const {
     return equipped_armor_instance_;
   }
-  void set_equipped_armor(std::uint16_t instance) {
+  void set_equipped_armor(std::int32_t instance) {
     equipped_armor_instance_ = instance;
   }
 
-  std::uint16_t equipped_helmet() const {
+  std::int32_t equipped_helmet() const {
     return equipped_helmet_instance_;
   }
-  void set_equipped_helmet(std::uint16_t instance) {
+  void set_equipped_helmet(std::int32_t instance) {
     equipped_helmet_instance_ = instance;
   }
 
-  std::uint16_t equipped_shield() const {
+  std::int32_t equipped_shield() const {
     return equipped_shield_instance_;
   }
-  void set_equipped_shield(std::uint16_t instance) {
+  void set_equipped_shield(std::int32_t instance) {
     equipped_shield_instance_ = instance;
   }
 
-  std::uint16_t equipped_amulet() const {
+  std::int32_t equipped_amulet() const {
     return equipped_amulet_instance_;
   }
-  void set_equipped_amulet(std::uint16_t instance) {
+  void set_equipped_amulet(std::int32_t instance) {
     equipped_amulet_instance_ = instance;
   }
 
-  std::uint16_t equipped_belt() const {
+  std::int32_t equipped_belt() const {
     return equipped_belt_instance_;
   }
-  void set_equipped_belt(std::uint16_t instance) {
+  void set_equipped_belt(std::int32_t instance) {
     equipped_belt_instance_ = instance;
   }
 
-  std::uint16_t equipped_ring_left() const {
+  std::int32_t equipped_ring_left() const {
     return equipped_ring_left_instance_;
   }
-  void set_equipped_ring_left(std::uint16_t instance) {
+  void set_equipped_ring_left(std::int32_t instance) {
     equipped_ring_left_instance_ = instance;
   }
 
-  std::uint16_t equipped_ring_right() const {
+  std::int32_t equipped_ring_right() const {
     return equipped_ring_right_instance_;
   }
-  void set_equipped_ring_right(std::uint16_t instance) {
+  void set_equipped_ring_right(std::int32_t instance) {
     equipped_ring_right_instance_ = instance;
   }
 
-  std::uint16_t melee_weapon() const {
+  std::int32_t melee_weapon() const {
     return melee_weapon_instance_;
   }
-  void set_melee_weapon(std::uint16_t instance) {
+  void set_melee_weapon(std::int32_t instance) {
     melee_weapon_instance_ = instance;
   }
 
-  std::uint16_t ranged_weapon() const {
+  std::int32_t ranged_weapon() const {
     return ranged_weapon_instance_;
   }
-  void set_ranged_weapon(std::uint16_t instance) {
+  void set_ranged_weapon(std::int32_t instance) {
     ranged_weapon_instance_ = instance;
   }
 
@@ -384,10 +385,10 @@ public:
     active_spell_nr_ = spell;
   }
 
-  std::uint16_t active_spell_instance() const {
+  std::int32_t active_spell_instance() const {
     return active_spell_instance_;
   }
-  void set_active_spell_instance(std::uint16_t instance) {
+  void set_active_spell_instance(std::int32_t instance) {
     active_spell_instance_ = instance;
   }
 
@@ -481,24 +482,24 @@ protected:
   std::unordered_map<std::int32_t, std::int32_t> talents_;
 
   // Items
-  std::uint16_t left_hand_item_instance_{0};
-  std::uint16_t right_hand_item_instance_{0};
-  std::uint16_t equipped_armor_instance_{0};
-  std::uint16_t equipped_helmet_instance_{0};
-  std::uint16_t equipped_shield_instance_{0};
-  std::uint16_t equipped_amulet_instance_{0};
-  std::uint16_t equipped_belt_instance_{0};
-  std::uint16_t equipped_ring_left_instance_{0};
-  std::uint16_t equipped_ring_right_instance_{0};
-  std::uint16_t melee_weapon_instance_{0};
-  std::uint16_t ranged_weapon_instance_{0};
+  std::int32_t left_hand_item_instance_{0};
+  std::int32_t right_hand_item_instance_{0};
+  std::int32_t equipped_armor_instance_{0};
+  std::int32_t equipped_helmet_instance_{0};
+  std::int32_t equipped_shield_instance_{0};
+  std::int32_t equipped_amulet_instance_{0};
+  std::int32_t equipped_belt_instance_{0};
+  std::int32_t equipped_ring_left_instance_{0};
+  std::int32_t equipped_ring_right_instance_{0};
+  std::int32_t melee_weapon_instance_{0};
+  std::int32_t ranged_weapon_instance_{0};
 
   // State
   std::uint16_t animation_{0};
   std::string animation_name_;
   std::uint8_t weapon_mode_{0};
   std::uint8_t active_spell_nr_{0};
-  std::uint16_t active_spell_instance_{0};
+  std::int32_t active_spell_instance_{0};
   std::uint8_t head_direction_{0};
   std::uint32_t state_sequence_{0};
   bool has_state_sequence_{false};

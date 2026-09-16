@@ -61,15 +61,16 @@ struct PlayerState {
   glm::vec3 position{0.0f};
   // Gothic forward/at vector on the horizontal plane.
   glm::vec3 nrot{0.0f};
-  std::int16_t left_hand_item_instance{0};
-  std::int16_t right_hand_item_instance{0};
-  std::int16_t equipped_armor_instance{0};
-  std::int16_t equipped_helmet_instance{0};
-  std::int16_t equipped_shield_instance{0};
-  std::int16_t equipped_amulet_instance{0};
-  std::int16_t equipped_belt_instance{0};
-  std::int16_t equipped_ring_left_instance{0};
-  std::int16_t equipped_ring_right_instance{0};
+  // Live zCParser symbol indexes for the active game session. Zero means none.
+  std::int32_t left_hand_item_instance{0};
+  std::int32_t right_hand_item_instance{0};
+  std::int32_t equipped_armor_instance{0};
+  std::int32_t equipped_helmet_instance{0};
+  std::int32_t equipped_shield_instance{0};
+  std::int32_t equipped_amulet_instance{0};
+  std::int32_t equipped_belt_instance{0};
+  std::int32_t equipped_ring_left_instance{0};
+  std::int32_t equipped_ring_right_instance{0};
   std::int16_t animation{-1};
   std::string animation_name;
   std::int16_t health_points{0};
@@ -77,25 +78,25 @@ struct PlayerState {
   std::uint8_t life_state{PLAYER_LIFE_ALIVE};
   std::uint8_t weapon_mode{0};
   std::uint8_t active_spell_nr{0};
-  std::int16_t active_spell_instance{0};
+  std::int32_t active_spell_instance{0};
   std::uint8_t head_direction{0};
-  std::int16_t melee_weapon_instance{0};
-  std::int16_t ranged_weapon_instance{0};
+  std::int32_t melee_weapon_instance{0};
+  std::int32_t ranged_weapon_instance{0};
 };
 
 template <typename S>
 void serialize(S& s, PlayerState& packet) {
   s.object(packet.position);
   s.object(packet.nrot);
-  s.value2b(packet.left_hand_item_instance);
-  s.value2b(packet.right_hand_item_instance);
-  s.value2b(packet.equipped_armor_instance);
-  s.value2b(packet.equipped_helmet_instance);
-  s.value2b(packet.equipped_shield_instance);
-  s.value2b(packet.equipped_amulet_instance);
-  s.value2b(packet.equipped_belt_instance);
-  s.value2b(packet.equipped_ring_left_instance);
-  s.value2b(packet.equipped_ring_right_instance);
+  s.value4b(packet.left_hand_item_instance);
+  s.value4b(packet.right_hand_item_instance);
+  s.value4b(packet.equipped_armor_instance);
+  s.value4b(packet.equipped_helmet_instance);
+  s.value4b(packet.equipped_shield_instance);
+  s.value4b(packet.equipped_amulet_instance);
+  s.value4b(packet.equipped_belt_instance);
+  s.value4b(packet.equipped_ring_left_instance);
+  s.value4b(packet.equipped_ring_right_instance);
   s.value2b(packet.animation);
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.value2b(packet.health_points);
@@ -103,10 +104,10 @@ void serialize(S& s, PlayerState& packet) {
   s.value1b(packet.life_state);
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
-  s.value2b(packet.active_spell_instance);
+  s.value4b(packet.active_spell_instance);
   s.value1b(packet.head_direction);
-  s.value2b(packet.melee_weapon_instance);
-  s.value2b(packet.ranged_weapon_instance);
+  s.value4b(packet.melee_weapon_instance);
+  s.value4b(packet.ranged_weapon_instance);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_state) {

@@ -3762,6 +3762,10 @@ void BindGothicSpecific(sol::state& lua) {
   lua["LANG_UA"] = languageManager.GetLanguageIndex("UA");
   lua["LANG_IT"] = languageManager.GetLanguageIndex("IT");
   lua["LANG_HU"] = languageManager.GetLanguageIndex("HU");
+  lua["LANG_FR"] = languageManager.GetLanguageIndex("FR");
+  lua["LANG_DA"] = languageManager.GetLanguageIndex("DA");
+  lua["LANG_ES"] = languageManager.GetLanguageIndex("ES");
+  lua["LANG_SZL"] = languageManager.GetLanguageIndex("SZL");
 }
 
 void CleanupGothicViews() {
@@ -3892,5 +3896,45 @@ void CleanupGothicViews() {
 * @category Language
 * @side     client
 * @name     LANG_HU
+*
+*/
+
+/* luagmp (const)
+*
+* French language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_FR
+*
+*/
+
+/* luagmp (const)
+*
+* Danish language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_DA
+*
+*/
+
+/* luagmp (const)
+*
+* Spanish language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_ES
+*
+*/
+
+/* luagmp (const)
+*
+* Silesian language index.
+*
+* @category Language
+* @side     client
+* @name     LANG_SZL
 *
 */

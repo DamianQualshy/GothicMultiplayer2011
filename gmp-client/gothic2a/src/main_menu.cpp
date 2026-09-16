@@ -175,17 +175,38 @@ void __stdcall CMainMenu::ReLaunchMenuCallback() {
 void CMainMenu::ReLaunchMainMenu() {
   zinput->ClearKeyBuffer();
   const bool reload_base_world = NetGame::Instance().ConsumeBaseWorldReloadRequest();
-  if (!reload_base_world && !memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21)) {
+  if (reload_base_world) {
+    SPDLOG_INFO("Recreating the base Gothic game session after addon disconnect");
+    std::string error;
+    auto* content = NetGame::Instance().content_transition_manager.get();
+    if (!content || !content->DeactivateServerContent(error)) {
+      SPDLOG_ERROR("Failed to restore the base Gothic game session: {}", error);
+      return;
+    }
+    constexpr int kNewGameSlot = -2;
+    gmp::gothic::PrepareDisconnectLoadingScreen();
+    ogame->LoadGame(kNewGameSlot, zSTRING("NEWWORLD\\NEWWORLD.ZEN"));
+  } else if (ogame && ogame->GetGameWorld() &&
+             !memcmp("NEWWORLD\\NEWWORLD.ZEN", ogame->GetGameWorld()->GetWorldFilename().ToChar(), 21)) {
   }  // jest mapa
   else {
-    if (reload_base_world) {
-      SPDLOG_INFO("Reloading base NEWWORLD after addon content deactivation");
+    if (!ogame || !ogame->GetGameWorld()) {
+      SPDLOG_ERROR("Cannot reload the base world because the Gothic game session is unavailable");
+      return;
     }
     gmp::gothic::PrepareDisconnectLoadingScreen();
     Patch::ChangeLevelEnabled(true);
     ogame->ChangeLevel("NEWWORLD\\NEWWORLD.ZEN", zSTRING("????"));
     Patch::ChangeLevelEnabled(false);
   }
+
+  if (!ogame || !ogame->GetGameWorld() || !player) {
+    SPDLOG_ERROR("Cannot relaunch the GMP menu because the base world or hero is unavailable");
+    return;
+  }
+  HeroPos = player->GetPositionWorld();
+  Angle = player->trafoObjToWorld.GetAtVector();
+  NAngle = player->trafoObjToWorld.GetRightVector();
   HooksManager::GetInstance()->AddHook(HT_AIMOVING, (DWORD)CMainMenu::ReLaunchMenuCallback);
 }
 

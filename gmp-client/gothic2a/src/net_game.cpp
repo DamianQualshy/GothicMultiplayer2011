@@ -266,16 +266,32 @@ oCItem* GetNpcSlotItem(oCNpc* npc, const char* slot_name) {
   return npc->GetSlotItem(slot);
 }
 
-std::int16_t GetSlotItemInstance(oCNpc* npc, const char* slot_name) {
+std::int32_t GetSlotItemInstance(oCNpc* npc, const char* slot_name) {
   if (auto* item = GetNpcSlotItem(npc, slot_name)) {
-    return static_cast<std::int16_t>(item->GetInstance());
+    return item->GetInstance();
   }
 
   return 0;
 }
 
 bool IsNetworkItemInstance(std::int32_t instance) {
-  return instance > 0;
+  if (instance <= 0) {
+    return false;
+  }
+  zCParser* parser = zCParser::GetParser();
+  if (!parser || instance >= parser->symtab.GetNumInList()) {
+    return false;
+  }
+  zCPar_Symbol* symbol = parser->GetSymbol(instance);
+  if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || (symbol->flags & zPAR_FLAG_CONST) == 0 ||
+      (symbol->flags & zPAR_FLAG_EXTERNAL) != 0) {
+    return false;
+  }
+  int item_class_index = parser->GetIndex("C_ITEM");
+  if (item_class_index < 0) {
+    item_class_index = parser->GetIndex("C_Item");
+  }
+  return item_class_index >= 0 && parser->GetBaseClass(symbol) == item_class_index;
 }
 
 oCItem* CreateNetworkItem(std::int32_t instance) {
@@ -330,6 +346,19 @@ std::optional<int> FindParserIndex(const char* instance_name) {
   }
 
   return index;
+}
+
+std::optional<std::string> FindParserInstanceName(std::int32_t index) {
+  if (!IsNetworkItemInstance(index)) {
+    return std::nullopt;
+  }
+
+  zCParser* parser = zCParser::GetParser();
+  zCPar_Symbol* symbol = parser ? parser->GetSymbol(index) : nullptr;
+  if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || symbol->name.IsEmpty()) {
+    return std::nullopt;
+  }
+  return std::string(symbol->name.ToChar());
 }
 
 void ApplyAuthoritativeNpcPosition(oCNpc* npc, const zVEC3& position) {
@@ -415,20 +444,20 @@ std::vector<oCItem*> GetActiveInventoryItems(oCNpc* npc, int item_flag) {
   return items;
 }
 
-std::int16_t GetEquippedInventoryItemInstance(oCNpc* npc, int item_flag) {
+std::int32_t GetEquippedInventoryItemInstance(oCNpc* npc, int item_flag) {
   const auto items = GetActiveInventoryItems(npc, item_flag);
   if (items.empty()) {
     return 0;
   }
 
-  return static_cast<std::int16_t>(items.front()->GetInstance());
+  return items.front()->GetInstance();
 }
 
-std::array<std::int16_t, 2> GetEquippedRingInstances(oCNpc* npc, const std::array<std::int16_t, 2>& previous_rings) {
-  std::array<std::int16_t, 2> rings{0, 0};
-  std::vector<std::int16_t> active_instances;
+std::array<std::int32_t, 2> GetEquippedRingInstances(oCNpc* npc, const std::array<std::int32_t, 2>& previous_rings) {
+  std::array<std::int32_t, 2> rings{0, 0};
+  std::vector<std::int32_t> active_instances;
   for (auto* item : GetActiveInventoryItems(npc, ITM_FLAG_RING)) {
-    active_instances.push_back(static_cast<std::int16_t>(item->GetInstance()));
+    active_instances.push_back(item->GetInstance());
   }
 
   for (std::size_t i = 0; i < previous_rings.size(); ++i) {
@@ -456,7 +485,7 @@ std::array<std::int16_t, 2> GetEquippedRingInstances(oCNpc* npc, const std::arra
   return rings;
 }
 
-std::int16_t GetActiveSpellItemInstance(oCNpc* npc) {
+std::int32_t GetActiveSpellItemInstance(oCNpc* npc) {
   if (!npc) {
     return 0;
   }
@@ -467,7 +496,7 @@ std::int16_t GetActiveSpellItemInstance(oCNpc* npc) {
   }
 
   if (auto* item = npc->GetSpellItem(active_spell_nr)) {
-    return static_cast<std::int16_t>(item->GetInstance());
+    return item->GetInstance();
   }
 
   return 0;
@@ -482,7 +511,7 @@ int GetInventoryAmount(oCNpc* npc, int instance) {
   return item ? std::max(0, item->amount) : 0;
 }
 
-oCItem* GetOrCreateInventoryItem(oCNpc* npc, std::int16_t instance, int required_flag) {
+oCItem* GetOrCreateInventoryItem(oCNpc* npc, std::int32_t instance, int required_flag) {
   if (!npc || !IsNetworkItemInstance(instance)) {
     return nullptr;
   }
@@ -507,7 +536,7 @@ oCItem* GetOrCreateInventoryItem(oCNpc* npc, std::int16_t instance, int required
   return item;
 }
 
-oCItem* GetOrCreateValidInventoryItem(oCNpc* npc, std::int16_t instance, bool (*is_valid_item)(oCItem*)) {
+oCItem* GetOrCreateValidInventoryItem(oCNpc* npc, std::int32_t instance, bool (*is_valid_item)(oCItem*)) {
   if (!npc || !IsNetworkItemInstance(instance) || !is_valid_item) {
     return nullptr;
   }
@@ -532,7 +561,7 @@ oCItem* GetOrCreateValidInventoryItem(oCNpc* npc, std::int16_t instance, bool (*
   return item;
 }
 
-void SyncEquippedCombatItem(oCNpc* npc, std::int16_t instance, oCItem* current, bool (*is_valid_item)(oCItem*)) {
+void SyncEquippedCombatItem(oCNpc* npc, std::int32_t instance, oCItem* current, bool (*is_valid_item)(oCItem*)) {
   if (!npc) {
     return;
   }
@@ -559,7 +588,7 @@ void SyncEquippedCombatItem(oCNpc* npc, std::int16_t instance, oCItem* current, 
   }
 }
 
-void SyncEquippedInventoryItem(oCNpc* npc, std::int16_t instance, int item_flag) {
+void SyncEquippedInventoryItem(oCNpc* npc, std::int32_t instance, int item_flag) {
   if (!npc) {
     return;
   }
@@ -587,12 +616,12 @@ void SyncEquippedInventoryItem(oCNpc* npc, std::int16_t instance, int item_flag)
   }
 }
 
-void SyncEquippedRingItems(oCNpc* npc, std::int16_t left_instance, std::int16_t right_instance) {
+void SyncEquippedRingItems(oCNpc* npc, std::int32_t left_instance, std::int32_t right_instance) {
   if (!npc) {
     return;
   }
 
-  std::array<std::int16_t, 2> desired{left_instance, right_instance};
+  std::array<std::int32_t, 2> desired{left_instance, right_instance};
   std::array<bool, 2> matched{false, false};
 
   const auto active_rings = GetActiveInventoryItems(npc, ITM_FLAG_RING);
@@ -622,7 +651,7 @@ void SyncEquippedRingItems(oCNpc* npc, std::int16_t left_instance, std::int16_t 
   }
 }
 
-void SyncEquippedSlotItem(oCNpc* npc, std::int16_t instance, const char* slot_name, bool (*is_valid_slot_item)(oCItem*)) {
+void SyncEquippedSlotItem(oCNpc* npc, std::int32_t instance, const char* slot_name, bool (*is_valid_slot_item)(oCItem*)) {
   if (!npc) {
     return;
   }
@@ -667,7 +696,7 @@ void SyncEquippedSlotItem(oCNpc* npc, std::int16_t instance, const char* slot_na
   npc->Equip(item);
 }
 
-bool SyncEquippedPacketSlot(oCNpc* npc, std::int16_t instance, std::int16_t slot_id) {
+bool SyncEquippedPacketSlot(oCNpc* npc, std::int32_t instance, std::int16_t slot_id) {
   switch (slot_id) {
     case EQUIP_SLOT_ARMOR:
       SyncEquippedCombatItem(npc, instance, npc ? npc->GetEquippedArmor() : nullptr, IsArmorItem);
@@ -1486,22 +1515,21 @@ void NetGame::SendCastSpell(oCNpc* Target, short SpellId) {
   game_client->SendCastSpell(target_id, static_cast<std::uint16_t>(SpellId));
 }
 
-void NetGame::SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position, const glm::vec3& rotation,
+void NetGame::SendDropItem(std::int32_t instance, short amount, const glm::vec3& position, const glm::vec3& rotation,
                            bool physics_enabled) {
   if (!game_client) {
     return;
   }
 
-  game_client->SendDropItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, position, rotation,
-                            physics_enabled);
+  game_client->SendDropItem(instance, static_cast<std::uint16_t>(amount), position, rotation, physics_enabled);
 }
 
-void NetGame::SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id) {
+void NetGame::SendTakeItem(std::int32_t instance, short amount, std::optional<std::uint32_t> item_ground_id) {
   if (!game_client) {
     return;
   }
 
-  game_client->SendTakeItem(static_cast<std::uint16_t>(instance), static_cast<std::uint16_t>(amount), instance_name, item_ground_id);
+  game_client->SendTakeItem(instance, static_cast<std::uint16_t>(amount), item_ground_id);
 }
 
 void NetGame::SendPlayerWorldEnter(const std::string& world_name) {
@@ -1575,18 +1603,18 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.nrot = Vec3ToGlmVec3(player->GetAtVectorWorld());
   oCItem* left_hand_item = dynamic_cast<oCItem*>(player->GetLeftHand());
   oCItem* right_hand_item = dynamic_cast<oCItem*>(player->GetRightHand());
-  state.left_hand_item_instance = left_hand_item ? static_cast<short>(left_hand_item->GetInstance()) : 0;
-  state.right_hand_item_instance = right_hand_item ? static_cast<short>(right_hand_item->GetInstance()) : 0;
-  state.equipped_armor_instance = player->GetEquippedArmor() ? static_cast<short>(player->GetEquippedArmor()->GetInstance()) : 0;
+  state.left_hand_item_instance = left_hand_item ? left_hand_item->GetInstance() : 0;
+  state.right_hand_item_instance = right_hand_item ? right_hand_item->GetInstance() : 0;
+  state.equipped_armor_instance = player->GetEquippedArmor() ? player->GetEquippedArmor()->GetInstance() : 0;
   state.equipped_helmet_instance = GetSlotItemInstance(player, NPC_NODE_HELMET);
   state.equipped_shield_instance = GetSlotItemInstance(player, NPC_NODE_SHIELD);
   state.equipped_amulet_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET);
   state.equipped_belt_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT);
-  std::array<std::int16_t, 2> previous_rings{0, 0};
+  std::array<std::int32_t, 2> previous_rings{0, 0};
   if (game_client && game_client->player_manager().HasLocalPlayer()) {
     auto& local_player = game_client->player_manager().GetLocalPlayer();
-    previous_rings[0] = static_cast<std::int16_t>(local_player.equipped_ring_left());
-    previous_rings[1] = static_cast<std::int16_t>(local_player.equipped_ring_right());
+    previous_rings[0] = local_player.equipped_ring_left();
+    previous_rings[1] = local_player.equipped_ring_right();
   }
   const auto equipped_rings = GetEquippedRingInstances(player, previous_rings);
   state.equipped_ring_left_instance = equipped_rings[0];
@@ -1611,8 +1639,8 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.head_direction = GetHeadDirectionByte(player);
   oCItem* melee_weapon = GetCurrentMeleeWeapon(player);
   oCItem* ranged_weapon = GetCurrentRangedWeapon(player);
-  state.melee_weapon_instance = melee_weapon ? static_cast<short>(melee_weapon->GetInstance()) : 0;
-  state.ranged_weapon_instance = ranged_weapon ? static_cast<short>(ranged_weapon->GetInstance()) : 0;
+  state.melee_weapon_instance = melee_weapon ? melee_weapon->GetInstance() : 0;
+  state.ranged_weapon_instance = ranged_weapon ? ranged_weapon->GetInstance() : 0;
 
   game_client->UpdatePlayerStats(state);
 }
@@ -1636,6 +1664,7 @@ void NetGame::Disconnect() {
   }
   ResetVoiceChatScriptState();
   pending_local_spawn_position_.reset();
+  pending_resource_payloads_.clear();
   IsInGame = false;
   IsReadyToJoin = false;
   if (global_ingame) {
@@ -1656,13 +1685,16 @@ void NetGame::Disconnect() {
 
   if (content_transition_manager) {
     const bool had_addon_archives = content_transition_manager->HasActiveAddonArchives();
-    std::string content_error;
-    if (!content_transition_manager->DeactivateServerContent(content_error)) {
-      SPDLOG_ERROR("Failed to restore base Gothic content during disconnect: {}", content_error);
-    }
-    if (had_addon_archives) {
+    if (content_transition_manager->HasServerGameSessionStarted()) {
       base_world_reload_required_ = true;
-      SPDLOG_INFO("Base-world reload scheduled to release addon-backed world resources");
+      SPDLOG_INFO("Full base game-session restoration scheduled for addon disconnect");
+    } else {
+      std::string content_error;
+      if (!content_transition_manager->DeactivateServerContent(content_error)) {
+        SPDLOG_ERROR("Failed to deactivate pending server content during disconnect: {}", content_error);
+      } else if (had_addon_archives) {
+        SPDLOG_INFO("Unmounted addon content before a server game session was started");
+      }
     }
   }
 }
@@ -1671,6 +1703,41 @@ bool NetGame::ConsumeBaseWorldReloadRequest() {
   const bool required = base_world_reload_required_;
   base_world_reload_required_ = false;
   return required;
+}
+
+bool NetGame::FinalizeDownloadedContent(std::string& error_message) {
+  if (!game_client || !game_client->IsConnected() || !IsReadyToJoin) {
+    error_message = "Connection ended before client resources could be initialized";
+    return false;
+  }
+  if (!resource_runtime) {
+    error_message = "Client resource runtime unavailable";
+    return false;
+  }
+
+  SPDLOG_INFO("Loading {} resource payload(s) into runtime", pending_resource_payloads_.size());
+  if (game_client && game_client->player_manager().HasLocalPlayer()) {
+    resource_runtime->GetLuaState()["heroId"] = static_cast<int>(game_client->player_manager().GetLocalPlayer().id());
+  } else {
+    resource_runtime->GetLuaState()["heroId"] = sol::lua_nil;
+  }
+  if (!resource_runtime->LoadResources(std::move(pending_resource_payloads_), error_message)) {
+    pending_resource_payloads_.clear();
+    if (error_message.empty()) {
+      error_message = "Failed to initialize client resources";
+    }
+    return false;
+  }
+
+  // The new runtime must observe the already-loaded world and current clock,
+  // even when their values match those seen by the previous/menu session.
+  last_world_name_.clear();
+  last_game_time_.reset();
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
+                                        gmp::gothic::OnVoiceChatStateEvent{IsVoiceChatEnabled(), GetVoiceChatRange()});
+  SPDLOG_INFO("All required client resources loaded into the fresh game session");
+  error_message.clear();
+  return true;
 }
 
 NetGame::ConnectionProgressDisplay NetGame::GetConnectionProgressDisplay() const {
@@ -1852,26 +1919,8 @@ void NetGame::ActivateDownloadedContent(std::uint64_t generation) {
     SPDLOG_INFO("Addon content active; server world '{}' will be reloaded even if it is already open", server_requested_map_);
   }
 
-  SPDLOG_INFO("Loading {} resource payload(s) into runtime", payloads.size());
-  connection_progress_message_ = "Loading client resources...";
-  if (game_client->player_manager().HasLocalPlayer()) {
-    resource_runtime->GetLuaState()["heroId"] = static_cast<int>(game_client->player_manager().GetLocalPlayer().id());
-  } else {
-    resource_runtime->GetLuaState()["heroId"] = sol::lua_nil;
-  }
-  if (!resource_runtime->LoadResources(std::move(payloads), error_message)) {
-    if (error_message.empty()) {
-      error_message = "Failed to initialize client resources";
-    }
-    OnResourceDownloadFailed(error_message);
-    return;
-  }
-
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnVoiceChatStateChangeName,
-                                        gmp::gothic::OnVoiceChatStateEvent{IsVoiceChatEnabled(), GetVoiceChatRange()});
-
-  SPDLOG_INFO("Client resources ready; player may join");
-  SPDLOG_INFO("All required client resources downloaded and loaded");
+  pending_resource_payloads_ = std::move(payloads);
+  SPDLOG_INFO("Downloaded content mounted; game-session transition may begin");
   IsReadyToJoin = true;
   ClearConnectionProgressDisplay();
 }
@@ -2499,7 +2548,7 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
     }
   };
 
-  auto sync_hand_item = [&](std::int16_t instance, bool right_hand) {
+  auto sync_hand_item = [&](std::int32_t instance, bool right_hand) {
     zCVob* current_vob = right_hand ? cplayer->npc->GetRightHand() : cplayer->npc->GetLeftHand();
     oCItem* current_item = dynamic_cast<oCItem*>(current_vob);
     if (instance == 0 || !IsNetworkItemInstance(instance)) {
@@ -2730,7 +2779,7 @@ void NetGame::OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName, gmp::gothic::OnPlayerPingEvent{player_id, ping});
 }
 
-void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) {
+void NetGame::OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::uint16_t amount) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc() && IsNetworkItemInstance(item_instance) && ogame && ogame->GetGameWorld()) {
     oCWorld* world = ogame->GetGameWorld();
@@ -2748,7 +2797,7 @@ void NetGame::OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance
   }
 }
 
-void NetGame::OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) {
+void NetGame::OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc() && IsNetworkItemInstance(item_instance) && ogame && ogame->GetGameWorld()) {
     zCListSort<oCItem>* ItemList = ogame->GetGameWorld()->voblist_items;
@@ -2771,9 +2820,14 @@ void NetGame::OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) 
   }
 }
 
-void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount, bool physics_enabled,
+void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount, bool physics_enabled,
                                  const glm::vec3& position, const glm::vec3& rotation) {
-  gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, item_instance, amount, physics_enabled, position, rotation);
+  const auto instance_name = FindParserInstanceName(item_instance);
+  if (!instance_name) {
+    SPDLOG_WARN("Could not resolve ground item parser index {}", item_instance);
+    return;
+  }
+  gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, *instance_name, amount, physics_enabled, position, rotation);
 }
 
 void NetGame::OnItemGroundDestroy(std::uint32_t item_ground_id) {
@@ -2784,8 +2838,8 @@ void NetGame::OnItemsGroundDestroy() {
   gmp::gothic::ClientItemGroundManager::Instance().Clear(true);
 }
 
-void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {
-  if (amount <= 0) {
+void NetGame::OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {
+  if (amount <= 0 || !IsNetworkItemInstance(item_instance)) {
     return;
   }
 
@@ -2794,18 +2848,12 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
     return;
   }
 
-  auto index = FindParserIndex(item_instance.c_str());
-  if (!index.has_value()) {
-    SPDLOG_WARN("Could not find item instance {}", item_instance);
-    return;
-  }
-
   std::int32_t amount_to_add = amount;
   if (cplayer->IsLocalPlayer()) {
-    auto pending = gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(*index);
+    auto pending = gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(item_instance);
     if (pending.has_value()) {
       const std::int32_t expected_amount = pending->previous_amount + amount;
-      const std::int32_t current_amount = GetInventoryAmount(cplayer->npc, *index);
+      const std::int32_t current_amount = GetInventoryAmount(cplayer->npc, item_instance);
       amount_to_add = std::max<std::int32_t>(0, expected_amount - current_amount);
       if (amount_to_add == 0) {
         return;
@@ -2813,14 +2861,14 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
     }
   }
 
-  if (oCItem* existing = cplayer->npc->inventory2.IsIn(*index, 1)) {
+  if (oCItem* existing = cplayer->npc->inventory2.IsIn(item_instance, 1)) {
     existing->amount += amount_to_add;
     return;
   }
 
-  oCItem* item = CreateNetworkItem(*index);
+  oCItem* item = CreateNetworkItem(item_instance);
   if (!item) {
-    SPDLOG_WARN("Could not create item instance {}", item_instance);
+    SPDLOG_WARN("Could not create item parser index {}", item_instance);
     return;
   }
 
@@ -2828,15 +2876,14 @@ void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& item_insta
   cplayer->npc->inventory2.Insert(item);
 }
 
-void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {
+void NetGame::OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
 
-  auto index = FindParserIndex(item_instance.c_str());
-  if (!index.has_value()) {
-    SPDLOG_WARN("Could not find item instance {}", item_instance);
+  if (!IsNetworkItemInstance(item_instance)) {
+    SPDLOG_WARN("Could not equip invalid item parser index {}", item_instance);
     return;
   }
 
@@ -2845,12 +2892,12 @@ void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_in
     SetSuppressLocalEquipEvents(true);
   }
 
-  if (!SyncEquippedPacketSlot(cplayer->npc, static_cast<std::int16_t>(*index), slot_id)) {
-    oCItem* item = cplayer->npc->inventory2.IsIn(*index, 1);
+  if (!SyncEquippedPacketSlot(cplayer->npc, item_instance, slot_id)) {
+    oCItem* item = cplayer->npc->inventory2.IsIn(item_instance, 1);
     if (!item) {
-      item = CreateNetworkItem(*index);
+      item = CreateNetworkItem(item_instance);
       if (!item) {
-        SPDLOG_WARN("Could not create item instance {}", item_instance);
+        SPDLOG_WARN("Could not create item parser index {}", item_instance);
         if (suppress) {
           SetSuppressLocalEquipEvents(false);
         }
@@ -2870,19 +2917,18 @@ void NetGame::OnItemEquipped(std::uint64_t player_id, const std::string& item_in
   }
 }
 
-void NetGame::OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) {
+void NetGame::OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
 
-  auto index = FindParserIndex(item_instance.c_str());
-  if (!index.has_value()) {
-    SPDLOG_WARN("Could not find item instance {}", item_instance);
+  if (!IsNetworkItemInstance(item_instance)) {
+    SPDLOG_WARN("Could not unequip invalid item parser index {}", item_instance);
     return;
   }
 
-  oCItem* item = cplayer->npc->inventory2.IsIn(*index, 1);
+  oCItem* item = cplayer->npc->inventory2.IsIn(item_instance, 1);
   if (!item) {
     return;
   }
@@ -2898,8 +2944,8 @@ void NetGame::OnItemUnequipped(std::uint64_t player_id, const std::string& item_
   }
 }
 
-void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {
-  if (amount <= 0) {
+void NetGame::OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {
+  if (amount <= 0 || !IsNetworkItemInstance(item_instance)) {
     return;
   }
 
@@ -2908,17 +2954,11 @@ void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& item_ins
     return;
   }
 
-  auto index = FindParserIndex(item_instance.c_str());
-  if (!index.has_value()) {
-    SPDLOG_WARN("Could not find item instance {}", item_instance);
-    return;
-  }
-
   if (cplayer->IsLocalPlayer()) {
-    gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(*index);
+    gmp::gothic::ClientItemGroundManager::Instance().ConsumePendingTake(item_instance);
   }
 
-  oCItem* item = cplayer->npc->inventory2.IsIn(*index, 1);
+  oCItem* item = cplayer->npc->inventory2.IsIn(item_instance, 1);
   if (!item) {
     return;
   }
@@ -2928,7 +2968,7 @@ void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& item_ins
     return;
   }
 
-  cplayer->npc->inventory2.Remove(*index, remove_amount);
+  cplayer->npc->inventory2.Remove(item_instance, remove_amount);
 }
 
 void NetGame::OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {

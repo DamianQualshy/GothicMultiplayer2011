@@ -55,9 +55,11 @@ void ExitMainMenu() {
 }
 
 void ReturnToBigMainMenuAfterDisconnect() {
-  auto pos = player->trafoObjToWorld.GetTranslation();
-  player->ResetPos(pos);
-  player->RefreshNpc();
+  if (player) {
+    auto pos = player->trafoObjToWorld.GetTranslation();
+    player->ResetPos(pos);
+    player->RefreshNpc();
+  }
   MainMenu = NULL;
   if (global_ingame) {
     delete global_ingame;

@@ -599,7 +599,7 @@ void RemoveInventoryItem(PlayerManager::Player& player, const std::string& insta
   }
 }
 
-std::int16_t MergePendingEquipmentState(std::optional<std::int16_t>& pending, std::int16_t current, std::int16_t incoming) {
+std::int32_t MergePendingEquipmentState(std::optional<std::int32_t>& pending, std::int32_t current, std::int32_t incoming) {
   if (!pending.has_value()) {
     return incoming;
   }
@@ -1724,8 +1724,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   const auto old_state = updated_player.state;
   const auto old_health = updated_player.health;
   const auto old_mana = updated_player.mana;
-  const auto item_index_or_nil = [](std::int16_t item_index) -> std::optional<std::int32_t> {
-    return item_index == 0 ? std::nullopt : std::optional<std::int32_t>{item_index};
+  const auto item_index_or_nil = [](std::int32_t item_index) -> std::optional<std::int32_t> {
+    return item_index <= 0 ? std::nullopt : std::optional<std::int32_t>{item_index};
   };
 
   auto client_state = packet.state;
@@ -2198,20 +2198,12 @@ void GameServer::HandleDropItem(Packet p) {
     return;
   }
 
-  auto resolved_instance = ResolveItemInstance(packet.item_instance_name);
-  if (!resolved_instance.has_value()) {
-    SPDLOG_WARN("Player {} tried to drop unknown item instance '{}'", player.player_id,
-                SanitizeServerText(packet.item_instance_name));
+  const auto* item_definition = item_registry_.FindByIndex(packet.item_instance);
+  if (!item_definition) {
+    SPDLOG_WARN("Player {} tried to drop unknown item parser index {}", player.player_id, packet.item_instance);
     return;
   }
-
-  const auto instance = *resolved_instance;
-  const ItemRegistry::Item* item_definition = item_registry_.Find(instance);
-  if (item_definition != nullptr && packet.item_instance > 0 && packet.item_instance != item_definition->index) {
-    SPDLOG_WARN("Player {} tried to drop item '{}' with mismatched index {} (expected {})", player.player_id, instance,
-                packet.item_instance, item_definition->index);
-    return;
-  }
+  const auto& instance = item_definition->instance;
 
   const auto amount = std::max<std::int32_t>(1, packet.item_amount);
   ItemGroundManager::CreateOptions options;
@@ -2249,7 +2241,7 @@ void GameServer::HandleTakeItem(Packet p) {
   }
 
   if (!packet.item_ground_id.has_value()) {
-    SPDLOG_WARN("Player {} took item {} without an item ground id", player.player_id, packet.item_instance_name);
+    SPDLOG_WARN("Player {} took item parser index {} without an item ground id", player.player_id, packet.item_instance);
     return;
   }
 
@@ -2262,6 +2254,13 @@ void GameServer::HandleTakeItem(Packet p) {
   if (!CanSeeItemGround(player, *item_ground)) {
     SPDLOG_WARN("Player {} tried to take item ground {} outside their world or virtual world", player.player_id,
                 *packet.item_ground_id);
+    return;
+  }
+
+  const auto* item_definition = item_registry_.Find(item_ground->instance);
+  if (!item_definition || item_definition->index != packet.item_instance) {
+    SPDLOG_WARN("Player {} tried to take item ground {} with mismatched parser index {}", player.player_id,
+                item_ground->id, packet.item_instance);
     return;
   }
 
@@ -2304,10 +2303,16 @@ void GameServer::HandlePlayerWorldEnter(Packet p) {
 }
 
 void GameServer::SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection) {
+  const auto* item_definition = item_registry_.Find(item_ground.instance);
+  if (!item_definition) {
+    SPDLOG_ERROR("Cannot stream ground item {} with unknown instance '{}'", item_ground.id, item_ground.instance);
+    return;
+  }
+
   ItemGroundCreatePacket packet{};
   packet.packet_type = PT_ITEM_GROUND_CREATE;
   packet.item_ground_id = item_ground.id;
-  packet.item_instance = item_ground.instance;
+  packet.item_instance = item_definition->index;
   packet.amount = item_ground.amount;
   packet.physics_enabled = item_ground.physics_enabled;
   packet.position = item_ground.position;
@@ -2384,11 +2389,16 @@ void GameServer::SendInventoryAddCorrection(Player& player, const std::string& i
   if (instance.empty() || amount <= 0) {
     return;
   }
+  const auto* item_definition = item_registry_.Find(instance);
+  if (!item_definition) {
+    SPDLOG_ERROR("Cannot send inventory correction for unknown item instance '{}'", instance);
+    return;
+  }
 
   GiveItemPacket packet{};
   packet.packet_type = PT_GIVEITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = instance;
+  packet.item_instance = item_definition->index;
   packet.item_amount = amount;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
 }
@@ -2397,11 +2407,16 @@ void GameServer::SendInventoryRemoveCorrection(Player& player, const std::string
   if (instance.empty() || amount <= 0) {
     return;
   }
+  const auto* item_definition = item_registry_.Find(instance);
+  if (!item_definition) {
+    SPDLOG_ERROR("Cannot send inventory correction for unknown item instance '{}'", instance);
+    return;
+  }
 
   RemoveItemPacket packet{};
   packet.packet_type = PT_REMOVEITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = instance;
+  packet.item_instance = item_definition->index;
   packet.item_amount = amount;
   SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
 }
@@ -2417,7 +2432,7 @@ std::optional<std::string> GameServer::ResolveItemInstance(std::string instance)
   return item_registry_.CanonicalizeInstance(instance);
 }
 
-std::int16_t GameServer::ResolveItemIndex(PlayerId player_id, std::int16_t index, const char* field_name) const {
+std::int32_t GameServer::ResolveItemIndex(PlayerId player_id, std::int32_t index, const char* field_name) const {
   if (index <= 0) {
     return 0;
   }
@@ -3748,6 +3763,10 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
     SPDLOG_WARN("giveItem called with unknown item instance '{}'", SanitizeServerText(instance));
     return false;
   }
+  const auto* item_definition = item_registry_.Find(*item_instance);
+  if (!item_definition) {
+    return false;
+  }
 
   auto& player = player_opt->get();
   AddInventoryItem(player, *item_instance, amount);
@@ -3755,7 +3774,7 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
   GiveItemPacket packet{};
   packet.packet_type = PT_GIVEITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = std::move(*item_instance);
+  packet.item_instance = item_definition->index;
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
   BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
@@ -3776,10 +3795,14 @@ bool GameServer::EquipItem(PlayerId player_id, const std::string& instance, std:
   }
 
   auto& player = player_opt->get();
+  const auto* item_definition = item_registry_.Find(*item_instance);
+  if (!item_definition) {
+    return false;
+  }
   EquipItemPacket packet{};
   packet.packet_type = PT_EQUIPITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = std::move(*item_instance);
+  packet.item_instance = item_definition->index;
   packet.slot_id = static_cast<std::int16_t>(std::clamp<std::int32_t>(
       slot_id, std::numeric_limits<std::int16_t>::min(), std::numeric_limits<std::int16_t>::max()));
 
@@ -3801,10 +3824,14 @@ bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
   }
 
   auto& player = player_opt->get();
+  const auto* item_definition = item_registry_.Find(*item_instance);
+  if (!item_definition) {
+    return false;
+  }
   UnequipItemPacket packet{};
   packet.packet_type = PT_UNEQUIPITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = std::move(*item_instance);
+  packet.item_instance = item_definition->index;
 
   BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
   return true;
@@ -3868,24 +3895,19 @@ bool GameServer::EquipItemInSlot(PlayerId player_id, const std::string& instance
     SPDLOG_WARN("equip slot item called with item instance '{}' that does not fit the requested equipment slot", *item_instance);
     return false;
   }
-  if (item->index <= 0 || item->index > std::numeric_limits<std::int16_t>::max()) {
-    SPDLOG_WARN("equip slot item called with item instance '{}' using unsupported parser index {}", *item_instance, item->index);
-    return false;
-  }
-
   auto& player = player_opt->get();
   if (HasItem(player_id, *item_instance) <= 0) {
     AddInventoryItem(player, *item_instance, 1);
   }
 
-  const auto item_index = static_cast<std::int16_t>(item->index);
+  const auto item_index = item->index;
   auto& state_field = EquipmentStateField(player.state, slot);
   const bool changed = state_field != item_index;
   state_field = item_index;
   PendingEquipmentStateField(player, slot) = item_index;
   if (changed) {
     AdvancePlayerStateSequence(player);
-    TriggerEquipmentEvent(player.player_id, slot, static_cast<std::int32_t>(item_index));
+    TriggerEquipmentEvent(player.player_id, slot, item_index);
   }
 
   return EquipItem(player_id, *item_instance, EquipmentSlotPacketId(slot));
@@ -3948,7 +3970,7 @@ std::int16_t GameServer::EquipmentSlotPacketId(EquipmentSlot slot) const {
   return EQUIP_SLOT_GENERIC;
 }
 
-std::int16_t& GameServer::EquipmentStateField(PlayerState& state, EquipmentSlot slot) const {
+std::int32_t& GameServer::EquipmentStateField(PlayerState& state, EquipmentSlot slot) const {
   switch (slot) {
     case EquipmentSlot::Armor:
       return state.equipped_armor_instance;
@@ -3965,7 +3987,7 @@ std::int16_t& GameServer::EquipmentStateField(PlayerState& state, EquipmentSlot 
   return state.equipped_armor_instance;
 }
 
-std::optional<std::int16_t>& GameServer::PendingEquipmentStateField(Player& player, EquipmentSlot slot) const {
+std::optional<std::int32_t>& GameServer::PendingEquipmentStateField(Player& player, EquipmentSlot slot) const {
   switch (slot) {
     case EquipmentSlot::Armor:
       return player.pending_equipped_armor_instance;
@@ -4039,6 +4061,10 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
     SPDLOG_WARN("removeItem called with unknown item instance '{}'", SanitizeServerText(instance));
     return false;
   }
+  const auto* item_definition = item_registry_.Find(*item_instance);
+  if (!item_definition) {
+    return false;
+  }
 
   auto& player = player_opt->get();
   RemoveInventoryItem(player, *item_instance, amount);
@@ -4046,7 +4072,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   RemoveItemPacket packet{};
   packet.packet_type = PT_REMOVEITEM;
   packet.player_id = player.player_id;
-  packet.item_instance = std::move(*item_instance);
+  packet.item_instance = item_definition->index;
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
   BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);

@@ -31,7 +31,7 @@ SOFTWARE.
 
 namespace gmp::gothic {
 
-inline constexpr const char* kGmpLoadingScreenTexture = "DEFAULT.TGA";
+inline constexpr const char* kGmpLoadingScreenTexture = "GMP_LOADING.TGA";
 
 void PrepareDisconnectLoadingScreen();
 
@@ -52,20 +52,20 @@ public:
   void MarkDownloading();
   void AbortConnection();
   bool ActivateServerContent(const std::vector<std::filesystem::path>& archives, bool contains_gothic_dat, std::string& error);
+  bool StartServerGameSession(std::string& error);
   bool DeactivateServerContent(std::string& error);
   bool HasActiveAddonArchives() const;
-  void PrepareForWorldLoad();
+  bool HasServerGameSessionStarted() const;
   State CurrentState() const;
 
 private:
   void PurgeResourceCaches(const char* reason);
-  bool ReloadGothicDat(std::string& error);
+  bool RecreateGameSession(bool deactivate_overlay, std::string& error);
 
   mutable std::mutex mutex_;
   State state_{State::Base};
   bool active_has_addon_archives_{false};
-  bool active_has_gothic_dat_{false};
-  bool purge_before_next_world_load_{false};
+  bool server_game_session_started_{false};
 };
 
 }  // namespace gmp::gothic

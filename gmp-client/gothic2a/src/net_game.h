@@ -71,9 +71,8 @@ public:
   bool IsConnected();
   bool Connect(std::string_view full_address);
   void JoinGame();
-  void SendDropItem(short instance, short amount, const std::string& instance_name, const glm::vec3& position, const glm::vec3& rotation,
-                    bool physics_enabled);
-  void SendTakeItem(short instance, short amount, const std::string& instance_name, std::optional<std::uint32_t> item_ground_id);
+  void SendDropItem(std::int32_t instance, short amount, const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled);
+  void SendTakeItem(std::int32_t instance, short amount, std::optional<std::uint32_t> item_ground_id);
   void SendPlayerWorldEnter(const std::string& world_name);
   void SendCastSpell(oCNpc* Target, short SpellId);
   void SendMessage(const char* msg);
@@ -85,6 +84,7 @@ public:
   void SyncGameTime();
   void Disconnect();
   bool ConsumeBaseWorldReloadRequest();
+  bool FinalizeDownloadedContent(std::string& error_message);
   ConnectionProgressDisplay GetConnectionProgressDisplay() const;
   void ClearConnectionProgressDisplay();
   void RestoreHealth();
@@ -185,16 +185,16 @@ public:
   void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) override;
   void OnPlayerStandUp(std::uint64_t player_id) override;
   void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
-  void OnItemDropped(std::uint64_t player_id, std::uint16_t item_instance, std::uint16_t amount) override;
-  void OnItemTaken(std::uint64_t player_id, std::uint16_t item_instance) override;
-  void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount, bool physics_enabled,
+  void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::uint16_t amount) override;
+  void OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) override;
+  void OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount, bool physics_enabled,
                           const glm::vec3& position, const glm::vec3& rotation) override;
   void OnItemGroundDestroy(std::uint32_t item_ground_id) override;
   void OnItemsGroundDestroy() override;
-  void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
-  void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) override;
-  void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) override;
-  void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
+  void OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
+  void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) override;
+  void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) override;
+  void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
   void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) override;
   void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& message) override;
@@ -245,6 +245,7 @@ private:
   int connection_progress_percent_{0};
   std::string connection_progress_message_;
   std::string connection_progress_banner_;
+  std::vector<gmp::client::GameClient::ResourcePayload> pending_resource_payloads_;
   std::chrono::steady_clock::time_point connection_progress_error_until_{};
   gmp::voice::VoiceCapture voice_capture_;
   gmp::voice::VoicePlayback voice_playback_;

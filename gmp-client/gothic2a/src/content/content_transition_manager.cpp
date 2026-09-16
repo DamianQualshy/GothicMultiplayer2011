@@ -36,22 +36,11 @@ namespace gmp::gothic {
 
 namespace {
 
-constexpr DWORD kLoadWorldNoVtAddress = 0x006C90B0;
 constexpr DWORD kInsertBackAddress = 0x007A6130;
-using LoadWorldNoVtFn = void(__thiscall*)(oCGame*, int, const zSTRING&);
 using InsertBackFn = void(__thiscall*)(zCView*, const zSTRING&);
 
-LoadWorldNoVtFn g_load_world_novt = nullptr;
 InsertBackFn g_insert_back = nullptr;
-ContentTransitionManager* g_content_transition_manager = nullptr;
 bool g_disconnect_loading_screen_pending = false;
-
-void __fastcall HookLoadWorldNoVt(oCGame* game, void*, int slot, const zSTRING& world_name) {
-  if (g_content_transition_manager) {
-    g_content_transition_manager->PrepareForWorldLoad();
-  }
-  g_load_world_novt(game, slot, world_name);
-}
 
 void __fastcall HookInsertBack(zCView* view, void*, const zSTRING& texture_name) {
   if (std::exchange(g_disconnect_loading_screen_pending, false)) {
@@ -108,15 +97,6 @@ bool ContentTransitionManager::Initialize(std::string& error) {
   if (!GothicVfsOverlay::Instance().InstallHooks(error)) {
     return false;
   }
-  if (!g_load_world_novt) {
-    const auto trampoline = CreateHook(kLoadWorldNoVtAddress, reinterpret_cast<DWORD>(&HookLoadWorldNoVt));
-    if (!trampoline) {
-      error = "Failed to install the addon world-load lifecycle hook";
-      return false;
-    }
-    g_load_world_novt = reinterpret_cast<LoadWorldNoVtFn>(*trampoline);
-    SPDLOG_INFO("Addon content: installed pre-world-load lifecycle hook");
-  }
   if (!g_insert_back) {
     const auto trampoline = CreateHook(kInsertBackAddress, reinterpret_cast<DWORD>(&HookInsertBack));
     if (!trampoline) {
@@ -126,7 +106,6 @@ bool ContentTransitionManager::Initialize(std::string& error) {
     g_insert_back = reinterpret_cast<InsertBackFn>(*trampoline);
     SPDLOG_INFO("Addon content: installed disconnect loading-screen hook");
   }
-  g_content_transition_manager = this;
   error.clear();
   return true;
 }
@@ -175,29 +154,14 @@ bool ContentTransitionManager::ActivateServerContent(const std::vector<std::file
     std::lock_guard<std::mutex> lock(mutex_);
     state_ = State::Base;
     active_has_addon_archives_ = false;
+    server_game_session_started_ = false;
     return false;
-  }
-
-  if (contains_gothic_dat && !ReloadGothicDat(error)) {
-    GothicVfsOverlay::Instance().Deactivate();
-    std::string rollback_error;
-    if (!ReloadGothicDat(rollback_error)) {
-      error += "; base parser rollback also failed: " + rollback_error;
-    }
-    std::lock_guard<std::mutex> lock(mutex_);
-    state_ = State::Base;
-    active_has_addon_archives_ = false;
-    active_has_gothic_dat_ = false;
-    return false;
-  }
-  if (!contains_gothic_dat && !archives.empty()) {
-    PurgeResourceCaches("activating asset-only addon content");
   }
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
     active_has_addon_archives_ = !archives.empty();
-    active_has_gothic_dat_ = contains_gothic_dat;
+    server_game_session_started_ = false;
     state_ = State::Server;
   }
   SPDLOG_INFO("Content transition: ActivatingAddon -> Server");
@@ -205,9 +169,36 @@ bool ContentTransitionManager::ActivateServerContent(const std::vector<std::file
   return true;
 }
 
+bool ContentTransitionManager::StartServerGameSession(std::string& error) {
+  bool needs_recreation = false;
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (state_ != State::Server) {
+      error = std::string("Cannot start the server game session while state is ") + StateName(state_);
+      return false;
+    }
+    if (server_game_session_started_) {
+      error.clear();
+      return true;
+    }
+    needs_recreation = active_has_addon_archives_;
+  }
+
+  if (needs_recreation && !RecreateGameSession(false, error)) {
+    return false;
+  }
+
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    server_game_session_started_ = needs_recreation;
+  }
+  error.clear();
+  return true;
+}
+
 bool ContentTransitionManager::DeactivateServerContent(std::string& error) {
-  bool purge_addon_assets = false;
-  bool reload_base_dat = false;
+  bool had_addon_archives = false;
+  bool had_server_game_session = false;
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (state_ == State::Base) {
@@ -217,7 +208,7 @@ bool ContentTransitionManager::DeactivateServerContent(std::string& error) {
     if (state_ == State::Connecting || state_ == State::Downloading) {
       state_ = State::Base;
       active_has_addon_archives_ = false;
-      active_has_gothic_dat_ = false;
+      server_game_session_started_ = false;
       error.clear();
       return true;
     }
@@ -226,21 +217,16 @@ bool ContentTransitionManager::DeactivateServerContent(std::string& error) {
       return false;
     }
     state_ = State::DeactivatingAddon;
-    purge_addon_assets = active_has_addon_archives_;
-    reload_base_dat = active_has_gothic_dat_;
+    had_addon_archives = active_has_addon_archives_;
+    had_server_game_session = server_game_session_started_;
   }
 
   SPDLOG_INFO("Content transition: Server -> DeactivatingAddon");
-  GothicVfsOverlay::Instance().Deactivate();
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    state_ = State::ReturningToBase;
-  }
-
   bool success = true;
-  if (reload_base_dat) {
-    success = ReloadGothicDat(error);
-  } else if (purge_addon_assets) {
+  if (had_server_game_session) {
+    success = RecreateGameSession(true, error);
+  } else if (had_addon_archives) {
+    GothicVfsOverlay::Instance().Deactivate();
     PurgeResourceCaches("returning from asset-only addon content");
     error.clear();
   } else {
@@ -249,9 +235,9 @@ bool ContentTransitionManager::DeactivateServerContent(std::string& error) {
 
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    state_ = State::ReturningToBase;
     active_has_addon_archives_ = false;
-    active_has_gothic_dat_ = false;
-    purge_before_next_world_load_ = purge_addon_assets;
+    server_game_session_started_ = false;
     state_ = State::Base;
   }
   SPDLOG_INFO("Content transition: ReturningToBase -> Base");
@@ -261,18 +247,6 @@ bool ContentTransitionManager::DeactivateServerContent(std::string& error) {
 bool ContentTransitionManager::HasActiveAddonArchives() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return state_ == State::Server && active_has_addon_archives_;
-}
-
-void ContentTransitionManager::PrepareForWorldLoad() {
-  bool purge = false;
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    purge = purge_before_next_world_load_;
-    purge_before_next_world_load_ = false;
-  }
-  if (purge) {
-    PurgeResourceCaches("old addon world has been disposed and the base world is about to load");
-  }
 }
 
 ContentTransitionManager::State ContentTransitionManager::CurrentState() const {
@@ -288,28 +262,38 @@ void ContentTransitionManager::PurgeResourceCaches(const char* reason) {
   }
 }
 
-bool ContentTransitionManager::ReloadGothicDat(std::string& error) {
-  if (!ogame) {
-    error = "Gothic game instance is unavailable during parser reload";
+bool ContentTransitionManager::RecreateGameSession(bool deactivate_overlay, std::string& error) {
+  if (!gameMan || !gameMan->gameSession) {
+    error = "Gothic game session is unavailable during content transition";
     return false;
   }
 
   ScopedResourceThreadingPause pause;
+  gameMan->GameSessionDone();
+
+  if (deactivate_overlay) {
+    GothicVfsOverlay::Instance().Deactivate();
+  }
+
   if (zresMan) {
     zresMan->PurgeCaches(nullptr);
   }
-  zSTRING parser_file("GOTHIC.DAT");
-  if (!ogame->LoadParserFile(parser_file)) {
-    error = "Gothic rejected GOTHIC.DAT while reloading the parser";
-    SPDLOG_ERROR("{}", error);
+  zCCacheBase::S_ClearCaches();
+
+  gameMan->GameSessionInit();
+  if (!gameMan->gameSession || !ogame) {
+    error = "Gothic failed to initialize a fresh game session";
     return false;
   }
-  if (zresMan) {
-    zresMan->PurgeCaches(nullptr);
-  }
-  SPDLOG_INFO("Reloaded Gothic parser from GOTHIC.DAT and purged resource caches");
+
+  SPDLOG_INFO("Recreated Gothic game session for {} content", deactivate_overlay ? "base" : "server");
   error.clear();
   return true;
+}
+
+bool ContentTransitionManager::HasServerGameSessionStarted() const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return state_ == State::Server && server_game_session_started_;
 }
 
 }  // namespace gmp::gothic
