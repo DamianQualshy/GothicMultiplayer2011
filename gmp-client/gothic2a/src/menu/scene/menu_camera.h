@@ -1,8 +1,7 @@
-
 /*
 MIT License
 
-Copyright (c) 2022 Gothic Multiplayer Team (pampi, skejt23, mecio)
+Copyright (c) 2026 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,49 +24,37 @@ SOFTWARE.
 
 #pragma once
 
-#include <vector>
-#include <memory>
-#include <singleton.h>
-
-#include "CServerList.h"
-#include "ExtendedServerList.h"
 #include "ZenGin/zGothicAPI.h"
 
-// Forward declarations for new menu system
 namespace menu {
-  class MenuStateMachine;
-  struct MenuContext;
-}
 
-class CMainMenu : public TSingleton<CMainMenu> {
-private:
-  CServerList server_list_;
-  int Hour, Minute;
-
-  // Menu state machine system
-  std::unique_ptr<menu::MenuStateMachine> stateMachine_;
-  std::unique_ptr<menu::MenuContext> menuContext_;
-
+// Temporarily controls the existing engine camera vob and restores its state.
+class MenuCamera {
 public:
-  zVEC3 HeroPos;
-  zVEC3 Angle;
-  zVEC3 NAngle;
-  int hbX, hbY;  // Health bar dimensions
+  explicit MenuCamera(oCGame* game) : game_(game) {
+  }
+  ~MenuCamera();
+  MenuCamera(const MenuCamera&) = delete;
+  MenuCamera& operator=(const MenuCamera&) = delete;
 
-public:
-  CMainMenu();
-  ~CMainMenu();
-  void RenderMenu();
-  void ReLaunchMainMenu();
-  void ClearNpcTalents(oCNpc* Npc);
-  void static __stdcall MainMenuLoop();
-  void InitializeStateMachine();
-  void PrepareForMenuEntry();
-  // Safe before singleton construction; used before content/world transitions.
-  static void StopMenuScenes();
-  static void UpdateMenuScene();
-  
+  bool IsReady() const;
+  bool Apply(const zVEC3& position, float pitch, float yaw, float roll = 0.0f);
+  void SetPosition(const zVEC3& position);
+  void SetRotation(float pitch, float yaw, float roll = 0.0f);
+  void LookAt(const zVEC3& target);
+  bool IsBehindCamera(const zVEC3& position, float margin = 0.0f) const;
+  bool Project(const zVEC3& position, float& x, float& y) const;
+  zCVob* GetAnchor() const {
+    return anchor_;
+  }
+  void Reset();
+
 private:
-  void PreparePlayerForMenuReentry();
-  static void __stdcall ReLaunchMenuCallback();
+  oCGame* game_;
+  zCVob* anchor_ = nullptr;  // Retained engine camera, not a new world vob.
+  zCAIBase* saved_ai_ = nullptr;
+  zMAT4 saved_transform_;
+  zTVobSleepingMode saved_sleeping_mode_ = zVOB_SLEEPING;
 };
+
+}  // namespace menu

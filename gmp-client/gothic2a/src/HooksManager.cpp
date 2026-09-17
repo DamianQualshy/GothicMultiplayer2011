@@ -28,6 +28,7 @@ SOFTWARE.
 
 #include "config.h"
 #include "gmp_core.h"
+#include "main_menu.h"
 #include "mcp/mcp_pipe_handler.h"
 #include "patch.h"
 #include "renderer/d3d11/D3D11Renderer.h"
@@ -358,6 +359,7 @@ void __fastcall HooksManager::OnRender(oCGame* gameInstance) {
   // Process deferred actions at frame start, BEFORE Gothic rendering.
   // This is the safe point for operations like ChangeLevel that invalidate world state.
   GMPCore::Instance().OnFrameStart();
+  CMainMenu::UpdateMenuScene();
   gmp::gothic::LuaCamera::ApplyMovementLock();
   gmp::gothic::LuaDraw::EnsureViewsAttached();
   gmp::gothic::LuaTexture::EnsureViewsAttached();

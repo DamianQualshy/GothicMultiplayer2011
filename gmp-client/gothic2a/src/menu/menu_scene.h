@@ -45,6 +45,7 @@ struct MenuSceneSettings {
   bool enable_timelapse = false;
   bool freeze_time = false;
   const MenuWeaponBaseline* weapon_baseline = nullptr;
+  float camera_roll = 0.0f;
 };
 
 class MenuScene {
@@ -52,14 +53,18 @@ public:
   virtual ~MenuScene() = default;
 
   virtual MenuSceneSettings GetSettings() const = 0;
-  virtual void OnEnter() {
+  virtual bool Start() {
+    return true;
   }
-  virtual void OnExit() {
+  virtual void Stop() {
   }
-  virtual void Update() = 0;
+  virtual void Update(float delta_time) = 0;
+  virtual void Render() {
+  }
+  virtual bool IsHealthy() const {
+    return true;
+  }
   virtual void SetWeapon(zCVob* /*weapon*/) {
-  }
-  virtual void Reset() {
   }
 };
 

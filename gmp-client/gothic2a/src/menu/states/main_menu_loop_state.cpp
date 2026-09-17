@@ -72,6 +72,9 @@ MainMenuLoopState::~MainMenuLoopState() {
 
 void MainMenuLoopState::OnEnter() {
   SPDLOG_INFO("Entering main menu state");
+  if (!context_.sceneManager.HasActiveScene()) {
+    context_.sceneManager.Configure(context_.config.extended_menu_scenes);
+  }
 
   // Show GMP logo
   if (context_.logoView) {
@@ -87,7 +90,6 @@ void MainMenuLoopState::OnExit() {
 }
 
 StateResult MainMenuLoopState::Update() {
-  context_.sceneManager.Update();
   RenderMenu();
   RenderVersionInfo();
   HandleInput();

@@ -24,252 +24,247 @@ SOFTWARE.
 
 #include "menu_scene_manager.h"
 
+#include <spdlog/spdlog.h>
+
+#include <algorithm>
 #include <cmath>
+#include <exception>
 #include <random>
 
-namespace {
-float NormalizeRotation(float rotation) {
-  float normalized = std::fmod(rotation, 360.0f);
-  if (normalized > 180.0f) {
-    normalized -= 360.0f;
-  } else if (normalized < -180.0f) {
-    normalized += 360.0f;
-  }
-  return normalized;
-}
-}  // namespace
+#include "menu/scenes/scene_registry.h"
 
 namespace menu {
 
-SceneManager::SceneManager(oCGame* game) : game_(game) {
+SceneManager::SceneManager(oCGame* game) : game_(game), camera_(game) {
 }
-
 SceneManager::~SceneManager() {
   Cleanup();
 }
 
-void SceneManager::RegisterScene(const std::string& name, std::unique_ptr<MenuScene> scene, bool include_in_cycle) {
-  scenes_[name] = std::move(scene);
-  if (include_in_cycle) {
-    all_cycle_scene_names_.push_back(name);
-    cycle_scene_names_.push_back(name);
+void SceneManager::Configure(bool extended) {
+  const bool show_weapon = weapon_requested_;
+  Cleanup();
+  scenes::RegisterBasicMenuScenes(*this, !extended);
+  if (extended) {
+    scenes::RegisterExtendedMenuScenes(*this);
   }
+  weapon_requested_ = show_weapon;
+  pending_start_ = true;
 }
 
-void SceneManager::Configure(bool extended_scenes_enabled) {
-  if (extended_scenes_enabled) {
-    cycle_scene_names_ = all_cycle_scene_names_;
-  } else if (!all_cycle_scene_names_.empty()) {
-    cycle_scene_names_.assign(1, all_cycle_scene_names_.front());
-  } else {
-    cycle_scene_names_.clear();
+void SceneManager::RegisterScene(std::string name, SceneFactory factory, bool include_in_cycle) {
+  if (!factory || std::any_of(scenes_.begin(), scenes_.end(), [&](const auto& scene) { return scene.name == name; })) {
+    SPDLOG_WARN("Ignoring invalid/duplicate menu scene registration: {}", name);
+    return;
   }
+  scenes_.push_back({std::move(name), std::move(factory), include_in_cycle});
+}
 
-  active_scene_index_ = -1;
-  for (std::size_t index = 0; index < cycle_scene_names_.size(); ++index) {
-    if (cycle_scene_names_[index] == active_scene_name_) {
-      active_scene_index_ = static_cast<int>(index);
-      break;
+bool SceneManager::IsReady() const {
+  return camera_.IsReady() && Gothic_II_Addon::player && Gothic_II_Addon::player->GetHomeWorld() == game_->GetWorld();
+}
+
+bool SceneManager::TryActivate(size_t index) {
+  if (index >= scenes_.size() || scenes_[index].failed || !IsReady()) {
+    return false;
+  }
+  StopScene();
+  auto& entry = scenes_[index];
+  if (!remove_range_saved_) {
+    saved_remove_range_ = oCSpawnManager::GetRemoveRange();
+    remove_range_saved_ = true;
+    oCSpawnManager::SetRemoveRange(2097152.0f);
+  }
+  try {
+    active_scene_ = entry.create();
+    active_scene_name_ = entry.name;
+    if (active_scene_) {
+      const auto settings = active_scene_->GetSettings();
+      if (camera_.Apply(settings.camera_position, settings.camera_pitch, settings.camera_yaw, settings.camera_roll) && active_scene_->Start()) {
+        pending_start_ = false;
+        if (weapon_requested_) {
+          ShowWeapon();
+        }
+        SPDLOG_INFO("Main menu scene started: {}", active_scene_name_);
+        return true;
+      }
     }
+  } catch (const std::exception& error) {
+    SPDLOG_ERROR("Main menu scene '{}': {}", entry.name, error.what());
   }
-
-  if (!cycle_scene_names_.empty() && active_scene_ && active_scene_index_ < 0) {
-    ActivateScene(cycle_scene_names_.front());
-  }
+  SPDLOG_WARN("Main menu scene initialization failed: {}", entry.name);
+  entry.failed = true;
+  StopScene();  // Also handles partial initialization; the scene destructor is a second RAII guard.
+  return false;
 }
 
 bool SceneManager::ActivateScene(const std::string& name) {
-  auto it = scenes_.find(name);
-  if (it == scenes_.end()) {
-    return false;
-  }
-
-  const bool was_weapon_visible = weapon_visible_;
-  if (active_scene_) {
-    if (weapon_visible_) {
-      HideWeapon();
-    }
-    active_scene_->OnExit();
-  }
-
-  active_scene_ = it->second.get();
-  active_scene_name_ = name;
-  active_scene_index_ = -1;
-  for (size_t i = 0; i < cycle_scene_names_.size(); ++i) {
-    if (cycle_scene_names_[i] == name) {
-      active_scene_index_ = static_cast<int>(i);
-      break;
+  // Copy the index before StopScene can clear active_scene_name_ (used by restart).
+  for (size_t i = 0; i < scenes_.size(); ++i) {
+    if (scenes_[i].name == name) {
+      return TryActivate(i);
     }
   }
-
-  if (active_scene_) {
-    const auto settings = active_scene_->GetSettings();
-    ApplyCameraSettings(settings.camera_position, settings.camera_pitch, settings.camera_yaw);
-    active_scene_->Reset();
-    active_scene_->OnEnter();
-    if (was_weapon_visible) {
-      ShowWeapon();
-    }
-  }
-
-  return true;
+  return false;
 }
 
 bool SceneManager::ActivateNextScene() {
-  if (cycle_scene_names_.empty()) {
-    return false;
+  size_t first = 0;
+  for (size_t i = 0; i < scenes_.size(); ++i) {
+    if (scenes_[i].name == active_scene_name_) {
+      first = i + 1;
+      break;
+    }
   }
-
-  int next_index = 0;
-  if (active_scene_index_ >= 0) {
-    next_index = (active_scene_index_ + 1) % static_cast<int>(cycle_scene_names_.size());
+  for (size_t count = 0; count < scenes_.size(); ++count) {
+    const size_t i = (first + count) % scenes_.size();
+    if (scenes_[i].include_in_cycle && TryActivate(i)) {
+      return true;
+    }
   }
-
-  return ActivateScene(cycle_scene_names_[next_index]);
+  return ActivateScene(kDefaultSceneName);
 }
 
 bool SceneManager::ActivateRandomScene() {
-  if (cycle_scene_names_.empty()) {
-    return false;
+  std::vector<size_t> candidates;
+  for (size_t i = 0; i < scenes_.size(); ++i) {
+    if (scenes_[i].include_in_cycle && !scenes_[i].failed) {
+      candidates.push_back(i);
+    }
   }
-
-  static thread_local std::mt19937 rng(std::random_device{}());
-  std::uniform_int_distribution<size_t> distribution(0, cycle_scene_names_.size() - 1);
-  return ActivateScene(cycle_scene_names_[distribution(rng)]);
+  static std::mt19937 random(std::random_device{}());
+  std::shuffle(candidates.begin(), candidates.end(), random);
+  for (const auto i : candidates) {
+    SPDLOG_DEBUG("Main menu scene selected: {}", scenes_[i].name);
+    if (TryActivate(i)) {
+      return true;
+    }
+  }
+  return ActivateScene(kDefaultSceneName);
 }
 
-void SceneManager::Update() {
-  if (active_scene_) {
-    active_scene_->Update();
+void SceneManager::MarkActiveSceneFailed() {
+  SPDLOG_WARN("Stopping unhealthy main menu scene: {}", active_scene_name_);
+  for (auto& entry : scenes_) {
+    if (entry.name == active_scene_name_) {
+      entry.failed = true;
+    }
+  }
+  StopScene();
+  pending_start_ = true;
+}
+
+void SceneManager::Update(float delta_time) {
+  if (pending_start_ && IsReady()) {
+    // Wait for bootstrap prerequisites once; never retry broken assets each frame.
+    pending_start_ = false;
+    ActivateRandomScene();
+  }
+  if (!active_scene_) {
+    return;
+  }
+  if (!IsReady()) {
+    StopScene();
+    return;
+  }
+  try {
+    // A suspended window must not cause actors to jump across the entire stage.
+    active_scene_->Update(std::isfinite(delta_time) ? std::clamp(delta_time, 0.0f, 0.1f) : 0.0f);
+    if (!active_scene_->IsHealthy()) {
+      MarkActiveSceneFailed();
+    }
+  } catch (const std::exception& error) {
+    SPDLOG_ERROR("Main menu scene update failed: {}", error.what());
+    MarkActiveSceneFailed();
+  }
+}
+
+void SceneManager::Render() {
+  if (active_scene_ && IsReady()) {
+    try {
+      active_scene_->Render();
+    } catch (const std::exception& error) {
+      SPDLOG_ERROR("Main menu scene rendering failed: {}", error.what());
+      MarkActiveSceneFailed();
+    }
   }
 }
 
 void SceneManager::ResetActiveScene() {
+  const std::string name = active_scene_name_;
+  if (!name.empty()) {
+    SPDLOG_DEBUG("Main menu scene restart: {}", name);
+    if (!ActivateScene(name)) {
+      ActivateRandomScene();
+    }
+  }
+}
+
+void SceneManager::StopScene() {
+  pending_start_ = false;
+  // Keep UI visibility intent when switching scenes, but release the old weapon.
+  const bool requested = weapon_requested_;
+  HideWeapon();
+  weapon_requested_ = requested;
   if (active_scene_) {
-    active_scene_->Reset();
+    active_scene_->Stop();
+    SPDLOG_INFO("Main menu scene stopped: {}", active_scene_name_);
+    active_scene_.reset();
+  }
+  active_scene_name_.clear();
+  camera_.Reset();
+  if (remove_range_saved_) {
+    oCSpawnManager::SetRemoveRange(saved_remove_range_);
+    remove_range_saved_ = false;
   }
 }
 
 void SceneManager::ShowWeapon() {
-  if (weapon_visible_ || !active_scene_ || !game_) {
+  weapon_requested_ = true;
+  if (active_weapon_ || !active_scene_ || !IsReady()) {
     return;
   }
-
-  EnsureCameraAnchor();
-
   const auto settings = active_scene_->GetSettings();
   if (!settings.show_weapon || !settings.weapon_visual_name || !settings.weapon_baseline) {
     return;
   }
-
-  zCVisual* weapon_visual = zCVisual::LoadVisual(zSTRING(settings.weapon_visual_name));
-  if (!weapon_visual) {
+  auto* visual = zCVisual::LoadVisual(zSTRING(settings.weapon_visual_name));
+  if (!visual) {
+    SPDLOG_WARN("Menu weapon visual failed: {}", settings.weapon_visual_name);
     return;
   }
-
   active_weapon_ = new zCVob();
-  if (!active_weapon_) {
-    return;
-  }
-
-  active_weapon_->SetVisual(weapon_visual);
-  const MenuWeaponBaseline& baseline = *settings.weapon_baseline;
-  SetCameraAnchorTransform(baseline.camera_position, baseline.camera_pitch, baseline.camera_yaw);
-
+  active_weapon_->SetVisual(visual);
+  visual->Release();  // SetVisual retains its own reference.
+  const auto& baseline = *settings.weapon_baseline;
+  camera_.SetPosition(baseline.camera_position);
+  camera_.SetRotation(baseline.camera_pitch, baseline.camera_yaw);
   active_weapon_->SetPositionWorld(baseline.weapon_position);
-
-  if (game_->GetWorld() && camera_anchor_) {
-    game_->GetWorld()->AddVobAsChild_novt(active_weapon_, camera_anchor_);
-  }
-
-  ApplyCameraSettings(settings.camera_position, settings.camera_pitch, settings.camera_yaw);
-  const float weapon_yaw = NormalizeRotation(NormalizeRotation(settings.camera_yaw) - NormalizeRotation(baseline.camera_yaw));
+  game_->GetWorld()->AddVobAsChild_novt(active_weapon_, camera_.GetAnchor());
+  camera_.Apply(settings.camera_position, settings.camera_pitch, settings.camera_yaw, settings.camera_roll);
   active_weapon_->ResetRotationsWorld();
-  active_weapon_->RotateWorldY(weapon_yaw);
-
+  active_weapon_->RotateWorldY(std::remainder(settings.camera_yaw - baseline.camera_yaw, 360.0f));
   active_scene_->SetWeapon(active_weapon_);
-  weapon_visible_ = true;
 }
 
 void SceneManager::HideWeapon() {
-  if (!weapon_visible_) {
-    return;
-  }
-
+  weapon_requested_ = false;
   if (active_scene_) {
     active_scene_->SetWeapon(nullptr);
   }
-
   if (active_weapon_) {
-    active_weapon_->RemoveVobFromWorld();
+    if (active_weapon_->GetHomeWorld()) {
+      active_weapon_->RemoveVobFromWorld();
+    }
     active_weapon_->Release();
     active_weapon_ = nullptr;
   }
-
-  weapon_visible_ = false;
 }
 
 void SceneManager::Cleanup() {
-  if (active_scene_) {
-    active_scene_->OnExit();
-  }
-
-  HideWeapon();
-  active_scene_ = nullptr;
-  active_scene_name_.clear();
+  StopScene();
+  weapon_requested_ = false;
   scenes_.clear();
-  all_cycle_scene_names_.clear();
-  cycle_scene_names_.clear();
-  active_scene_index_ = -1;
-  RemoveCameraAnchor();
-}
-
-void SceneManager::EnsureCameraAnchor() {
-  if (camera_anchor_) {
-    return;
-  }
-
-  camera_anchor_ = new zCVob();
-}
-
-void SceneManager::ApplyCameraSettings(const zVEC3& position, float rotation_pitch, float rotation_yaw) {
-  if (!game_) {
-    return;
-  }
-
-  EnsureCameraAnchor();
-
-  if (!camera_anchor_) {
-    return;
-  }
-
-  SetCameraAnchorTransform(position, rotation_pitch, rotation_yaw);
-  game_->CamInit(camera_anchor_, zCCamera::activeCam);
-}
-
-void SceneManager::SetCameraAnchorTransform(const zVEC3& position, float rotation_pitch, float rotation_yaw) {
-  if (!camera_anchor_) {
-    return;
-  }
-
-  camera_anchor_->SetPositionWorld(position);
-  camera_anchor_->ResetRotationsWorld();
-  camera_anchor_->RotateWorldX(NormalizeRotation(rotation_pitch));
-  camera_anchor_->RotateWorldY(NormalizeRotation(rotation_yaw));
-
-  if (game_ && game_->GetWorld() && !camera_anchor_in_world_) {
-    game_->GetWorld()->AddVob(camera_anchor_);
-    camera_anchor_in_world_ = true;
-  }
-}
-
-void SceneManager::RemoveCameraAnchor() {
-  if (camera_anchor_) {
-    camera_anchor_->RemoveVobFromWorld();
-    camera_anchor_->Release();
-    camera_anchor_ = nullptr;
-    camera_anchor_in_world_ = false;
-  }
 }
 
 }  // namespace menu

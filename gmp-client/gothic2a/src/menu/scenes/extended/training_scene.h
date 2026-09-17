@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Gothic Multiplayer Team.
+Copyright (c) 2026 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -24,16 +24,35 @@ SOFTWARE.
 
 #pragma once
 
-namespace menu {
-class SceneManager;
+#include <memory>
+#include <vector>
 
-constexpr const char* kDefaultSceneName = "default";
-constexpr const char* kShowcaseSceneName = "showcase";
-}  // namespace menu
+#include "menu/menu_scene.h"
+#include "menu/scene/menu_camera.h"
+#include "menu/scene/menu_nameplate_renderer.h"
+#include "menu/scene/menu_npc.h"
 
 namespace menu::scenes {
 
-void RegisterBasicMenuScenes(SceneManager& manager, bool include_in_cycle = true);
-void RegisterExtendedMenuScenes(SceneManager& manager);
+class TrainingScene final : public MenuScene {
+public:
+  TrainingScene(oCGame* game, MenuCamera& camera) : game_(game), camera_(camera) {
+  }
+  ~TrainingScene() override {
+    Stop();
+  }
+  MenuSceneSettings GetSettings() const override;
+  bool Start() override;
+  void Update(float delta_time) override;
+  void Render() override;
+  void Stop() override;
+  bool IsHealthy() const override;
+
+private:
+  oCGame* game_;
+  MenuCamera& camera_;
+  MenuNameplateRenderer nameplates_;
+  std::vector<std::unique_ptr<MenuNpc>> trainees_;
+};
 
 }  // namespace menu::scenes

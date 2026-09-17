@@ -1,7 +1,7 @@
 /*
 MIT License
 
-Copyright (c) 2025 Gothic Multiplayer Team.
+Copyright (c) 2026 Gothic Multiplayer Team.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -25,15 +25,13 @@ SOFTWARE.
 #pragma once
 
 namespace menu {
-class SceneManager;
+class MenuCamera;
+class MenuNpc;
 
-constexpr const char* kDefaultSceneName = "default";
-constexpr const char* kShowcaseSceneName = "showcase";
+// Draws borrowed actors directly to the screen. No views or retained state.
+class MenuNameplateRenderer {
+public:
+  void Render(const MenuNpc& npc, const MenuCamera& camera);
+};
+
 }  // namespace menu
-
-namespace menu::scenes {
-
-void RegisterBasicMenuScenes(SceneManager& manager, bool include_in_cycle = true);
-void RegisterExtendedMenuScenes(SceneManager& manager);
-
-}  // namespace menu::scenes

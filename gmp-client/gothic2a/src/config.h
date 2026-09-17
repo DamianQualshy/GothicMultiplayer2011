@@ -53,7 +53,7 @@ public:
   std::string language = "EN";
   enum class RendererType { D3D7, D3D9, D3D11 };
   bool vsync_enabled = true;
-  bool extended_menu_scenes = true;
+  bool extended_menu_scenes = false;
 
   Config();
   ~Config();

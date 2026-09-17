@@ -56,6 +56,7 @@ SOFTWARE.
 #include "config.h"
 #include "dev/dev_tools.h"
 #include "gmp_core.h"
+#include "main_menu.h"
 #include "hooking/MemoryPatch.h"
 #include "language.h"
 #include "net_enums.h"
@@ -1155,6 +1156,8 @@ void NetGame::UpdateClientEventState() {
 }
 
 bool NetGame::Connect(std::string_view full_address) {
+  // Addon activation may replace GOTHIC.DAT/models before the gameplay world loads.
+  CMainMenu::StopMenuScenes();
   if (!game_client || !content_transition_manager) {
     ShowConnectionProgressError("Connection could not be initialized");
     return false;
@@ -1652,6 +1655,7 @@ void NetGame::SyncGameTime() {
 }
 
 void NetGame::Disconnect() {
+  CMainMenu::StopMenuScenes();
   ++content_activation_generation_;
   const bool voice_was_enabled = IsVoiceChatEnabled();
   StopVoiceChat();

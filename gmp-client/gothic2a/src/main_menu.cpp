@@ -90,6 +90,13 @@ CMainMenu::CMainMenu() {
 void CMainMenu::InitializeStateMachine() {
   SPDLOG_INFO("Initializing menu state machine");
 
+  // States borrow the context. Destroy them before replacing it on re-entry.
+  if (stateMachine_) {
+    stateMachine_->Clear();
+    stateMachine_.reset();
+  }
+  menuContext_.reset();
+
   // Create menu context with all shared resources
   menuContext_ = std::make_unique<menu::MenuContext>(Config::Instance(), Language::Instance(), server_list_);
 
@@ -173,6 +180,7 @@ void __stdcall CMainMenu::ReLaunchMenuCallback() {
 }
 
 void CMainMenu::ReLaunchMainMenu() {
+  StopMenuScenes();
   zinput->ClearKeyBuffer();
   const bool reload_base_world = NetGame::Instance().ConsumeBaseWorldReloadRequest();
   if (reload_base_world) {
@@ -265,6 +273,12 @@ void CMainMenu::RenderMenu() {
     return;
   }
 
+  // Actors have already moved before the world render. Project their labels
+  // here so names and the rendered models use the same camera/pose.
+  if (menuContext_) {
+    menuContext_->sceneManager.Render();
+  }
+
   // Run state machine update
   bool shouldContinue = stateMachine_->Update();
 
@@ -282,5 +296,18 @@ void CMainMenu::RenderMenu() {
     HooksManager::GetInstance()->RemoveHook(HT_RENDER, (DWORD)CMainMenu::MainMenuLoop);
 
     SPDLOG_INFO("Menu shutdown complete");
+  }
+}
+
+void CMainMenu::StopMenuScenes() {
+  // GetInstance() would create the menu during startup/shutdown callbacks.
+  if (Instance && Instance->menuContext_) {
+    Instance->menuContext_->sceneManager.StopScene();
+  }
+}
+
+void CMainMenu::UpdateMenuScene() {
+  if (Instance && Instance->stateMachine_ && Instance->menuContext_) {
+    Instance->menuContext_->sceneManager.Update(ztimer ? ztimer->frameTimeFloatSecs : 0.0f);
   }
 }

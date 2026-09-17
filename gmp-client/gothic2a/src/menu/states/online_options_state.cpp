@@ -145,7 +145,6 @@ void OnlineOptionsState::OnExit() {
 }
 
 StateResult OnlineOptionsState::Update() {
-  context_.sceneManager.Update();
   RenderMenu();
   HandleInput();
   return StateResult::Continue;

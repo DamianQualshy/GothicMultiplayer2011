@@ -90,10 +90,9 @@ void EnterMenuState::CreateTitleLogo() {
 }
 
 void EnterMenuState::SetupMenuScene() {
-  // Increase spawn manager range for menu world
-  oCSpawnManager::SetRemoveRange(2097152.0f);
-  
-  SPDLOG_INFO("Created menu scene");
+  // Bootstrap only schedules creation; the common menu update waits for the
+  // world, current hero and render camera before invoking a scene factory.
+  context_.sceneManager.Configure(context_.config.extended_menu_scenes);
 }
 
 void EnterMenuState::PrepareMenuEnvironment() {

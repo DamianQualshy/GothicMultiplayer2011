@@ -186,7 +186,7 @@ void Config::DefaultSettings() {
   voice_push_to_talk_key_ = KEY_K;
   voice_output_volume_percent_ = 100;
   vsync_enabled = true;
-  extended_menu_scenes = true;
+  extended_menu_scenes = false;
   is_default_ = true;
 };
 

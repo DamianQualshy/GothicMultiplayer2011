@@ -33,7 +33,6 @@ SOFTWARE.
 #include "config.h"
 #include "language.h"
 #include "menu/menu_scene_manager.h"
-#include "menu/scenes/scene_registry.h"
 
 namespace menu {
 
@@ -92,12 +91,6 @@ struct MenuContext {
     input = zinput;
     screen = Gothic_II_Addon::screen;
     options = zoptions;
-
-    scenes::RegisterMenuScenes(sceneManager);
-    sceneManager.Configure(config.extended_menu_scenes);
-    if (!sceneManager.ActivateRandomScene()) {
-      sceneManager.ActivateScene(kDefaultSceneName);
-    }
   }
 
   // ===== Helper Methods =====

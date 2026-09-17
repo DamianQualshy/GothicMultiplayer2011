@@ -839,7 +839,7 @@ void Initialize(void) {
     InstallDistanceTakeFix();
     // Floor Sliding Crashfix
     InstallFloorSlidingCrashfix();
-    // SetupExceptionHandler();
+    SetupExceptionHandler();
     // Initialize language system
     LanguageManager::Instance().LoadLanguages(".\\Multiplayer\\Localization\\", Config::Instance().language);
     // Initialize music bridge for zCOptions integration

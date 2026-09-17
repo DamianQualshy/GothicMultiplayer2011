@@ -24,56 +24,70 @@ SOFTWARE.
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
-#include "ZenGin/zGothicAPI.h"
 #include "menu/menu_scene.h"
+#include "menu/scene/menu_camera.h"
 
 namespace menu {
 
-/**
- * @brief Manages menu scenes (camera placement, weapon presentation, and scene updates)
- *
- * This manager owns the camera anchor and the active scene's weapon vob. It applies
- * scene-defined camera/weapon settings and forwards per-frame updates to the
- * active scene for FPS-independent animations.
- */
 class SceneManager {
 public:
+  using SceneFactory = std::function<std::unique_ptr<MenuScene>()>;
+
   explicit SceneManager(oCGame* game);
   ~SceneManager();
+  SceneManager(const SceneManager&) = delete;
+  SceneManager& operator=(const SceneManager&) = delete;
 
-  void RegisterScene(const std::string& name, std::unique_ptr<MenuScene> scene, bool include_in_cycle = true);
-  void Configure(bool extended_scenes_enabled);
+  // Registers only the chosen group. Extended mode includes a basic fallback,
+  // but that fallback does not participate in random selection or cycling.
+  void Configure(bool extended);
+  void RegisterScene(std::string name, SceneFactory factory, bool include_in_cycle = true);
   bool ActivateScene(const std::string& name);
   bool ActivateNextScene();
   bool ActivateRandomScene();
-  void Update();
+  void Update(float delta_time);
+  void Render();
   void ResetActiveScene();
+  void StopScene();
   void ShowWeapon();
   void HideWeapon();
   void Cleanup();
+  bool HasActiveScene() const {
+    return active_scene_ != nullptr;
+  }
+  MenuCamera& GetCamera() {
+    return camera_;
+  }
+  oCGame* GetGame() const {
+    return game_;
+  }
 
 private:
-  void EnsureCameraAnchor();
-  void ApplyCameraSettings(const zVEC3& position, float rotation_pitch, float rotation_yaw);
-  void SetCameraAnchorTransform(const zVEC3& position, float rotation_pitch, float rotation_yaw);
-  void RemoveCameraAnchor();
+  struct Registration {
+    std::string name;
+    SceneFactory create;
+    bool include_in_cycle;
+    bool failed = false;
+  };
+  bool TryActivate(size_t index);
+  bool IsReady() const;
+  void MarkActiveSceneFailed();
 
   oCGame* game_ = nullptr;
-  zCVob* camera_anchor_ = nullptr;
-  zCVob* active_weapon_ = nullptr;
-  bool weapon_visible_ = false;
-  bool camera_anchor_in_world_ = false;
-  std::unordered_map<std::string, std::unique_ptr<MenuScene>> scenes_;
-  std::vector<std::string> all_cycle_scene_names_;
-  std::vector<std::string> cycle_scene_names_;
-  MenuScene* active_scene_ = nullptr;
+  MenuCamera camera_;
+  zCVob* active_weapon_ = nullptr;  // One owning ZenGin reference.
+  bool weapon_requested_ = false;
+  bool pending_start_ = false;
+  float saved_remove_range_ = 0.0f;
+  bool remove_range_saved_ = false;
+  std::vector<Registration> scenes_;
+  std::unique_ptr<MenuScene> active_scene_;
   std::string active_scene_name_;
-  int active_scene_index_ = -1;
 };
 
 }  // namespace menu

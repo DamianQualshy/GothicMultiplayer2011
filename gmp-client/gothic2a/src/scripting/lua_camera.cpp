@@ -162,7 +162,17 @@ void LockCameraTransform(const zMAT4& matrix) {
 void SetTarget(zCVob* vob) {
   if (auto* ai = AiCamera()) {
     if (!vob) {
-      ai->ClearTargetList();
+      // Gothic's camera AI dereferences target unconditionally in
+      // CheckUnderWaterFX. Clearing the scripted target therefore means
+      // returning to the current hero, not leaving active AI targetless.
+      if (player && ogame && player->GetHomeWorld() == ogame->GetWorld()) {
+        ai->SetTarget(player);
+      } else {
+        if (ai->camVob && ai->camVob->callback_ai == static_cast<zCAIBase*>(ai)) {
+          ai->camVob->SetAI(nullptr);
+        }
+        ai->ClearTargetList();
+      }
       return;
     }
     ai->SetTarget(vob);
@@ -197,6 +207,16 @@ void EnableCameraMovement() {
     state.enabled = true;
     state.initialized = false;
     return;
+  }
+
+  if (!ai->target) {
+    SetTarget(nullptr);
+    if (!ai->target) {
+      // There is no safe target for Gothic's camera AI yet. Keep it detached
+      // until a hero or explicit scripted target becomes available.
+      state.enabled = false;
+      return;
+    }
   }
 
   if (state.initialized) {

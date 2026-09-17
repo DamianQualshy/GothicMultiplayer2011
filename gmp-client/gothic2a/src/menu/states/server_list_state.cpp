@@ -154,11 +154,11 @@ StateResult ServerListState::Update() {
 
   const auto progress = NetGame::Instance().GetConnectionProgressDisplay();
   if (progress.visible) {
-    context_.sceneManager.Update();
     RenderConnectionProgress();
     if (progress.failure_expired) {
       NetGame::Instance().ClearConnectionProgressDisplay();
       NetGame::Instance().Disconnect();
+      context_.sceneManager.Configure(context_.config.extended_menu_scenes);
       connectionAttemptInProgress_ = false;
       context_.selectedServerIP.Clear();
       context_.selectedServerIndex = 0;
@@ -191,11 +191,9 @@ StateResult ServerListState::Update() {
       connectionAttemptInProgress_ = false;  // Clear the flag so we don't handle it again
       // Disconnect to reset the connection state back to Disconnected
       NetGame::Instance().Disconnect();
+      context_.sceneManager.Configure(context_.config.extended_menu_scenes);
     }
   }
-
-  context_.sceneManager.Update();
-
   // Handle common input first (Enter to connect, ESC to exit)
   HandleCommonInput();
 
@@ -526,6 +524,7 @@ void ServerListState::CloseConnectionProgress() {
 
 void ServerListState::ScheduleGameSetup() {
   SPDLOG_INFO("Connection successful, scheduling deferred game setup...");
+  context_.sceneManager.StopScene();
 
   if (!ogame || !ogame->GetGameWorld()) {
     SPDLOG_ERROR("Cannot set up the server world because the Gothic game world is unavailable");

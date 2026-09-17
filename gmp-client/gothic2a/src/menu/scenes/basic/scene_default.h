@@ -30,7 +30,7 @@ SOFTWARE.
 namespace menu::scenes {
 
 /**
- * @brief Default menu scene (weapon rotation, time advancement, and camera position)
+ * @brief Basic menu scene (weapon rotation, time advancement, and camera position)
  *
  * This class provides FPS-independent animations for the menu background scene.
  * It uses a single frame rate limiter to ensure consistent behavior at any framerate.
@@ -51,7 +51,7 @@ public:
     return settings_;
   }
 
-  void Update() override {
+  void Update(float /*delta_time*/) override {
     if (frame_limiter_.ShouldUpdate()) {
       UpdateWeaponRotation();
       UpdateGameTime();
@@ -62,9 +62,10 @@ public:
     weapon_ = weapon;
   }
 
-  void Reset() override {
+  bool Start() override {
     frame_limiter_.Reset();
     has_frozen_time_ = false;
+    return true;
   }
 
 private:
