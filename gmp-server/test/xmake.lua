@@ -85,3 +85,12 @@ target("AddonConfigTest")
         add_cxflags("/utf-8")
     end
     set_default(false)
+
+target("NpcManagerTest")
+    set_kind("binary")
+    add_files("npc_manager_test.cpp")
+    add_deps("Server")
+    add_packages("gtest")
+    add_tests("default")
+    set_rundir(os.projectdir())
+    set_default(false)

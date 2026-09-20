@@ -160,6 +160,10 @@ public:
   void OnLocalPlayerSpawned(gmp::client::Player& player) override;
   void OnPlayerJoined(gmp::client::Player& player) override;
   void OnPlayerSpawned(gmp::client::Player& player) override;
+  void OnPlayersClearing() override;
+  void OnPlayerSpawnSnapshotApplied(gmp::client::Player& player, bool new_spawn) override;
+  void OnNpcControl(const NpcControlPacket& control) override;
+  void OnNpcAnimation(const NpcAnimationPacket& animation) override;
   void OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) override;
   void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state) override;
   void OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) override;
@@ -215,6 +219,37 @@ private:
     zVEC3 position;
     int remaining_frames;
   };
+
+  struct NpcActionRuntime {
+    NpcControlPacket control;
+    std::chrono::steady_clock::time_point deadline{};
+    oCNpc* npc{nullptr};
+    zCModel* model{nullptr};
+    zCModelAni* animation{nullptr};
+    int animation_id{-1};
+    bool finished{false};
+  };
+
+  void ProcessNpcActions();
+  void StopNpcActionAnimation(NpcActionRuntime& action);
+  void FinishNpcAction(NpcActionRuntime& action, bool success);
+  void CancelNpcAction(std::uint64_t npc_id);
+  void CancelAllNpcActions();
+  void InterruptNpcAction(std::uint64_t npc_id);
+  std::unordered_map<std::uint32_t, NpcActionRuntime> npc_actions_;
+
+  struct NpcAnimationRuntime {
+    NpcAnimationPacket state;
+    oCNpc* npc{nullptr};
+    zCModel* model{nullptr};
+    zCModelAni* animation{nullptr};
+    int animation_id{-1};
+    bool applied{false};
+    bool looping{false};
+  };
+  void StopNpcPersistentAnimation(std::uint64_t npc_id);
+  void ProcessNpcPersistentAnimation(Gothic2APlayer& actor);
+  std::unordered_map<std::uint32_t, NpcAnimationRuntime> npc_animations_;
 
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);

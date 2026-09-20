@@ -39,8 +39,10 @@ SOFTWARE.
 #include <cassert>
 #include <charconv>
 #include <cctype>
+#include <cmath>
 #include <dylib.hpp>
 #include <iomanip>
+#include <limits>
 #include <stdexcept>
 #include <system_error>
 #include <utility>
@@ -58,6 +60,30 @@ Net::NetClient* g_netclient = nullptr;
 
 constexpr std::uint32_t kPlayerStateChannel = 1;
 constexpr std::uint32_t kVoiceChannel = 5;
+
+namespace {
+bool IsValidNpcAnimation(const NpcAnimationPacket& animation, std::uint32_t max_slots) {
+  return animation.npc_id > max_slots && animation.npc_id <= static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) &&
+         animation.revision != 0 && animation.animation.size() <= kMaxPlayerAnimationNameLength &&
+         animation.animation.find('\0') == std::string::npos;
+}
+
+bool IsValidNpcControl(const NpcControlPacket& control, std::uint32_t max_slots) {
+  const auto finite = [](const glm::vec3& value) {
+    return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+  };
+  if (control.npc_id <= max_slots || control.npc_id > static_cast<std::uint32_t>(std::numeric_limits<std::int32_t>::max()) ||
+      control.control_epoch == 0 || control.host_player_id > max_slots || !finite(control.position) || !finite(control.normal) ||
+      control.animation.find('\0') != std::string::npos) {
+    return false;
+  }
+  if (control.action_id == 0) {
+    return control.animation.empty() && control.timeout_ms == 0;
+  }
+  return control.host_player_id != 0 && !control.animation.empty() && control.animation.size() <= kMaxPlayerAnimationNameLength &&
+         control.timeout_ms > 0 && control.timeout_ms <= 30000;
+}
+}  // namespace
 
 bool ParseServerEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port) {
   const auto first_character = full_address.find_first_not_of(" \t\r\n");
@@ -162,6 +188,9 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_MSG] = [this](Packet p) { OnMessage(p); };
   packet_handlers_[PT_EXISTING_PLAYERS] = [this](Packet p) { OnExistingPlayers(p); };
   packet_handlers_[PT_PLAYER_SPAWN] = [this](Packet p) { OnPlayerSpawn(p); };
+  packet_handlers_[PT_NPC_SPAWN] = [this](Packet p) { OnNpcSpawn(p); };
+  packet_handlers_[PT_NPC_CONTROL] = [this](Packet p) { OnNpcControl(p); };
+  packet_handlers_[PT_NPC_ANIMATION] = [this](Packet p) { OnNpcAnimation(p); };
   packet_handlers_[PT_JOIN_GAME] = [this](Packet p) { OnJoinGame(p); };
   packet_handlers_[PT_PLAYER_NAME_UPDATE] = [this](Packet p) { OnPlayerNameUpdate(p); };
   packet_handlers_[PT_PLAYER_INSTANCE_UPDATE] = [this](Packet p) { OnPlayerInstanceUpdate(p); };
@@ -229,6 +258,9 @@ void GameClient::ConnectAsync(std::string_view full_address) {
   }
 
   resource_downloader_.Reset();
+  if (player_manager_.HasLocalPlayer() || !player_manager_.GetAllPlayers().empty()) {
+    event_observer_.OnPlayersClearing();
+  }
   player_manager_.Clear();
   worlds_.clear();
   resource_downloader_.SetServerEndpoint(host, port);
@@ -271,6 +303,9 @@ void GameClient::Disconnect() {
     g_netclient->Disconnect();
   }
 
+  if (player_manager_.HasLocalPlayer() || !player_manager_.GetAllPlayers().empty()) {
+    event_observer_.OnPlayersClearing();
+  }
   player_manager_.Clear();
   worlds_.clear();
   event_observer_.OnAdminAuthChanged(false);
@@ -339,6 +374,9 @@ std::vector<GameClient::AddonPayload> GameClient::ConsumeDownloadedAddons() {
 }
 
 bool GameClient::HandlePacket(unsigned char* data, std::uint32_t size) {
+  if (!data || size == 0) {
+    return false;
+  }
   try {
     SPDLOG_TRACE("Received packet: {}", (int)data[0]);
     auto it = packet_handlers_.find((int)data[0]);
@@ -616,14 +654,17 @@ void GameClient::OnActualStatistics(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == *packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player && !player->accept_state_sequence(packet.state_sequence)) {
+  // Connection metadata is not an engine actor. An unreliable movement packet
+  // can overtake stream-in; it must not make that spawn snapshot look stale.
+  if (!player || !player->has_spawned()) {
+    return;
+  }
+  if (!player->accept_state_sequence(packet.state_sequence)) {
     SPDLOG_TRACE("Ignoring stale PlayerStateUpdatePacket for player {} with sequence {}", *packet.player_id, packet.state_sequence);
     return;
   }
 
-  if (player) {
-    UpdatePlayerState(player, packet.state);
-  }
+  UpdatePlayerState(player, packet.state);
 
   event_observer_.OnPlayerStateUpdate(*packet.player_id, packet.state);
 }
@@ -647,13 +688,14 @@ void GameClient::OnMapOnly(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == *packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player && !player->accept_state_sequence(packet.state_sequence)) {
+  if (!player || !player->has_spawned()) {
+    return;
+  }
+  if (!player->accept_state_sequence(packet.state_sequence)) {
     SPDLOG_TRACE("Ignoring stale PlayerPositionUpdatePacket for player {} with sequence {}", *packet.player_id, packet.state_sequence);
     return;
   }
-  if (player) {
-    player->set_position(packet.position.x, packet.position.y, packet.position.z);
-  }
+  player->set_position(packet.position.x, packet.position.y, packet.position.z);
 
   event_observer_.OnPlayerPositionUpdate(*packet.player_id, packet.position.x, packet.position.y, packet.position.z);
 }
@@ -672,10 +714,11 @@ void GameClient::OnDoDie(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player) {
-    player->set_health(0);
-    player->set_life_state(PLAYER_LIFE_DEAD);
+  if (!player || !player->has_spawned() || !player->accept_lifecycle_sequence(packet.state_sequence)) {
+    return;
   }
+  player->set_health(0);
+  player->set_life_state(PLAYER_LIFE_DEAD);
 
   event_observer_.OnPlayerDied(packet.player_id);
 }
@@ -694,10 +737,11 @@ void GameClient::OnRespawn(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player) {
-    player->set_health(player->max_health());
-    player->set_life_state(PLAYER_LIFE_ALIVE);
+  if (!player || !player->has_spawned() || !player->accept_lifecycle_sequence(packet.state_sequence)) {
+    return;
   }
+  player->set_health(player->max_health());
+  player->set_life_state(PLAYER_LIFE_ALIVE);
 
   event_observer_.OnPlayerRespawned(packet.player_id);
 }
@@ -980,6 +1024,9 @@ void GameClient::OnExistingPlayers(Packet p) {
     for (const auto& overlay : existing_player.overlays) {
       event_observer_.OnPlayerOverlayUpdate(existing_player.player_id, overlay, true);
     }
+    player->set_health(static_cast<std::int16_t>(existing_player.health));
+    player->set_life_state(existing_player.life_state);
+    event_observer_.OnPlayerSpawnSnapshotApplied(*player, true);
   }
 }
 
@@ -987,12 +1034,17 @@ void GameClient::OnPlayerSpawn(Packet p) {
   PlayerSpawnPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
+  if (state.first != bitsery::ReaderError::NoError || !state.second) {
     SPDLOG_ERROR("Failed to deserialize PlayerSpawnPacket");
     return;
   }
 
   SPDLOG_INFO("PlayerSpawn packet: {}", packet);
+
+  ApplyPlayerSpawn(packet);
+}
+
+void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) {
 
   const bool has_local_player = player_manager_.HasLocalPlayer();
   const bool is_local_spawn = has_local_player && (player_manager_.GetLocalPlayer().id() == static_cast<std::uint64_t>(packet.player_id));
@@ -1086,16 +1138,24 @@ void GameClient::OnPlayerSpawn(Packet p) {
 
     event_observer_.OnLocalPlayerSpawned(local_player);
     emit_snapshot_callbacks(packet.player_id);
+    local_player.set_health(static_cast<std::int16_t>(packet.health));
+    local_player.set_life_state(packet.life_state);
+    event_observer_.OnPlayerSpawnSnapshotApplied(local_player, true);
     return;
   }
 
   Player* player = player_manager_.GetPlayer(packet.player_id);
   if (!player) {
     player = player_manager_.CreatePlayer(packet.player_id);
+    player->set_is_npc(is_npc);
+  } else if (player->is_npc() != is_npc) {
+    return;
   }
 
   const bool was_spawned = player->has_spawned();
-  if (!player->accept_state_sequence(packet.state_sequence)) {
+  if (!was_spawned) {
+    player->set_state_sequence(packet.state_sequence);
+  } else if (!player->accept_state_sequence(packet.state_sequence)) {
     SPDLOG_TRACE("Ignoring stale PlayerSpawnPacket for player {} with sequence {}", packet.player_id, packet.state_sequence);
     return;
   }
@@ -1154,6 +1214,97 @@ void GameClient::OnPlayerSpawn(Packet p) {
   }
 
   emit_snapshot_callbacks(packet.player_id);
+  // Native instance construction and max-health setters may mutate cached HP.
+  // Finish from the authoritative snapshot, never from those temporary values.
+  player->set_health(static_cast<std::int16_t>(packet.health));
+  player->set_life_state(packet.life_state);
+  event_observer_.OnPlayerSpawnSnapshotApplied(*player, !was_spawned);
+}
+
+void GameClient::OnNpcSpawn(Packet p) {
+  NpcSpawnPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (state.first != bitsery::ReaderError::NoError || !state.second || !IsValidNpcControl(packet.control, max_slots_) ||
+      packet.actor.packet_type != PT_PLAYER_SPAWN || packet.control.packet_type != PT_NPC_CONTROL ||
+      packet.actor.player_id != packet.control.npc_id || packet.animation.npc_id != packet.actor.player_id ||
+      packet.animation.packet_type != PT_NPC_ANIMATION || !IsValidNpcAnimation(packet.animation, max_slots_)) {
+    SPDLOG_WARN("Rejected invalid NpcSpawnPacket");
+    return;
+  }
+  const auto* existing = player_manager_.GetPlayer(packet.actor.player_id);
+  if (existing && (!existing->is_npc() || packet.control.control_epoch <= existing->npc_control_epoch())) {
+    return;
+  }
+  ApplyPlayerSpawn(packet.actor, true);
+  ApplyNpcControl(packet.control);
+  ApplyNpcAnimation(packet.animation);
+}
+
+void GameClient::OnNpcAnimation(Packet p) {
+  NpcAnimationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (state.first != bitsery::ReaderError::NoError || !state.second || !IsValidNpcAnimation(packet, max_slots_)) {
+    SPDLOG_WARN("Rejected invalid NpcAnimationPacket");
+    return;
+  }
+  ApplyNpcAnimation(packet);
+}
+
+void GameClient::ApplyNpcAnimation(const NpcAnimationPacket& animation) {
+  auto* npc = player_manager_.GetPlayer(animation.npc_id);
+  if (!npc || !npc->is_npc() || !npc->has_spawned() || animation.revision <= npc->npc_animation_revision()) {
+    return;
+  }
+  npc->set_npc_animation_revision(animation.revision);
+  event_observer_.OnNpcAnimation(animation);
+}
+
+void GameClient::OnNpcControl(Packet p) {
+  NpcControlPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (state.first != bitsery::ReaderError::NoError || !state.second || !IsValidNpcControl(packet, max_slots_)) {
+    SPDLOG_WARN("Rejected invalid NpcControlPacket");
+    return;
+  }
+  ApplyNpcControl(packet);
+}
+
+void GameClient::ApplyNpcControl(const NpcControlPacket& control) {
+  auto* npc = player_manager_.GetPlayer(control.npc_id);
+  if (!npc || !npc->is_npc() || !npc->has_spawned() || control.control_epoch <= npc->npc_control_epoch()) {
+    return;
+  }
+  npc->set_npc_control(control.control_epoch, control.host_player_id, control.action_id);
+  auto applied_control = control;
+  if (npc->accept_lifecycle_sequence(control.state_sequence)) {
+    npc->set_position(control.position);
+    npc->set_rotation(control.normal);
+  } else {
+    // Queue/host generations and transform revisions are independent. A valid
+    // new action must not rewind movement already received by this viewer.
+    applied_control.state_sequence = npc->state_sequence();
+    applied_control.position = npc->position();
+    applied_control.normal = npc->rotation();
+  }
+  event_observer_.OnNpcControl(applied_control);
+}
+
+void GameClient::SendNpcActionResult(std::uint32_t npc_id, std::uint32_t epoch, std::uint32_t action_id, bool success) {
+  auto* npc = player_manager_.GetPlayer(npc_id);
+  if (!IsConnected() || !player_manager_.HasLocalPlayer() || !npc || !npc->is_npc() || action_id == 0 ||
+      npc->npc_host_player_id() != player_manager_.GetLocalPlayer().id() || npc->npc_control_epoch() != epoch ||
+      npc->npc_action_id() != action_id) {
+    return;
+  }
+  NpcActionResultPacket packet;
+  packet.npc_id = npc_id;
+  packet.control_epoch = epoch;
+  packet.action_id = action_id;
+  packet.success = success ? 1 : 0;
+  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
 }
 
 void GameClient::OnJoinGame(Packet p) {
@@ -1633,10 +1784,11 @@ void GameClient::OnPlayerUnconscious(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player) {
-    player->set_health(1);
-    player->set_life_state(PLAYER_LIFE_UNCONSCIOUS);
+  if (!player || !player->has_spawned() || !player->accept_lifecycle_sequence(packet.state_sequence)) {
+    return;
   }
+  player->set_health(1);
+  player->set_life_state(PLAYER_LIFE_UNCONSCIOUS);
 
   std::optional<std::uint64_t> attacker_id;
   if (packet.attacker_id.has_value()) {
@@ -1662,12 +1814,13 @@ void GameClient::OnPlayerStandUp(Packet p) {
   if (!player && player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id) {
     player = &player_manager_.GetLocalPlayer();
   }
-  if (player) {
-    if (player->health() <= 0) {
-      player->set_health(1);
-    }
-    player->set_life_state(PLAYER_LIFE_ALIVE);
+  if (!player || !player->has_spawned() || !player->accept_lifecycle_sequence(packet.state_sequence)) {
+    return;
   }
+  if (player->health() <= 0) {
+    player->set_health(1);
+  }
+  player->set_life_state(PLAYER_LIFE_ALIVE);
 
   event_observer_.OnPlayerStandUp(packet.player_id);
 }
@@ -1831,6 +1984,9 @@ void GameClient::OnDisconnectOrLostConnection(Packet p) {
   }
 
   resource_downloader_.StopDownload();
+  if (player_manager_.HasLocalPlayer() || !player_manager_.GetAllPlayers().empty()) {
+    event_observer_.OnPlayersClearing();
+  }
   player_manager_.Clear();
   worlds_.clear();
   event_observer_.OnAdminAuthChanged(false);

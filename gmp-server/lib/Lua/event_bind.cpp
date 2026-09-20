@@ -110,6 +110,94 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
+* Reports NPC creation at the end of the server tick. The NPC may already be spawned or destroyed.
+*
+* @version  0.3.0
+* @name     onNpcCreated
+* @side     server
+* @category NPC
+* @param    (number) npc_id  Created NPC id.
+*
+*/
+  kLuaEventProxies[kEventOnNpcCreatedName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnNpcCreatedEvent>(args.event);
+    args.callback(event.npc_id);
+  }};
+
+/* luagmp (event)
+*
+* Triggered after a server-owned NPC is destroyed. The id is no longer valid.
+*
+* @version  0.3.0
+* @name     onNpcDestroyed
+* @side     server
+* @category NPC
+* @param    (number) npc_id  Destroyed NPC id.
+*
+*/
+  kLuaEventProxies[kEventOnNpcDestroyedName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnNpcDestroyedEvent>(args.event);
+    args.callback(event.npc_id);
+  }};
+
+/* luagmp (event)
+*
+* Triggered when the player responsible for executing an NPC's actions changes.
+*
+* @version  0.3.0
+* @name     onNpcChangeHostPlayer
+* @side     server
+* @category NPC
+* @param    (number) npc_id       NPC id.
+* @param    (number) current_id   New host id, or -1 for no host.
+* @param    (number) previous_id  Previous host id, or -1 for no host.
+*
+*/
+  kLuaEventProxies[kEventOnNpcChangeHostPlayerName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnNpcChangeHostPlayerEvent>(args.event);
+    args.callback(event.npc_id, event.current_id == 0 ? -1 : static_cast<std::int64_t>(event.current_id),
+                  event.previous_id == 0 ? -1 : static_cast<std::int64_t>(event.previous_id));
+  }};
+
+/* luagmp (event)
+*
+* Triggered when the current action is dispatched to its host. A replay after host migration may emit it again.
+*
+* @version  0.3.0
+* @name     onNpcActionSent
+* @side     server
+* @category NPC
+* @param    (number) npc_id       NPC id.
+* @param    (number) action_type  ACTION_PLAY_ANI.
+* @param    (number) action_id    Dispatched action id.
+*
+*/
+  kLuaEventProxies[kEventOnNpcActionSentName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnNpcActionSentEvent>(args.event);
+    args.callback(event.npc_id, event.action_type, event.action_id);
+  }};
+
+/* luagmp (event)
+*
+* Triggered when an action leaves the queue through completion, failure, cancellation or timeout.
+*
+* @version  0.3.0
+* @name     onNpcActionFinished
+* @side     server
+* @category NPC
+* @param    (number) npc_id       NPC id.
+* @param    (number) action_type  ACTION_PLAY_ANI.
+* @param    (number) action_id    Finished action id.
+* @param    (boolean) result     True only for successful completion reported by the current host.
+*
+*/
+  kLuaEventProxies[kEventOnNpcActionFinishedName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnNpcActionFinishedEvent>(args.event);
+    args.callback(event.npc_id, event.action_type, event.action_id, event.result);
+  }};
+
+/* luagmp (event)
+*
 * This event is triggered in every server main loop iteration.
 *
 * @version  0.3.0

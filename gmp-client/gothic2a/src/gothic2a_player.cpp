@@ -159,19 +159,19 @@ void Gothic2APlayer::DeleteAllPlayers() {
   if (global_ingame && global_ingame->Shrinker) {
     global_ingame->Shrinker->UnShrinkAll();
   }
-  for (size_t i = 1; i < NetGame::Instance().players.size(); i++) {
-    Gothic2APlayer* remote_player = NetGame::Instance().players[i];
+  auto& players = NetGame::Instance().players;
+  while (!players.empty()) {
+    Gothic2APlayer* remote_player = players.back();
+    players.pop_back();
     if (!remote_player) {
       continue;
     }
 
-    CloseSpellBook(remote_player->npc);
-    if (remote_player->npc && ogame && ogame->GetSpawnManager()) {
-      ogame->GetSpawnManager()->DeleteNpc(remote_player->npc);
+    if (!remote_player->IsLocalPlayer()) {
+      remote_player->LeaveGame();
     }
     delete remote_player;
   }
-  NetGame::Instance().players.clear();
 };
 
 void Gothic2APlayer::DisablePlayer() {

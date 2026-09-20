@@ -375,6 +375,67 @@ void ApplyAuthoritativeNpcPosition(oCNpc* npc, const zVEC3& position) {
   npc->SetCollDetDyn(coll_det_dyn);
 }
 
+// NPC constructors bind Daedalus globals and may toggle the global AI switch.
+// Keep these changes local to creation, including lazy model initialization.
+class ServerNpcInstanceScope {
+public:
+  ServerNpcInstanceScope(zCParser& parser, int instance)
+      : bindings_{Save(parser.GetSymbol("SELF")), Save(parser.GetSymbol("OTHER")), Save(parser.GetSymbol("ITEM")),
+                  Save(parser.GetSymbol(instance))},
+        instance_symbol_(zCPar_Symbol::instance_sym), instance_address_(zCPar_Symbol::instance_adr),
+        ai_disabled_(oCNpc::ai_disabled) {}
+  ~ServerNpcInstanceScope() {
+    for (const auto& binding : bindings_) {
+      if (binding.symbol) {
+        binding.symbol->SetOffset(binding.offset);
+      }
+    }
+    zCPar_Symbol::instance_sym = instance_symbol_;
+    zCPar_Symbol::instance_adr = instance_address_;
+    oCNpc::ai_disabled = ai_disabled_;
+  }
+  ServerNpcInstanceScope(const ServerNpcInstanceScope&) = delete;
+  ServerNpcInstanceScope& operator=(const ServerNpcInstanceScope&) = delete;
+
+private:
+  struct Binding { zCPar_Symbol* symbol; int offset; };
+  static Binding Save(zCPar_Symbol* symbol) {
+    return symbol && symbol->type == zPAR_TYPE_INSTANCE ? Binding{symbol, symbol->GetOffset()} : Binding{nullptr, 0};
+  }
+  std::array<Binding, 4> bindings_;
+  zCPar_Symbol* instance_symbol_;
+  void* instance_address_;
+  int ai_disabled_;
+};
+
+bool IsNpcInstance(zCParser* parser, int index) {
+  auto* symbol = parser && index >= 0 ? parser->GetSymbol(index) : nullptr;
+  const auto npc_class = parser ? parser->GetIndex("C_NPC") : -1;
+  return symbol && symbol->type == zPAR_TYPE_INSTANCE && npc_class >= 0 && parser->GetBaseClass(symbol) == npc_class;
+}
+
+void SuppressServerNpcAI(oCNpc* npc) {
+  if (!npc) {
+    return;
+  }
+  npc->startAIState = 0;
+  npc->daily_routine = 0;
+  npc->state.SetRoutine(nullptr, nullptr);
+  if (rtnMan) {
+    rtnMan->RemoveRoutine(npc);
+  }
+  npc->state.hasRoutine = false;
+  npc->state.ClearAIState();
+  npc->respawnOn = false;
+  npc->ClearPerception();
+  npc->ClearPerceptionLists();
+  npc->SetMovLock(true);
+  if (auto* model = npc->GetModel()) {
+    model->SetRandAnisEnabled(false);
+    model->doVobRot = false;
+  }
+}
+
 bool IsHelmetItem(oCItem* item) {
   return item && (item->wear & ITM_WEAR_HEAD) != 0;
 }
@@ -846,6 +907,7 @@ NetGame::NetGame() : task_scheduler(nullptr), game_client(nullptr), resource_run
 }
 
 void NetGame::Shutdown() {
+  CancelAllNpcActions();
   StopVoiceChat();
   EventManager::Instance().Reset();
   pending_local_spawn_position_.reset();
@@ -867,6 +929,7 @@ void __stdcall NetGame::ProcessTaskScheduler() {
     instance.resource_runtime->ProcessTimers();
   }
   instance.ApplyPendingLocalSpawnPosition();
+  instance.ProcessNpcActions();
   if (zinput) {
     gmp::gothic::ProcessInput(zinput);
   }
@@ -1373,6 +1436,13 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
   }
 
   oCNpc* npc = cplayer->GetNpc();
+  if (cplayer->base_player().is_npc()) {
+    trigger_event = false;
+    if (normalized_life_state != PLAYER_LIFE_ALIVE) {
+      StopNpcPersistentAnimation(player_id);
+      InterruptNpcAction(player_id);
+    }
+  }
   cplayer->base_player().set_life_state(normalized_life_state);
 
   oCNpc* actor = nullptr;
@@ -1383,7 +1453,7 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
   }
 
   if (normalized_life_state == PLAYER_LIFE_DEAD) {
-    const bool was_dead = npc->IsDead();
+    const bool was_dead = npc->IsDead() && npc->GetBodyState() == BS_DEAD;
     cplayer->StopPositionInterpolation();
     cplayer->ClearHandledAnimation();
     cplayer->base_player().set_health(0);
@@ -1415,7 +1485,7 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
 
     {
       ScopedLocalLifecycleEventSuppression suppress_lifecycle;
-      if (npc->IsDead()) {
+      if (npc->IsDead() || npc->GetBodyState() == BS_DEAD) {
         if (cplayer->IsLocalPlayer()) {
           npc->RefreshNpc();
         }
@@ -1438,13 +1508,17 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
   cplayer->base_player().set_health(static_cast<short>(target_health));
   cplayer->base_player().set_update_health_packet_counter(0);
 
-  if (npc->IsDead()) {
+  if (npc->IsDead() || npc->GetBodyState() == BS_DEAD) {
     cplayer->RespawnPlayer();
     SetNpcHealth(npc, target_health);
+    cplayer->base_player().set_health(static_cast<short>(target_health));
+    if (cplayer->base_player().is_npc()) {
+      SuppressServerNpcAI(npc);
+    }
     return;
   }
 
-  if (npc->IsUnconscious()) {
+  if (npc->IsUnconscious() || npc->GetBodyState() == BS_UNCONSCIOUS) {
     cplayer->StopPositionInterpolation();
     cplayer->ClearHandledAnimation();
     CloseSpellBook(npc);
@@ -1458,6 +1532,9 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
       StartWoundedStandTransition(npc);
       npc->StandUp(0, 1);
       SetNpcHealth(npc, target_health);
+    }
+    if (cplayer->base_player().is_npc()) {
+      SuppressServerNpcAI(npc);
     }
     return;
   }
@@ -1655,6 +1732,7 @@ void NetGame::SyncGameTime() {
 }
 
 void NetGame::Disconnect() {
+  CancelAllNpcActions();
   CMainMenu::StopMenuScenes();
   ++content_activation_generation_;
   const bool voice_was_enabled = IsVoiceChatEnabled();
@@ -1797,7 +1875,10 @@ void NetGame::OnConnectionFailed(const std::string& error) {
 }
 
 void NetGame::OnDisconnected() {
+  // GameClient has already removed its actor metadata by this callback.
+  npc_actions_.clear();
   SPDLOG_INFO("Disconnected from server");
+  npc_animations_.clear();
   const bool voice_was_enabled = IsVoiceChatEnabled();
   StopVoiceChat();
   server_voice_enabled_ = false;
@@ -2064,11 +2145,6 @@ void NetGame::OnLocalPlayerSpawned(gmp::client::Player& player) {
   ApplyAuthoritativeNpcPosition(local_player->GetNpc(), pos);
   pending_local_spawn_position_ = PendingLocalSpawnPosition{player.id(), pos, 12};
   local_player->base_player().set_enabled(true);
-  ApplyPlayerLifeState(player.id(), player.life_state(), std::nullopt, false);
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
-  if (ogame && ogame->GetGameWorld()) {
-    SendPlayerWorldEnter(ogame->GetGameWorld()->GetWorldFilename().ToChar());
-  }
 
 #ifndef NDEBUG
   // Spawn Quarhodron NPC near the player
@@ -2094,8 +2170,268 @@ void NetGame::OnPlayerJoined(gmp::client::Player& new_player) {
 
 void NetGame::OnPlayerSpawned(gmp::client::Player& new_player) {
   SpawnRemotePlayer(new_player);
-  ApplyPlayerLifeState(new_player.id(), new_player.life_state(), std::nullopt, false);
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{new_player.id()});
+}
+
+void NetGame::OnPlayersClearing() {
+  CancelAllNpcActions();
+  Gothic2APlayer::DeleteAllPlayers();
+}
+
+void NetGame::OnPlayerSpawnSnapshotApplied(gmp::client::Player& player, bool new_spawn) {
+  auto* actor = GetPlayerById(player.id());
+  if (!actor || !actor->GetNpc()) {
+    return;
+  }
+  // Instance/visual setters can rebuild the model. Apply lifecycle only after
+  // those setters and max HP have completed, not to a constructor's defaults.
+  ApplyPlayerLifeState(player.id(), player.life_state(), std::nullopt, false);
+  auto* npc = actor->GetNpc();
+  const auto& rotation = player.rotation();
+  const zVEC3 normal(rotation.x, 0.0f, rotation.z);
+  if (normal.Length_Sqr() > 0.000001f) {
+    npc->SetHeadingYWorld(npc->GetPositionWorld() + normal);
+  }
+  if (player.is_npc()) {
+    if (player.life_state() == PLAYER_LIFE_ALIVE) {
+      SuppressServerNpcAI(npc);
+    }
+  } else if (new_spawn) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSpawnName, gmp::gothic::PlayerLifecycleEvent{player.id()});
+  }
+  if (actor->IsLocalPlayer() && ogame && ogame->GetGameWorld()) {
+    SendPlayerWorldEnter(ogame->GetGameWorld()->GetWorldFilename().ToChar());
+  }
+}
+
+void NetGame::StopNpcPersistentAnimation(std::uint64_t npc_id) {
+  const auto it = npc_animations_.find(static_cast<std::uint32_t>(npc_id));
+  if (it == npc_animations_.end()) {
+    return;
+  }
+  auto& animation = it->second;
+  auto* actor = GetPlayerById(npc_id);
+  if (actor && actor->GetNpc() && actor->GetNpc() == animation.npc) {
+    auto* model = actor->GetNpc()->GetModel();
+    if (model && model == animation.model && animation.animation &&
+        model->GetAniFromAniID(animation.animation_id) == animation.animation) {
+      model->StopAni(animation.animation);
+    }
+  }
+  animation.npc = nullptr;
+  animation.model = nullptr;
+  animation.animation = nullptr;
+  animation.applied = false;
+  animation.looping = false;
+}
+
+void NetGame::OnNpcAnimation(const NpcAnimationPacket& state) {
+  StopNpcPersistentAnimation(state.npc_id);
+  npc_animations_[state.npc_id].state = state;
+  if (auto* actor = GetPlayerById(state.npc_id)) {
+    ProcessNpcPersistentAnimation(*actor);
+  }
+}
+
+void NetGame::ProcessNpcPersistentAnimation(Gothic2APlayer& actor) {
+  const auto id = static_cast<std::uint32_t>(actor.base_player().id());
+  const auto it = npc_animations_.find(id);
+  if (it == npc_animations_.end()) {
+    return;
+  }
+  auto& animation = it->second;
+  auto* npc = actor.GetNpc();
+  const auto action = npc_actions_.find(id);
+  if (!npc || actor.base_player().life_state() != PLAYER_LIFE_ALIVE || npc->IsDead() || npc->IsUnconscious() ||
+      (action != npc_actions_.end() && !action->second.finished)) {
+    if (animation.applied) {
+      StopNpcPersistentAnimation(id);
+    }
+    return;
+  }
+  auto* model = npc->GetModel();
+  if (!model) {
+    return;
+  }
+  if (animation.applied && animation.npc == npc && animation.model == model &&
+      (!animation.animation || model->GetAniFromAniID(animation.animation_id) == animation.animation)) {
+    // Finite selections play once. A persistent loop must survive an engine
+    // stand/pose correction that unexpectedly stops its active animation.
+    if (!animation.looping || !animation.animation || model->IsAniActive(animation.animation)) {
+      return;
+    }
+  }
+  StopNpcPersistentAnimation(id);
+  animation.npc = npc;
+  animation.model = model;
+  animation.applied = true;
+  if (animation.state.animation.empty()) {
+    return;
+  }
+  zSTRING name(animation.state.animation.c_str());
+  animation.animation_id = model->GetAniIDFromAniName(name);
+  animation.animation = model->GetAniFromAniID(animation.animation_id);
+  if (!animation.animation ||
+      (animation.animation->GetAniType() != zMDL_ANI_TYPE_NORMAL && animation.animation->GetAniType() != zMDL_ANI_TYPE_ALIAS)) {
+    animation.animation = nullptr;
+    SPDLOG_WARN("Cannot play persistent animation '{}' for NPC {}", animation.state.animation, id);
+    return;
+  }
+  model->StartAni(animation.animation, zCModel::zMDL_STARTANI_FORCE);
+  const auto* active = model->GetActiveAni(animation.animation);
+  animation.looping = animation.animation->nextAni == animation.animation || (active && active->nextAni == active->protoAni);
+}
+
+void NetGame::StopNpcActionAnimation(NpcActionRuntime& action) {
+  auto* actor = GetPlayerById(action.control.npc_id);
+  if (actor && actor->GetNpc() && actor->GetNpc() == action.npc) {
+    auto* model = actor->GetNpc()->GetModel();
+    // Overlay or instance replacement can retire the old prototype even when
+    // the wrapper survived. Never pass an obsolete prototype to the engine.
+    if (model && model == action.model && action.animation &&
+        model->GetAniFromAniID(action.animation_id) == action.animation) {
+      model->StopAni(action.animation);
+    }
+  }
+  action.animation = nullptr;
+  action.model = nullptr;
+  action.npc = nullptr;
+}
+
+void NetGame::FinishNpcAction(NpcActionRuntime& action, bool success) {
+  if (action.finished) {
+    return;
+  }
+  action.finished = true;
+  StopNpcActionAnimation(action);
+  if (game_client && action.control.action_id != 0) {
+    game_client->SendNpcActionResult(action.control.npc_id, action.control.control_epoch, action.control.action_id, success);
+  }
+}
+
+void NetGame::CancelNpcAction(std::uint64_t npc_id) {
+  const auto it = npc_actions_.find(static_cast<std::uint32_t>(npc_id));
+  if (it != npc_actions_.end()) {
+    StopNpcActionAnimation(it->second);
+    npc_actions_.erase(it);
+  }
+}
+
+void NetGame::CancelAllNpcActions() {
+  for (auto& [id, action] : npc_actions_) {
+    StopNpcActionAnimation(action);
+  }
+  npc_actions_.clear();
+  for (const auto& [id, animation] : npc_animations_) {
+    StopNpcPersistentAnimation(id);
+  }
+  npc_animations_.clear();
+}
+
+void NetGame::InterruptNpcAction(std::uint64_t npc_id) {
+  const auto it = npc_actions_.find(static_cast<std::uint32_t>(npc_id));
+  if (it != npc_actions_.end()) {
+    FinishNpcAction(it->second, false);
+  }
+}
+
+void NetGame::OnNpcControl(const NpcControlPacket& control) {
+  // A host handover/queue change suspends presentation, without losing the
+  // selected persistent state. Movement packets never enter this path.
+  if (control.action_id != 0) {
+    StopNpcPersistentAnimation(control.npc_id);
+  }
+  CancelNpcAction(control.npc_id);
+  auto& action = npc_actions_[control.npc_id];
+  action.control = control;
+  action.deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(control.timeout_ms);
+  action.finished = control.action_id == 0 || control.host_player_id == 0;
+
+  auto* actor = GetPlayerById(control.npc_id);
+  if (!actor || !actor->GetNpc()) {
+    FinishNpcAction(action, false);
+    return;
+  }
+  actor->StopPositionInterpolation();
+  actor->ClearHandledAnimation();
+  auto* npc = actor->GetNpc();
+  if (actor->base_player().life_state() == PLAYER_LIFE_ALIVE) {
+    SuppressServerNpcAI(npc);
+  }
+  const zVEC3 position(control.position.x, control.position.y, control.position.z);
+  ApplyAuthoritativeNpcPosition(npc, position);
+  const zVEC3 normal(control.normal.x, 0.0f, control.normal.z);
+  if (normal.Length_Sqr() > 0.000001f) {
+    npc->SetHeadingYWorld(position + normal);
+  }
+  if (action.finished) {
+    return;
+  }
+
+  action.npc = npc;
+  action.model = npc->GetModel();
+  if (!action.model || npc->IsDead() || npc->IsUnconscious()) {
+    FinishNpcAction(action, false);
+    return;
+  }
+  zSTRING animation_name(control.animation.c_str());
+  action.animation_id = action.model->GetAniIDFromAniName(animation_name);
+  action.animation = action.model->GetAniFromAniID(action.animation_id);
+  if (!action.animation ||
+      (action.animation->GetAniType() != zMDL_ANI_TYPE_NORMAL && action.animation->GetAniType() != zMDL_ANI_TYPE_ALIAS) ||
+      action.animation->nextAni == action.animation) {
+    FinishNpcAction(action, false);
+    return;
+  }
+  action.model->StartAni(action.animation, zCModel::zMDL_STARTANI_FORCE);
+  const auto* active = action.model->GetActiveAni(action.animation);
+  if (!active || active->nextAni == active->protoAni) {
+    // A looping state has no completion boundary and cannot head a finite queue.
+    FinishNpcAction(action, false);
+  }
+}
+
+void NetGame::ProcessNpcActions() {
+  const auto now = std::chrono::steady_clock::now();
+  // One pass over actors avoids a linear GetPlayerById search for every NPC
+  // on every frame. Stream-out removes the corresponding action separately.
+  for (auto* actor : players) {
+    if (!actor || !actor->base_player().is_npc()) {
+      continue;
+    }
+    const auto it = npc_actions_.find(static_cast<std::uint32_t>(actor->base_player().id()));
+    if (it == npc_actions_.end()) {
+      continue;
+    }
+    auto& action = it->second;
+    if (!actor->GetNpc()) {
+      FinishNpcAction(action, false);
+      continue;
+    }
+    auto* npc = actor->GetNpc();
+    // Lua owns movement; transform updates replace this baseline without
+    // cancelling actions. Animation root motion cannot move the logical NPC.
+    const auto& baseline = action.control;
+    const zVEC3 position(baseline.position.x, baseline.position.y, baseline.position.z);
+    ApplyAuthoritativeNpcPosition(npc, position);
+    const zVEC3 normal(baseline.normal.x, 0.0f, baseline.normal.z);
+    if (normal.Length_Sqr() > 0.000001f) {
+      npc->SetHeadingYWorld(position + normal);
+    }
+    if (action.finished) {
+      ProcessNpcPersistentAnimation(*actor);
+      continue;
+    }
+    auto* model = npc->GetModel();
+    if (npc != action.npc || !model || model != action.model ||
+        model->GetAniFromAniID(action.animation_id) != action.animation || npc->IsDead() || npc->IsUnconscious()) {
+      FinishNpcAction(action, false);
+    } else if (now >= action.deadline) {
+      FinishNpcAction(action, false);
+    } else if (!model->IsAniActive(action.animation)) {
+      FinishNpcAction(action, true);
+    }
+    ProcessNpcPersistentAnimation(*actor);
+  }
 }
 
 void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
@@ -2103,6 +2439,9 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
     if (existing_player->GetNpc()) {
       zVEC3 pos(new_player.position().x, new_player.position().y, new_player.position().z);
       existing_player->StopPositionInterpolation();
+      if (!existing_player->GetNpc()->GetHomeWorld()) {
+        existing_player->GetNpc()->Enable(pos);
+      }
       existing_player->SetPosition(pos);
       existing_player->base_player().set_enabled(true);
       existing_player->base_player().set_update_health_packet_counter(0);
@@ -2117,6 +2456,11 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
     if (auto parsed_instance_id = FindParserIndex(new_player.instance().c_str()); parsed_instance_id.has_value() && *parsed_instance_id > 0) {
       instance_id = *parsed_instance_id;
     } else {
+      if (new_player.is_npc()) {
+        SPDLOG_WARN("Cannot spawn server NPC {}: missing instance '{}'", new_player.id(), new_player.instance());
+        delete newhero;
+        return;
+      }
       SPDLOG_WARN("Remote player '{}' has unknown instance '{}'; using local fallback instance.", new_player.name(), new_player.instance());
     }
   }
@@ -2125,6 +2469,16 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
     delete newhero;
     return;
   }
+  auto* parser = zCParser::GetParser();
+  std::optional<ServerNpcInstanceScope> npc_instance_scope;
+  if (new_player.is_npc()) {
+    if (!IsNpcInstance(parser, instance_id)) {
+      SPDLOG_WARN("Cannot spawn server NPC {}: instance is not C_NPC", new_player.id());
+      delete newhero;
+      return;
+    }
+    npc_instance_scope.emplace(*parser, instance_id);
+  }
   oCNpc* npc = zfactory->CreateNpc(instance_id);
   if (!npc) {
     SPDLOG_ERROR("Failed to create remote NPC for player '{}' with instance id {}.", new_player.name(), instance_id);
@@ -2132,20 +2486,35 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
     return;
   }
   newhero->SetNpc(npc);
+  // Enable chooses the initial stand/dead pose from native HP. Supply the
+  // server values before that decision rather than the script constructor's.
+  npc->SetAttribute(NPC_ATR_HITPOINTSMAX, new_player.max_health());
+  SetNpcHealth(npc, new_player.health());
+  npc->SetAttribute(NPC_ATR_MANAMAX, new_player.max_mana());
+  npc->SetAttribute(NPC_ATR_MANA, new_player.mana());
   newhero->npc->startAIState = 0;
   newhero->npc->SetGuild(9);
+  if (new_player.is_npc()) {
+    SuppressServerNpcAI(npc);
+  }
   newhero->npc->Enable(pos);
+  if (new_player.is_npc()) {
+    SuppressServerNpcAI(npc);
+  }
   newhero->SetPosition(pos);
   newhero->SetName(new_player.name().c_str());
   (void)new_player;
 
-  SPDLOG_INFO("Player '{}' id {} joined the game.", new_player.name(), new_player.id());
+  SPDLOG_DEBUG("{} '{}' (id {}) streamed in", new_player.is_npc() ? "NPC" : "Player", new_player.name(), new_player.id());
   newhero->base_player().set_enabled(true);
   newhero->base_player().set_update_health_packet_counter(0);
   this->players.push_back(newhero);
 }
 
 void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {
+  StopNpcPersistentAnimation(player_id);
+  npc_animations_.erase(static_cast<std::uint32_t>(player_id));
+  CancelNpcAction(player_id);
   if (player_id <= std::numeric_limits<std::uint32_t>::max()) {
     const auto voice_player_id = static_cast<std::uint32_t>(player_id);
     EndPlayerVoiceActivity(voice_player_id);
@@ -2168,9 +2537,12 @@ void NetGame::OnPlayerLeft(std::uint64_t player_id, const std::string& player_na
         break;
       }
 
-      SPDLOG_INFO("Player '{}' (id {}) left visibility scope", this->players[i]->GetName(), player_id);
+      SPDLOG_DEBUG("{} '{}' (id {}) streamed out", this->players[i]->base_player().is_npc() ? "NPC" : "Player",
+                   this->players[i]->GetName(), player_id);
       this->players[i]->LeaveGame();
-      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDestroyName, gmp::gothic::PlayerLifecycleEvent{player_id});
+      if (!this->players[i]->base_player().is_npc()) {
+        EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDestroyName, gmp::gothic::PlayerLifecycleEvent{player_id});
+      }
       delete this->players[i];
       this->players.erase(this->players.begin() + i);
       break;
@@ -2209,12 +2581,31 @@ void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string&
     return;
   }
 
+  if (cplayer->GetNpc()->GetInstance() == *instance_id) {
+    return;
+  }
+  InterruptNpcAction(player_id);
+
+  std::optional<ServerNpcInstanceScope> npc_instance_scope;
+  if (cplayer->base_player().is_npc()) {
+    auto* parser = zCParser::GetParser();
+    if (!IsNpcInstance(parser, *instance_id)) {
+      SPDLOG_WARN("Cannot replace server NPC {}: instance is not C_NPC", player_id);
+      return;
+    }
+    npc_instance_scope.emplace(*parser, *instance_id);
+  }
+
+  StopNpcPersistentAnimation(player_id);
   if (!cplayer->ReplaceNpcInstance(*instance_id)) {
     SPDLOG_WARN("Failed to replace NPC instance '{}' for player {}", instance, player_id);
     return;
   }
 
   cplayer->base_player().set_instance(instance);
+  if (cplayer->base_player().is_npc()) {
+    SuppressServerNpcAI(cplayer->GetNpc());
+  }
 }
 
 void NetGame::OnPlayerColorUpdate(std::uint64_t player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
@@ -2254,6 +2645,8 @@ void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& b
     return;
   }
 
+  InterruptNpcAction(player_id);
+  StopNpcPersistentAnimation(player_id);
   zSTRING body(body_model.c_str());
   zSTRING head(head_model.c_str());
   cplayer->GetNpc()->SetAdditionalVisuals(body, body_texture, skin_color, head, head_texture, teeth_texture, -1);
@@ -2291,6 +2684,8 @@ void NetGame::OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& 
     return;
   }
 
+  InterruptNpcAction(player_id);
+  StopNpcPersistentAnimation(player_id);
   zSTRING overlay_name(overlay.c_str());
   if (apply) {
     cplayer->GetNpc()->ApplyOverlay(overlay_name);
@@ -2519,8 +2914,20 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
   }
 
   // Update position
+  if (cplayer->base_player().is_npc()) {
+    // State/position sequence numbers are independent of queue generations.
+    // A Lua movement update must not restart the current animation/action.
+    const auto it = npc_actions_.find(static_cast<std::uint32_t>(player_id));
+    if (it != npc_actions_.end()) {
+      it->second.control.position = state.position;
+      it->second.control.normal = state.nrot;
+    }
+    cplayer->SetPosition(state.position.x, state.position.y, state.position.z);
+    ApplyPlayerLifeState(player_id, state.life_state, std::nullopt, false);
+    return;
+  }
   zVEC3 pos(state.position.x, state.position.y, state.position.z);
-  if (!cplayer->base_player().is_enabled()) {
+  if (!cplayer->base_player().is_enabled() || !cplayer->npc->GetHomeWorld()) {
     cplayer->StopPositionInterpolation();
     cplayer->npc->Enable(pos);
     cplayer->SetPosition(pos);
@@ -2753,6 +3160,12 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
 void NetGame::OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) {
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc()) {
+    if (cplayer->base_player().is_npc()) {
+      const auto it = npc_actions_.find(static_cast<std::uint32_t>(player_id));
+      if (it != npc_actions_.end()) {
+        it->second.control.position = glm::vec3(x, y, z);
+      }
+    }
     cplayer->StopPositionInterpolation();
     cplayer->SetPosition(x, y, z);
   }

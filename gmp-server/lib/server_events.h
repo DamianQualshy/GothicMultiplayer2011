@@ -68,6 +68,38 @@ inline const std::string kEventOnPlayerHitName = "onPlayerHit";
 inline const std::string kEventOnPlayerVoiceStartName = "onPlayerVoiceStart";
 inline const std::string kEventOnPlayerVoiceStopName = "onPlayerVoiceStop";
 inline const std::string kEventOnPlayerVoiceChannelChangeName = "onPlayerVoiceChannelChange";
+inline const std::string kEventOnNpcCreatedName = "onNpcCreated";
+inline const std::string kEventOnNpcDestroyedName = "onNpcDestroyed";
+inline const std::string kEventOnNpcChangeHostPlayerName = "onNpcChangeHostPlayer";
+inline const std::string kEventOnNpcActionSentName = "onNpcActionSent";
+inline const std::string kEventOnNpcActionFinishedName = "onNpcActionFinished";
+
+struct OnNpcCreatedEvent {
+  std::uint32_t npc_id;
+};
+
+struct OnNpcDestroyedEvent {
+  std::uint32_t npc_id;
+};
+
+struct OnNpcChangeHostPlayerEvent {
+  std::uint32_t npc_id;
+  std::uint32_t current_id;   // Zero means no host; Lua receives -1.
+  std::uint32_t previous_id;
+};
+
+struct OnNpcActionSentEvent {
+  std::uint32_t npc_id;
+  std::uint32_t action_type;
+  std::uint32_t action_id;
+};
+
+struct OnNpcActionFinishedEvent {
+  std::uint32_t npc_id;
+  std::uint32_t action_type;
+  std::uint32_t action_id;
+  bool result;
+};
 
 struct OnTickEvent {};
 

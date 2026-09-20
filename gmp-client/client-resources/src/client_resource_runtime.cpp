@@ -184,7 +184,7 @@ void ClientResourceRuntime::SetServerInfoProvider(gmp::client::GameClient& game_
         }
 
         for (const auto& [id, player_ptr] : players) {
-          if (player_ptr && player_ptr->has_spawned()) {
+          if (player_ptr && !player_ptr->is_npc() && player_ptr->has_spawned()) {
             player_ids.push_back(static_cast<int>(id));
           }
         }
@@ -199,7 +199,7 @@ void ClientResourceRuntime::SetServerInfoProvider(gmp::client::GameClient& game_
         }
 
         for (const auto& [_, player_ptr] : manager.GetAllPlayers()) {
-          if (player_ptr && player_ptr->has_spawned()) {
+          if (player_ptr && !player_ptr->is_npc() && player_ptr->has_spawned()) {
             ++count;
           }
         }

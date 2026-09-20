@@ -25,7 +25,6 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
-#include <ctime>
 #include <functional>
 #include <optional>
 #include <string>
@@ -33,7 +32,7 @@ SOFTWARE.
 #include <unordered_set>
 #include <vector>
 
-#include "common_structs.h"
+#include "character.h"
 #include "znet_server.h"
 
 /**
@@ -54,74 +53,16 @@ public:
   /**
    * @brief Represents a player in the game
    */
-  struct Player {
-    PlayerId player_id;
-    Net::ConnectionHandle connection;
-    std::string name;
-    std::string instance;
-    std::uint8_t name_color_r{255};
-    std::uint8_t name_color_g{255};
-    std::uint8_t name_color_b{255};
-    std::string world;
-    std::int32_t virtual_world{0};
-
-    // Streaming state
+  struct Player : Character {
+    Net::ConnectionHandle connection{};
     std::unordered_set<PlayerId> spawned_players;
-    std::unordered_set<PlayerId> streamed_by_players;
-
-    // Character appearance
-    std::string body_model;
-    std::int16_t body_texture{0};
-    std::string head_model;
-    std::int16_t head_texture{0};
-    std::int16_t teeth_texture{0};
-    std::int16_t skin_color{0};
-    float fatness{1.0f};
-    glm::vec3 scale{1.0f, 1.0f, 1.0f};
-    std::vector<std::string> overlays;
-
-    // Character state
-    std::uint8_t flags;
-    std::uint8_t walkstyle;
-    std::uint8_t fight_pos;
-    std::uint8_t spellhand;
-    std::uint8_t headstate;
-
-    // Game state
-    std::uint8_t is_ingame;
-    std::uint8_t passed_crc_test;
+    std::uint8_t passed_crc_test{0};
+    bool npc_world_ready{false};
     bool is_admin{false};
     bool voice_enabled{true};
     bool voice_muted{false};
     std::string voice_channel{"default"};
     std::uint32_t voice_range{0};
-
-    std::int16_t health;
-    std::int16_t max_health{100};
-    std::int16_t mana;
-    std::int16_t max_mana{100};
-
-    std::int32_t level{0};
-    std::int32_t exp{0};
-    std::int32_t next_level_exp{0};
-    std::int32_t learn_points{0};
-    std::int32_t strength{0};
-    std::int32_t dexterity{0};
-
-    std::unordered_map<std::string, std::int32_t> inventory;
-
-    std::unordered_map<int, int> weapon_skills;
-    std::unordered_map<int, int> talents;
-
-    std::time_t tod;  // time of death
-    std::optional<std::int32_t> respawn_time_ms;
-    PlayerState state;
-    std::uint32_t state_sequence{0};
-    std::optional<std::int32_t> pending_equipped_armor_instance;
-    std::optional<std::int32_t> pending_equipped_helmet_instance;
-    std::optional<std::int32_t> pending_equipped_shield_instance;
-    std::optional<std::int32_t> pending_melee_weapon_instance;
-    std::optional<std::int32_t> pending_ranged_weapon_instance;
   };
 
   PlayerManager() = default;

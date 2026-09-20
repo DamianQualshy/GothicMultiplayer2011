@@ -53,6 +53,19 @@ public:
     id_ = id;
   }
 
+  bool is_npc() const { return is_npc_; }
+  void set_is_npc(bool value) { is_npc_ = value; }
+  std::uint32_t npc_control_epoch() const { return npc_control_epoch_; }
+  std::uint32_t npc_host_player_id() const { return npc_host_player_id_; }
+  std::uint32_t npc_action_id() const { return npc_action_id_; }
+  std::uint32_t npc_animation_revision() const { return npc_animation_revision_; }
+  void set_npc_animation_revision(std::uint32_t revision) { npc_animation_revision_ = revision; }
+  void set_npc_control(std::uint32_t epoch, std::uint32_t host_id, std::uint32_t action_id) {
+    npc_control_epoch_ = epoch;
+    npc_host_player_id_ = host_id;
+    npc_action_id_ = action_id;
+  }
+
   const std::string& name() const {
     return name_;
   }
@@ -399,6 +412,8 @@ public:
     head_direction_ = dir;
   }
 
+  std::uint32_t state_sequence() const { return state_sequence_; }
+
   void set_state_sequence(std::uint32_t sequence) {
     state_sequence_ = sequence;
     has_state_sequence_ = true;
@@ -410,6 +425,12 @@ public:
       return true;
     }
     return false;
+  }
+
+  bool accept_lifecycle_sequence(std::uint32_t sequence) {
+    // A snapshot/state packet for this same transition may arrive first.
+    // Still deliver its lifecycle event, but never rewind a newer pose.
+    return (has_state_sequence_ && sequence == state_sequence_) || accept_state_sequence(sequence);
   }
 
   bool is_enabled() const {
@@ -443,6 +464,11 @@ public:
 protected:
   // Core identity
   std::uint64_t id_{0};
+  bool is_npc_{false};
+  std::uint32_t npc_control_epoch_{0};
+  std::uint32_t npc_host_player_id_{0};
+  std::uint32_t npc_action_id_{0};
+  std::uint32_t npc_animation_revision_{0};
   std::string name_;
   std::string instance_;
   std::uint8_t name_color_r_{255};

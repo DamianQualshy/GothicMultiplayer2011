@@ -32,6 +32,9 @@ SOFTWARE.
 
 #include "common_structs.h"
 
+struct NpcControlPacket;
+struct NpcAnimationPacket;
+
 namespace gmp::client {
 
 // Forward declaration
@@ -68,10 +71,16 @@ public:
                             bool spatial, std::uint32_t range, const std::vector<std::uint8_t>& encoded_data) {}
 
   // Player events
+  // Release engine-side references before the Player objects are destroyed.
+  virtual void OnPlayersClearing() {}
   virtual void OnLocalPlayerJoined(gmp::client::Player& player) {}
   virtual void OnLocalPlayerSpawned(gmp::client::Player& player) {}
   virtual void OnPlayerJoined(gmp::client::Player& player) {}
   virtual void OnPlayerSpawned(gmp::client::Player& player) {}
+  // Called after the engine actor and every attribute/visual in a spawn snapshot exist.
+  virtual void OnPlayerSpawnSnapshotApplied(gmp::client::Player& player, bool new_spawn) {}
+  virtual void OnNpcControl(const NpcControlPacket& control) {}
+  virtual void OnNpcAnimation(const NpcAnimationPacket& animation) {}
   virtual void OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {}
   virtual void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state) {}
   virtual void OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) {}

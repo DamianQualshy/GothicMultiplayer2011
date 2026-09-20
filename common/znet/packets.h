@@ -1322,12 +1322,14 @@ inline std::ostream& operator<<(std::ostream& os, const DisconnectionInfoPacket&
 struct PlayerDeathInfoPacket {
   std::uint8_t packet_type;
   std::uint32_t player_id;
+  std::uint32_t state_sequence{0};
 };
 
 template <typename S>
 void serialize(S& s, PlayerDeathInfoPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
+  s.value4b(packet.state_sequence);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerDeathInfoPacket& info) {
@@ -1339,12 +1341,14 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerDeathInfoPacket& i
 struct PlayerRespawnInfoPacket {
   std::uint8_t packet_type;
   std::uint32_t player_id;
+  std::uint32_t state_sequence{0};
 };
 
 template <typename S>
 void serialize(S& s, PlayerRespawnInfoPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
+  s.value4b(packet.state_sequence);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerRespawnInfoPacket& info) {
@@ -1373,6 +1377,7 @@ void serialize(S& s, PlayerHitReportPacket& packet) {
 struct PlayerUnconsciousPacket {
   std::uint8_t packet_type;
   std::uint32_t player_id{0};
+  std::uint32_t state_sequence{0};
   std::optional<std::uint32_t> attacker_id;
 };
 
@@ -1380,18 +1385,21 @@ template <typename S>
 void serialize(S& s, PlayerUnconsciousPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
+  s.value4b(packet.state_sequence);
   s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
 }
 
 struct PlayerStandUpPacket {
   std::uint8_t packet_type;
   std::uint32_t player_id{0};
+  std::uint32_t state_sequence{0};
 };
 
 template <typename S>
 void serialize(S& s, PlayerStandUpPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
+  s.value4b(packet.state_sequence);
 }
 
 struct PlayerDeathReportPacket {

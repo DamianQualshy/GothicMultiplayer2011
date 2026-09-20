@@ -38,6 +38,7 @@ SOFTWARE.
 
 #include "common_structs.h"
 #include "packets.h"
+#include "npc_packets.h"
 #include "event_observer.hpp"
 #include "players.hpp"
 #include "task_scheduler.h"
@@ -87,6 +88,7 @@ public:
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
+  void SendNpcActionResult(std::uint32_t npc_id, std::uint32_t epoch, std::uint32_t action_id, bool success);
   bool SendVoiceFrame(std::uint32_t talkspurt_id, std::uint32_t sequence,
                       const std::vector<std::uint8_t>& encoded_data);
   bool SendVoiceChannel(const std::string& channel);
@@ -151,6 +153,12 @@ private:
   void OnMessage(Packet packet);
   void OnExistingPlayers(Packet packet);
   void OnPlayerSpawn(Packet packet);
+  void ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc = false);
+  void OnNpcSpawn(Packet packet);
+  void OnNpcControl(Packet packet);
+  void ApplyNpcControl(const NpcControlPacket& control);
+  void OnNpcAnimation(Packet packet);
+  void ApplyNpcAnimation(const NpcAnimationPacket& animation);
   void OnJoinGame(Packet packet);
   void OnPlayerNameUpdate(Packet packet);
   void OnPlayerInstanceUpdate(Packet packet);

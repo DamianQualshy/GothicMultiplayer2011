@@ -8,6 +8,7 @@
 #include "Lua/event_bind.h"
 #include "Lua/function_bind.h"
 #include "Lua/lua_item.h"
+#include "Lua/lua_npc.h"
 #include "Lua/lua_json.h"
 #include "Lua/lua_toml.h"
 #include "Lua/lua_database.h"
@@ -24,6 +25,7 @@ void LuaScript::BindDomainSpecific() {
   lua::bindings::BindServerConstants(lua_);
   lua::bindings::BindFunctions(lua_, timer_manager_);
   lua::bindings::BindItem(lua_);
+  lua::bindings::BindNpc(lua_);
   lua::bindings::BindItemGround(lua_);
   lua::bindings::BindJson(lua_);
   lua::bindings::BindToml(lua_);

@@ -6,3 +6,4 @@ target("Client.Net")
     add_includedirs("include", {public = true})
 
 includes("lib")
+includes("test")

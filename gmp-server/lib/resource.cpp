@@ -31,6 +31,7 @@ SOFTWARE.
 #include <vector>
 
 #include "Script.h"
+#include "game_server.h"
 #include "Lua/event_bind.h"
 #include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/timer_manager.h"
@@ -115,6 +116,9 @@ void Resource::Unload(TimerManager& timer_manager) {
 void Resource::ResetRuntimeState(TimerManager& timer_manager) {
   timer_manager.KillTimersForResource(name_);
   lua::bindings::RemoveHandlersForResource(name_);
+  if (g_server) {
+    g_server->DestroyNpcsForResource(name_);
+  }
   env_ = sol::environment();
   exports_ = sol::nil;
   start_hooks_.clear();

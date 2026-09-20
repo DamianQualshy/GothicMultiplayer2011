@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "game_server.h"
+#include "npc_packets.h"
 
 #include <bitsery/ext/value_range.h>
 #include <bitsery/traits/vector.h>
@@ -235,7 +236,7 @@ std::string FormatCurrentDateTime() {
   return oss.str();
 }
 
-std::uint8_t GetPlayerLifeState(const PlayerManager::Player& player) {
+std::uint8_t GetPlayerLifeState(const Character& player) {
   if (player.tod != 0) {
     return PLAYER_LIFE_DEAD;
   }
@@ -245,7 +246,7 @@ std::uint8_t GetPlayerLifeState(const PlayerManager::Player& player) {
   return PLAYER_LIFE_ALIVE;
 }
 
-void ClearTransientCombatState(PlayerManager::Player& player) {
+void ClearTransientCombatState(Character& player) {
   player.state.left_hand_item_instance = 0;
   player.state.right_hand_item_instance = 0;
   player.state.animation = -1;
@@ -255,7 +256,7 @@ void ClearTransientCombatState(PlayerManager::Player& player) {
   player.state.active_spell_instance = 0;
 }
 
-void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager::Player& player) {
+void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const Character& player) {
   packet.instance = player.instance;
   packet.name_color_r = player.name_color_r;
   packet.name_color_g = player.name_color_g;
@@ -297,7 +298,7 @@ void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const PlayerManager:
   packet.overlays = player.overlays;
 }
 
-std::uint32_t AdvancePlayerStateSequence(PlayerManager::Player& player) {
+std::uint32_t AdvancePlayerStateSequence(Character& player) {
   ++player.state_sequence;
   if (player.state_sequence == 0) {
     ++player.state_sequence;
@@ -305,7 +306,7 @@ std::uint32_t AdvancePlayerStateSequence(PlayerManager::Player& player) {
   return player.state_sequence;
 }
 
-PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const PlayerManager::Player& player) {
+PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const Character& player) {
   PlayerStateUpdatePacket packet{};
   packet.packet_type = PT_ACTUAL_STATISTICS;
   packet.player_id = player.player_id;
@@ -317,7 +318,7 @@ PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const PlayerManager::Player&
   return packet;
 }
 
-PlayerSpawnPacket MakePlayerSpawnPacket(const PlayerManager::Player& player) {
+PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player) {
   PlayerSpawnPacket packet{};
   packet.packet_type = PT_PLAYER_SPAWN;
   packet.player_id = player.player_id;
@@ -347,11 +348,46 @@ PlayerSpawnPacket MakePlayerSpawnPacket(const PlayerManager::Player& player) {
   return packet;
 }
 
-bool IsSameVisibilityScope(const PlayerManager::Player& a, const PlayerManager::Player& b) {
+bool IsSameVisibilityScope(const Character& a, const Character& b) {
   return a.world == b.world && a.virtual_world == b.virtual_world;
 }
 
-bool IsInsideStreamRange(const PlayerManager::Player& viewer, const PlayerManager::Player& subject, float radius, float height) {
+NpcControlPacket MakeNpcControlPacket(const NpcManager::Npc& npc) {
+  NpcControlPacket packet;
+  packet.npc_id = npc.player_id;
+  packet.control_epoch = npc.control_epoch;
+  packet.host_player_id = npc.host_player_id;
+  packet.state_sequence = npc.state_sequence;
+  packet.position = npc.state.position;
+  packet.normal = npc.state.nrot;
+  if (npc.host_player_id != 0 && !npc.actions.empty()) {
+    const auto& action = npc.actions.front();
+    const auto now = NpcManager::Clock::now();
+    const auto elapsed = action.started_at
+        ? std::chrono::duration_cast<std::chrono::milliseconds>(now - *action.started_at).count() : 0;
+    const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(now - action.queued_at).count();
+    packet.action_id = action.id;
+    packet.animation = action.animation;
+    packet.timeout_ms = static_cast<std::uint32_t>(std::max<std::int64_t>(1,
+        std::min<std::int64_t>(static_cast<std::int64_t>(action.timeout_ms) - elapsed,
+                              static_cast<std::int64_t>(NpcManager::kMaxActionLifetimeMs) - age)));
+  }
+  return packet;
+}
+
+NpcAnimationPacket MakeNpcAnimationPacket(const NpcManager::Npc& npc) {
+  NpcAnimationPacket packet;
+  packet.npc_id = npc.player_id;
+  packet.revision = npc.animation_revision;
+  packet.animation = npc.animation;
+  return packet;
+}
+
+bool IsFinitePosition(const glm::vec3& value) {
+  return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+bool IsInsideStreamRange(const Character& viewer, const Character& subject, float radius, float height) {
   if (!IsSameVisibilityScope(viewer, subject)) {
     return false;
   }
@@ -480,10 +516,18 @@ bool DeserializeClientPacket(const ::Packet& source, PacketT& packet, std::uint8
 }
 
 template <typename Packet>
-void BroadcastToRelevant(PlayerManager& player_manager, const PlayerManager::Player& subject, const Packet& packet, Net::PacketPriority priority,
+void BroadcastToRelevant(PlayerManager& player_manager, const Character& subject, const Packet& packet, Net::PacketPriority priority,
                          Net::PacketReliability reliable, std::uint32_t channel = 0) {
-  if (subject.is_ingame) {
-    SerializeAndSend(packet, priority, reliable, subject.connection, channel);
+  const auto connection = player_manager.GetConnectionHandle(subject.player_id);
+  // Character changes share the stream-in/out ordering channel, for players
+  // as well as NPCs. An old attribute/visual update must not overtake a new
+  // snapshot after the actor re-enters range.
+  if (reliable == RELIABLE || reliable == RELIABLE_ORDERED) {
+    reliable = RELIABLE_ORDERED;
+    channel = 0;
+  }
+  if (subject.is_ingame && connection) {
+    SerializeAndSend(packet, priority, reliable, *connection, channel);
   }
 
   for (const auto& viewer_id : subject.streamed_by_players) {
@@ -502,7 +546,7 @@ void BroadcastToRelevant(PlayerManager& player_manager, const PlayerManager::Pla
   }
 }
 
-void BroadcastPlayerStateToViewers(PlayerManager& player_manager, const PlayerManager::Player& subject) {
+void BroadcastPlayerStateToViewers(PlayerManager& player_manager, const Character& subject) {
   if (!subject.is_ingame) {
     return;
   }
@@ -523,7 +567,7 @@ void BroadcastPlayerStateToViewers(PlayerManager& player_manager, const PlayerMa
   }
 }
 
-void StreamOutSubjectFromViewer(PlayerManager::Player& subject, PlayerManager::Player& viewer) {
+void StreamOutSubjectFromViewer(Character& subject, PlayerManager::Player& viewer) {
   if (subject.streamed_by_players.erase(viewer.player_id) == 0) {
     return;
   }
@@ -612,7 +656,7 @@ std::int32_t MergePendingEquipmentState(std::optional<std::int32_t>& pending, st
   return current;
 }
 
-void SendPlayerAttributeUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, PlayerAttributeId attribute_id,
+void SendPlayerAttributeUpdate(PlayerManager& player_manager, const Character& subject, PlayerAttributeId attribute_id,
                                std::int32_t value) {
   PlayerAttributeUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_ATTRIBUTE_UPDATE;
@@ -623,7 +667,7 @@ void SendPlayerAttributeUpdate(PlayerManager& player_manager, const PlayerManage
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const PlayerManager::Player& subject, Net::ConnectionHandle connection) {
+void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
   PlayerAttributeSnapshotPacket packet{};
   packet.packet_type = PT_PLAYER_ATTRIBUTE_SNAPSHOT;
   packet.player_id = subject.player_id;
@@ -640,7 +684,7 @@ void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const PlayerMana
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void SendPlayerInstanceUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, Net::ConnectionHandle connection) {
+void SendPlayerInstanceUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
   PlayerInstanceUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
@@ -648,7 +692,7 @@ void SendPlayerInstanceUpdate(PlayerManager& player_manager, const PlayerManager
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject) {
+void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const Character& subject) {
   PlayerInstanceUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
@@ -656,7 +700,7 @@ void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const PlayerMa
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerColorUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, Net::ConnectionHandle connection) {
+void SendPlayerColorUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
   PlayerColorUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_COLOR_UPDATE;
   packet.player_id = subject.player_id;
@@ -666,7 +710,7 @@ void SendPlayerColorUpdate(PlayerManager& player_manager, const PlayerManager::P
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerColorUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject) {
+void BroadcastPlayerColorUpdate(PlayerManager& player_manager, const Character& subject) {
   PlayerColorUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_COLOR_UPDATE;
   packet.player_id = subject.player_id;
@@ -676,7 +720,7 @@ void BroadcastPlayerColorUpdate(PlayerManager& player_manager, const PlayerManag
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerSkillWeaponUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, std::int32_t skill_id,
+void SendPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t skill_id,
                                  std::int32_t percentage, Net::ConnectionHandle connection) {
   PlayerSkillWeaponUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_SKILL_WEAPON_UPDATE;
@@ -686,7 +730,7 @@ void SendPlayerSkillWeaponUpdate(PlayerManager& player_manager, const PlayerMana
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerSkillWeaponUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, std::int32_t skill_id,
+void BroadcastPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t skill_id,
                                       std::int32_t percentage) {
   PlayerSkillWeaponUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_SKILL_WEAPON_UPDATE;
@@ -696,7 +740,7 @@ void BroadcastPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Playe
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerTalentUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, std::int32_t talent_id,
+void SendPlayerTalentUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t talent_id,
                             std::int32_t talent_value, Net::ConnectionHandle connection) {
   PlayerTalentUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_TALENT_UPDATE;
@@ -706,7 +750,7 @@ void SendPlayerTalentUpdate(PlayerManager& player_manager, const PlayerManager::
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerTalentUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, std::int32_t talent_id,
+void BroadcastPlayerTalentUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t talent_id,
                                  std::int32_t talent_value) {
   PlayerTalentUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_TALENT_UPDATE;
@@ -716,7 +760,7 @@ void BroadcastPlayerTalentUpdate(PlayerManager& player_manager, const PlayerMana
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerFatnessUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, Net::ConnectionHandle connection) {
+void SendPlayerFatnessUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
   PlayerFatnessUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_FATNESS_UPDATE;
   packet.player_id = subject.player_id;
@@ -724,7 +768,7 @@ void SendPlayerFatnessUpdate(PlayerManager& player_manager, const PlayerManager:
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerFatnessUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject) {
+void BroadcastPlayerFatnessUpdate(PlayerManager& player_manager, const Character& subject) {
   PlayerFatnessUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_FATNESS_UPDATE;
   packet.player_id = subject.player_id;
@@ -732,7 +776,7 @@ void BroadcastPlayerFatnessUpdate(PlayerManager& player_manager, const PlayerMan
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerScaleUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, Net::ConnectionHandle connection) {
+void SendPlayerScaleUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
   PlayerScaleUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_SCALE_UPDATE;
   packet.player_id = subject.player_id;
@@ -740,7 +784,7 @@ void SendPlayerScaleUpdate(PlayerManager& player_manager, const PlayerManager::P
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerScaleUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject) {
+void BroadcastPlayerScaleUpdate(PlayerManager& player_manager, const Character& subject) {
   PlayerScaleUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_SCALE_UPDATE;
   packet.player_id = subject.player_id;
@@ -748,7 +792,7 @@ void BroadcastPlayerScaleUpdate(PlayerManager& player_manager, const PlayerManag
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-void SendPlayerOverlayUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, const std::string& overlay,
+void SendPlayerOverlayUpdate(PlayerManager& player_manager, const Character& subject, const std::string& overlay,
                              bool apply, Net::ConnectionHandle connection) {
   PlayerOverlayUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_OVERLAY_UPDATE;
@@ -758,7 +802,7 @@ void SendPlayerOverlayUpdate(PlayerManager& player_manager, const PlayerManager:
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
 }
 
-void BroadcastPlayerOverlayUpdate(PlayerManager& player_manager, const PlayerManager::Player& subject, const std::string& overlay,
+void BroadcastPlayerOverlayUpdate(PlayerManager& player_manager, const Character& subject, const std::string& overlay,
                                   bool apply) {
   PlayerOverlayUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_OVERLAY_UPDATE;
@@ -768,7 +812,7 @@ void BroadcastPlayerOverlayUpdate(PlayerManager& player_manager, const PlayerMan
   BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
 }
 
-std::vector<std::string> BuildPreferredAnimationMdsList(const PlayerManager::Player& player) {
+std::vector<std::string> BuildPreferredAnimationMdsList(const Character& player) {
   std::vector<std::string> preferred_mds;
   preferred_mds.reserve(player.overlays.size());
   for (auto it = player.overlays.rbegin(); it != player.overlays.rend(); ++it) {
@@ -821,6 +865,11 @@ GameServer::GameServer() {
 
   // Register server-side events.
   EventManager::Instance().RegisterEvent(kEventOnTickName);
+  EventManager::Instance().RegisterEvent(kEventOnNpcCreatedName);
+  EventManager::Instance().RegisterEvent(kEventOnNpcDestroyedName);
+  EventManager::Instance().RegisterEvent(kEventOnNpcChangeHostPlayerName);
+  EventManager::Instance().RegisterEvent(kEventOnNpcActionFinishedName);
+  EventManager::Instance().RegisterEvent(kEventOnNpcActionSentName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerConnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDisconnectName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
@@ -1056,88 +1105,8 @@ void GameServer::Run() {
   // Send updates to all players.
   if (now - last_update_time_ > std::chrono::milliseconds(config_.Get<std::int32_t>("tick_rate_ms"))) {
     last_update_time_ = now;
-    const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
-    const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
-
-    // Pre-filter active players
-    std::vector<std::pair<PlayerId, const Player*>> active_players;
-    active_players.reserve(player_manager_.GetPlayerCount());
-    player_manager_.ForEachPlayer([&](const Player& player) {
-      if (player.is_ingame) {
-        active_players.emplace_back(player.player_id, &player);
-      }
-    });
-
-    using PlayersKey = std::pair<PlayerId, PlayerId>;
-    struct PlayersKeyHash {
-      std::size_t operator()(const PlayersKey& key) const {
-        std::hash<uint64_t> hasher;
-        return hasher(key.first) ^ (hasher(key.second) << 1);
-      }
-    };
-
-    struct PlayersKeyEqual {
-      bool operator()(const PlayersKey& lhs, const PlayersKey& rhs) const {
-        return lhs.first == rhs.first && lhs.second == rhs.second;
-      }
-    };
-
-    // Pre-allocate map with estimated size
-    std::unordered_map<PlayersKey, float, PlayersKeyHash, PlayersKeyEqual> distances;
-    distances.reserve((active_players.size() * (active_players.size() - 1)) / 2);
-    // Iteration over player pairs
-    for (size_t i = 0; i < active_players.size(); ++i) {
-      for (size_t j = i + 1; j < active_players.size(); ++j) {
-        PlayersKey key{std::min(active_players[i].first, active_players[j].first), std::max(active_players[i].first, active_players[j].first)};
-
-        if (!IsSameVisibilityScope(*active_players[i].second, *active_players[j].second)) {
-          distances[key] = std::numeric_limits<float>::infinity();
-          continue;
-        }
-
-        const auto delta = active_players[i].second->state.position - active_players[j].second->state.position;
-        if (stream_height > 0.0f && std::abs(delta.y) > stream_height) {
-          distances[key] = std::numeric_limits<float>::infinity();
-          continue;
-        }
-
-        distances[key] = std::sqrt(delta.x * delta.x + delta.z * delta.z);
-      }
-    }
-
-    for (const auto& [players, distance] : distances) {
-      auto player_a_opt = player_manager_.GetPlayer(players.first);
-      auto player_b_opt = player_manager_.GetPlayer(players.second);
-
-      if (!player_a_opt.has_value() || !player_b_opt.has_value()) {
-        continue;
-      }
-
-      auto& player_a = player_a_opt->get();
-      auto& player_b = player_b_opt->get();
-
-      if (distance < stream_radius) {
-        const auto stream_subject_to_viewer = [](PlayerManager::Player& subject, PlayerManager::Player& viewer) {
-          if (subject.streamed_by_players.insert(viewer.player_id).second) {
-            viewer.spawned_players.insert(subject.player_id);
-            const auto spawn_packet = MakePlayerSpawnPacket(subject);
-            SerializeAndSend(spawn_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
-          }
-        };
-
-        stream_subject_to_viewer(player_a, player_b);
-        stream_subject_to_viewer(player_b, player_a);
-
-        const auto player_a_update_packet = MakePlayerStateUpdatePacket(player_a);
-        const auto player_b_update_packet = MakePlayerStateUpdatePacket(player_b);
-
-        SerializeAndSend(player_a_update_packet, IMMEDIATE_PRIORITY, UNRELIABLE, player_b.connection);
-        SerializeAndSend(player_b_update_packet, IMMEDIATE_PRIORITY, UNRELIABLE, player_a.connection);
-      } else {
-        StreamOutSubjectFromViewer(player_a, player_b);
-        StreamOutSubjectFromViewer(player_b, player_a);
-      }
-    }
+    ProcessNpcs();
+    RefreshPlayerStreaming(true);
   }
 
   DiagnosticsManager::ServerSnapshot snapshot;
@@ -1164,6 +1133,11 @@ void GameServer::Run() {
   }
   DiagnosticsManager::Instance().SetServerSnapshot(snapshot);
   DiagnosticsManager::Instance().EndFrame();
+  auto npc_events = std::move(pending_npc_events_);
+  pending_npc_events_.clear();
+  for (const auto& dispatch : npc_events) {
+    dispatch();
+  }
 }
 
 void GameServer::ProcessRespawns() {
@@ -1210,6 +1184,9 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
   player.state.life_state = GetPlayerLifeState(player);
   ClearTransientCombatState(player);
   AdvancePlayerStateSequence(player);
+  // Lua health/mana callbacks may immediately override the restored values.
+  // Deliver the respawn first so those ordered attribute updates remain final.
+  SendRespawnInfo(player.player_id);
   if (old_health != player.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
@@ -1218,7 +1195,6 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
   }
 
-  SendRespawnInfo(player.player_id);
   EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player.player_id, player.state.position});
   return true;
 }
@@ -1325,6 +1301,9 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_ACTUAL_STATISTICS:  // dostarcza nam informacji o sobie
       HandlePlayerUpdate(p);
       break;
+    case PT_NPC_ACTION_RESULT:
+      HandleNpcActionResult(p);
+      break;
     case PT_MSG:
       HandleNormalMsg(p);
       break;
@@ -1398,6 +1377,7 @@ unsigned char GameServer::GetPacketIdentifier(const Packet& p) {
 }
 
 void GameServer::DeleteFromPlayerList(PlayerId player_id) {
+  ReleaseNpcsForPlayer(player_id);
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (player_opt.has_value()) {
     UnstreamGroundItemsFromPlayer(player_opt->get(), false);
@@ -1630,7 +1610,7 @@ bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> a
   return true;
 }
 
-void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id) {
+void GameServer::HandlePlayerDeath(Character& victim, std::optional<PlayerId> killer_id) {
   if (victim.tod != 0) {
     return;
   }
@@ -1643,6 +1623,17 @@ void GameServer::HandlePlayerDeath(Player& victim, std::optional<PlayerId> kille
   victim.state.life_state = GetPlayerLifeState(victim);
   ClearTransientCombatState(victim);
   AdvancePlayerStateSequence(victim);
+  if (npc_manager_.GetNpc(victim.player_id)) {
+    const auto id = victim.player_id;
+    SetNpcHostPlayer(id, 0);
+    ClearNpcActions(id);
+    PlayerDeathInfoPacket packet{};
+    packet.packet_type = PT_DODIE;
+    packet.player_id = id;
+    packet.state_sequence = victim.state_sequence;
+    BroadcastToRelevant(player_manager_, victim, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    return;
+  }
   if (old_health != victim.health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
   }
@@ -1698,9 +1689,6 @@ void GameServer::SomeoneJoinGame(Packet p) {
   player.walkstyle = packet.walk_style;
   player.name = SanitizePlayerName(packet.player_name);
 
-  // Inform the joining player about already spawned players before any spawn happens
-  SendExistingPlayersPacket(player);
-
   BroadcastPlayerJoined(player);
 
   SPDLOG_INFO("{} joined the server. Now connected users: {}.", FormatPlayerLabel(player), player_manager_.GetPlayerCount());
@@ -1715,6 +1703,9 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     return;
   }
   auto& updated_player = player_opt.value().get();
+  if (!updated_player.npc_world_ready) {
+    return;
+  }
 
   PlayerStateUpdatePacket packet;
   if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "PlayerStateUpdatePacket")) {
@@ -2296,10 +2287,25 @@ void GameServer::HandlePlayerWorldEnter(Packet p) {
   if (!entered_world.empty() && entered_world != player.world) {
     SPDLOG_WARN("Player {} reported entering world '{}', but server state is '{}'", player.player_id, entered_world,
                 player.world);
+    return;
   }
+  if (entered_world.empty()) {
+    return;
+  }
+  player.npc_world_ready = true;
 
   EventManager::Instance().TriggerEvent(kEventOnPlayerWorldEnterName, OnPlayerWorldEnterEvent{player.player_id, player.world});
-  StreamRelevantGroundItemsToPlayer(player, true);
+  // A script can redirect the player into another world, unspawn or disconnect
+  // them from this callback. Re-check eligibility before using the result.
+  const auto ready_player = GetIngamePlayerByConnection(p.id);
+  if (!ready_player || !ready_player->get().npc_world_ready || ready_player->get().world != entered_world) {
+    return;
+  }
+  RefreshPlayerStreaming();
+  for (const auto npc_id : npc_manager_.GetNpcIds()) {
+    RefreshNpcStreaming(npc_id);
+  }
+  StreamRelevantGroundItemsToPlayer(ready_player->get(), true);
 }
 
 void GameServer::SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection) {
@@ -2697,7 +2703,7 @@ void GameServer::SendDisconnectionInfo(PlayerId disconnected_player_id) {
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) {
     if (player.player_id != disconnected_player_id) {
-      SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE, player.connection);
+      SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
     }
   });
 }
@@ -2804,7 +2810,10 @@ void GameServer::SendDeathInfo(PlayerId dead_player_id) {
   packet.packet_type = PT_DODIE;
   packet.player_id = dead_player_id;
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE, player.connection, 13); });
+  if (const auto subject = GetCharacter(dead_player_id)) {
+    packet.state_sequence = subject->get().state_sequence;
+    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  }
 }
 
 void GameServer::SendRespawnInfo(PlayerId respawned_player_id) {
@@ -2812,7 +2821,10 @@ void GameServer::SendRespawnInfo(PlayerId respawned_player_id) {
   packet.packet_type = PT_RESPAWN;
   packet.player_id = respawned_player_id;
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE, player.connection, 13); });
+  if (const auto subject = GetCharacter(respawned_player_id)) {
+    packet.state_sequence = subject->get().state_sequence;
+    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  }
 }
 
 void GameServer::SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId> attacker_id) {
@@ -2821,7 +2833,10 @@ void GameServer::SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId>
   packet.player_id = player_id;
   packet.attacker_id = attacker_id;
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection); });
+  if (const auto subject = GetCharacter(player_id)) {
+    packet.state_sequence = subject->get().state_sequence;
+    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  }
 }
 
 void GameServer::SendStandUpInfo(PlayerId player_id) {
@@ -2829,7 +2844,10 @@ void GameServer::SendStandUpInfo(PlayerId player_id) {
   packet.packet_type = PT_PLAYER_STANDUP;
   packet.player_id = player_id;
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection); });
+  if (const auto subject = GetCharacter(player_id)) {
+    packet.state_sequence = subject->get().state_sequence;
+    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  }
 }
 
 void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
@@ -2872,108 +2890,389 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
   });
 }
 
-void GameServer::SendExistingPlayersPacket(Player& target_player) {
-  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
-  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
-  std::vector<ExistingPlayerInfo> existing_players;
-  player_manager_.ForEachPlayer([&](Player& existing_player) {
-    if (existing_player.player_id == target_player.player_id) {
-      return;
+void GameServer::RefreshPlayerStreaming(bool send_state_updates) {
+  const auto radius = static_cast<float>(GetStreamerRadius());
+  const auto height = static_cast<float>(GetStreamerHeight());
+  std::vector<Player*> players;
+  players.reserve(player_manager_.GetPlayerCount());
+  player_manager_.ForEachIngamePlayer([&](Player& player) { players.push_back(&player); });
+
+  const auto stream_subject_to_viewer = [send_state_updates](Player& subject, Player& viewer) {
+    if (subject.streamed_by_players.insert(viewer.player_id).second) {
+      viewer.spawned_players.insert(subject.player_id);
+      SerializeAndSend(MakePlayerSpawnPacket(subject), IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
+    } else if (send_state_updates) {
+      SerializeAndSend(MakePlayerStateUpdatePacket(subject), IMMEDIATE_PRIORITY, UNRELIABLE, viewer.connection);
     }
+  };
 
-    // Skip players that have not finished the join handshake yet
-    if (existing_player.name.empty()) {
-      return;
+  for (std::size_t i = 0; i < players.size(); ++i) {
+    for (std::size_t j = i + 1; j < players.size(); ++j) {
+      auto& first = *players[i];
+      auto& second = *players[j];
+      // Remote actors must not be instantiated in a world the viewer is still
+      // loading. Both sides enter through the same complete spawn snapshot.
+      if (first.npc_world_ready && second.npc_world_ready && IsInsideStreamRange(first, second, radius, height)) {
+        stream_subject_to_viewer(first, second);
+        stream_subject_to_viewer(second, first);
+      } else {
+        StreamOutSubjectFromViewer(first, second);
+        StreamOutSubjectFromViewer(second, first);
+      }
     }
-    if (!existing_player.is_ingame) {
-      return;
-    }
+  }
+}
 
-    if (existing_player.world != target_player.world || existing_player.virtual_world != target_player.virtual_world) {
-      return;
-    }
-    if (!IsInsideStreamRange(target_player, existing_player, stream_radius, stream_height)) {
-      return;
-    }
+std::optional<std::reference_wrapper<Character>> GameServer::GetCharacter(PlayerId id) {
+  if (auto player = player_manager_.GetPlayer(id)) {
+    return std::ref(static_cast<Character&>(player->get()));
+  }
+  if (auto npc = npc_manager_.GetNpc(id)) {
+    return std::ref(static_cast<Character&>(npc->get()));
+  }
+  return std::nullopt;
+}
 
-    target_player.spawned_players.insert(existing_player.player_id);
-    existing_player.streamed_by_players.insert(target_player.player_id);
+std::optional<std::reference_wrapper<const Character>> GameServer::GetCharacter(PlayerId id) const {
+  if (auto player = player_manager_.GetPlayer(id)) {
+    return std::cref(static_cast<const Character&>(player->get()));
+  }
+  if (auto npc = npc_manager_.GetNpc(id)) {
+    return std::cref(static_cast<const Character&>(npc->get()));
+  }
+  return std::nullopt;
+}
 
-    ExistingPlayerInfo player_packet;
-    player_packet.player_id = existing_player.player_id;
-    player_packet.state_sequence = existing_player.state_sequence;
-    player_packet.position = existing_player.state.position;
-    player_packet.left_hand_item_instance = existing_player.state.left_hand_item_instance;
-    player_packet.right_hand_item_instance = existing_player.state.right_hand_item_instance;
-    player_packet.equipped_armor_instance = existing_player.state.equipped_armor_instance;
-    player_packet.equipped_helmet_instance = existing_player.state.equipped_helmet_instance;
-    player_packet.equipped_shield_instance = existing_player.state.equipped_shield_instance;
-    player_packet.equipped_amulet_instance = existing_player.state.equipped_amulet_instance;
-    player_packet.equipped_belt_instance = existing_player.state.equipped_belt_instance;
-    player_packet.equipped_ring_left_instance = existing_player.state.equipped_ring_left_instance;
-    player_packet.equipped_ring_right_instance = existing_player.state.equipped_ring_right_instance;
-    player_packet.animation = existing_player.state.animation;
-    player_packet.animation_name = existing_player.state.animation_name;
-    player_packet.body_model = existing_player.body_model;
-    player_packet.body_texture = existing_player.body_texture;
-    player_packet.head_model = existing_player.head_model;
-    player_packet.head_texture = existing_player.head_texture;
-    player_packet.teeth_texture = existing_player.teeth_texture;
-    player_packet.skin_color = existing_player.skin_color;
-    player_packet.walk_style = existing_player.walkstyle;
-    player_packet.player_name = existing_player.name;
-    player_packet.instance = existing_player.instance;
-    player_packet.name_color_r = existing_player.name_color_r;
-    player_packet.name_color_g = existing_player.name_color_g;
-    player_packet.name_color_b = existing_player.name_color_b;
-
-    player_packet.strength = existing_player.strength;
-    player_packet.dexterity = existing_player.dexterity;
-    player_packet.level = existing_player.level;
-    player_packet.exp = existing_player.exp;
-    player_packet.next_level_exp = existing_player.next_level_exp;
-    player_packet.learn_points = existing_player.learn_points;
-    player_packet.health = existing_player.health;
-    player_packet.max_health = existing_player.max_health;
-    player_packet.mana = existing_player.mana;
-    player_packet.max_mana = existing_player.max_mana;
-    player_packet.life_state = GetPlayerLifeState(existing_player);
-
-    player_packet.fatness = existing_player.fatness;
-    player_packet.scale = existing_player.scale;
-
-    player_packet.weapon_skills.reserve(existing_player.weapon_skills.size());
-    for (const auto& [skill_id, percentage] : existing_player.weapon_skills) {
-      ExistingPlayerInfo::SkillEntry entry;
-      entry.skill_id = skill_id;
-      entry.percentage = percentage;
-      player_packet.weapon_skills.push_back(std::move(entry));
-    }
-
-    player_packet.talents.reserve(existing_player.talents.size());
-    for (const auto& [talent_id, value] : existing_player.talents) {
-      ExistingPlayerInfo::TalentEntry entry;
-      entry.talent_id = talent_id;
-      entry.value = value;
-      player_packet.talents.push_back(std::move(entry));
-    }
-
-    player_packet.overlays = existing_player.overlays;
-
-    existing_players.push_back(std::move(player_packet));
+GameServer::PlayerId GameServer::CreateNpc(const std::string& name, const std::string& instance) {
+  auto* resource = ResourceManager::GetCurrentResource();
+  const auto owner = resource ? resource->GetName() : std::string{};
+  if (unloading_npc_resources_.count(owner) != 0 || npc_manager_.GetNpcCount() >= 4096) {
+    return 0;
+  }
+  const auto id = npc_manager_.Create(SanitizePlayerName(name), instance, server_world_, GetMaxSlots());
+  if (id == 0) {
+    return 0;
+  }
+  npc_manager_.GetNpc(id)->get().owner_resource = owner;
+  pending_npc_events_.emplace_back([id] {
+    EventManager::Instance().TriggerEvent(kEventOnNpcCreatedName, OnNpcCreatedEvent{id});
   });
+  return id;
+}
 
-  if (existing_players.empty()) {
+void GameServer::UnstreamNpc(NpcManager::Npc& npc) {
+  const std::vector<PlayerId> viewers(npc.streamed_by_players.begin(), npc.streamed_by_players.end());
+  for (const auto viewer_id : viewers) {
+    if (auto viewer = player_manager_.GetPlayer(viewer_id)) {
+      StreamOutSubjectFromViewer(npc, viewer->get());
+    } else {
+      npc.streamed_by_players.erase(viewer_id);
+    }
+  }
+}
+
+bool GameServer::DestroyNpc(PlayerId npc_id) {
+  auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc) {
+    return false;
+  }
+  // Detach before callbacks. Destruction must also work with exhausted counters.
+  UnstreamNpc(npc->get());
+  const auto old_host = npc->get().host_player_id;
+  const auto actions = std::move(npc->get().actions);
+  npc_manager_.Remove(npc_id);
+  if (old_host != 0) {
+    pending_npc_events_.emplace_back([npc_id, old_host] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcChangeHostPlayerName, OnNpcChangeHostPlayerEvent{npc_id, 0, old_host});
+    });
+  }
+  for (const auto& action : actions) {
+    pending_npc_events_.emplace_back([npc_id, id = action.id] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcActionFinishedName,
+          OnNpcActionFinishedEvent{npc_id, kNpcActionPlayAnimation, id, false});
+    });
+  }
+  pending_npc_events_.emplace_back([npc_id] {
+    EventManager::Instance().TriggerEvent(kEventOnNpcDestroyedName, OnNpcDestroyedEvent{npc_id});
+  });
+  return true;
+}
+
+void GameServer::DestroyNpcsForResource(const std::string& owner) {
+  if (owner.empty()) {
     return;
   }
+  unloading_npc_resources_.insert(owner);
+  for (const auto id : npc_manager_.GetNpcIds()) {
+    const auto npc = npc_manager_.GetNpc(id);
+    if (npc && npc->get().owner_resource == owner) {
+      DestroyNpc(id);
+    }
+  }
+  unloading_npc_resources_.erase(owner);
+}
 
-  ExistingPlayersPacket existing_players_packet;
-  existing_players_packet.packet_type = PT_EXISTING_PLAYERS;
-  existing_players_packet.existing_players = std::move(existing_players);
-  SerializeAndSend(existing_players_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, target_player.connection);
+bool GameServer::SpawnNpc(PlayerId npc_id, std::optional<glm::vec3> position) {
+  const auto npc_opt = npc_manager_.GetNpc(npc_id);
+  if (!npc_opt || npc_opt->get().is_ingame || npc_opt->get().max_health <= 0 || (position && !IsFinitePosition(*position)) ||
+      !npc_manager_.BumpControlEpoch(npc_id)) {
+    return false;
+  }
+  auto& npc = npc_opt->get();
+  if (position) {
+    npc.state.position = *position;
+  }
+  npc.flags = 0;
+  npc.tod = 0;
+  npc.health = npc.max_health;
+  npc.mana = npc.max_mana;
+  npc.state.health_points = npc.health;
+  npc.state.mana_points = npc.mana;
+  npc.state.life_state = PLAYER_LIFE_ALIVE;
+  ClearTransientCombatState(npc);
+  AdvancePlayerStateSequence(npc);
+  npc.is_ingame = 1;
+  RefreshNpcStreaming(npc_id);
+  return true;
+}
+
+bool GameServer::UnspawnNpc(PlayerId npc_id) {
+  const auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc || !npc->get().is_ingame) {
+    return false;
+  }
+  npc->get().is_ingame = 0;
+  UnstreamNpc(npc->get());
+  SetNpcHostPlayer(npc_id, 0);
+  return ClearNpcActions(npc_id);
+}
+
+bool GameServer::IsEligibleNpcHost(const NpcManager::Npc& npc, PlayerId host_id) const {
+  const auto player = player_manager_.GetPlayer(host_id);
+  return npc.is_ingame && npc.tod == 0 && player && player->get().is_ingame && player->get().npc_world_ready &&
+      npc.streamed_by_players.count(host_id) != 0 &&
+      IsInsideStreamRange(player->get(), npc, static_cast<float>(GetStreamerRadius()), static_cast<float>(GetStreamerHeight()));
+}
+
+void GameServer::BroadcastNpcControl(PlayerId npc_id) {
+  const auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc || !npc->get().is_ingame) {
+    return;
+  }
+  const auto packet = MakeNpcControlPacket(npc->get());
+  BroadcastToRelevant(player_manager_, npc->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  if (packet.action_id != 0 && packet.host_player_id != 0) {
+    pending_npc_events_.emplace_back([npc_id, id = packet.action_id] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcActionSentName, OnNpcActionSentEvent{npc_id, kNpcActionPlayAnimation, id});
+    });
+  }
+}
+
+bool GameServer::SetNpcHostPlayer(PlayerId npc_id, PlayerId host_id) {
+  const auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc || (host_id != 0 && !IsEligibleNpcHost(npc->get(), host_id))) {
+    return false;
+  }
+  const auto previous = npc->get().host_player_id;
+  if (!npc_manager_.SetHost(npc_id, host_id)) {
+    return false;
+  }
+  if (previous != host_id) {
+    pending_npc_events_.emplace_back([npc_id, host_id, previous] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcChangeHostPlayerName, OnNpcChangeHostPlayerEvent{npc_id, host_id, previous});
+    });
+    BroadcastNpcControl(npc_id);
+  }
+  return true;
+}
+
+bool GameServer::SetNpcAnimation(PlayerId npc_id, const std::string& animation) {
+  const auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc) {
+    return false;
+  }
+  const auto old_revision = npc->get().animation_revision;
+  if (!npc_manager_.SetAnimation(npc_id, animation)) {
+    return false;
+  }
+  if (npc->get().is_ingame && old_revision != npc->get().animation_revision) {
+    BroadcastToRelevant(player_manager_, npc->get(), MakeNpcAnimationPacket(npc->get()), IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  }
+  return true;
+}
+
+void GameServer::RefreshNpcStreaming(PlayerId npc_id) {
+  const auto npc_opt = npc_manager_.GetNpc(npc_id);
+  if (!npc_opt || !npc_opt->get().is_ingame) {
+    return;
+  }
+  auto& npc = npc_opt->get();
+  const auto radius = static_cast<float>(GetStreamerRadius());
+  const auto height = static_cast<float>(GetStreamerHeight());
+  const std::vector<PlayerId> old_viewers(npc.streamed_by_players.begin(), npc.streamed_by_players.end());
+  for (const auto id : old_viewers) {
+    const auto viewer = player_manager_.GetPlayer(id);
+    if (!viewer) {
+      npc.streamed_by_players.erase(id);
+    } else if (!viewer->get().is_ingame || !viewer->get().npc_world_ready || !IsInsideStreamRange(viewer->get(), npc, radius, height)) {
+      StreamOutSubjectFromViewer(npc, viewer->get());
+    }
+  }
+  std::vector<PlayerId> added_viewers;
+  player_manager_.ForEachIngamePlayer([&](Player& player) {
+    if (player.npc_world_ready && IsInsideStreamRange(player, npc, radius, height) && npc.streamed_by_players.insert(player.player_id).second) {
+      player.spawned_players.insert(npc_id);
+      added_viewers.push_back(player.player_id);
+    }
+  });
+
+  // Keep a valid host. Distance alone must not cause rapid ownership changes.
+  const auto old_host = npc.host_player_id;
+  auto host = old_host;
+  if (!IsEligibleNpcHost(npc, host)) {
+    host = 0;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const auto id : npc.streamed_by_players) {
+      if (!IsEligibleNpcHost(npc, id)) {
+        continue;
+      }
+      const auto delta = player_manager_.GetPlayer(id)->get().state.position - npc.state.position;
+      const float distance = glm::dot(delta, delta);
+      if (distance < nearest || (distance == nearest && (host == 0 || id < host))) {
+        host = id;
+        nearest = distance;
+      }
+    }
+  }
+  if (!npc_manager_.SetHost(npc_id, host)) {
+    DestroyNpc(npc_id);
+    return;
+  }
+  if (!added_viewers.empty()) {
+    NpcSpawnPacket packet;
+    packet.actor = MakePlayerSpawnPacket(npc);
+    packet.control = MakeNpcControlPacket(npc);
+    packet.animation = MakeNpcAnimationPacket(npc);
+    for (const auto viewer_id : added_viewers) {
+      const auto connection = player_manager_.GetConnectionHandle(viewer_id);
+      if (connection) {
+        SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, *connection);
+      }
+    }
+  }
+  if (old_host != host) {
+    pending_npc_events_.emplace_back([npc_id, host, old_host] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcChangeHostPlayerName, OnNpcChangeHostPlayerEvent{npc_id, host, old_host});
+    });
+    BroadcastNpcControl(npc_id);
+  }
+}
+
+void GameServer::ReleaseNpcsForPlayer(PlayerId player_id) {
+  for (const auto npc_id : npc_manager_.GetNpcIds()) {
+    const auto npc = npc_manager_.GetNpc(npc_id);
+    const auto viewer = player_manager_.GetPlayer(player_id);
+    if (!npc) {
+      continue;
+    }
+    if (viewer) {
+      StreamOutSubjectFromViewer(npc->get(), viewer->get());
+    } else {
+      npc->get().streamed_by_players.erase(player_id);
+    }
+    if (npc->get().host_player_id == player_id) {
+      if (!SetNpcHostPlayer(npc_id, 0)) {
+        DestroyNpc(npc_id);
+      }
+    }
+  }
+}
+
+void GameServer::ProcessNpcs() {
+  const auto now = NpcManager::Clock::now();
+  for (const auto id : npc_manager_.GetNpcIds()) {
+    const auto npc = npc_manager_.GetNpc(id);
+    if (!npc) {
+      continue;
+    }
+    if (npc->get().control_epoch == std::numeric_limits<std::uint32_t>::max()) {
+      DestroyNpc(id);
+      continue;
+    }
+    const auto old_epoch = npc->get().control_epoch;
+    const auto expired = npc_manager_.ExpireActions(id, now);
+    for (const auto& action : expired) {
+      pending_npc_events_.emplace_back([id, action_id = action.id] {
+        EventManager::Instance().TriggerEvent(kEventOnNpcActionFinishedName,
+          OnNpcActionFinishedEvent{id, kNpcActionPlayAnimation, action_id, false});
+      });
+    }
+    if (old_epoch != npc->get().control_epoch) {
+      BroadcastNpcControl(id);
+    }
+    RefreshNpcStreaming(id);
+  }
+}
+
+std::uint32_t GameServer::QueueNpcAnimation(PlayerId npc_id, const std::string& animation, std::uint32_t timeout_ms) {
+  const auto npc = npc_manager_.GetNpc(npc_id);
+  if (!npc || npc->get().tod != 0) {
+    return 0;
+  }
+  const auto epoch = npc->get().control_epoch;
+  const auto id = npc_manager_.QueueAnimation(npc_id, animation, timeout_ms);
+  if (id != 0 && epoch != npc->get().control_epoch) {
+    BroadcastNpcControl(npc_id);
+  }
+  return id;
+}
+
+bool GameServer::ClearNpcActions(PlayerId npc_id) {
+  const auto cleared = npc_manager_.ClearActions(npc_id);
+  if (!cleared) {
+    return false;
+  }
+  BroadcastNpcControl(npc_id);
+  for (const auto& action : *cleared) {
+    pending_npc_events_.emplace_back([npc_id, id = action.id] {
+      EventManager::Instance().TriggerEvent(kEventOnNpcActionFinishedName,
+          OnNpcActionFinishedEvent{npc_id, kNpcActionPlayAnimation, id, false});
+    });
+  }
+  return true;
+}
+
+void GameServer::HandleNpcActionResult(Packet p) {
+  const auto player = GetIngamePlayerByConnection(p.id);
+  if (!player) {
+    return;
+  }
+  NpcActionResultPacket packet;
+  using Adapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto decoded = bitsery::quickDeserialization<Adapter>({p.data, p.length}, packet);
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || packet.success > 1) {
+    return;
+  }
+  const auto npc = npc_manager_.GetNpc(packet.npc_id);
+  if (!npc || !IsEligibleNpcHost(npc->get(), player->get().player_id)) {
+    return;
+  }
+  const auto completed = npc_manager_.FinishAction(packet.npc_id, player->get().player_id,
+      packet.control_epoch, packet.action_id);
+  if (!completed) {
+    return;
+  }
+  pending_npc_events_.emplace_back([packet] {
+    EventManager::Instance().TriggerEvent(kEventOnNpcActionFinishedName,
+        OnNpcActionFinishedEvent{packet.npc_id, kNpcActionPlayAnimation, packet.action_id, packet.success != 0});
+  });
+  BroadcastNpcControl(packet.npc_id);
 }
 
 bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> position_override) {
+  if (npc_manager_.GetNpc(player_id)) {
+    return SpawnNpc(player_id, position_override);
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("spawnPlayer called for unknown player id {}", player_id);
@@ -3009,21 +3308,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
   StreamRelevantGroundItemsToPlayer(player, true);
 
-  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
-  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
-  player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
-    if (existing_player.player_id == player.player_id) {
-      return;
-    }
-    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
-      return;
-    }
-
-    existing_player.spawned_players.insert(player.player_id);
-    player.streamed_by_players.insert(existing_player.player_id);
-
-    SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, existing_player.connection);
-  });
+  RefreshPlayerStreaming();
 
   if (was_dead) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player.player_id, player.state.position});
@@ -3034,6 +3319,9 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
 }
 
 bool GameServer::UnspawnPlayer(PlayerId player_id) {
+  if (npc_manager_.GetNpc(player_id)) {
+    return UnspawnNpc(player_id);
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("unspawnPlayer called for unknown player id {}", player_id);
@@ -3046,6 +3334,7 @@ bool GameServer::UnspawnPlayer(PlayerId player_id) {
     return false;
   }
 
+  ReleaseNpcsForPlayer(player_id);
   UnstreamGroundItemsFromPlayer(player, true);
   StreamOutAllKnownPlayers(player_manager_, player);
 
@@ -3056,11 +3345,12 @@ bool GameServer::UnspawnPlayer(PlayerId player_id) {
   SerializeAndSend(subject_left_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
 
   player.is_ingame = 0;
+  player.npc_world_ready = false;
   return true;
 }
 
 bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerName called for unknown player id {}", player_id);
     return false;
@@ -3085,13 +3375,17 @@ bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
 }
 
 bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!IsFinitePosition(position)) {
+    return false;
+  }
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerPosition called for unknown player id {}", player_id);
     return false;
   }
 
   auto& player = player_opt->get();
+  const bool is_npc = npc_manager_.GetNpc(player_id).has_value();
   player.state.position = position;
   const auto state_sequence = AdvancePlayerStateSequence(player);
 
@@ -3101,13 +3395,23 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
   packet.state_sequence = state_sequence;
   packet.position = position;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  // Transform revisions are independent of the action epoch: Lua movement
+  // must not restart a running action or extend its timeout.
+  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  if (is_npc) {
+    RefreshNpcStreaming(player_id);
+  } else {
+    RefreshPlayerStreaming();
+  }
 
   return true;
 }
 
 bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!std::isfinite(angle)) {
+    return false;
+  }
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerAngle called for unknown player id {}", player_id);
     return false;
@@ -3124,6 +3428,21 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
 }
 
 bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, std::optional<std::string> start_point) {
+  if (auto npc = npc_manager_.GetNpc(player_id)) {
+    const auto sanitized = SanitizeWorldName(world);
+    // A headless server cannot resolve a Gothic waypoint into coordinates.
+    if (sanitized.empty() || (start_point && !start_point->empty())) {
+      return false;
+    }
+    if (npc->get().world != sanitized) {
+      UnstreamNpc(npc->get());
+      SetNpcHostPlayer(player_id, 0);
+      ClearNpcActions(player_id);
+      npc->get().world = sanitized;
+      RefreshNpcStreaming(player_id);
+    }
+    return true;
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerWorld called for unknown player id {}", player_id);
@@ -3144,6 +3463,8 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   }
 
   if (player.is_ingame && world_changed) {
+    ReleaseNpcsForPlayer(player_id);
+    player.npc_world_ready = false;
     UnstreamGroundItemsFromPlayer(player, true);
     StreamOutAllKnownPlayers(player_manager_, player);
   }
@@ -3162,31 +3483,24 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
     return true;
   }
 
-  SendExistingPlayersPacket(player);
+  RefreshPlayerStreaming();
   StreamRelevantGroundItemsToPlayer(player);
-
-  const auto spawn_packet = MakePlayerSpawnPacket(player);
-  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
-  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
-
-  player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
-    if (existing_player.player_id == player.player_id) {
-      return;
-    }
-    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
-      return;
-    }
-
-    existing_player.spawned_players.insert(player.player_id);
-    player.streamed_by_players.insert(existing_player.player_id);
-
-    SerializeAndSend(spawn_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, existing_player.connection);
-  });
 
   return true;
 }
 
 bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_world) {
+  if (auto npc = npc_manager_.GetNpc(player_id)) {
+    const auto clamped = std::clamp<std::int32_t>(virtual_world, 0, 65535);
+    if (npc->get().virtual_world != clamped) {
+      UnstreamNpc(npc->get());
+      SetNpcHostPlayer(player_id, 0);
+      ClearNpcActions(player_id);
+      npc->get().virtual_world = clamped;
+      RefreshNpcStreaming(player_id);
+    }
+    return true;
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerVirtualWorld called for unknown player id {}", player_id);
@@ -3198,6 +3512,7 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   const bool virtual_world_changed = clamped_virtual_world != player.virtual_world;
 
   if (player.is_ingame && virtual_world_changed) {
+    ReleaseNpcsForPlayer(player_id);
     UnstreamGroundItemsFromPlayer(player, true);
     StreamOutAllKnownPlayers(player_manager_, player);
   }
@@ -3208,32 +3523,14 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
     return true;
   }
 
-  SendExistingPlayersPacket(player);
+  RefreshPlayerStreaming();
   StreamRelevantGroundItemsToPlayer(player);
-
-  const auto spawn_packet = MakePlayerSpawnPacket(player);
-  const auto stream_radius = static_cast<float>(config_.Get<std::int32_t>("stream_radius"));
-  const auto stream_height = static_cast<float>(config_.Get<std::int32_t>("stream_height"));
-
-  player_manager_.ForEachIngamePlayer([&](Player& existing_player) {
-    if (existing_player.player_id == player.player_id) {
-      return;
-    }
-    if (!IsInsideStreamRange(existing_player, player, stream_radius, stream_height)) {
-      return;
-    }
-
-    existing_player.spawned_players.insert(player.player_id);
-    player.streamed_by_players.insert(existing_player.player_id);
-
-    SerializeAndSend(spawn_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, existing_player.connection);
-  });
 
   return true;
 }
 
 bool GameServer::SetPlayerStrength(PlayerId player_id, std::int32_t strength) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerStrength called for unknown player id {}", player_id);
     return false;
@@ -3246,7 +3543,7 @@ bool GameServer::SetPlayerStrength(PlayerId player_id, std::int32_t strength) {
 }
 
 bool GameServer::SetPlayerDexterity(PlayerId player_id, std::int32_t dexterity) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerDexterity called for unknown player id {}", player_id);
     return false;
@@ -3259,7 +3556,7 @@ bool GameServer::SetPlayerDexterity(PlayerId player_id, std::int32_t dexterity) 
 }
 
 bool GameServer::SetPlayerLevel(PlayerId player_id, std::int32_t level) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerLevel called for unknown player id {}", player_id);
     return false;
@@ -3272,7 +3569,7 @@ bool GameServer::SetPlayerLevel(PlayerId player_id, std::int32_t level) {
 }
 
 bool GameServer::SetPlayerExp(PlayerId player_id, std::int32_t exp) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerExp called for unknown player id {}", player_id);
     return false;
@@ -3285,7 +3582,7 @@ bool GameServer::SetPlayerExp(PlayerId player_id, std::int32_t exp) {
 }
 
 bool GameServer::SetPlayerNextLevelExp(PlayerId player_id, std::int32_t next_level_exp) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerNextLevelExp called for unknown player id {}", player_id);
     return false;
@@ -3298,7 +3595,7 @@ bool GameServer::SetPlayerNextLevelExp(PlayerId player_id, std::int32_t next_lev
 }
 
 bool GameServer::SetPlayerLearnPoints(PlayerId player_id, std::int32_t learn_points) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerLearnPoints called for unknown player id {}", player_id);
     return false;
@@ -3311,7 +3608,7 @@ bool GameServer::SetPlayerLearnPoints(PlayerId player_id, std::int32_t learn_poi
 }
 
 bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMaxHealth called for unknown player id {}", player_id);
     return false;
@@ -3319,7 +3616,7 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
 
   auto& player = player_opt->get();
   const auto old_health = player.health;
-  player.max_health = static_cast<std::int16_t>(std::max<std::int32_t>(0, max_health));
+  player.max_health = static_cast<std::int16_t>(std::clamp<std::int32_t>(max_health, 0, std::numeric_limits<std::int16_t>::max()));
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_HEALTH, player.max_health);
   if (player.tod == 0 && player.max_health <= 0) {
     HandlePlayerDeath(player, std::nullopt);
@@ -3328,7 +3625,7 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
   if (player.health > player.max_health) {
     player.health = player.max_health;
   }
-  if (old_health != player.health) {
+  if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
@@ -3340,7 +3637,7 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
 }
 
 bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerHealth called for unknown player id {}", player_id);
     return false;
@@ -3364,7 +3661,7 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
   }
 
   player.health = static_cast<std::int16_t>(clamped);
-  if (old_health != player.health) {
+  if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
                                           OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
   }
@@ -3380,7 +3677,7 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
 }
 
 bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMaxMana called for unknown player id {}", player_id);
     return false;
@@ -3388,11 +3685,11 @@ bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
 
   auto& player = player_opt->get();
   const auto old_mana = player.mana;
-  player.max_mana = static_cast<std::int16_t>(std::max<std::int32_t>(0, max_mana));
+  player.max_mana = static_cast<std::int16_t>(std::clamp<std::int32_t>(max_mana, 0, std::numeric_limits<std::int16_t>::max()));
   if (player.mana > player.max_mana) {
     player.mana = player.max_mana;
   }
-  if (old_mana != player.mana) {
+  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
   }
   player.state.mana_points = player.mana;
@@ -3403,7 +3700,7 @@ bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
 }
 
 bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMana called for unknown player id {}", player_id);
     return false;
@@ -3413,7 +3710,7 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
   const auto clamped = std::clamp<std::int32_t>(mana, 0, player.max_mana);
   const auto old_mana = player.mana;
   player.mana = static_cast<std::int16_t>(clamped);
-  if (old_mana != player.mana) {
+  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
   }
   player.state.mana_points = player.mana;
@@ -3424,12 +3721,15 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
 
 bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
                                  std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerVisual called for unknown player id {}", player_id);
     return false;
   }
 
+  if (npc_manager_.GetNpc(player_id) && !ClearNpcActions(player_id)) {
+    return false;
+  }
   auto& player = player_opt->get();
   player.body_model = SanitizeServerText(body_model);
   player.head_model = SanitizeServerText(head_model);
@@ -3459,7 +3759,21 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
 }
 
 bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instance) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (auto npc = npc_manager_.GetNpc(player_id)) {
+    const auto instance_name = SanitizeServerText(instance);
+    if (instance_name.empty() || instance_name.size() > 255 || !ClearNpcActions(player_id)) {
+      return false;
+    }
+    // Recreate from a complete snapshot: native constructors replace health,
+    // attributes and equipment as well as the model. Incremental appearance
+    // updates alone cannot preserve the server's character state here.
+    UnstreamNpc(npc->get());
+    SetNpcHostPlayer(player_id, 0);
+    npc->get().instance = instance_name;
+    RefreshNpcStreaming(player_id);
+    return true;
+  }
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerInstance called for unknown player id {}", player_id);
     return false;
@@ -3476,7 +3790,7 @@ bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instan
 }
 
 bool GameServer::SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerColor called for unknown player id {}", player_id);
     return false;
@@ -3492,7 +3806,7 @@ bool GameServer::SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t
 }
 
 bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerSkillWeapon called for unknown player id {}", player_id);
     return false;
@@ -3506,7 +3820,7 @@ bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id,
 }
 
 bool GameServer::SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std::int32_t talent_value) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerTalent called for unknown player id {}", player_id);
     return false;
@@ -3520,7 +3834,10 @@ bool GameServer::SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std
 }
 
 bool GameServer::SetPlayerFatness(PlayerId player_id, float fatness) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!std::isfinite(fatness)) {
+    return false;
+  }
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerFatness called for unknown player id {}", player_id);
     return false;
@@ -3533,7 +3850,10 @@ bool GameServer::SetPlayerFatness(PlayerId player_id, float fatness) {
 }
 
 bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (!IsFinitePosition(scale)) {
+    return false;
+  }
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerScale called for unknown player id {}", player_id);
     return false;
@@ -3571,7 +3891,7 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
 }
 
 bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overlay) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("applyPlayerOverlay called for unknown player id {}", player_id);
     return false;
@@ -3587,6 +3907,9 @@ bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overl
   }
 
   if (std::find(player.overlays.begin(), player.overlays.end(), overlay_name) == player.overlays.end()) {
+    if (npc_manager_.GetNpc(player_id) && !ClearNpcActions(player_id)) {
+      return false;
+    }
     player.overlays.push_back(overlay_name);
     BroadcastPlayerOverlayUpdate(player_manager_, player, overlay_name, true);
   }
@@ -3595,7 +3918,7 @@ bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overl
 }
 
 bool GameServer::RemovePlayerOverlay(PlayerId player_id, const std::string& overlay) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("removePlayerOverlay called for unknown player id {}", player_id);
     return false;
@@ -3615,12 +3938,18 @@ bool GameServer::RemovePlayerOverlay(PlayerId player_id, const std::string& over
     return false;
   }
 
+  if (npc_manager_.GetNpc(player_id) && !ClearNpcActions(player_id)) {
+    return false;
+  }
   player.overlays.erase(it);
   BroadcastPlayerOverlayUpdate(player_manager_, player, overlay_name, false);
   return true;
 }
 
 bool GameServer::PlayAnimation(PlayerId player_id, const std::string& animation) {
+  if (npc_manager_.GetNpc(player_id)) {
+    return QueueNpcAnimation(player_id, animation) != 0;
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("playAni called for unknown player id {}", player_id);
@@ -3652,6 +3981,13 @@ bool GameServer::PlayAnimation(PlayerId player_id, const std::string& animation)
 }
 
 bool GameServer::StopAnimation(PlayerId player_id, const std::string& animation) {
+  if (auto npc = npc_manager_.GetNpc(player_id)) {
+    const auto& actions = npc->get().actions;
+    if (animation.empty() || (!actions.empty() && actions.front().animation == animation)) {
+      return ClearNpcActions(player_id);
+    }
+    return false;
+  }
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("stopAni called for unknown player id {}", player_id);
@@ -4080,7 +4416,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
 }
 
 std::optional<glm::vec3> GameServer::GetPlayerPosition(PlayerId player_id) const {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     return std::nullopt;
   }
@@ -4486,7 +4822,7 @@ bool GameServer::IsPlayerAdmin(PlayerId player_id) const {
 }
 
 bool GameServer::IsPlayerDead(PlayerId player_id) const {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     return false;
   }
@@ -4495,7 +4831,7 @@ bool GameServer::IsPlayerDead(PlayerId player_id) const {
 }
 
 bool GameServer::IsPlayerSpawned(PlayerId player_id) const {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     return false;
   }
@@ -4504,7 +4840,7 @@ bool GameServer::IsPlayerSpawned(PlayerId player_id) const {
 }
 
 bool GameServer::IsPlayerUnconscious(PlayerId player_id) const {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     return false;
   }

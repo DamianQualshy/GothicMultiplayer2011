@@ -86,6 +86,7 @@ constexpr DWORD kAINormalHookAddress = 0x004A4370;
 constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
 constexpr DWORD kOnDamageHitHookAddress = 0x00666610;
 constexpr DWORD kCreateArrowTrailHookAddress = 0x006A0420;
+constexpr DWORD kCheckRemoveNpcHookAddress = 0x007792E0;
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
 using DropItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
@@ -102,6 +103,7 @@ using AINormalOriginalFn = void(__thiscall*)(zCAICamera*);
 using OnDamageAnimOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
 using OnDamageHitOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
 using CreateArrowTrailOriginalFn = void(__thiscall*)(oCAIArrowBase*, zCVob*);
+using CheckRemoveNpcOriginalFn = int(__thiscall*)(oCSpawnManager*, oCNpc*);
 
 CastSpellOriginalFn g_originalCastSpell = nullptr;
 DropItemOriginalFn g_originalDropItem = nullptr;
@@ -118,6 +120,7 @@ AINormalOriginalFn g_originalAINormal = nullptr;
 OnDamageAnimOriginalFn g_originalOnDamageAnim = nullptr;
 OnDamageHitOriginalFn g_originalOnDamageHit = nullptr;
 CreateArrowTrailOriginalFn g_originalCreateArrowTrail = nullptr;
+CheckRemoveNpcOriginalFn g_originalCheckRemoveNpc = nullptr;
 bool g_damageAnimationsEnabled = false;
 bool g_munitionTrailEnabled = true;
 
@@ -368,6 +371,20 @@ void __fastcall OnCreateArrowTrail(oCAIArrowBase* ai, void* /*edx*/, zCVob* vob)
   if (g_originalCreateArrowTrail) {
     g_originalCreateArrowTrail(ai, vob);
   }
+}
+
+// Native AI checks the camera's removal radius even when automatic spawning is
+// disabled. Network actors stay present until the server streams them out.
+int __fastcall OnCheckRemoveNpc(oCSpawnManager* spawn_manager, void* /*edx*/, oCNpc* npc) {
+  if (!spawn_manager || !npc) {
+    return 0;
+  }
+  if (NetGame::Instance().GetPlayerIdByNpc(npc).has_value()) {
+    return 0;
+  }
+  // Explicit stream-out uses DeleteNpc directly, so it is not intercepted here.
+  // Client-local NPCs and other engine actors retain the original behavior.
+  return g_originalCheckRemoveNpc ? g_originalCheckRemoveNpc(spawn_manager, npc) : 0;
 }
 
 // Hook: oCNpc::OnDamage_Hit - filter arrow/spell damage from other players
@@ -826,6 +843,9 @@ void Initialize(void) {
     // oCAIArrowBase::CreateTrail - script-controlled arrow/bolt trail visibility
     if (auto original = CreateHook(kCreateArrowTrailHookAddress, (DWORD)OnCreateArrowTrail)) {
       g_originalCreateArrowTrail = reinterpret_cast<CreateArrowTrailOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kCheckRemoveNpcHookAddress, (DWORD)OnCheckRemoveNpc)) {
+      g_originalCheckRemoveNpc = reinterpret_cast<CheckRemoveNpcOriginalFn>(*original);
     }
     // Patch for FindMobInter
     EraseMemory(0x00740006, 0x6A, 1);

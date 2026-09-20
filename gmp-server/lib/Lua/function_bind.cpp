@@ -124,6 +124,14 @@ std::optional<std::reference_wrapper<PlayerManager::Player>> GetPlayerOrWarn(std
   return player_opt;
 }
 
+std::optional<std::reference_wrapper<Character>> GetCharacterOrWarn(std::uint32_t character_id, const char* action) {
+  auto character = g_server->GetCharacter(character_id);
+  if (!character) {
+    SPDLOG_WARN("{} called for missing character id {}", action, character_id);
+  }
+  return character;
+}
+
 sol::object EquipmentInstanceOrNil(std::int32_t index, sol::state_view lua) {
   if (index <= 0) {
     return sol::nil;
@@ -256,11 +264,14 @@ bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t r
 *
 */
 bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
-  if (!GetPlayerOrWarn(player_id, "spawnPlayer")) {
+  if (!GetCharacterOrWarn(player_id, "spawnPlayer")) {
     return false;
   }
 
   auto position_override = ParseSpawnPosition(args);
+  if (args.size() != 0 && !position_override) {
+    return false;
+  }
   return g_server->SpawnPlayer(player_id, position_override);
 }
 
@@ -277,7 +288,7 @@ bool Function_SpawnPlayer(std::uint32_t player_id, sol::variadic_args args) {
 *
 */
 bool Function_UnspawnPlayer(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unspawnPlayer")) {
+  if (!GetCharacterOrWarn(player_id, "unspawnPlayer")) {
     return false;
   }
 
@@ -298,7 +309,7 @@ bool Function_UnspawnPlayer(std::uint32_t player_id) {
 *
 */
 bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerInstance")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerInstance")) {
     return false;
   }
 
@@ -318,7 +329,7 @@ bool Function_SetPlayerInstance(std::uint32_t player_id, const std::string& inst
 *
 */
 sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerInstance");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerInstance");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -341,7 +352,7 @@ sol::object Function_GetPlayerInstance(std::uint32_t player_id, sol::this_state 
 *
 */
 bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerName")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerName")) {
     return false;
   }
 
@@ -361,7 +372,7 @@ bool Function_SetPlayerName(std::uint32_t player_id, const std::string& name) {
 *
 */
 sol::object Function_GetPlayerName(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerName");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerName");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -484,7 +495,7 @@ std::int32_t Function_GetPlayerPing(std::uint32_t player_id) {
 *
 */
 bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerColor")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerColor")) {
     return false;
   }
 
@@ -504,7 +515,7 @@ bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
 *
 */
 sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerColor");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerColor");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -532,7 +543,7 @@ sol::object Function_GetPlayerColor(std::uint32_t player_id, sol::this_state ts)
 *
 */
 bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerHealth")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerHealth")) {
     return false;
   }
 
@@ -552,7 +563,7 @@ bool Function_SetPlayerHealth(std::uint32_t player_id, int health) {
 *
 */
 sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerHealth");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerHealth");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -575,7 +586,7 @@ sol::object Function_GetPlayerHealth(std::uint32_t player_id, sol::this_state ts
 *
 */
 bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerMaxHealth")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerMaxHealth")) {
     return false;
   }
 
@@ -595,7 +606,7 @@ bool Function_SetPlayerMaxHealth(std::uint32_t player_id, int max_health) {
 *
 */
 sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMaxHealth");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerMaxHealth");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -618,7 +629,7 @@ sol::object Function_GetPlayerMaxHealth(std::uint32_t player_id, sol::this_state
 *
 */
 bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerMana")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerMana")) {
     return false;
   }
 
@@ -638,7 +649,7 @@ bool Function_SetPlayerMana(std::uint32_t player_id, int mana) {
 *
 */
 sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMana");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerMana");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -661,7 +672,7 @@ sol::object Function_GetPlayerMana(std::uint32_t player_id, sol::this_state ts) 
 *
 */
 bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerMaxMana")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerMaxMana")) {
     return false;
   }
 
@@ -681,7 +692,7 @@ bool Function_SetPlayerMaxMana(std::uint32_t player_id, int max_mana) {
 *
 */
 sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerMaxMana");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerMaxMana");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -704,7 +715,7 @@ sol::object Function_GetPlayerMaxMana(std::uint32_t player_id, sol::this_state t
 *
 */
 bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerStrength")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerStrength")) {
     return false;
   }
 
@@ -724,7 +735,7 @@ bool Function_SetPlayerStrength(std::uint32_t player_id, int strength) {
 *
 */
 sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerStrength");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerStrength");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -747,7 +758,7 @@ sol::object Function_GetPlayerStrength(std::uint32_t player_id, sol::this_state 
 *
 */
 bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerDexterity")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerDexterity")) {
     return false;
   }
 
@@ -767,7 +778,7 @@ bool Function_SetPlayerDexterity(std::uint32_t player_id, int dexterity) {
 *
 */
 sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerDexterity");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerDexterity");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -791,7 +802,7 @@ sol::object Function_GetPlayerDexterity(std::uint32_t player_id, sol::this_state
 *
 */
 bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int percentage) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerSkillWeapon")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerSkillWeapon")) {
     return false;
   }
 
@@ -812,7 +823,7 @@ bool Function_SetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, int pe
 *
 */
 sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerSkillWeapon");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerSkillWeapon");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -839,7 +850,7 @@ sol::object Function_GetPlayerSkillWeapon(std::uint32_t player_id, int skill_id,
 *
 */
 bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent_value) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerTalent")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerTalent")) {
     return false;
   }
 
@@ -860,7 +871,7 @@ bool Function_SetPlayerTalent(std::uint32_t player_id, int talent_id, int talent
 *
 */
 sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerTalent");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerTalent");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -886,7 +897,7 @@ sol::object Function_GetPlayerTalent(std::uint32_t player_id, int talent_id, sol
 *
 */
 bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerLevel")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerLevel")) {
     return false;
   }
 
@@ -906,7 +917,7 @@ bool Function_SetPlayerLevel(std::uint32_t player_id, int level) {
 *
 */
 sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerLevel");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerLevel");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -929,7 +940,7 @@ sol::object Function_GetPlayerLevel(std::uint32_t player_id, sol::this_state ts)
 *
 */
 bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerExp")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerExp")) {
     return false;
   }
 
@@ -949,7 +960,7 @@ bool Function_SetPlayerExp(std::uint32_t player_id, int exp) {
 *
 */
 sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerExp");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerExp");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -972,7 +983,7 @@ sol::object Function_GetPlayerExp(std::uint32_t player_id, sol::this_state ts) {
 *
 */
 bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerNextLevelExp")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerNextLevelExp")) {
     return false;
   }
 
@@ -992,7 +1003,7 @@ bool Function_SetPlayerNextLevelExp(std::uint32_t player_id, int next_level_exp)
 *
 */
 sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerNextLevelExp");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerNextLevelExp");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1015,7 +1026,7 @@ sol::object Function_GetPlayerNextLevelExp(std::uint32_t player_id, sol::this_st
 *
 */
 bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerLearnPoints")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerLearnPoints")) {
     return false;
   }
 
@@ -1035,7 +1046,7 @@ bool Function_SetPlayerLearnPoints(std::uint32_t player_id, int learn_points) {
 *
 */
 sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerLearnPoints");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerLearnPoints");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1064,7 +1075,7 @@ sol::object Function_GetPlayerLearnPoints(std::uint32_t player_id, sol::this_sta
 */
 bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_model, int body_texture, const std::string& head_model, int head_texture,
                               sol::optional<int> teeth_texture, sol::optional<int> skin_color) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerVisual")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerVisual")) {
     return false;
   }
 
@@ -1087,7 +1098,7 @@ bool Function_SetPlayerVisual(std::uint32_t player_id, const std::string& body_m
 *
 */
 sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerVisual");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerVisual");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1118,7 +1129,7 @@ sol::object Function_GetPlayerVisual(std::uint32_t player_id, sol::this_state ts
 *
 */
 bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerFatness")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerFatness")) {
     return false;
   }
 
@@ -1138,7 +1149,7 @@ bool Function_SetPlayerFatness(std::uint32_t player_id, float fatness) {
 *
 */
 sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerFatness");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerFatness");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1163,7 +1174,7 @@ sol::object Function_GetPlayerFatness(std::uint32_t player_id, sol::this_state t
 *
 */
 bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerScale")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerScale")) {
     return false;
   }
 
@@ -1183,7 +1194,7 @@ bool Function_SetPlayerScale(std::uint32_t player_id, float x, float y, float z)
 *
 */
 sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerScale");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerScale");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1385,7 +1396,7 @@ sol::object Function_GetPlayerShield(std::uint32_t player_id, sol::this_state ts
 *
 */
 bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
-  if (!GetPlayerOrWarn(player_id, "applyPlayerOverlay")) {
+  if (!GetCharacterOrWarn(player_id, "applyPlayerOverlay")) {
     return false;
   }
 
@@ -1405,7 +1416,7 @@ bool Function_ApplyPlayerOverlay(std::uint32_t player_id, const std::string& ove
 *
 */
 sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerOverlays");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerOverlays");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1437,7 +1448,7 @@ sol::object Function_GetPlayerOverlays(std::uint32_t player_id, sol::this_state 
 *
 */
 bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& overlay) {
-  if (!GetPlayerOrWarn(player_id, "removePlayerOverlay")) {
+  if (!GetCharacterOrWarn(player_id, "removePlayerOverlay")) {
     return false;
   }
 
@@ -1458,7 +1469,7 @@ bool Function_RemovePlayerOverlay(std::uint32_t player_id, const std::string& ov
 *
 */
 bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
-  if (!GetPlayerOrWarn(player_id, "playAni")) {
+  if (!GetCharacterOrWarn(player_id, "playAni")) {
     return false;
   }
 
@@ -1479,7 +1490,7 @@ bool Function_PlayAni(std::uint32_t player_id, const std::string& ani_name) {
 *
 */
 bool Function_StopAni(std::uint32_t player_id, sol::optional<std::string> ani_name) {
-  if (!GetPlayerOrWarn(player_id, "stopAni")) {
+  if (!GetCharacterOrWarn(player_id, "stopAni")) {
     return false;
   }
 
@@ -1564,7 +1575,7 @@ bool Function_PlayGesticulation(std::uint32_t player_id) {
 *
 */
 bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerPosition")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerPosition")) {
     return false;
   }
 
@@ -1584,7 +1595,7 @@ bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float
 *
 */
 sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state ts) {
-  if (!GetPlayerOrWarn(player_id, "getPlayerPosition")) {
+  if (!GetCharacterOrWarn(player_id, "getPlayerPosition")) {
     return sol::nil;
   }
 
@@ -1615,7 +1626,7 @@ sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state 
 *
 */
 bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerAngle")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerAngle")) {
     return false;
   }
 
@@ -1636,7 +1647,7 @@ bool Function_SetPlayerAngle(std::uint32_t player_id, float angle_degrees) {
 *
 */
 sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerAngle");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerAngle");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1663,7 +1674,7 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 *
 */
 bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, std::optional<std::string> start_point) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerWorld")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerWorld")) {
     return false;
   }
 
@@ -1683,7 +1694,7 @@ bool Function_SetPlayerWorld(std::uint32_t player_id, const std::string& world, 
 *
 */
 sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerWorld");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerWorld");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1706,7 +1717,7 @@ sol::object Function_GetPlayerWorld(std::uint32_t player_id, sol::this_state ts)
 *
 */
 bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerVirtualWorld")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerVirtualWorld")) {
     return false;
   }
 
@@ -1726,7 +1737,7 @@ bool Function_SetPlayerVirtualWorld(std::uint32_t player_id, int virtual_world) 
 *
 */
 sol::object Function_GetPlayerVirtualWorld(std::uint32_t player_id, sol::this_state ts) {
-  auto player_opt = GetPlayerOrWarn(player_id, "getPlayerVirtualWorld");
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerVirtualWorld");
   if (!player_opt.has_value()) {
     return sol::nil;
   }
@@ -1842,7 +1853,7 @@ bool Function_IsPlayerAdmin(std::uint32_t player_id) {
 *
 */
 bool Function_IsPlayerDead(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "isPlayerDead")) {
+  if (!GetCharacterOrWarn(player_id, "isPlayerDead")) {
     return false;
   }
 
@@ -1862,7 +1873,7 @@ bool Function_IsPlayerDead(std::uint32_t player_id) {
 *
 */
 bool Function_IsPlayerSpawned(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "isPlayerSpawned")) {
+  if (!GetCharacterOrWarn(player_id, "isPlayerSpawned")) {
     return false;
   }
 
@@ -1882,7 +1893,7 @@ bool Function_IsPlayerSpawned(std::uint32_t player_id) {
 *
 */
 bool Function_IsPlayerUnconscious(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "isPlayerUnconscious")) {
+  if (!GetCharacterOrWarn(player_id, "isPlayerUnconscious")) {
     return false;
   }
 

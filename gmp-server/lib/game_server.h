@@ -39,6 +39,7 @@ SOFTWARE.
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -55,6 +56,7 @@ struct Response;
 #include "common_structs.h"
 #include "config.h"
 #include "player_manager.h"
+#include "npc_manager.h"
 #include "item_registry.h"
 #include "item_ground_manager.h"
 #include "resource_manager.h"
@@ -104,6 +106,17 @@ public:
                                  std::uint8_t b, const std::string& text);
   bool SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> position_override = std::nullopt);
   bool UnspawnPlayer(PlayerId player_id);
+  PlayerId CreateNpc(const std::string& name, const std::string& instance = "PC_HERO");
+  bool DestroyNpc(PlayerId npc_id);
+  void DestroyNpcsForResource(const std::string& owner);
+  bool SetNpcHostPlayer(PlayerId npc_id, PlayerId host_id);
+  bool SetNpcAnimation(PlayerId npc_id, const std::string& animation);
+  std::uint32_t QueueNpcAnimation(PlayerId npc_id, const std::string& animation, std::uint32_t timeout_ms = 10000);
+  bool ClearNpcActions(PlayerId npc_id);
+  std::optional<std::reference_wrapper<Character>> GetCharacter(PlayerId id);
+  std::optional<std::reference_wrapper<const Character>> GetCharacter(PlayerId id) const;
+  NpcManager& GetNpcManager() { return npc_manager_; }
+  const NpcManager& GetNpcManager() const { return npc_manager_; }
   bool SetPlayerName(PlayerId player_id, const std::string& name);
   bool SetPlayerInstance(PlayerId player_id, const std::string& instance);
   bool SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b);
@@ -260,7 +273,7 @@ private:
   void HandleAdminLogin(Player& player, const std::string& password);
   bool ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   bool MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id);
-  void HandlePlayerDeath(Player& victim, std::optional<PlayerId> killer_id);
+  void HandlePlayerDeath(Character& victim, std::optional<PlayerId> killer_id);
   void HandleNormalMsg(Packet p);
   void HandleGameInfo(Packet p);
   void HandleMapNameReq(Packet p);
@@ -279,7 +292,7 @@ private:
   void BroadcastPlayerPings();
   void SendAdminAuthStatus(const Player& player);
   void UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times);
-  void SendExistingPlayersPacket(Player& target_player);
+  void RefreshPlayerStreaming(bool send_state_updates = false);
   bool RespawnPlayerInternal(Player& player);
   void SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection);
   void SendItemGroundDestroy(std::uint32_t item_ground_id, Net::ConnectionHandle connection);
@@ -307,9 +320,23 @@ private:
   std::unique_ptr<ResourceManager> resource_manager_;
 
   void ProcessRespawns();
+  void ProcessNpcs();
+  void RefreshNpcStreaming(PlayerId npc_id);
+  void BroadcastNpcControl(PlayerId npc_id);
+  void ReleaseNpcsForPlayer(PlayerId player_id);
+  void UnstreamNpc(NpcManager::Npc& npc);
+  void HandleNpcActionResult(Packet packet);
+  bool IsEligibleNpcHost(const NpcManager::Npc& npc, PlayerId host_id) const;
+  bool SpawnNpc(PlayerId npc_id, std::optional<glm::vec3> position);
+  bool UnspawnNpc(PlayerId npc_id);
 
   unsigned char GetPacketIdentifier(const Packet& p);
   PlayerManager player_manager_;
+  NpcManager npc_manager_;
+  // Deliver script callbacks after mutation/streaming loops, never while they
+  // hold references that Lua may invalidate by destroying an NPC.
+  std::vector<std::function<void()>> pending_npc_events_;
+  std::unordered_set<std::string> unloading_npc_resources_;
   AnimationRegistry animation_registry_;
   ItemRegistry item_registry_;
   ItemGroundManager item_ground_manager_;

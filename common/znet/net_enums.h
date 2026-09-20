@@ -115,6 +115,10 @@ enum PacketID {
   PT_ADMIN_AUTH,
   PT_VOICE_CONFIG,
   PT_VOICE_CHANNEL,
+  PT_NPC_SPAWN,
+  PT_NPC_CONTROL,
+  PT_NPC_ACTION_RESULT,
+  PT_NPC_ANIMATION,
 };
 
 inline const char* PacketIDToString(PacketID id) {
@@ -257,6 +261,14 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_VOICE_CONFIG";
     case PT_VOICE_CHANNEL:
       return "PT_VOICE_CHANNEL";
+    case PT_NPC_SPAWN:
+      return "PT_NPC_SPAWN";
+    case PT_NPC_CONTROL:
+      return "PT_NPC_CONTROL";
+    case PT_NPC_ACTION_RESULT:
+      return "PT_NPC_ACTION_RESULT";
+    case PT_NPC_ANIMATION:
+      return "PT_NPC_ANIMATION";
   }
   return "UNKNOWN";
 }

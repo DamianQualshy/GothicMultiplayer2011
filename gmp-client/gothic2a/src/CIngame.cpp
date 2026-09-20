@@ -234,7 +234,7 @@ bool CIngame::PlayerExists(const char* PlayerName) {
   if (NetGame::Instance().players.size() > 1) {
     const auto player_name_length = std::strlen(PlayerName);
     for (int i = 1; i < (int)NetGame::Instance().players.size(); i++) {
-      if (NetGame::Instance().players[i] && NetGame::Instance().players[i]->npc) {
+      if (NetGame::Instance().players[i] && !NetGame::Instance().players[i]->base_player().is_npc() && NetGame::Instance().players[i]->npc) {
         if (!std::strncmp(NetGame::Instance().players[i]->npc->GetName().ToChar(), PlayerName, player_name_length))
           return true;
       }
