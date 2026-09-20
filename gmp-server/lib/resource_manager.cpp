@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "resource_manager.h"
 
+#include "shared/lua_runtime/bind_helpers.h"
+
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
@@ -315,21 +317,11 @@ void ResourceManager::BindResourceAwareTimer(LuaScript& lua_script) {
   auto& lua = lua_script.GetLuaState();
   auto& timer_manager = lua_script.GetTimerManager();
 
-  // Helper to copy variadic arguments
-  auto copy_args = [](sol::state_view lua, const sol::variadic_args& args) {
-    std::vector<sol::object> copied;
-    copied.reserve(args.size());
-    for (auto arg : args) {
-      copied.emplace_back(sol::make_object(lua, arg));
-    }
-    return copied;
-  };
-
   // Override setTimer to capture the current resource for ownership tracking
-  lua.set_function("setTimer", [&timer_manager, copy_args](sol::protected_function func, int interval, int execute_times, sol::variadic_args args,
-                                                           sol::this_state ts) {
+  lua.set_function("setTimer", [&timer_manager](sol::protected_function func, int interval, int execute_times, sol::variadic_args args,
+                                                sol::this_state ts) {
     sol::state_view lua(ts);
-    auto copied_arguments = copy_args(lua, args);
+    auto copied_arguments = ::lua::bind_helpers::CopyArguments(lua, args);
     auto timer_interval = std::chrono::milliseconds(interval);
     std::uint32_t times = execute_times > 0 ? static_cast<std::uint32_t>(execute_times) : 0u;
 

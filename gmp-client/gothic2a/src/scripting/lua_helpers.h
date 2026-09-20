@@ -48,16 +48,12 @@ inline constexpr float kSoundMaxVolume = 1.0f;
 inline constexpr float kSoundMinBalance = -1.0f;
 inline constexpr float kSoundMaxBalance = 1.0f;
 
-unsigned char ClampByte(int value);
-
 bool ReadIntField(sol::table table, const char* key, int index, int& out);
 bool ReadVec2(sol::object value, int& x, int& y);
 bool ReadVec3(sol::object value, float& x, float& y, float& z);
 bool ReadSize(sol::object value, int& width, int& height);
 bool ReadRect(sol::object value, int& x, int& y, int& width, int& height);
 bool ReadColor(sol::object value, int& r, int& g, int& b, int& a);
-
-sol::optional<std::string> GetOptionalString(const sol::table& table, const char* lower_key, const char* upper_key);
 
 struct DiscordActivityState {
   std::string state;
@@ -80,7 +76,6 @@ Gothic_II_Addon::zCRoute* FindRouteByName(const std::string& start_wp, const std
 Gothic_II_Addon::zCWayNet* GetWayNet();
 Gothic_II_Addon::zCWorld* GetGameWorld();
 
-sol::table MakeVec3Table(sol::state_view lua, const Gothic_II_Addon::zVEC3& position);
 Gothic_II_Addon::zVEC3 LuaRotationToGothicEuler(const Gothic_II_Addon::zVEC3& degrees);
 Gothic_II_Addon::zVEC3 GothicEulerToLuaRotation(const Gothic_II_Addon::zVEC3& radians);
 float GetAngleDegreesFromDirection(const Gothic_II_Addon::zVEC3& direction);

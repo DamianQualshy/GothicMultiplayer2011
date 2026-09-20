@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "Lua/lua_toml.h"
 
+#include "shared/lua_runtime/bind_helpers.h"
+
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -31,7 +33,6 @@ SOFTWARE.
 #include <optional>
 #include <sstream>
 #include <string>
-#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -42,7 +43,6 @@ namespace lua::bindings {
 
 namespace {
 
-constexpr std::string_view kDataRoot = "data/internal";
 constexpr std::size_t kMaxTomlBytes = 1024 * 1024;
 constexpr std::size_t kMaxEntries = 4096;
 constexpr int kMaxDepth = 32;
@@ -54,44 +54,6 @@ struct TomlPathEntry {
   std::size_t index = 0;
   bool is_index = false;
 };
-
-std::filesystem::path DataRootPath() {
-  return std::filesystem::current_path() / std::filesystem::path{kDataRoot};
-}
-
-bool IsRelativePathSafe(const std::filesystem::path& path) {
-  if (path.empty() || path.is_absolute()) {
-    return false;
-  }
-  for (const auto& part : path) {
-    if (part == "..") {
-      return false;
-    }
-  }
-  return true;
-}
-
-std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative) {
-  std::filesystem::path requested(relative);
-  if (!IsRelativePathSafe(requested)) {
-    return std::nullopt;
-  }
-  std::filesystem::path normalized = requested.lexically_normal();
-  std::filesystem::path root = DataRootPath();
-  std::filesystem::path full = (root / normalized).lexically_normal();
-  auto full_string = full.generic_string();
-  auto root_string = root.lexically_normal().generic_string();
-  if (!root_string.empty() && root_string.back() != '/') {
-    root_string.push_back('/');
-  }
-  if (full_string == root.lexically_normal().generic_string()) {
-    return full;
-  }
-  if (full_string.rfind(root_string, 0) != 0) {
-    return std::nullopt;
-  }
-  return full;
-}
 
 const TomlValue* ResolvePath(const TomlValue& root, const std::vector<TomlPathEntry>& path) {
   const TomlValue* current = &root;
@@ -411,7 +373,7 @@ private:
 };
 
 std::optional<TOML> LoadTOML(const std::string& relative_path, std::string& error) {
-  auto resolved = ResolveDataPath(relative_path);
+  auto resolved = ::lua::bind_helpers::ResolveDataPath(relative_path);
   if (!resolved) {
     error = "Invalid TOML path";
     return std::nullopt;

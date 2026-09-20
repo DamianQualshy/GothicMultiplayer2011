@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "Lua/lua_database.h"
 
+#include "shared/lua_runtime/bind_helpers.h"
+
 #include <mariadb/mysql.h>
 #include <sqlite3.h>
 
@@ -49,7 +51,6 @@ namespace {
 constexpr unsigned int kDefaultMySqlTimeoutSeconds = 10;
 constexpr int kDefaultSqliteBusyTimeoutMs = 5000;
 constexpr std::size_t kMySqlColumnBufferSize = 256;
-constexpr std::string_view kDataRoot = "data/internal";
 
 enum class ParameterType {
   Null,
@@ -68,42 +69,6 @@ struct QueryParameter {
 };
 
 using LuaCallResult = std::tuple<sol::object, sol::object>;
-
-std::filesystem::path DataRootPath() {
-  return std::filesystem::current_path() / std::filesystem::path{kDataRoot};
-}
-
-bool IsRelativePathSafe(const std::filesystem::path& path) {
-  if (path.empty() || path.is_absolute()) {
-    return false;
-  }
-  for (const auto& part : path) {
-    if (part == "..") {
-      return false;
-    }
-  }
-  return true;
-}
-
-std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative) {
-  const std::filesystem::path requested(relative);
-  if (!IsRelativePathSafe(requested)) {
-    return std::nullopt;
-  }
-
-  const std::filesystem::path normalized = requested.lexically_normal();
-  const std::filesystem::path root = DataRootPath();
-  const std::filesystem::path full = (root / normalized).lexically_normal();
-  const std::string full_string = full.generic_string();
-  std::string root_string = root.lexically_normal().generic_string();
-  if (!root_string.empty() && root_string.back() != '/') {
-    root_string.push_back('/');
-  }
-  if (full_string.compare(0, root_string.size(), root_string) != 0) {
-    return std::nullopt;
-  }
-  return full;
-}
 
 sol::table MakeError(sol::state_view lua, std::string_view driver, std::string_view message, std::uint64_t code = 0,
                      std::string_view sql_state = {}) {
@@ -525,7 +490,7 @@ LuaCallResult SQLiteConnection::Open(const sol::table& options, sol::this_state 
 
   std::string sqlite_path = database;
   if (database != ":memory:") {
-    const std::optional<std::filesystem::path> resolved = ResolveDataPath(database);
+    const std::optional<std::filesystem::path> resolved = ::lua::bind_helpers::ResolveDataPath(database, false);
     if (!resolved) {
       return Failure(lua, "sqlite", "Invalid SQLite database path");
     }

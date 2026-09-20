@@ -31,6 +31,7 @@ SOFTWARE.
 #include <vector>
 
 #include "net_game.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace gmp::gothic {
 namespace {
@@ -76,17 +77,6 @@ bool ReadIntegerArg(sol::variadic_args args, int& value) {
 
     value = static_cast<int>(number);
     return true;
-  }
-  return false;
-}
-
-bool ReadStringArg(sol::variadic_args args, std::string& value) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.get_type() == sol::type::string) {
-      value = arg.as<std::string>();
-      return true;
-    }
   }
   return false;
 }
@@ -458,7 +448,7 @@ void BindVoiceChat(sol::state& lua) {
   voice_type["getInputDevice"] = [](sol::variadic_args) { return LuaVoice::getInputDevice(); };
   voice_type["setInputDevice"] = [](sol::variadic_args args) {
     std::string device_name;
-    return ReadStringArg(args, device_name) && LuaVoice::setInputDevice(device_name);
+    return ::lua::bind_helpers::ReadStringArgument(args, device_name) && LuaVoice::setInputDevice(device_name);
   };
   voice_type["getOutputDevices"] = [&lua](sol::variadic_args) {
     const auto devices = LuaVoice::getOutputDevices();
@@ -471,12 +461,12 @@ void BindVoiceChat(sol::state& lua) {
   voice_type["getOutputDevice"] = [](sol::variadic_args) { return LuaVoice::getOutputDevice(); };
   voice_type["setOutputDevice"] = [](sol::variadic_args args) {
     std::string device_name;
-    return ReadStringArg(args, device_name) && LuaVoice::setOutputDevice(device_name);
+    return ::lua::bind_helpers::ReadStringArgument(args, device_name) && LuaVoice::setOutputDevice(device_name);
   };
   voice_type["getChannel"] = [](sol::variadic_args) { return LuaVoice::getChannel(); };
   voice_type["setChannel"] = [](sol::variadic_args args) {
     std::string channel;
-    return ReadStringArg(args, channel) && LuaVoice::setChannel(channel);
+    return ::lua::bind_helpers::ReadStringArgument(args, channel) && LuaVoice::setChannel(channel);
   };
   voice_type["isTransmitting"] = [](sol::variadic_args) { return LuaVoice::isTransmitting(); };
 

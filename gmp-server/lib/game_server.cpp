@@ -455,18 +455,14 @@ std::string SanitizePlayerAnimationName(std::string name) {
   return name;
 }
 
-std::uint8_t ClampColorComponent(int value) {
-  return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
-}
-
 MessagePacket CreateMessagePacket(std::optional<std::uint32_t> sender_id, std::optional<std::uint32_t> recipient_id, std::uint8_t r, std::uint8_t g,
                                   std::uint8_t b, std::string text, std::uint8_t packet_type = PT_MSG) {
   MessagePacket packet{};
   packet.packet_type = packet_type;
   packet.message = SanitizeServerText(std::move(text));
-  packet.r = ClampColorComponent(static_cast<int>(r));
-  packet.g = ClampColorComponent(static_cast<int>(g));
-  packet.b = ClampColorComponent(static_cast<int>(b));
+  packet.r = r;
+  packet.g = g;
+  packet.b = b;
   packet.sender = sender_id;
   packet.recipient = recipient_id;
   return packet;

@@ -25,8 +25,8 @@ target("LuaRuntime")
     
     -- Source files
     -- Note: script_base.h is header-only template (policy-based design)
-    add_files("spdlog_bind.cpp", "lua_utility.cpp", "timer_manager.cpp", "shared_bind.cpp", "lua_math.cpp", "lua_value_codec.cpp",
-              "lua_diagnostics.cpp")
+    add_files("bind_helpers.cpp", "spdlog_bind.cpp", "lua_utility.cpp", "timer_manager.cpp", "shared_bind.cpp", "lua_math.cpp",
+              "lua_value_codec.cpp", "lua_diagnostics.cpp")
     
     -- Headers
     add_headerfiles("*.h")

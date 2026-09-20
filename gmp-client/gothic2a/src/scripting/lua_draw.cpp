@@ -28,21 +28,12 @@ SOFTWARE.
 #include <utility>
 
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
-
-namespace {
-
-void RestoreFullViewport() {
-  if (zrenderer) {
-    zrenderer->SetViewport(0, 0, zrenderer->vid_xdim, zrenderer->vid_ydim);
-  }
-}
-
-}  // namespace
 
 class LuaDrawView : public zCView {
 public:
@@ -350,7 +341,8 @@ int LuaDraw::getHeight() const {
 *
 */
 void LuaDraw::setColor(int r, int g, int b) {
-  color_.SetRGB(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
+  color_.SetRGB(::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                ::lua::bind_helpers::ClampByte(b));
   if (view_) {
     view_->SetFontColor(color_);
   }
@@ -394,7 +386,7 @@ void LuaDraw::setColorValue(sol::object value) {
 *
 */
 void LuaDraw::setAlpha(int a) {
-  color_.alpha = lua_helpers::ClampByte(a);
+  color_.alpha = ::lua::bind_helpers::ClampByte(a);
   if (view_) {
     view_->SetFontColor(color_);
   }
@@ -562,7 +554,7 @@ void LuaDraw::Blit() {
     view_->ClrPrintwin();
     view_->Print(posX_, posY_, text_.c_str());
     view_->zCView::Blit();
-    RestoreFullViewport();
+    ::lua::bind_helpers::RestoreFullViewport(zrenderer);
   }
 }
 

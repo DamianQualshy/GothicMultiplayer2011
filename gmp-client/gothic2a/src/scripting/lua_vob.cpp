@@ -28,6 +28,7 @@ SOFTWARE.
 #include <utility>
 
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
@@ -311,7 +312,6 @@ void LuaVob::setPosition(float x, float y, float z) {
 */
 sol::table LuaVob::getPosition(sol::this_state s) const {
   sol::state_view lua(s);
-  sol::table result = lua.create_table();
 
   float x = 0.0f;
   float y = 0.0f;
@@ -320,10 +320,7 @@ sol::table LuaVob::getPosition(sol::this_state s) const {
     handle->GetPositionWorld(x, y, z);
   }
 
-  result["x"] = x;
-  result["y"] = y;
-  result["z"] = z;
-  return result;
+  return ::lua::bind_helpers::MakeVec3Table(lua, x, y, z);
 }
 
 /* luagmp (method)
@@ -356,7 +353,6 @@ void LuaVob::setRotation(float x, float y, float z) {
 */
 sol::table LuaVob::getRotation(sol::this_state s) const {
   sol::state_view lua(s);
-  sol::table result = lua.create_table();
 
   float x = 0.0f;
   float y = 0.0f;
@@ -368,10 +364,7 @@ sol::table LuaVob::getRotation(sol::this_state s) const {
     z = euler.n[VZ];
   }
 
-  result["x"] = x;
-  result["y"] = y;
-  result["z"] = z;
-  return result;
+  return ::lua::bind_helpers::MakeVec3Table(lua, x, y, z);
 }
 
 /* luagmp (method)

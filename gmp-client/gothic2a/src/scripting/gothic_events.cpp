@@ -38,6 +38,7 @@ SOFTWARE.
 #include "item_ground.h"
 #include "net_game.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/lua_value_codec.h"
 
@@ -88,14 +89,6 @@ struct HandlerRegistration {
 std::unordered_map<std::string, std::vector<HandlerRegistration>> g_handler_registrations;
 std::unordered_set<std::string> g_custom_events;
 std::unordered_set<std::string> g_remote_events;
-
-const void* GetFunctionIdentity(const sol::protected_function& function) {
-  lua_State* state = function.lua_state();
-  sol::stack::push(state, function);
-  const void* identity = lua_topointer(state, -1);
-  lua_pop(state, 1);
-  return identity;
-}
 
 void RegisterGothicEventProxies() {
 /* luagmp (event)
@@ -811,7 +804,7 @@ void BindGothicEvents(sol::state& lua) {
                      }
 
                      int priority = priority_opt.value_or(9999);
-                     const void* identity = GetFunctionIdentity(lua_callback);
+                     const void* identity = ::lua::bind_helpers::GetLuaIdentity(lua_callback);
 
                      auto callback = [proxy, lua_callback, event_name](std::any event) {
                        LuaProxyArgs args;
@@ -915,10 +908,7 @@ void BindGothicEvents(sol::state& lua) {
       }
     }
 
-    std::vector<sol::object> event_args;
-    for (std::size_t i = index; i < args.size(); ++i) {
-      event_args.emplace_back(sol::make_object(lua, args[i]));
-    }
+    std::vector<sol::object> event_args = ::lua::bind_helpers::CopyArguments(lua, args, index);
 
     std::string payload;
     std::string error;
@@ -950,7 +940,7 @@ void BindGothicEvents(sol::state& lua) {
   lua.set_function("removeEventHandler", [](std::string event_name, sol::protected_function lua_callback) -> bool {
     SPDLOG_TRACE("removeEventHandler({})", event_name);
 
-    const void* identity = GetFunctionIdentity(lua_callback);
+    const void* identity = ::lua::bind_helpers::GetLuaIdentity(lua_callback);
     auto it = g_handler_registrations.find(event_name);
     if (it == g_handler_registrations.end()) {
       return false;

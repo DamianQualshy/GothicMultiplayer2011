@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "lua_sky.h"
 #include "net_game.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "sky_utils.h"
 
 #include <optional>
@@ -45,21 +46,6 @@ struct Color4 {
   int a;
 };
 
-std::optional<RainStartTime> ReadTimeTable(const sol::object& value) {
-  if (!value.is<sol::table>()) {
-    return std::nullopt;
-  }
-
-  sol::table table = value.as<sol::table>();
-  sol::object hour = table["hour"];
-  sol::object min = table["min"];
-  if (!hour.is<int>() || !min.is<int>()) {
-    return std::nullopt;
-  }
-
-  return RainStartTime{hour.as<int>(), min.as<int>()};
-}
-
 std::optional<Color3> ReadColor3Table(const sol::table& table) {
   sol::object r = table["r"];
   sol::object g = table["g"];
@@ -79,14 +65,6 @@ std::optional<Color4> ReadColor4Table(const sol::table& table) {
   }
 
   return Color4{color->r, color->g, color->b, a.as<int>()};
-}
-
-sol::object MakeTimeTable(sol::this_state ts, std::optional<RainStartTime> time) {
-  sol::state_view lua(ts);
-  sol::table tbl = lua.create_table();
-  tbl["hour"] = time.has_value() ? time->hour : 0;
-  tbl["min"] = time.has_value() ? time->min : 0;
-  return sol::make_object(lua, tbl);
 }
 
 }  // namespace
@@ -124,13 +102,14 @@ public:
 *
 */
   void SetRainStartTime(const sol::object& value) const {
-    if (auto time = ReadTimeTable(value)) {
-      gmp::gothic::SetRainStartTime(time->hour, time->min);
+    if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
+      gmp::gothic::SetRainStartTime(time->first, time->second);
     }
   }
 
   sol::object GetRainStartTime(sol::this_state ts) const {
-    return MakeTimeTable(ts, gmp::gothic::GetRainStartTime());
+    const auto time = gmp::gothic::GetRainStartTime();
+    return ::lua::bind_helpers::MakeTimeTable(ts, time ? time->hour : 0, time ? time->min : 0);
   }
 
 /* luagmp (property)
@@ -142,13 +121,14 @@ public:
 *
 */
   void SetRainStopTime(const sol::object& value) const {
-    if (auto time = ReadTimeTable(value)) {
-      gmp::gothic::SetRainStopTime(time->hour, time->min);
+    if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
+      gmp::gothic::SetRainStopTime(time->first, time->second);
     }
   }
 
   sol::object GetRainStopTime(sol::this_state ts) const {
-    return MakeTimeTable(ts, gmp::gothic::GetRainStopTime());
+    const auto time = gmp::gothic::GetRainStopTime();
+    return ::lua::bind_helpers::MakeTimeTable(ts, time ? time->hour : 0, time ? time->min : 0);
   }
 
 /* luagmp (property)

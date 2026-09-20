@@ -29,6 +29,7 @@ SOFTWARE.
 
 #include "ZenGin/zGothicAPI.h"
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "net_game.h"
 
 using namespace Gothic_II_Addon;
@@ -296,17 +297,6 @@ void RefreshBoundTarget() {
   }
 }
 
-bool ReadStringArg(sol::variadic_args args, std::string& out) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.is<std::string>()) {
-      out = arg.as<std::string>();
-      return true;
-    }
-  }
-  return false;
-}
-
 bool ReadNumberArg(sol::variadic_args args, float& out) {
   for (std::size_t i = 0; i < args.size(); ++i) {
     sol::object arg = args[i];
@@ -462,7 +452,7 @@ sol::table LuaCamera::getPosition(sol::this_state ts) {
     position = camera->camMatrixInv.GetTranslation();
   }
 
-  return lua_helpers::MakeVec3Table(lua, position);
+  return ::lua::bind_helpers::MakeVec3Table(lua, position[VX], position[VY], position[VZ]);
 }
 
 /* luagmp (method)
@@ -512,7 +502,8 @@ sol::table LuaCamera::getRotation(sol::this_state ts) {
     rotation = camera->camMatrixInv.GetEulerAngles();
   }
 
-  return lua_helpers::MakeVec3Table(lua, lua_helpers::GothicEulerToLuaRotation(rotation));
+  const zVEC3 lua_rotation = lua_helpers::GothicEulerToLuaRotation(rotation);
+  return ::lua::bind_helpers::MakeVec3Table(lua, lua_rotation[VX], lua_rotation[VY], lua_rotation[VZ]);
 }
 
 /* luagmp (method)
@@ -686,7 +677,7 @@ void BindCamera(sol::state& lua) {
 
   camera_type["setMode"] = [](sol::variadic_args args) {
     std::string mode;
-    return ReadStringArg(args, mode) && LuaCamera::setMode(mode);
+    return ::lua::bind_helpers::ReadStringArgument(args, mode) && LuaCamera::setMode(mode);
   };
   camera_type["getMode"] = [](sol::variadic_args) { return LuaCamera::getMode(); };
   camera_type["setPosition"] = [](sol::variadic_args args) {

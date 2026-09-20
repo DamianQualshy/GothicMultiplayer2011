@@ -33,18 +33,9 @@ SOFTWARE.
 #include <string_view>
 
 #include "shared/lua_runtime/lua_diagnostics.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "shared/lua_runtime/shared_bind.h"
 #include "shared/event.h"
-
-namespace {
-const void* GetFunctionIdentity(const sol::protected_function& function) {
-  lua_State* state = function.lua_state();
-  sol::stack::push(state, function);
-  const void* identity = lua_topointer(state, -1);
-  lua_pop(state, 1);
-  return identity;
-}
-}  // namespace
 
 ClientResourceRuntime::ClientResourceRuntime() = default;
 ClientResourceRuntime::~ClientResourceRuntime() = default;
@@ -380,7 +371,7 @@ void ClientResourceRuntime::CaptureLifecycleHook(ResourceInstance& instance, con
   }
 
   sol::protected_function pf = fn;
-  const void* identity = GetFunctionIdentity(pf);
+  const void* identity = ::lua::bind_helpers::GetLuaIdentity(pf);
 
   auto& hooks = std::string_view(hook) == "onResourceStart" ? instance.start_hooks : instance.stop_hooks;
   auto& hook_ids = std::string_view(hook) == "onResourceStart" ? instance.start_hook_ids : instance.stop_hook_ids;

@@ -24,9 +24,8 @@ SOFTWARE.
 
 #include "lua_music_theme.h"
 
-#include <cstddef>
-
 #include "ZenGin/zGothicAPI.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 using namespace Gothic_II_Addon;
 
@@ -71,17 +70,6 @@ std::string ThemeName(zCMusicTheme* theme) {
   }
 
   return ToString(theme->fileName);
-}
-
-bool ReadStringArg(sol::variadic_args args, std::string& out) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.is<std::string>()) {
-      out = arg.as<std::string>();
-      return true;
-    }
-  }
-  return false;
 }
 
 void ApplyState(zCMusicTheme* theme) {
@@ -523,7 +511,7 @@ void BindMusicTheme(sol::state& lua) {
 
   music_theme_type["loadTheme"] = [](sol::variadic_args args) {
     std::string file_name;
-    return ReadStringArg(args, file_name) && LuaMusicTheme::loadTheme(file_name);
+    return ::lua::bind_helpers::ReadStringArgument(args, file_name) && LuaMusicTheme::loadTheme(file_name);
   };
   music_theme_type["playTheme"] = [](sol::variadic_args) { return LuaMusicTheme::playTheme(); };
   music_theme_type["stopTheme"] = [](sol::variadic_args) { LuaMusicTheme::stopTheme(); };

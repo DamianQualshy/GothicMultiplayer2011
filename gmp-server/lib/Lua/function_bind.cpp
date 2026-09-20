@@ -23,40 +23,18 @@ SOFTWARE.
 
 #include "function_bind.h"
 
-#include <algorithm>
 #include <cmath>
 #include <optional>
 #include <vector>
 #include <glm/glm.hpp>
 
 #include "game_server.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "shared/lua_runtime/shared_bind.h"
 #include "shared/lua_runtime/timer_manager.h"
 #include "shared/lua_runtime/lua_constants.h"
 
 namespace {
-
-std::uint8_t ClampColorComponent(int value) {
-  return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
-}
-
-float NormalizeDegrees(float degrees) {
-  degrees = std::fmod(degrees, 360.0f);
-  if (degrees < 0.0f) {
-    degrees += 360.0f;
-  }
-  return degrees;
-}
-
-std::optional<float> GetOptionalFloat(const sol::table& table, const char* lowerKey, const char* upperKey) {
-  if (auto value = table.get<sol::optional<float>>(lowerKey); value) {
-    return std::optional<float>(*value);
-  }
-  if (auto value = table.get<sol::optional<float>>(upperKey); value) {
-    return std::optional<float>(*value);
-  }
-  return std::nullopt;
-}
 
 std::optional<glm::vec3> ParseSpawnPosition(sol::variadic_args args) {
   if (args.size() == 0) {
@@ -67,9 +45,9 @@ std::optional<glm::vec3> ParseSpawnPosition(sol::variadic_args args) {
     sol::object arg = args[0];
     if (arg.get_type() == sol::type::table) {
       sol::table tbl = arg;
-      auto x = GetOptionalFloat(tbl, "x", "X");
-      auto y = GetOptionalFloat(tbl, "y", "Y");
-      auto z = GetOptionalFloat(tbl, "z", "Z");
+      auto x = ::lua::bind_helpers::GetOptionalFloat(tbl, "x", "X");
+      auto y = ::lua::bind_helpers::GetOptionalFloat(tbl, "y", "Y");
+      auto z = ::lua::bind_helpers::GetOptionalFloat(tbl, "z", "Z");
       if (x && y && z) {
         return glm::vec3(*x, *y, *z);
       }
@@ -97,9 +75,9 @@ std::optional<glm::vec3> ParseSpawnPosition(sol::variadic_args args) {
 }
 
 std::optional<glm::vec3> ParsePositionTable(const sol::table& table) {
-  auto x = GetOptionalFloat(table, "x", "X");
-  auto y = GetOptionalFloat(table, "y", "Y");
-  auto z = GetOptionalFloat(table, "z", "Z");
+  auto x = ::lua::bind_helpers::GetOptionalFloat(table, "x", "X");
+  auto y = ::lua::bind_helpers::GetOptionalFloat(table, "y", "Y");
+  auto z = ::lua::bind_helpers::GetOptionalFloat(table, "z", "Z");
   if (x && y && z) {
     return glm::vec3(*x, *y, *z);
   }
@@ -164,7 +142,8 @@ sol::object EquipmentInstanceOrNil(std::int32_t index, sol::state_view lua) {
 *
 */
 bool Function_SendMessageToAll(int r, int g, int b, const std::string& text) {
-  g_server->SendMessageToAll(ClampColorComponent(r), ClampColorComponent(g), ClampColorComponent(b), text);
+  g_server->SendMessageToAll(::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                             ::lua::bind_helpers::ClampByte(b), text);
   return true;
 }
 
@@ -189,7 +168,8 @@ bool Function_SendMessageToPlayer(std::uint32_t player_id, int r, int g, int b, 
     return false;
   }
 
-  g_server->SendMessageToPlayer(player_id, ClampColorComponent(r), ClampColorComponent(g), ClampColorComponent(b), text);
+  g_server->SendMessageToPlayer(player_id, ::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                                ::lua::bind_helpers::ClampByte(b), text);
   return true;
 }
 
@@ -214,7 +194,8 @@ bool Function_SendPlayerMessageToAll(std::uint32_t sender_id, int r, int g, int 
     return false;
   }
 
-  g_server->SendPlayerMessageToAll(sender_id, ClampColorComponent(r), ClampColorComponent(g), ClampColorComponent(b), text);
+  g_server->SendPlayerMessageToAll(sender_id, ::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                                   ::lua::bind_helpers::ClampByte(b), text);
   return true;
 }
 
@@ -244,8 +225,8 @@ bool Function_SendPlayerMessageToPlayer(std::uint32_t sender_id, std::uint32_t r
     return false;
   }
 
-  g_server->SendPlayerMessageToPlayer(sender_id, receiver_id, ClampColorComponent(r), ClampColorComponent(g),
-                                      ClampColorComponent(b), text);
+  g_server->SendPlayerMessageToPlayer(sender_id, receiver_id, ::lua::bind_helpers::ClampByte(r),
+                                      ::lua::bind_helpers::ClampByte(g), ::lua::bind_helpers::ClampByte(b), text);
   return true;
 }
 
@@ -499,7 +480,8 @@ bool Function_SetPlayerColor(std::uint32_t player_id, int r, int g, int b) {
     return false;
   }
 
-  return g_server->SetPlayerColor(player_id, ClampColorComponent(r), ClampColorComponent(g), ClampColorComponent(b));
+  return g_server->SetPlayerColor(player_id, ::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                                  ::lua::bind_helpers::ClampByte(b));
 }
 
 /* luagmp (func)
@@ -1201,11 +1183,7 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 
   const auto& scale = player_opt->get().scale;
   sol::state_view lua(ts);
-  sol::table scale_table = lua.create_table();
-  scale_table["x"] = scale.x;
-  scale_table["y"] = scale.y;
-  scale_table["z"] = scale.z;
-  return scale_table;
+  return ::lua::bind_helpers::MakeVec3Table(lua, scale);
 }
 
 /* luagmp (func)
@@ -1605,11 +1583,7 @@ sol::object Function_GetPlayerPosition(std::uint32_t player_id, sol::this_state 
   }
 
   sol::state_view lua(ts);
-  sol::table position_table = lua.create_table();
-  position_table["x"] = position->x;
-  position_table["y"] = position->y;
-  position_table["z"] = position->z;
-  return position_table;
+  return ::lua::bind_helpers::MakeVec3Table(lua, *position);
 }
 
 /* luagmp (func)
@@ -1654,7 +1628,7 @@ sol::object Function_GetPlayerAngle(std::uint32_t player_id, sol::this_state ts)
 
   const auto& nrot = player_opt->get().state.nrot;
   const float angle_radians = std::atan2(nrot.x, nrot.z);
-  const float angle_degrees = NormalizeDegrees(glm::degrees(angle_radians));
+  const float angle_degrees = ::lua::bind_helpers::NormalizeDegrees(glm::degrees(angle_radians));
   sol::state_view lua(ts);
   return sol::make_object(lua, angle_degrees);
 }

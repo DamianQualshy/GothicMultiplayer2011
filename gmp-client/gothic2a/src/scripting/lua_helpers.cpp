@@ -24,19 +24,15 @@ SOFTWARE.
 
 #include "lua_helpers.h"
 
-#include <algorithm>
 #include <cmath>
 #include <limits>
 
 #include "discord_presence.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace gmp::gothic::lua_helpers {
 
 using namespace Gothic_II_Addon;
-
-unsigned char ClampByte(int value) {
-  return static_cast<unsigned char>(std::clamp(value, 0, 255));
-}
 
 bool ReadIntField(sol::table table, const char* key, int index, int& out) {
   sol::optional<double> named = table.get<sol::optional<double>>(key);
@@ -172,13 +168,6 @@ bool ReadColor(sol::object value, int& r, int& g, int& b, int& a) {
   return changed;
 }
 
-sol::optional<std::string> GetOptionalString(const sol::table& table, const char* lower_key, const char* upper_key) {
-  if (auto value = table.get<sol::optional<std::string>>(lower_key); value) {
-    return value;
-  }
-  return table.get<sol::optional<std::string>>(upper_key);
-}
-
 DiscordActivityState& GetDiscordActivityState() {
   static DiscordActivityState state;
   return state;
@@ -254,14 +243,6 @@ zCWorld* GetGameWorld() {
   return ogame->GetGameWorld();
 }
 
-sol::table MakeVec3Table(sol::state_view lua, const zVEC3& position) {
-  sol::table tbl = lua.create_table();
-  tbl["x"] = position[VX];
-  tbl["y"] = position[VY];
-  tbl["z"] = position[VZ];
-  return tbl;
-}
-
 zVEC3 LuaRotationToGothicEuler(const zVEC3& degrees) {
   // Gothic's zMAT4 Euler helpers use radians and the opposite sign from zCVob::RotateWorld*.
   return zVEC3(-degrees[VX] * RAD, -degrees[VY] * RAD, -degrees[VZ] * RAD);
@@ -300,7 +281,8 @@ void AddWaypointAngle(sol::table& tbl, zCWaypoint* waypoint) {
 }
 
 sol::table MakeWaypointPositionTable(sol::state_view lua, zCWaypoint* waypoint) {
-  sol::table tbl = MakeVec3Table(lua, waypoint->GetPositionWorld());
+  const zVEC3 position = waypoint->GetPositionWorld();
+  sol::table tbl = ::lua::bind_helpers::MakeVec3Table(lua, position[VX], position[VY], position[VZ]);
   AddWaypointAngle(tbl, waypoint);
   return tbl;
 }
@@ -312,7 +294,8 @@ sol::table MakeWaypointTable(sol::state_view lua, zCWaypoint* waypoint) {
 }
 
 sol::table MakeFreepointPositionTable(sol::state_view lua, zCVobSpot* freepoint) {
-  sol::table tbl = MakeVec3Table(lua, freepoint->GetPositionWorld());
+  const zVEC3 position = freepoint->GetPositionWorld();
+  sol::table tbl = ::lua::bind_helpers::MakeVec3Table(lua, position[VX], position[VY], position[VZ]);
   AddAngle(tbl, freepoint->GetAtVectorWorld());
   return tbl;
 }

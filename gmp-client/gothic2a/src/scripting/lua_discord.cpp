@@ -24,6 +24,7 @@ SOFTWARE.
 
 #include "lua_discord.h"
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace gmp::gothic {
 
@@ -53,22 +54,22 @@ void BindDiscord(sol::state& lua) {
     discord.set_function("setActivity", [](const sol::table& params) {
       auto& activity = lua_helpers::GetDiscordActivityState();
 
-      if (auto value = lua_helpers::GetOptionalString(params, "state", "State"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "state", "State"); value) {
         activity.state = *value;
       }
-      if (auto value = lua_helpers::GetOptionalString(params, "details", "Details"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "details", "Details"); value) {
         activity.details = *value;
       }
-      if (auto value = lua_helpers::GetOptionalString(params, "largeImageKey", "LargeImageKey"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "largeImageKey", "LargeImageKey"); value) {
         activity.large_image_key = *value;
       }
-      if (auto value = lua_helpers::GetOptionalString(params, "largeImageText", "LargeImageText"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "largeImageText", "LargeImageText"); value) {
         activity.large_image_text = *value;
       }
-      if (auto value = lua_helpers::GetOptionalString(params, "smallImageKey", "SmallImageKey"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "smallImageKey", "SmallImageKey"); value) {
         activity.small_image_key = *value;
       }
-      if (auto value = lua_helpers::GetOptionalString(params, "smallImageText", "SmallImageText"); value) {
+      if (auto value = ::lua::bind_helpers::GetOptionalString(params, "smallImageText", "SmallImageText"); value) {
         activity.small_image_text = *value;
       }
 

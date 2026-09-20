@@ -41,6 +41,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include "game_server.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
 namespace {
@@ -490,23 +491,14 @@ private:
 
 WaynetRepository g_waynet_repository;
 
-sol::table MakeVec3Table(sol::state_view lua, const glm::vec3& position, float angle) {
-  sol::table tbl = lua.create_table();
-  tbl["x"] = position.x;
-  tbl["y"] = position.y;
-  tbl["z"] = position.z;
-  tbl["angle"] = angle;
-  return tbl;
-}
-
 sol::table MakeWaypointTable(sol::state_view lua, const WaypointNode& waypoint) {
-  sol::table tbl = MakeVec3Table(lua, waypoint.position, waypoint.angle);
+  sol::table tbl = ::lua::bind_helpers::MakeVec3Table(lua, waypoint.position, waypoint.angle);
   tbl["name"] = waypoint.name;
   return tbl;
 }
 
 sol::table MakeFreepointTable(sol::state_view lua, const FreepointNode& freepoint) {
-  sol::table tbl = MakeVec3Table(lua, freepoint.position, freepoint.angle);
+  sol::table tbl = ::lua::bind_helpers::MakeVec3Table(lua, freepoint.position, freepoint.angle);
   tbl["name"] = freepoint.name;
   return tbl;
 }
@@ -536,7 +528,7 @@ sol::object Function_GetWaypoint(const std::string& world, const std::string& wa
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeVec3Table(lua, waypoint->position, waypoint->angle));
+  return sol::make_object(lua, ::lua::bind_helpers::MakeVec3Table(lua, waypoint->position, waypoint->angle));
 }
 
 /* luagmp (func)
@@ -564,7 +556,7 @@ sol::object Function_GetFreepoint(const std::string& world, const std::string& f
     return sol::nil;
   }
 
-  return sol::make_object(lua, MakeVec3Table(lua, freepoint->position, freepoint->angle));
+  return sol::make_object(lua, ::lua::bind_helpers::MakeVec3Table(lua, freepoint->position, freepoint->angle));
 }
 
 /* luagmp (func)

@@ -5,21 +5,12 @@
 #include <utility>
 
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
-
-namespace {
-
-void RestoreFullViewport() {
-  if (zrenderer) {
-    zrenderer->SetViewport(0, 0, zrenderer->vid_xdim, zrenderer->vid_ydim);
-  }
-}
-
-}  // namespace
 
 class LuaTextureView : public zCView {
 public:
@@ -459,7 +450,8 @@ sol::table LuaTexture::getRectPx(sol::this_state s) {
 *
 */
 void LuaTexture::setColor(int r, int g, int b) {
-  color_.SetRGB(lua_helpers::ClampByte(r), lua_helpers::ClampByte(g), lua_helpers::ClampByte(b));
+  color_.SetRGB(::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                ::lua::bind_helpers::ClampByte(b));
 }
 
 /* luagmp (method)
@@ -500,7 +492,7 @@ void LuaTexture::setColorValue(sol::object value) {
 *
 */
 void LuaTexture::setAlpha(int alpha) {
-  color_.alpha = lua_helpers::ClampByte(alpha);
+  color_.alpha = ::lua::bind_helpers::ClampByte(alpha);
 }
 
 /* luagmp (method)
@@ -758,7 +750,7 @@ void LuaTexture::Blit() {
   zrenderer->SetAlphaBlendFunc(oldBlendFunc);
   zrenderer->SetZBufferWriteEnabled(oldzWrite);
   zrenderer->SetZBufferCompare(oldCmp);
-  RestoreFullViewport();
+  ::lua::bind_helpers::RestoreFullViewport(zrenderer);
 }
 
 void LuaTexture::updateViewSize(int width, int height) {

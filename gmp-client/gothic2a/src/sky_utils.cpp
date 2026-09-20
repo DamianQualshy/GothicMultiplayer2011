@@ -32,6 +32,7 @@ SOFTWARE.
 #include "hooking/MemoryPatch.h"
 #include "ZenGin/zGothicAPI.h"
 #include "shared/event.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "shared/lua_runtime/lua_constants.h"
 #include "scripting/gothic_events.h"
 
@@ -40,18 +41,17 @@ using namespace Gothic_II_Addon;
 namespace gmp::gothic {
 namespace {
 
-std::uint8_t ClampColorComponent(int value) {
-  return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
-}
-
 zVEC3 MakeColorVec3(int r, int g, int b) {
-  return zVEC3(static_cast<float>(ClampColorComponent(r)), static_cast<float>(ClampColorComponent(g)),
-               static_cast<float>(ClampColorComponent(b)));
+  return zVEC3(static_cast<float>(::lua::bind_helpers::ClampByte(r)),
+               static_cast<float>(::lua::bind_helpers::ClampByte(g)),
+               static_cast<float>(::lua::bind_helpers::ClampByte(b)));
 }
 
 zVEC4 MakeColorVec4(int r, int g, int b, int a) {
-  return zVEC4(static_cast<float>(ClampColorComponent(r)), static_cast<float>(ClampColorComponent(g)),
-               static_cast<float>(ClampColorComponent(b)), static_cast<float>(ClampColorComponent(a)));
+  return zVEC4(static_cast<float>(::lua::bind_helpers::ClampByte(r)),
+               static_cast<float>(::lua::bind_helpers::ClampByte(g)),
+               static_cast<float>(::lua::bind_helpers::ClampByte(b)),
+               static_cast<float>(::lua::bind_helpers::ClampByte(a)));
 }
 
 zCSkyControler_Outdoor* GetOutdoorSky() {

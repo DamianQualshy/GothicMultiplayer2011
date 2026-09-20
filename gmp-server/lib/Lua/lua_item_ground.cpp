@@ -31,6 +31,7 @@ SOFTWARE.
 
 #include "../game_server.h"
 #include "lua_item.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace lua {
 namespace bindings {
@@ -58,15 +59,6 @@ glm::vec3 ReadVec3(const sol::table& table, const char* field, const glm::vec3& 
 
   sol::table vec = value.as<sol::table>();
   return glm::vec3(vec.get_or("x", fallback.x), vec.get_or("y", fallback.y), vec.get_or("z", fallback.z));
-}
-
-sol::table MakeVec3Table(sol::this_state state, const glm::vec3& vec) {
-  sol::state_view lua(state);
-  sol::table result = lua.create_table();
-  result["x"] = vec.x;
-  result["y"] = vec.y;
-  result["z"] = vec.z;
-  return result;
 }
 
 sol::object MakeItemGroundObject(ItemGroundManager::ItemGroundId id, sol::this_state state) {
@@ -143,7 +135,8 @@ void LuaItemGround::setVirtualWorld(std::int32_t virtual_world) {
 
 sol::table LuaItemGround::getPosition(sol::this_state state) const {
   auto* item_ground = GetItemGround(id_);
-  return MakeVec3Table(state, item_ground ? item_ground->position : glm::vec3{0.0f});
+  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
+                                            item_ground ? item_ground->position : glm::vec3{0.0f});
 }
 
 void LuaItemGround::setPosition(float x, float y, float z) {
@@ -154,7 +147,8 @@ void LuaItemGround::setPosition(float x, float y, float z) {
 
 sol::table LuaItemGround::getRotation(sol::this_state state) const {
   auto* item_ground = GetItemGround(id_);
-  return MakeVec3Table(state, item_ground ? item_ground->rotation : glm::vec3{0.0f});
+  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
+                                            item_ground ? item_ground->rotation : glm::vec3{0.0f});
 }
 
 void LuaItemGround::setRotation(float x, float y, float z) {

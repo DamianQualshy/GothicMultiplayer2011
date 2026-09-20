@@ -22,6 +22,8 @@ SOFTWARE.
 
 #include "lua_math.h"
 
+#include "bind_helpers.h"
+
 #include <algorithm>
 #include <cmath>
 #include <utility>
@@ -39,14 +41,6 @@ namespace types {
 
 namespace {
 constexpr float kEpsilon = 0.001f;
-
-float NormalizeDegrees(float degrees) {
-  degrees = std::fmod(degrees, 360.0f);
-  if (degrees < 0.0f) {
-    degrees += 360.0f;
-  }
-  return degrees;
-}
 
 inline glm::vec3 ToGlm(const Vec3& vec) {
   return glm::vec3(vec.x, vec.y, vec.z);
@@ -2348,7 +2342,7 @@ float Function_GetDistance3d(float x1, float y1, float z1, float x2, float y2, f
 *
 */
 float Function_GetVectorAngle(float x1, float y1, float x2, float y2) {
-  return NormalizeDegrees(glm::degrees(std::atan2(x2 - x1, y2 - y1)));
+  return ::lua::bind_helpers::NormalizeDegrees(glm::degrees(std::atan2(x2 - x1, y2 - y1)));
 }
 
 void BindMath(sol::state& lua) {

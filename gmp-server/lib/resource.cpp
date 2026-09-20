@@ -33,20 +33,11 @@ SOFTWARE.
 #include "Script.h"
 #include "game_server.h"
 #include "Lua/event_bind.h"
+#include "shared/lua_runtime/bind_helpers.h"
 #include "shared/lua_runtime/lua_diagnostics.h"
 #include "shared/lua_runtime/timer_manager.h"
 
 namespace fs = std::filesystem;
-
-namespace {
-const void* GetFunctionIdentity(const sol::protected_function& function) {
-  lua_State* state = function.lua_state();
-  sol::stack::push(state, function);
-  const void* identity = lua_topointer(state, -1);
-  lua_pop(state, 1);
-  return identity;
-}
-}  // namespace
 
 Resource::Resource(std::string name) : name_(std::move(name)) {}
 
@@ -195,7 +186,7 @@ void Resource::CaptureLifecycleHook(const char* hook) {
   }
 
   sol::protected_function pf = fn;
-  const void* identity = GetFunctionIdentity(pf);
+  const void* identity = ::lua::bind_helpers::GetLuaIdentity(pf);
 
   auto& hooks = std::string_view(hook) == "onResourceStart" ? start_hooks_ : stop_hooks_;
   auto& hook_ids = std::string_view(hook) == "onResourceStart" ? start_hook_ids_ : stop_hook_ids_;

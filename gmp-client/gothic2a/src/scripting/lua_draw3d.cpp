@@ -28,6 +28,7 @@ SOFTWARE.
 #include <cmath>
 
 #include "lua_helpers.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 using namespace Gothic_II_Addon;
 
@@ -201,7 +202,7 @@ void LuaDraw3d::setPositionValue(sol::object value) {
 *
 */
 sol::table LuaDraw3d::getPosition(sol::this_state s) const {
-  return lua_helpers::MakeVec3Table(sol::state_view(s), position_);
+  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(s), position_[VX], position_[VY], position_[VZ]);
 }
 
 /* luagmp (method)
@@ -373,7 +374,7 @@ sol::table LuaDraw3d::getColor(sol::this_state s) const {
 *
 */
 void LuaDraw3d::setAlpha(int alpha) {
-  color_.alpha = lua_helpers::ClampByte(alpha);
+  color_.alpha = ::lua::bind_helpers::ClampByte(alpha);
   if (view_) {
     view_->SetFontColor(color_);
   }

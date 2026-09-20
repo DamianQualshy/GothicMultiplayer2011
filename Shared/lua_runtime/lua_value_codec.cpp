@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "shared/lua_runtime/lua_value_codec.h"
 
+#include "shared/lua_runtime/bind_helpers.h"
+
 #include <nlohmann/json.hpp>
 
 #include <string>
@@ -65,14 +67,6 @@ std::string LuaTypeToString(sol::type type) {
   return "unknown";
 }
 
-const void* GetLuaIdentity(const sol::object& obj) {
-  lua_State* state = obj.lua_state();
-  sol::stack::push(state, obj);
-  const void* identity = lua_topointer(state, -1);
-  lua_pop(state, 1);
-  return identity;
-}
-
 bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, Json& out, std::string& error, int depth,
                      std::unordered_set<const void*>& visited) {
   if (depth > kMaxDepth) {
@@ -95,7 +89,7 @@ bool EncodeLuaObject(sol::state_view lua, const sol::object& obj, Json& out, std
       out = {{"t", "string"}, {"v", obj.as<std::string>()}};
       return true;
     case sol::type::table: {
-      const void* identity = GetLuaIdentity(obj);
+      const void* identity = ::lua::bind_helpers::GetLuaIdentity(obj);
       if (identity != nullptr && !visited.insert(identity).second) {
         error = "Lua table contains a cyclic reference";
         return false;
@@ -226,11 +220,7 @@ bool EncodeLuaArgsImpl(sol::state_view lua, const std::vector<sol::object>& args
 }  // namespace
 
 bool EncodeLuaArgs(sol::state_view lua, const sol::variadic_args& args, std::string& payload, std::string& error) {
-  std::vector<sol::object> values;
-  values.reserve(args.size());
-  for (const auto& arg : args) {
-    values.emplace_back(sol::make_object(lua, arg));
-  }
+  std::vector<sol::object> values = ::lua::bind_helpers::CopyArguments(lua, args);
   return EncodeLuaArgsImpl(lua, values, payload, error);
 }
 

@@ -23,7 +23,8 @@ SOFTWARE.
 
 #include "lua_utility.h"
 
-#include <algorithm>
+#include "bind_helpers.h"
+
 #include <array>
 #include <cctype>
 #include <chrono>
@@ -32,7 +33,6 @@ SOFTWARE.
 #include <optional>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include <sodium.h>
 
@@ -88,17 +88,6 @@ std::optional<std::array<int, 3>> ParseHexColor(const std::string& hex) {
   return std::nullopt;
 }
 
-std::vector<sol::object> CopyArguments(sol::state_view lua, const sol::variadic_args& args) {
-  std::vector<sol::object> values;
-  values.reserve(args.size());
-
-  for (auto arg : args) {
-    values.emplace_back(sol::make_object(lua, arg));
-  }
-
-  return values;
-}
-
 /* luagmp (func)
 *
 * This function will convert a hex color string to an RGB table.
@@ -144,13 +133,11 @@ sol::object Function_HexToRgb(const std::string& hex, sol::this_state ts) {
 *
 */
 std::string Function_RgbToHex(int r, int g, int b) {
-  auto clamp_component = [](int value) { return std::clamp(value, 0, 255); };
-
   std::ostringstream stream;
   stream << std::hex << std::nouppercase << std::setfill('0');
-  stream << std::setw(2) << clamp_component(r);
-  stream << std::setw(2) << clamp_component(g);
-  stream << std::setw(2) << clamp_component(b);
+  stream << std::setw(2) << static_cast<int>(::lua::bind_helpers::ClampByte(r));
+  stream << std::setw(2) << static_cast<int>(::lua::bind_helpers::ClampByte(g));
+  stream << std::setw(2) << static_cast<int>(::lua::bind_helpers::ClampByte(b));
   return stream.str();
 }
 
@@ -344,7 +331,7 @@ void BindTimers(sol::state& lua, TimerManager& timer_manager) {
   lua.set_function("setTimer",
                    [&timer_manager](sol::protected_function func, int interval, int execute_times, sol::variadic_args args, sol::this_state ts) {
                      sol::state_view lua(ts);
-                     auto copied_arguments = CopyArguments(lua, args);
+                     auto copied_arguments = ::lua::bind_helpers::CopyArguments(lua, args);
                      auto timer_interval = std::chrono::milliseconds(interval);
                      std::uint32_t times = execute_times > 0 ? static_cast<std::uint32_t>(execute_times) : 0u;
                      return static_cast<int>(timer_manager.CreateTimer(std::move(func), timer_interval, times, std::move(copied_arguments)));

@@ -63,6 +63,7 @@ SOFTWARE.
 #include "lua_way.h"
 #include "lua_interface.h"
 #include "lua_voice.h"
+#include "shared/lua_runtime/bind_helpers.h"
 
 using namespace Gothic_II_Addon;
 
@@ -76,14 +77,6 @@ struct ClientNpc {
 
 std::unordered_map<int, ClientNpc> g_client_npcs;
 int g_next_npc_id = -1;
-
-float NormalizeDegrees(float degrees) {
-  degrees = std::fmod(degrees, 360.0f);
-  if (degrees < 0.0f) {
-    degrees += 360.0f;
-  }
-  return degrees;
-}
 
 oCSpawnManager* GetSpawnManager() {
   return ogame ? ogame->GetSpawnManager() : nullptr;
@@ -687,13 +680,9 @@ sol::object Function_GetPlayerName(std::int64_t id, sol::this_state ts) {
 *
 */
 bool Function_SetPlayerColor(std::int64_t id, int r, int g, int b) {
-    r = std::clamp(r, 0, 255);
-    g = std::clamp(g, 0, 255);
-    b = std::clamp(b, 0, 255);
-
     if (auto* player = GetPlayerByIdSigned(id)) {
-      player->SetNameColor(zCOLOR(static_cast<unsigned char>(r), static_cast<unsigned char>(g),
-                                  static_cast<unsigned char>(b), 255));
+      player->SetNameColor(zCOLOR(::lua::bind_helpers::ClampByte(r), ::lua::bind_helpers::ClampByte(g),
+                                  ::lua::bind_helpers::ClampByte(b), 255));
       return true;
     }
     return false;
@@ -1456,11 +1445,7 @@ sol::object Function_GetPlayerScale(std::int64_t id, sol::this_state ts){
 
   if (auto* npc = GetNpcById(id); npc) {
     const zVEC3 scale = npc->model_scale;
-    sol::table tbl = lua.create_table();
-    tbl["x"] = scale[VX];
-    tbl["y"] = scale[VY];
-    tbl["z"] = scale[VZ];
-    return sol::make_object(lua, tbl);
+    return sol::make_object(lua, ::lua::bind_helpers::MakeVec3Table(lua, scale[VX], scale[VY], scale[VZ]));
   }
 
   return sol::nil;
@@ -1915,11 +1900,8 @@ sol::object Function_GetPlayerPosition(std::int64_t id, sol::this_state ts) {
 
   if (auto* npc = GetNpcById(id)) {
     const zVEC3 position = npc->GetPositionWorld();
-    sol::table tbl = lua.create_table();
-    tbl["x"] = position[VX];
-    tbl["y"] = position[VY];
-    tbl["z"] = position[VZ];
-    return sol::make_object(lua, tbl);
+    return sol::make_object(
+        lua, ::lua::bind_helpers::MakeVec3Table(lua, position[VX], position[VY], position[VZ]));
   }
 
   return sol::nil;
@@ -1969,7 +1951,8 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
 
   if (auto* npc = GetNpcById(id)) {
     const zVEC3 forward = npc->GetAtVectorWorld();
-    return sol::make_object(lua, NormalizeDegrees(glm::degrees(std::atan2(forward[VX], forward[VZ]))));
+    return sol::make_object(lua,
+                            ::lua::bind_helpers::NormalizeDegrees(glm::degrees(std::atan2(forward[VX], forward[VZ]))));
   }
 
   return sol::nil;

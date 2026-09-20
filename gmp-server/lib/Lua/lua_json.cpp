@@ -24,6 +24,8 @@ SOFTWARE.
 
 #include "Lua/lua_json.h"
 
+#include "shared/lua_runtime/bind_helpers.h"
+
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -31,7 +33,6 @@ SOFTWARE.
 #include <limits>
 #include <optional>
 #include <string>
-#include <string_view>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -43,24 +44,11 @@ namespace lua::bindings {
 
 namespace {
 
-constexpr std::string_view kDataRoot = "data/internal";
 constexpr std::size_t kMaxJsonBytes = 1024 * 1024;
 constexpr std::size_t kMaxEntries = 4096;
 constexpr int kMaxDepth = 32;
 
 using Json = NLOHMANN_JSON_NAMESPACE::json;
-
-std::filesystem::path DataRootPath() {
-  return std::filesystem::current_path() / std::filesystem::path{kDataRoot};
-}
-
-const void* GetLuaIdentity(const sol::object& obj) {
-  lua_State* state = obj.lua_state();
-  sol::stack::push(state, obj);
-  const void* identity = lua_topointer(state, -1);
-  lua_pop(state, 1);
-  return identity;
-}
 
 bool EncodeLuaValue(sol::state_view lua, const sol::object& value, Json& out, std::string& error, int depth,
                     std::unordered_set<const void*>& visited) {
@@ -95,7 +83,7 @@ bool EncodeLuaValue(sol::state_view lua, const sol::object& value, Json& out, st
       out = value.as<std::string>();
       return true;
     case sol::type::table: {
-      const void* identity = GetLuaIdentity(value);
+      const void* identity = ::lua::bind_helpers::GetLuaIdentity(value);
       if (identity != nullptr && !visited.insert(identity).second) {
         error = "Lua table contains a cyclic reference";
         return false;
@@ -254,40 +242,6 @@ bool DecodeJsonValue(sol::state_view lua, const Json& value, sol::object& out, s
 
   error = "Unsupported JSON value type";
   return false;
-}
-
-bool IsRelativePathSafe(const std::filesystem::path& path) {
-  if (path.empty() || path.is_absolute()) {
-    return false;
-  }
-  for (const auto& part : path) {
-    if (part == "..") {
-      return false;
-    }
-  }
-  return true;
-}
-
-std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative) {
-  std::filesystem::path requested(relative);
-  if (!IsRelativePathSafe(requested)) {
-    return std::nullopt;
-  }
-  std::filesystem::path normalized = requested.lexically_normal();
-  std::filesystem::path root = DataRootPath();
-  std::filesystem::path full = (root / normalized).lexically_normal();
-  auto full_string = full.generic_string();
-  auto root_string = root.lexically_normal().generic_string();
-  if (!root_string.empty() && root_string.back() != '/') {
-    root_string.push_back('/');
-  }
-  if (full_string == root.lexically_normal().generic_string()) {
-    return full;
-  }
-  if (full_string.rfind(root_string, 0) != 0) {
-    return std::nullopt;
-  }
-  return full;
 }
 
 bool EnsureParentDirectory(const std::filesystem::path& path, std::string& error) {
@@ -583,7 +537,7 @@ private:
 };
 
 std::optional<JSON> LoadJSON(const std::string& relative_path, std::string& error) {
-  auto resolved = ResolveDataPath(relative_path);
+  auto resolved = ::lua::bind_helpers::ResolveDataPath(relative_path);
   if (!resolved) {
     error = "Invalid JSON path";
     return std::nullopt;

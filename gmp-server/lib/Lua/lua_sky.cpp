@@ -24,39 +24,9 @@ SOFTWARE.
 
 #include "lua_sky.h"
 #include "game_server.h"
-
-#include <cstdint>
-#include <optional>
-#include <utility>
+#include "shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
-namespace {
-
-std::optional<std::pair<int, int>> ReadTimeTable(const sol::object& value) {
-  if (!value.is<sol::table>()) {
-    return std::nullopt;
-  }
-
-  sol::table table = value.as<sol::table>();
-  sol::object hour = table["hour"];
-  sol::object min = table["min"];
-  if (!hour.is<int>() || !min.is<int>()) {
-    return std::nullopt;
-  }
-
-  return std::pair<int, int>{hour.as<int>(), min.as<int>()};
-}
-
-sol::object MakeTimeTable(sol::this_state ts, std::pair<std::int32_t, std::int32_t> time) {
-  sol::state_view lua(ts);
-  sol::table tbl = lua.create_table();
-  tbl["hour"] = time.first;
-  tbl["min"] = time.second;
-  return sol::make_object(lua, tbl);
-}
-
-} // namespace
-
 
 /* luagmp (class)
 *
@@ -91,13 +61,14 @@ public:
 *
 */
   void SetRainStartTime(const sol::object& value) const {
-    if (auto time = ReadTimeTable(value)) {
+    if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
       g_server->SetRainStartTime(time->first, time->second);
     }
   }
 
   sol::object GetRainStartTime(sol::this_state ts) const {
-    return MakeTimeTable(ts, g_server->GetRainStartTime());
+    const auto time = g_server->GetRainStartTime();
+    return ::lua::bind_helpers::MakeTimeTable(ts, time.first, time.second);
   }
 
 /* luagmp (property)
@@ -110,13 +81,14 @@ public:
 *
 */
   void SetRainStopTime(const sol::object& value) const {
-    if (auto time = ReadTimeTable(value)) {
+    if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
       g_server->SetRainStopTime(time->first, time->second);
     }
   }
 
   sol::object GetRainStopTime(sol::this_state ts) const {
-    return MakeTimeTable(ts, g_server->GetRainStopTime());
+    const auto time = g_server->GetRainStopTime();
+    return ::lua::bind_helpers::MakeTimeTable(ts, time.first, time.second);
   }
 
 /* luagmp (property)
