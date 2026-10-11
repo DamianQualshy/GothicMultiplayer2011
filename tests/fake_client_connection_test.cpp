@@ -146,6 +146,33 @@ TEST_F(FakeClientConnectionTest, LuaDisconnectCallbackRetainsTheDepartingPlayers
   ASSERT_TRUE(PumpUntil({&observer}, [&] { return !observer.Messages().empty(); })) << observer.Error();
   EXPECT_EQ(observer.Messages().front().message, "disconnect IP: 127.0.0.1");
 }
+
+TEST_F(FakeClientConnectionTest, LuaIdentitySurvivesDisconnectAndReconnect) {
+  FakeClient observer("Observer");
+  FakeClient returning("IdentityProbe");
+  ASSERT_TRUE(observer.Connect("127.0.0.1", server_.GetPort()));
+  ASSERT_TRUE(PumpUntil({&observer}, [&] { return HasLocalSpawn(observer); })) << observer.Error();
+  ASSERT_TRUE(returning.Connect("127.0.0.1", server_.GetPort()));
+  ASSERT_TRUE(PumpUntil({&observer, &returning}, [&] {
+    return HasLocalSpawn(returning) && !returning.Messages().empty();
+  })) << returning.Error();
+  const auto joined_message = returning.Messages().front().message;
+  ASSERT_EQ(joined_message.substr(0, 10), "identity: ");
+  const auto identity = joined_message.substr(10);
+  ASSERT_EQ(identity.size(), 64u);
+
+  returning.Disconnect();
+  // Read through Lua messages on the server thread, including the cached value
+  // after GNS has released the departing connection. Avoid server data races.
+  ASSERT_TRUE(PumpUntil({&observer}, [&] { return observer.Messages().size() >= 2; })) << observer.Error();
+  EXPECT_EQ(observer.Messages()[1].message, "disconnect identity: " + identity);
+  ASSERT_TRUE(returning.Connect("127.0.0.1", server_.GetPort()));
+  ASSERT_TRUE(PumpUntil({&observer, &returning}, [&] {
+    return HasLocalSpawn(returning) && !returning.Messages().empty();
+  })) << returning.Error();
+  EXPECT_EQ(returning.Messages().front().message, joined_message);
+}
+
 TEST(ServerStateSequenceTest, ReorderedClientSnapshotsCannotOverwriteAcceptedGameplayState) {
   ConnectionTestWorkspace workspace;
   // Do not start the server loop: dispatch the production packet handler on

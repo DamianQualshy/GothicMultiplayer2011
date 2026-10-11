@@ -1309,6 +1309,7 @@ void GameServer::HandlePlayerConnected(Net::ConnectionHandle connection) {
 
   if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
     new_player->get().ip_address = transport_.GetPlayerIp(connection);
+    new_player->get().identity = transport_.GetPlayerIdentity(connection);
     new_player->get().world = server_world_;
     new_player->get().virtual_world = 0;
     new_player->get().voice_range = static_cast<std::uint32_t>(config_.Get<std::int32_t>("voice_range"));
@@ -4893,7 +4894,7 @@ std::string GameServer::GetPlayerMacAddress(PlayerId player_id) const {
   return {};
 }
 
-std::string GameServer::GetPlayerUUID(PlayerId player_id) const {
-  (void)player_id;
-  return {};
+std::string GameServer::GetPlayerIdentity(PlayerId player_id) const {
+  const auto player = player_manager_.GetPlayer(player_id);
+  return player ? player->get().identity : std::string{};
 }

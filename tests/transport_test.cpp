@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "network_test_port.h"
+#include "transport/machine_identity.h"
 #include "transport/transport.h"
 
 namespace {
@@ -148,6 +149,85 @@ TEST_F(TransportTest, ConnectsAndReportsIpPingAndNativeDiagnostics) {
   EXPECT_GE(server.GetPing(LastAccepted()), -1);
   EXPECT_FALSE(client.transport.GetDiagnostics().empty());
   EXPECT_FALSE(server.GetDiagnostics(LastAccepted()).empty());
+}
+
+TEST(MachineIdentityTest, NormalizesOsIdentifiersAndPreservesThePublishedDerivation) {
+  const auto identity = Net::DeriveMachineIdentity("00112233-4455-6677-8899-aabbccddeeff");
+  ASSERT_TRUE(identity.has_value());
+  // Pin the derivation: changing the domain, encoding, or algorithm would
+  // change every player's persisted identity, even on an unchanged machine.
+  constexpr Net::MachineIdentity expected{
+      0xdc, 0xd6, 0xbb, 0xe8, 0xe9, 0x34, 0xbe, 0x31, 0xc5, 0xf2, 0x66, 0xbc, 0x18, 0x5d, 0xca, 0x02,
+      0x08, 0x94, 0x3f, 0xab, 0x29, 0x83, 0xe6, 0xa5, 0x14, 0x26, 0x5d, 0xe0, 0xec, 0x1a, 0xb7, 0x24};
+  EXPECT_EQ(*identity, expected);
+  EXPECT_EQ(Net::DeriveMachineIdentity("00112233445566778899aabbccddeeff\n"), identity);
+  EXPECT_EQ(Net::DeriveMachineIdentity(" {00112233-4455-6677-8899-AABBCCDDEEFF}\r\n"), identity);
+  EXPECT_NE(Net::DeriveMachineIdentity("00112233445566778899aabbccddeefe"), identity);
+}
+
+TEST(MachineIdentityTest, RejectsMissingUninitializedAndMalformedOsIdentifiers) {
+  for (const auto* invalid : {"", " \r\n", "uninitialized", "00000000000000000000000000000000",
+                              "00000000-0000-0000-0000-000000000000", "00112233445566778899aabbccddeef",
+                              "00112233445566778899aabbccddeeff0", "00112233445566778899aabbccddeefg",
+                              "00112233_4455-6677-8899-aabbccddeeff", "00112233-4455-6677-8899-aabbccddee f"}) {
+    EXPECT_FALSE(Net::DeriveMachineIdentity(invalid).has_value()) << invalid;
+  }
+}
+
+TEST_F(TransportTest, ReportsTheIdentityFromTheEncryptedGnsHandshake) {
+  auto& client = NewClient();
+  ASSERT_TRUE(Connect(client));
+  const auto text = server.GetPlayerIdentity(LastAccepted());
+  ASSERT_EQ(text.size(), Net::kMachineIdentityBytes * 2);
+  ASSERT_TRUE(std::all_of(text.begin(), text.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); }));
+
+  SteamNetConnectionInfo_t info{};
+  ASSERT_TRUE(SteamNetworkingSockets()->GetConnectionInfo(LastAccepted(), &info));
+  int size = 0;
+  const auto* bytes = info.m_identityRemote.GetGenericBytes(size);
+  ASSERT_NE(bytes, nullptr);
+  ASSERT_EQ(size, Net::kMachineIdentityBytes);
+  for (int i = 0; i < size; ++i) {
+    EXPECT_EQ(std::stoul(text.substr(i * 2, 2), nullptr, 16), bytes[i]);
+  }
+  // Certificate transport is not a claim of externally authenticated hardware.
+  EXPECT_NE(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unauthenticated, 0);
+  EXPECT_EQ(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unencrypted, 0);
+}
+
+TEST_F(TransportTest, MachineIdentitySurvivesReconnectAndChangingServers) {
+  auto& client = NewClient();
+  ASSERT_TRUE(Connect(client));
+  const auto first_connection = LastAccepted();
+  const auto identity = server.GetPlayerIdentity(first_connection);
+  ASSERT_EQ(identity.size(), Net::kMachineIdentityBytes * 2);
+  client.transport.Disconnect();
+  ASSERT_TRUE(PumpUntil([&] { return server.GetConnectionCount() == 0; }));
+  EXPECT_TRUE(server.GetPlayerIdentity(first_connection).empty());
+  ASSERT_TRUE(Connect(client));
+  EXPECT_NE(LastAccepted(), first_connection);
+  EXPECT_EQ(server.GetPlayerIdentity(LastAccepted()), identity);
+
+  // Distinct sessions on the same OS installation deliberately share identity.
+  auto& second_client = NewClient();
+  ASSERT_TRUE(Connect(second_client));
+  EXPECT_EQ(server.GetPlayerIdentity(LastAccepted()), identity);
+  EXPECT_EQ(server.GetConnectionCount(), 2u);
+
+  Net::ServerTransport other_server;
+  Net::ConnectionHandle other_connection = Net::kInvalidConnection;
+  other_server.SetCallbacks({}, [&](const Event& event) {
+    if (event.kind == Event::Kind::Connected) other_connection = event.connection;
+  });
+  ASSERT_TRUE(StartTestListener(other_server));
+  client.transport.Disconnect();
+  ASSERT_TRUE(PumpUntil([&] { return server.GetConnectionCount() == 1; }));
+  ASSERT_TRUE(client.transport.Connect("127.0.0.1", other_server.GetPort()));
+  ASSERT_TRUE(PumpUntil([&] {
+    other_server.Pulse();
+    return client.transport.IsConnected() && other_connection != Net::kInvalidConnection;
+  }));
+  EXPECT_EQ(other_server.GetPlayerIdentity(other_connection), identity);
 }
 
 TEST_F(TransportTest, RejectsAllButOneConcurrentHandshakeWhenFull) {
@@ -509,10 +589,17 @@ TEST(TransportRuntimeTest, ConstructorsStayDormantAndFinalOwnerShutdownAllowsRei
     EXPECT_FALSE(server.IsRunning());
     EXPECT_EQ(SteamNetworkingSockets(), nullptr);
   }
+  SteamNetworkingIdentity previous_identity;
+  previous_identity.Clear();
   for (int cycle = 0; cycle < 3; ++cycle) {
     auto server = std::make_unique<Net::ServerTransport>();
     ASSERT_TRUE(StartTestListener(*server));
     ASSERT_NE(SteamNetworkingSockets(), nullptr);
+    SteamNetworkingIdentity identity;
+    ASSERT_TRUE(SteamNetworkingSockets()->GetIdentity(&identity));
+    EXPECT_EQ(identity.m_eType, k_ESteamNetworkingIdentityType_GenericBytes);
+    if (cycle > 0) EXPECT_TRUE(identity == previous_identity);
+    previous_identity = identity;
     auto client = std::make_unique<Net::ClientTransport>();
     ASSERT_TRUE(client->Connect("127.0.0.1", server->GetPort()));
     server.reset();

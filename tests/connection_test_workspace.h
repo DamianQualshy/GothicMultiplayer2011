@@ -9,7 +9,7 @@
 #include "network_test_port.h"
 
 // Each integration fixture gets the production registry layout and a minimal
-// resource that spawns players and reports their IP from disconnect callbacks. A tiny client
+// resource that spawns players and reports their IP/identity from callbacks. A tiny client
 // script exercises real resource packaging and downloading without game APIs.
 class ConnectionTestWorkspace {
 public:
@@ -32,12 +32,19 @@ public:
     Write(resource / "server" / "main.lua",
           "local players = {}\n"
           "addEventHandler('onPlayerConnect', function(playerId)\n"
-          "  players[playerId] = true\n  spawnPlayer(playerId, 0, 0, 0)\nend)\n"
+          "  players[playerId] = true\n  spawnPlayer(playerId, 0, 0, 0)\n"
+          "  if getPlayerName(playerId) == 'IdentityProbe' then\n"
+          "    sendMessageToPlayer(playerId, 255, 255, 255, 'identity: ' .. (getPlayerIdentity(playerId) or '<missing>'))\n"
+          "  end\nend)\n"
           "addEventHandler('onPlayerDisconnect', function(playerId)\n"
           "  players[playerId] = nil\n"
           "  local ip = getPlayerIP(playerId) or '<missing>'\n"
+          "  local identity = getPlayerIdentity(playerId) or '<missing>'\n"
           "  for peerId in pairs(players) do\n"
           "    sendMessageToPlayer(peerId, 255, 255, 255, 'disconnect IP: ' .. ip)\n"
+          "    if getPlayerName(playerId) == 'IdentityProbe' then\n"
+          "      sendMessageToPlayer(peerId, 255, 255, 255, 'disconnect identity: ' .. identity)\n"
+          "    end\n"
           "  end\nend)\n");
     Write(resource / "client" / "main.lua", "-- Connection test resource payload\n");
     Write(root_ / "config.toml",

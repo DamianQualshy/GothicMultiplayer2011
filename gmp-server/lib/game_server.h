@@ -213,7 +213,7 @@ public:
   std::string GetPlayerIp(PlayerId player_id) const;
   std::int32_t GetPlayerPing(PlayerId player_id) const;
   std::string GetPlayerMacAddress(PlayerId player_id) const;
-  std::string GetPlayerUUID(PlayerId player_id) const;
+  std::string GetPlayerIdentity(PlayerId player_id) const;
   std::uint32_t CreateItemGround(ItemGroundManager::CreateOptions options);
   bool DestroyItemGround(std::uint32_t item_ground_id);
   bool SetItemGroundPosition(std::uint32_t item_ground_id, const glm::vec3& position);

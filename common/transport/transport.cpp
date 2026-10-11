@@ -1,4 +1,5 @@
 #include "transport.h"
+#include "machine_identity.h"
 
 #ifdef _WIN32
 #ifndef WIN32_LEAN_AND_MEAN
@@ -36,6 +37,7 @@ struct Runtime {
   std::recursive_mutex mutex;
   std::size_t references = 0;
   ISteamNetworkingSockets* sockets = nullptr;
+  bool has_machine_identity = false;
   std::unordered_map<HSteamNetConnection, Mailbox*> connections;
   std::unordered_map<HSteamListenSocket, Mailbox*> listeners;
 };
@@ -68,11 +70,20 @@ class RuntimeReference {
     auto& runtime = SharedRuntime();
     std::lock_guard<std::recursive_mutex> lock(runtime.mutex);
     if (runtime.references == 0) {
+      const auto machine_identity = ReadMachineIdentity();
+      SteamNetworkingIdentity identity;
+      identity.Clear();
+      if (machine_identity && !identity.SetGenericBytes(machine_identity->data(), machine_identity->size())) {
+        throw std::runtime_error("GameNetworkingSockets rejected the machine identity");
+      }
       SteamNetworkingErrMsg error{};
-      if (!GameNetworkingSockets_Init(nullptr, error)) {
+      // GNS includes this identity in its generated unsigned connection cert.
+      // The certificate key can rotate; the machine identity must not.
+      if (!GameNetworkingSockets_Init(machine_identity ? &identity : nullptr, error)) {
         throw std::runtime_error(std::string("GameNetworkingSockets initialization failed: ") + error);
       }
       runtime.sockets = SteamNetworkingSockets();
+      runtime.has_machine_identity = machine_identity.has_value();
     }
     ++runtime.references;
   }
@@ -85,6 +96,7 @@ class RuntimeReference {
       runtime.listeners.clear();
       GameNetworkingSockets_Kill();
       runtime.sockets = nullptr;
+      runtime.has_machine_identity = false;
     }
   }
 };
@@ -124,8 +136,8 @@ std::array<SteamNetworkingConfigValue_t, 2> ConnectionOptions() {
   std::array<SteamNetworkingConfigValue_t, 2> options{};
   options[0].SetPtr(k_ESteamNetworkingConfig_Callback_ConnectionStatusChanged,
                     reinterpret_cast<void*>(&ConnectionStatusChanged));
-  // Direct IP without account certificates. Encryption remains enabled; an IP
-  // address is an endpoint, not an authenticated player identity.
+  // Direct IP using GNS unsigned certificates, which carry our machine hash.
+  // Encryption remains enabled; the machine claim is not authenticated by a CA.
   options[1].SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
   return options;
 }
@@ -167,6 +179,19 @@ bool ResolveAddress(const char* host, std::uint32_t port, SteamNetworkingIPAddr&
 std::string AddressString(const SteamNetworkingIPAddr& address) {
   char text[SteamNetworkingIPAddr::k_cchMaxString]{};
   address.ToString(text, sizeof(text), false);
+  return text;
+}
+
+std::string MachineIdentityString(const SteamNetworkingIdentity& identity) {
+  int size = 0;
+  const auto* bytes = identity.GetGenericBytes(size);
+  if (!bytes || size != static_cast<int>(kMachineIdentityBytes)) return {};
+  constexpr char hex[] = "0123456789abcdef";
+  std::string text(kMachineIdentityBytes * 2, '0');
+  for (std::size_t i = 0; i < kMachineIdentityBytes; ++i) {
+    text[i * 2] = hex[bytes[i] >> 4];
+    text[i * 2 + 1] = hex[bytes[i] & 15];
+  }
   return text;
 }
 
@@ -319,6 +344,10 @@ bool ClientTransport::Connect(const char* host, std::uint32_t port) {
   {
     std::lock_guard<std::recursive_mutex> lock(SharedRuntime().mutex);
     if (!impl_->runtime) impl_->runtime = std::make_unique<RuntimeReference>();
+    if (!SharedRuntime().has_machine_identity) {
+      std::fprintf(stderr, "GMP cannot connect: a stable OS machine identity is unavailable\n");
+      return false;
+    }
   }
   SteamNetworkingIPAddr address;
   if (!ResolveAddress(host, port, address)) return false;
@@ -413,6 +442,7 @@ ConnectionHandle ClientTransport::GetConnection() const {
 struct ServerTransport::Impl {
   struct Peer {
     std::string ip;
+    std::string identity;
     bool connected = false;
     std::deque<Message> pending_messages;
   };
@@ -466,7 +496,7 @@ struct ServerTransport::Impl {
 
         // Reserve the slot before accepting, counting accepted handshakes as well
         // as fully connected peers. All admission work runs on the server thread.
-        peers.emplace(connection, Peer{ip, false, {}});
+        peers.emplace(connection, Peer{ip, {}, false, {}});
         SharedRuntime().connections.emplace(connection, &mailbox);
         if (!ConfigureLanes(connection) || !SharedRuntime().sockets->SetConnectionPollGroup(connection, poll_group)) {
           Close(connection, CloseReason::Failure, "Unable to assign connection resources", false);
@@ -479,6 +509,7 @@ struct ServerTransport::Impl {
         }
       } else if (auto peer = peers.find(connection); peer != peers.end()) {
         if (status.m_info.m_eState == k_ESteamNetworkingConnectionState_Connected && !peer->second.connected) {
+          peer->second.identity = MachineIdentityString(status.m_info.m_identityRemote);
           peer->second.connected = true;
           mailbox.events.push_back({ConnectionEvent::Kind::Connected, connection, CloseReason::None, {}});
         } else if (TerminalState(status.m_info.m_eState)) {
@@ -640,6 +671,12 @@ std::string ServerTransport::GetPlayerIp(ConnectionHandle connection) const {
   std::lock_guard<std::recursive_mutex> lock(SharedRuntime().mutex);
   const auto peer = impl_->peers.find(connection);
   return peer == impl_->peers.end() ? std::string{} : peer->second.ip;
+}
+
+std::string ServerTransport::GetPlayerIdentity(ConnectionHandle connection) const {
+  std::lock_guard<std::recursive_mutex> lock(SharedRuntime().mutex);
+  const auto peer = impl_->peers.find(connection);
+  return peer == impl_->peers.end() ? std::string{} : peer->second.identity;
 }
 
 std::int32_t ServerTransport::GetPing(ConnectionHandle connection) const { return GetNetworkStats(connection).ping_ms; }

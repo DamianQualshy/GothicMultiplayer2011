@@ -105,6 +105,9 @@ class ServerTransport final {
   bool Send(const void* data, std::uint32_t size, TrafficClass traffic, ConnectionHandle connection);
   bool CloseConnection(ConnectionHandle connection, CloseReason reason = CloseReason::Normal, const std::string& detail = {});
   std::string GetPlayerIp(ConnectionHandle connection) const;
+  // 64 lowercase hex characters from the peer's GNS certificate, or empty if
+  // unavailable. Self-asserted machine identity, not authenticated hardware.
+  std::string GetPlayerIdentity(ConnectionHandle connection) const;
   std::int32_t GetPing(ConnectionHandle connection) const;
   NetworkStats GetNetworkStats(ConnectionHandle connection) const;
   std::string GetDiagnostics(ConnectionHandle connection) const;

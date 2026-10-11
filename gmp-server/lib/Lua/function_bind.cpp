@@ -416,28 +416,31 @@ sol::object Function_GetPlayerMacAddress(std::uint32_t player_id, sol::this_stat
 
 /* luagmp (func)
 *
-* This function will return the player's UUID or nil if unavailable.
+* Returns the player's stable OS installation identity, or nil if unavailable.
+* The 64-character lowercase hex value comes from the peer's GNS certificate.
+* It is self-asserted and can be spoofed by a modified client. OS reinstalls,
+* cloned installations, or changes to the OS identifier affect this identity.
 *
 * @version  0.3.0
-* @name     getPlayerUUID
+* @name     getPlayerIdentity
 * @side     server
 * @category Player
 * @param    (number) player_id  Target player id.
-* @return   (string|nil)        Player UUID or nil.
+* @return   (string|nil)        Machine identity or nil.
 *
 */
-sol::object Function_GetPlayerUUID(std::uint32_t player_id, sol::this_state ts) {
-  if (!GetPlayerOrWarn(player_id, "getPlayerUUID")) {
+sol::object Function_GetPlayerIdentity(std::uint32_t player_id, sol::this_state ts) {
+  if (!GetPlayerOrWarn(player_id, "getPlayerIdentity")) {
     return sol::nil;
   }
 
-  const auto uuid = g_server->GetPlayerUUID(player_id);
-  if (uuid.empty()) {
+  const auto identity = g_server->GetPlayerIdentity(player_id);
+  if (identity.empty()) {
     return sol::nil;
   }
 
   sol::state_view lua(ts);
-  return sol::make_object(lua, uuid);
+  return sol::make_object(lua, identity);
 }
 
 /* luagmp (func)
@@ -2643,7 +2646,7 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerIP"] = Function_GetPlayerIP;
   lua["getPlayerPing"] = Function_GetPlayerPing;
   lua["getPlayerMacAddress"] = Function_GetPlayerMacAddress;
-  lua["getPlayerUUID"] = Function_GetPlayerUUID;
+  lua["getPlayerIdentity"] = Function_GetPlayerIdentity;
   lua["setPlayerColor"] = Function_SetPlayerColor;
   lua["getPlayerColor"] = Function_GetPlayerColor;
   lua["setPlayerHealth"] = Function_SetPlayerHealth;

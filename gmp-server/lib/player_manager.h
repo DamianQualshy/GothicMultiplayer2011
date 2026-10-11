@@ -57,9 +57,10 @@ public:
    */
   struct Player : Character {
     Net::ConnectionHandle connection{};
-    // Keep the admitted endpoint available through onPlayerDisconnect, after
+    // Keep the endpoint and identity available through onPlayerDisconnect, after
     // the transport has already released its ephemeral connection handle.
     std::string ip_address;
+    std::string identity;
     std::unordered_set<PlayerId> spawned_players;
     std::uint8_t passed_crc_test{0};
     bool npc_world_ready{false};
