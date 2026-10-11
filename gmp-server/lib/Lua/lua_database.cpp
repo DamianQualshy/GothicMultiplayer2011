@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "Lua/lua_database.h"
 
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 #include <mariadb/mysql.h>
 #include <sqlite3.h>

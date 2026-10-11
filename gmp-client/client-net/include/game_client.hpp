@@ -43,7 +43,7 @@ SOFTWARE.
 #include "players.hpp"
 #include "task_scheduler.h"
 #include "world.hpp"
-#include "znet_client.h"
+#include "transport/transport.h"
 #include "resource_downloader.h"
 
 namespace gmp::client {
@@ -52,7 +52,7 @@ constexpr std::uint32_t kDefaultServerPort = 57005;
 
 bool ParseServerEndpoint(std::string_view full_address, std::string& host, std::uint32_t& port);
 
-class GameClient : public Net::NetClient::PacketHandler {
+class GameClient {
 public:
   enum class ConnectionState { Disconnected, Connecting, Connected, Failed };
 
@@ -67,6 +67,7 @@ public:
   bool IsConnected() const;
   ConnectionState GetConnectionState() const;
   std::string GetConnectionError() const;
+  Net::CloseReason GetConnectionCloseReason() const;
   int GetPing();
   std::int32_t GetPlayerPing(std::uint64_t player_id);
   Net::NetworkStats GetNetworkStats() const;
@@ -118,13 +119,16 @@ public:
   std::vector<AddonPayload> ConsumeDownloadedAddons();
 
 private:
+  friend class GameClientTestPeer;
+
   struct Packet {
     unsigned char* data = nullptr;
     std::uint32_t length = 0;
   };
 
   void InitPacketHandlers();
-  bool HandlePacket(unsigned char* data, std::uint32_t size) override;
+  bool HandlePacket(unsigned char* data, std::uint32_t size);
+  void OnTransportEvent(const Net::ConnectionEvent& event);
 
   void DispatchPendingConnectionNotifications();
 
@@ -132,8 +136,6 @@ private:
   void UpdatePlayerState(Player* player, const PlayerState& state);
 
   // Packet handlers
-  void OnConnectionAccepted(Packet packet);
-  void OnConnectionFailedPacket(Packet packet);
   void OnInitialInfo(Packet packet);
   void OnActualStatistics(Packet packet);
   void OnMapOnly(Packet packet);
@@ -187,8 +189,8 @@ private:
   void OnVoice(Packet packet);
   void OnLeftGame(Packet packet);
   void OnLuaEvent(Packet packet);
-  void OnDisconnectOrLostConnection(Packet packet);
 
+  Net::ClientTransport transport_;
   EventObserver& event_observer_;
   ResourceDownloader resource_downloader_;
   PlayerManager player_manager_;
@@ -208,14 +210,12 @@ private:
   bool notify_connected_pending_{false};
   bool notify_connection_failed_pending_{false};
   bool notify_connection_lost_pending_{false};
+  bool notify_connection_closed_pending_{false};
 
   ConnectionState connection_state_{ConnectionState::Disconnected};
+  Net::CloseReason connection_close_reason_{Net::CloseReason::None};
   mutable std::mutex connection_mutex_;
   std::string connection_error_;
 };
-
-// Function to load the network library dynamically. Must be called
-// before using any other functions in this library.
-void LoadNetworkLibrary();
 
 }  // namespace gmp::client

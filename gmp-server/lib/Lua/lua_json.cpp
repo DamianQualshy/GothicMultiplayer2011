@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "Lua/lua_json.h"
 
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 #include <cmath>
 #include <cstdint>

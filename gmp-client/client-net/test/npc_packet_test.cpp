@@ -33,33 +33,27 @@ SOFTWARE.
 #include "game_client.hpp"
 
 namespace gmp::client {
-extern Net::NetClient* g_netclient;
+// Keep gameplay packet tests independent of socket timing. Connection lifecycle
+// and delivery are covered by the transport integration tests.
+class GameClientTestPeer {
+public:
+  static bool HandlePacket(GameClient& client, unsigned char* bytes, std::uint32_t size) {
+    return client.HandlePacket(bytes, size);
+  }
+  static void BeginConnection(GameClient& client) {
+    client.connection_state_ = GameClient::ConnectionState::Connecting;
+  }
+  static void NotifyTransport(GameClient& client, const Net::ConnectionEvent& event) {
+    client.OnTransportEvent(event);
+    client.DispatchPendingConnectionNotifications();
+  }
+};
 }
 
 namespace {
 using gmp::client::EventObserver;
 using gmp::client::GameClient;
 using gmp::client::Player;
-
-// Exercise the production packet handlers through their public transport
-// interface. No socket, downloader, native engine or private access is needed.
-class FakeNetClient final : public Net::NetClient {
-public:
-  void Pulse() override {}
-  bool Connect(const char*, std::uint32_t) override { return true; }
-  void Disconnect() override {}
-  bool IsConnected() const override { return false; }
-  bool SendPacket(unsigned char*, std::uint32_t, Net::PacketReliability, Net::PacketPriority, std::uint32_t) override {
-    return true;
-  }
-  void AddPacketHandler(PacketHandler& handler) override { handlers.push_back(&handler); }
-  void RemovePacketHandler(PacketHandler& handler) override {
-    handlers.erase(std::remove(handlers.begin(), handlers.end(), &handler), handlers.end());
-  }
-  std::uint32_t GetPing() const override { return 0; }
-  Net::NetworkStats GetNetworkStats() const override { return {}; }
-  std::vector<PacketHandler*> handlers;
-};
 
 class ImmediateScheduler final : public gmp::TaskScheduler {
 public:
@@ -78,6 +72,17 @@ struct RecordingObserver final : EventObserver {
   int deaths{0};
   int respawns{0};
   bool cleared_with_live_metadata{false};
+  int connected{0};
+  int disconnected{0};
+  int connection_lost{0};
+  std::string connection_failure;
+  std::string connection_closed;
+
+  void OnConnected() override { ++connected; }
+  void OnDisconnected() override { ++disconnected; }
+  void OnConnectionLost() override { ++connection_lost; }
+  void OnConnectionFailed(const std::string& reason) override { connection_failure = reason; }
+  void OnConnectionClosed(const std::string& reason) override { connection_closed = reason; }
 
   void OnPlayerSpawned(Player& player) override {
     spawned_player = &player;
@@ -168,17 +173,13 @@ PlayerStateUpdatePacket MakeMovement(std::uint32_t sequence) {
 
 class ClientNpcPacketTest : public ::testing::Test {
 protected:
-  FakeNetClient transport;
   ImmediateScheduler scheduler;
   RecordingObserver first_observer;
   RecordingObserver second_observer;
   std::unique_ptr<GameClient> first;
   std::unique_ptr<GameClient> second;
-  Net::NetClient* previous_transport{nullptr};
 
   void SetUp() override {
-    previous_transport = gmp::client::g_netclient;
-    gmp::client::g_netclient = &transport;
     first = std::make_unique<GameClient>(first_observer, scheduler);
     first_observer.client = first.get();
     second = std::make_unique<GameClient>(second_observer, scheduler);
@@ -187,15 +188,14 @@ protected:
   void TearDown() override {
     second.reset();
     first.reset();
-    EXPECT_TRUE(transport.handlers.empty());
-    gmp::client::g_netclient = previous_transport;
   }
   template <typename Packet>
   void Deliver(std::size_t viewer, const Packet& packet) {
     std::vector<unsigned char> bytes;
     const auto size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<std::vector<unsigned char>>>(bytes, packet);
-    ASSERT_LT(viewer, transport.handlers.size());
-    ASSERT_TRUE(transport.handlers[viewer]->HandlePacket(bytes.data(), static_cast<std::uint32_t>(size)));
+    ASSERT_LT(viewer, 2u);
+    GameClient& client = viewer == 0 ? *first : *second;
+    ASSERT_TRUE(gmp::client::GameClientTestPeer::HandlePacket(client, bytes.data(), static_cast<std::uint32_t>(size)));
   }
 };
 
@@ -243,7 +243,7 @@ TEST_F(ClientNpcPacketTest, ReorderedMovementCannotPreventFirstSpawnOfJoinedPlay
   EXPECT_TRUE(player->has_joined());
   EXPECT_FALSE(player->has_spawned());
 
-  // Movement on a separate channel may overtake the reliable spawn snapshot.
+  // Unreliable movement may overtake the reliable spawn snapshot.
   // Connection-only metadata must not consume that movement's sequence and
   // subsequently reject the snapshot needed to create the engine actor.
   auto movement = MakeMovement(12);
@@ -353,6 +353,59 @@ TEST_F(ClientNpcPacketTest, ClearsEngineObserversBeforeDestroyingNetworkMetadata
   first->Disconnect();
   EXPECT_TRUE(first_observer.cleared_with_live_metadata);
   EXPECT_EQ(first->player_manager().GetPlayer(21), nullptr);
+}
+
+TEST_F(ClientNpcPacketTest, TransportRejectionPreservesTheApplicationCloseReason) {
+  using Peer = gmp::client::GameClientTestPeer;
+  Peer::BeginConnection(*first);
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Closed, 1, Net::CloseReason::ServerFull, "capacity"});
+  EXPECT_EQ(first->GetConnectionState(), GameClient::ConnectionState::Failed);
+  EXPECT_EQ(first->GetConnectionCloseReason(), Net::CloseReason::ServerFull);
+  EXPECT_EQ(first_observer.connection_failure, "Server is full");
+  EXPECT_EQ(first_observer.connected, 0);
+  EXPECT_EQ(first_observer.connection_lost, 0);
+}
+
+TEST_F(ClientNpcPacketTest, GracefulRemoteCloseClearsActorsAndPreservesKickReason) {
+  using Peer = gmp::client::GameClientTestPeer;
+  Peer::BeginConnection(*first);
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Connected, 1});
+  Deliver(0, MakeSpawn());
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Closed, 1, Net::CloseReason::Kicked, "kick"});
+  EXPECT_EQ(first_observer.connected, 1);
+  EXPECT_TRUE(first_observer.cleared_with_live_metadata);
+  EXPECT_EQ(first->player_manager().GetPlayer(21), nullptr);
+  EXPECT_EQ(first_observer.connection_closed, "Kicked from the server");
+  EXPECT_EQ(first_observer.connection_lost, 0);
+  EXPECT_EQ(first->GetConnectionCloseReason(), Net::CloseReason::Kicked);
+  first->Disconnect();
+  EXPECT_EQ(first->GetConnectionCloseReason(), Net::CloseReason::Kicked);
+}
+
+TEST_F(ClientNpcPacketTest, TransportFailureDispatchesConnectionLossAfterAcceptance) {
+  using Peer = gmp::client::GameClientTestPeer;
+  Peer::BeginConnection(*first);
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Connected, 1});
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Failure, 1, Net::CloseReason::Failure, "timed out"});
+  EXPECT_EQ(first->GetConnectionState(), GameClient::ConnectionState::Disconnected);
+  EXPECT_EQ(first->GetConnectionError(), "timed out");
+  EXPECT_EQ(first_observer.connection_lost, 1);
+  EXPECT_TRUE(first_observer.connection_closed.empty());
+  EXPECT_TRUE(first_observer.connection_failure.empty());
+}
+
+TEST_F(ClientNpcPacketTest, LocalDisconnectNotifiesOnceAndAllowsAnotherConnection) {
+  using Peer = gmp::client::GameClientTestPeer;
+  Peer::BeginConnection(*first);
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Connected, 1});
+  first->Disconnect();
+  first->Disconnect();
+  EXPECT_EQ(first_observer.disconnected, 1);
+  EXPECT_EQ(first->GetConnectionCloseReason(), Net::CloseReason::Normal);
+  Peer::BeginConnection(*first);
+  Peer::NotifyTransport(*first, {Net::ConnectionEvent::Kind::Connected, 2});
+  EXPECT_EQ(first_observer.connected, 2);
+  EXPECT_EQ(first->GetConnectionCloseReason(), Net::CloseReason::None);
 }
 
 }  // namespace

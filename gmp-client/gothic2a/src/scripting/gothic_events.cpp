@@ -38,9 +38,9 @@ SOFTWARE.
 #include "item_ground.h"
 #include "net_game.h"
 #include "shared/event.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/lua_diagnostics.h"
-#include "shared/lua_runtime/lua_value_codec.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/lua_diagnostics.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 
 namespace gmp::gothic {
 

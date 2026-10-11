@@ -5,7 +5,7 @@
 #include <utility>
 
 #include "lua_helpers.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;

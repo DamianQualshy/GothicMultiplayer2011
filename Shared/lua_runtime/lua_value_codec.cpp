@@ -22,9 +22,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "shared/lua_runtime/lua_value_codec.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 #include <nlohmann/json.hpp>
 

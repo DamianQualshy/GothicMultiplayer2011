@@ -25,7 +25,7 @@ SOFTWARE.
 #include "lua_music_theme.h"
 
 #include "ZenGin/zGothicAPI.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 using namespace Gothic_II_Addon;
 

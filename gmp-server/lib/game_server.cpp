@@ -40,7 +40,6 @@ SOFTWARE.
 #include <cstring>
 #include <ctime>
 #include <cmath>
-#include <dylib.hpp>
 #include <limits>
 #include <filesystem>
 #include <fstream>
@@ -68,15 +67,15 @@ SOFTWARE.
 #include "server_events.h"
 #include "server_constants.h"
 #include "shared/event.h"
-#include "shared/lua_runtime/lua_value_codec.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 #include "shared/math.h"
 #include "sol/sol.hpp"
-#include "znet_server.h"
+#include "transport/transport.h"
 
-Net::NetServer* g_net_server = nullptr;
+// Non-owning access for serialization helpers; GameServer owns the endpoint.
+static Net::ServerTransport* g_transport = nullptr;
 
 std::atomic<bool> g_is_server_running = true;
-void (*g_destroy_net_server_func)(Net::NetServer*) = nullptr;
 
 using namespace Net;
 
@@ -84,14 +83,11 @@ namespace {
 
 constexpr std::size_t kMaxWorldNameLength = 32;
 constexpr std::size_t kMaxPlayerNameLength = 64;
-constexpr std::uint32_t kItemGroundChannel = 14;
-constexpr std::uint32_t kVoiceChannel = 5;
 constexpr std::uint32_t kMaxVoicePacketsPerSecond = 75;
 constexpr int kVoiceSampleRate = 48000;
 constexpr int kVoiceFrameSamples = 960;
 constexpr auto kVoiceActivityTimeout = std::chrono::milliseconds(400);
 constexpr const char* kDiagnosticsFileName = "diagnostic.txt";
-constexpr const char* kBanListFileName = "bans.json";
 constexpr const char* kItemRegistryPath = "data/instances/items.json";
 constexpr const char* kAnimationRegistryPath = "data/instances/anims.json";
 constexpr const char* kPublicDataPath = "data/public";
@@ -168,12 +164,12 @@ SkySettingsPacket MakeSkySettingsPacket(std::uint8_t flags, std::int32_t weather
 
 std::string FormatConnectionDetails(ConnectionHandle id) {
   const auto id_string = std::to_string(id);
-  if (!g_net_server) {
+  if (!g_transport) {
     return "id " + id_string;
   }
 
-  std::string address = g_net_server->GetPlayerIp(id);
-  if (address.empty() || address == "UNASSIGNED_SYSTEM_ADDRESS") {
+  std::string address = g_transport->GetPlayerIp(id);
+  if (address.empty()) {
     return "id " + id_string;
   }
 
@@ -182,7 +178,9 @@ std::string FormatConnectionDetails(ConnectionHandle id) {
 }
 
 std::string FormatPlayerLabel(const PlayerManager::Player& player) {
-  const auto connection_details = FormatConnectionDetails(player.connection);
+  const auto connection_details = player.ip_address.empty()
+                                      ? FormatConnectionDetails(player.connection)
+                                      : player.ip_address + ", id " + std::to_string(player.connection);
   if (player.name.empty()) {
     return connection_details;
   }
@@ -490,12 +488,24 @@ void LogServerBanner() {
 }
 
 template <typename Packet, typename TContainer = std::vector<std::uint8_t>>
-void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable, Net::ConnectionHandle id,
-                      std::uint32_t channel = 0) {
+bool SerializeAndSend(const Packet& packet, Net::TrafficClass traffic, Net::ConnectionHandle connection) {
   TContainer buffer;
-  auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
-  g_net_server->Send(buffer.data(), written_size, priority, reliable, channel, id);
+  const auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
+  if (!g_transport || written_size > std::numeric_limits<std::uint32_t>::max() ||
+      !g_transport->Send(buffer.data(), static_cast<std::uint32_t>(written_size), traffic, connection)) {
+    DiagnosticsManager::Instance().RecordSendFailure(packet.packet_type);
+    if (traffic == TrafficClass::Control) {
+      SPDLOG_WARN("Failed to enqueue reliable gameplay packet {} for connection {}", static_cast<int>(packet.packet_type), connection);
+      if (g_transport) {
+        // A missing reliable update leaves the client inconsistent. Close events
+        // are deferred until Pulse so callers may safely finish player iteration.
+        g_transport->CloseConnection(connection, CloseReason::Failure, "Unable to enqueue reliable gameplay data");
+      }
+    }
+    return false;
+  }
   DiagnosticsManager::Instance().RecordOutgoingPacket(packet.packet_type, static_cast<std::uint32_t>(written_size));
+  return true;
 }
 
 template <typename PacketT>
@@ -512,18 +522,12 @@ bool DeserializeClientPacket(const ::Packet& source, PacketT& packet, std::uint8
 }
 
 template <typename Packet>
-void BroadcastToRelevant(PlayerManager& player_manager, const Character& subject, const Packet& packet, Net::PacketPriority priority,
-                         Net::PacketReliability reliable, std::uint32_t channel = 0) {
+void BroadcastToRelevant(PlayerManager& player_manager, const Character& subject, const Packet& packet, Net::TrafficClass traffic) {
   const auto connection = player_manager.GetConnectionHandle(subject.player_id);
-  // Character changes share the stream-in/out ordering channel, for players
-  // as well as NPCs. An old attribute/visual update must not overtake a new
-  // snapshot after the actor re-enters range.
-  if (reliable == RELIABLE || reliable == RELIABLE_ORDERED) {
-    reliable = RELIABLE_ORDERED;
-    channel = 0;
-  }
+  // Character mutations and stream-in/out share reliable Control ordering. An
+  // old attribute update must not overtake a snapshot after re-entering range.
   if (subject.is_ingame && connection) {
-    SerializeAndSend(packet, priority, reliable, *connection, channel);
+    SerializeAndSend(packet, traffic, *connection);
   }
 
   for (const auto& viewer_id : subject.streamed_by_players) {
@@ -538,7 +542,7 @@ void BroadcastToRelevant(PlayerManager& player_manager, const Character& subject
     if (viewer.world != subject.world || viewer.virtual_world != subject.virtual_world) {
       continue;
     }
-    SerializeAndSend(packet, priority, reliable, viewer.connection, channel);
+    SerializeAndSend(packet, traffic, viewer.connection);
   }
 }
 
@@ -559,7 +563,7 @@ void BroadcastPlayerStateToViewers(PlayerManager& player_manager, const Characte
       continue;
     }
 
-    SerializeAndSend(packet, IMMEDIATE_PRIORITY, UNRELIABLE, viewer.connection);
+    SerializeAndSend(packet, TrafficClass::State, viewer.connection);
   }
 }
 
@@ -573,7 +577,7 @@ void StreamOutSubjectFromViewer(Character& subject, PlayerManager::Player& viewe
   DisconnectionInfoPacket packet{};
   packet.packet_type = PT_LEFT_GAME;
   packet.disconnected_id = subject.player_id;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
+  SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
 }
 
 void StreamOutAllKnownPlayers(PlayerManager& player_manager, PlayerManager::Player& player) {
@@ -660,7 +664,7 @@ void SendPlayerAttributeUpdate(PlayerManager& player_manager, const Character& s
   packet.attribute_id = attribute_id;
   packet.value = value;
 
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
@@ -677,7 +681,7 @@ void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const Character&
   packet.max_health = subject.max_health;
   packet.mana = subject.mana;
   packet.max_mana = subject.max_mana;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void SendPlayerInstanceUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
@@ -685,7 +689,7 @@ void SendPlayerInstanceUpdate(PlayerManager& player_manager, const Character& su
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
   packet.instance = subject.instance;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const Character& subject) {
@@ -693,7 +697,7 @@ void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const Characte
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
   packet.instance = subject.instance;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerColorUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
@@ -703,7 +707,7 @@ void SendPlayerColorUpdate(PlayerManager& player_manager, const Character& subje
   packet.r = subject.name_color_r;
   packet.g = subject.name_color_g;
   packet.b = subject.name_color_b;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerColorUpdate(PlayerManager& player_manager, const Character& subject) {
@@ -713,7 +717,7 @@ void BroadcastPlayerColorUpdate(PlayerManager& player_manager, const Character& 
   packet.r = subject.name_color_r;
   packet.g = subject.name_color_g;
   packet.b = subject.name_color_b;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t skill_id,
@@ -723,7 +727,7 @@ void SendPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Character&
   packet.player_id = subject.player_id;
   packet.skill_id = skill_id;
   packet.percentage = percentage;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t skill_id,
@@ -733,7 +737,7 @@ void BroadcastPlayerSkillWeaponUpdate(PlayerManager& player_manager, const Chara
   packet.player_id = subject.player_id;
   packet.skill_id = skill_id;
   packet.percentage = percentage;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerTalentUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t talent_id,
@@ -743,7 +747,7 @@ void SendPlayerTalentUpdate(PlayerManager& player_manager, const Character& subj
   packet.player_id = subject.player_id;
   packet.talent_id = talent_id;
   packet.talent_value = talent_value;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerTalentUpdate(PlayerManager& player_manager, const Character& subject, std::int32_t talent_id,
@@ -753,7 +757,7 @@ void BroadcastPlayerTalentUpdate(PlayerManager& player_manager, const Character&
   packet.player_id = subject.player_id;
   packet.talent_id = talent_id;
   packet.talent_value = talent_value;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerFatnessUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
@@ -761,7 +765,7 @@ void SendPlayerFatnessUpdate(PlayerManager& player_manager, const Character& sub
   packet.packet_type = PT_PLAYER_FATNESS_UPDATE;
   packet.player_id = subject.player_id;
   packet.fatness = subject.fatness;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerFatnessUpdate(PlayerManager& player_manager, const Character& subject) {
@@ -769,7 +773,7 @@ void BroadcastPlayerFatnessUpdate(PlayerManager& player_manager, const Character
   packet.packet_type = PT_PLAYER_FATNESS_UPDATE;
   packet.player_id = subject.player_id;
   packet.fatness = subject.fatness;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerScaleUpdate(PlayerManager& player_manager, const Character& subject, Net::ConnectionHandle connection) {
@@ -777,7 +781,7 @@ void SendPlayerScaleUpdate(PlayerManager& player_manager, const Character& subje
   packet.packet_type = PT_PLAYER_SCALE_UPDATE;
   packet.player_id = subject.player_id;
   packet.scale = subject.scale;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerScaleUpdate(PlayerManager& player_manager, const Character& subject) {
@@ -785,7 +789,7 @@ void BroadcastPlayerScaleUpdate(PlayerManager& player_manager, const Character& 
   packet.packet_type = PT_PLAYER_SCALE_UPDATE;
   packet.player_id = subject.player_id;
   packet.scale = subject.scale;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 void SendPlayerOverlayUpdate(PlayerManager& player_manager, const Character& subject, const std::string& overlay,
@@ -795,7 +799,7 @@ void SendPlayerOverlayUpdate(PlayerManager& player_manager, const Character& sub
   packet.player_id = subject.player_id;
   packet.overlay = overlay;
   packet.apply = apply ? 1 : 0;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void BroadcastPlayerOverlayUpdate(PlayerManager& player_manager, const Character& subject, const std::string& overlay,
@@ -805,7 +809,7 @@ void BroadcastPlayerOverlayUpdate(PlayerManager& player_manager, const Character
   packet.player_id = subject.player_id;
   packet.overlay = overlay;
   packet.apply = apply ? 1 : 0;
-  BroadcastToRelevant(player_manager, subject, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
 std::vector<std::string> BuildPreferredAnimationMdsList(const Character& player) {
@@ -815,18 +819,6 @@ std::vector<std::string> BuildPreferredAnimationMdsList(const Character& player)
     preferred_mds.push_back(*it);
   }
   return preferred_mds;
-}
-
-void LoadNetworkLibrary() {
-  try {
-    static dylib lib("znet_server");
-    auto create_net_server_func = lib.get_function<Net::NetServer*()>("CreateNetServer");
-    g_destroy_net_server_func = lib.get_function<void(Net::NetServer*)>("DestroyNetServer");
-    g_net_server = create_net_server_func();
-  } catch (std::exception& ex) {
-    SPDLOG_ERROR("LoadNetworkLibrary error: {}", ex.what());
-    std::abort();
-  }
 }
 
 void InitializeLogger(const Config& config) {
@@ -918,17 +910,24 @@ GameServer::~GameServer() {
     public_list_http_thread_future_.wait();
   }
 
-  if (g_net_server != nullptr) {
-    g_net_server->RemovePacketHandler(*this);
-    g_destroy_net_server_func(g_net_server);
-  }
+  transport_.SetCallbacks({}, {});
+  transport_.SetAdmissionCheck({});
+  transport_.Stop();
+  g_transport = nullptr;
 
   g_server = nullptr;
 }
 
 bool GameServer::Init() {
-  LoadNetworkLibrary();
-  g_net_server->AddPacketHandler(*this);
+  g_transport = &transport_;
+  transport_.SetCallbacks(
+      [this](Net::ConnectionHandle connection, unsigned char* data, std::uint32_t size) { HandlePacket(connection, data, size); },
+      [this](const Net::ConnectionEvent& event) { HandleConnectionEvent(event); });
+  ban_manager_ = std::make_unique<BanManager>();
+  ban_manager_->Load();
+  transport_.SetAdmissionCheck([this](const std::string& ip) {
+    return ban_manager_->IsBanned(ip) ? CloseReason::Banned : CloseReason::None;
+  });
 #ifndef WIN32
   if (config_.Get<bool>("daemon")) {
     System::MakeMeDaemon(false);
@@ -955,15 +954,13 @@ bool GameServer::Init() {
     return false;
   }
 
-  if (!g_net_server->Start(port, slots)) {
+  if (!g_transport->Start(port, slots)) {
     SPDLOG_CRITICAL("Failed to start server on port {}", port);
     return false;
   }
 
-  const auto bound_port = static_cast<std::uint16_t>(g_net_server->GetPort());
+  const auto bound_port = static_cast<std::uint16_t>(g_transport->GetPort());
 
-  ban_manager_ = std::make_unique<BanManager>(*g_net_server);
-  ban_manager_->Load();
   g_is_server_running = true;
 
   auto seconds_per_game_minute = config_.Get<std::int32_t>("seconds_per_game_minute");
@@ -1079,7 +1076,7 @@ bool GameServer::Init() {
 void GameServer::Run() {
   DiagnosticsManager::Instance().BeginFrame();
 
-  g_net_server->Pulse();
+  g_transport->Pulse();
   const auto advanced_times = clock_->RunClock();
   UpdateAuthoritativeWorldState(advanced_times);
 
@@ -1202,13 +1199,6 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     return false;
   }
 
-  if (data[0] == ID_TIMESTAMP && size <= 1 + sizeof(std::uint32_t)) {
-    DiagnosticsManager::Instance().RecordIncomingPacket(static_cast<std::uint8_t>(ID_TIMESTAMP), size);
-    DiagnosticsManager::Instance().RecordPacketRejected(static_cast<std::uint8_t>(ID_TIMESTAMP));
-    SPDLOG_WARN("Rejected malformed timestamp packet from {}", FormatConnectionDetails(connectionHandle));
-    return false;
-  }
-
   Packet p(data, size, connectionHandle);
 
   unsigned char packetIdentifier = GetPacketIdentifier(p);
@@ -1216,78 +1206,6 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
   const auto packet_handler_started_at = std::chrono::steady_clock::now();
 
   switch (packetIdentifier) {
-    case ID_DISCONNECTION_NOTIFICATION: {
-      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-      const auto player_label = player_opt.has_value() ? FormatPlayerLabel(player_opt->get()) : FormatConnectionDetails(p.id);
-      if (player_opt.has_value()) {
-        SendDisconnectionInfo(player_opt->get().player_id);
-      }
-      HandlePlayerDisconnect(p.id, gmp::server::DISCONNECTED);
-      SPDLOG_INFO("{} disconnected. Still connected users: {}.", player_label, player_manager_.GetPlayerCount());
-      break;
-    }
-    case ID_NEW_INCOMING_CONNECTION: {
-      // Add player to the manager
-      auto max_slots = GetMaxSlots();
-      PlayerId new_player_id = player_manager_.AddPlayer(p.id, "", max_slots);
-
-      if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
-        new_player->get().world = server_world_;
-        new_player->get().virtual_world = 0;
-        new_player->get().voice_range = static_cast<std::uint32_t>(config_.Get<std::int32_t>("voice_range"));
-      }
-
-      // Send packet with initial information.
-      InitialInfoPacket packet;
-      packet.packet_type = PT_INITIAL_INFO;
-      packet.map_name = server_world_;
-      packet.player_id = new_player_id;
-      packet.server_name = GetHostname();
-      packet.max_slots = static_cast<std::uint16_t>(max_slots);
-      if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
-        const Player& player = new_player->get();
-        packet.voice_enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
-        packet.voice_transmit_enabled = packet.voice_enabled != 0 && !player.voice_muted ? 1 : 0;
-        packet.voice_range = player.voice_range;
-      }
-      packet.resource_token = resource_server_->IssueToken(p.id);
-      packet.resource_base_path = "/public";
-      packet.downloader_group = config_.Get<std::string>("downloader_group");
-      packet.client_resources.reserve(client_resource_descriptors_.size());
-      for (const auto& descriptor : client_resource_descriptors_) {
-        ClientResourceInfoEntry entry;
-        entry.name = descriptor.name;
-        entry.version = descriptor.version;
-        entry.manifest_path = descriptor.manifest_path;
-        entry.manifest_sha256 = descriptor.manifest_sha256;
-        entry.archive_path = descriptor.archive_path;
-        entry.archive_sha256 = descriptor.archive_sha256;
-        entry.archive_size = descriptor.archive_size;
-        entry.manifest_size = descriptor.manifest_size;
-        packet.client_resources.push_back(std::move(entry));
-      }
-      packet.addon_vdfs.reserve(addon_context_->Archives().size());
-      for (const auto& addon : addon_context_->Archives()) {
-        packet.addon_vdfs.push_back(addon.descriptor);
-      }
-      packet.addon_bundle = addon_context_->TransportBundle().descriptor;
-      SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, p.id, 9);
-    }
-      SPDLOG_INFO("Incoming connection from {}. Now connected users: {}.", FormatConnectionDetails(p.id), player_manager_.GetPlayerCount());
-      break;
-    case ID_INCOMPATIBLE_PROTOCOL_VERSION:
-      SPDLOG_WARN("ID_INCOMPATIBLE_PROTOCOL_VERSION");
-      break;
-    case ID_CONNECTION_LOST: {
-      auto player_opt = player_manager_.GetPlayerByConnection(p.id);
-      const auto player_label = player_opt.has_value() ? FormatPlayerLabel(player_opt->get()) : FormatConnectionDetails(p.id);
-      if (player_opt.has_value()) {
-        SendDisconnectionInfo(player_opt->get().player_id);
-      }
-      HandlePlayerDisconnect(p.id, gmp::server::LOST_CONNECTION);
-      SPDLOG_WARN("{} lost connection. Still connected users: {}.", player_label, player_manager_.GetPlayerCount());
-      break;
-    }
     case PT_REQUEST_FILE_LENGTH:
     case PT_REQUEST_FILE_PART:
       break;
@@ -1352,24 +1270,86 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
 }
 
 bool GameServer::Receive() {
-  g_net_server->Pulse();
+  g_transport->Pulse();
   return true;
 }
 
 unsigned char GameServer::GetPacketIdentifier(const Packet& p) {
-  if (p.data == nullptr || p.length == 0) {
-    return 0;
+  return p.data != nullptr && p.length != 0 ? p.data[0] : 0;
+}
+
+void GameServer::HandleConnectionEvent(const Net::ConnectionEvent& event) {
+  if (event.kind == ConnectionEvent::Kind::Connected) {
+    HandlePlayerConnected(event.connection);
+    return;
   }
 
-  const auto packet_identifier = static_cast<unsigned char>(p.data[0]);
-  if (packet_identifier != ID_TIMESTAMP) {
-    return packet_identifier;
+  const auto player = player_manager_.GetPlayerByConnection(event.connection);
+  const auto label = player ? FormatPlayerLabel(player->get()) : FormatConnectionDetails(event.connection);
+  if (player) {
+    SendDisconnectionInfo(player->get().player_id);
+  }
+  const bool lost = event.kind == ConnectionEvent::Kind::Failure;
+  HandlePlayerDisconnect(event.connection, lost ? gmp::server::LOST_CONNECTION : gmp::server::DISCONNECTED);
+  SPDLOG_INFO("{} {} (reason {}: {}). Still connected users: {}.", label, lost ? "lost connection" : "disconnected",
+              static_cast<int>(event.reason), event.detail, player_manager_.GetPlayerCount());
+}
+
+void GameServer::HandlePlayerConnected(Net::ConnectionHandle connection) {
+  if (player_manager_.HasConnection(connection)) {
+    return;
+  }
+  // Add player to the manager
+  auto max_slots = GetMaxSlots();
+  PlayerId new_player_id = player_manager_.AddPlayer(connection, "", max_slots);
+  if (new_player_id == 0) {
+    transport_.CloseConnection(connection, CloseReason::ServerFull);
+    return;
   }
 
-  if (p.length <= 1 + sizeof(std::uint32_t)) {
-    return ID_TIMESTAMP;
+  if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
+    new_player->get().ip_address = transport_.GetPlayerIp(connection);
+    new_player->get().world = server_world_;
+    new_player->get().virtual_world = 0;
+    new_player->get().voice_range = static_cast<std::uint32_t>(config_.Get<std::int32_t>("voice_range"));
   }
-  return static_cast<unsigned char>(p.data[1 + sizeof(std::uint32_t)]);
+
+  // Send packet with initial information.
+  InitialInfoPacket packet;
+  packet.packet_type = PT_INITIAL_INFO;
+  packet.map_name = server_world_;
+  packet.player_id = new_player_id;
+  packet.server_name = GetHostname();
+  packet.max_slots = static_cast<std::uint16_t>(max_slots);
+  if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
+    const Player& player = new_player->get();
+    packet.voice_enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
+    packet.voice_transmit_enabled = packet.voice_enabled != 0 && !player.voice_muted ? 1 : 0;
+    packet.voice_range = player.voice_range;
+  }
+  packet.resource_token = resource_server_->IssueToken(connection);
+  packet.resource_base_path = "/public";
+  packet.downloader_group = config_.Get<std::string>("downloader_group");
+  packet.client_resources.reserve(client_resource_descriptors_.size());
+  for (const auto& descriptor : client_resource_descriptors_) {
+    ClientResourceInfoEntry entry;
+    entry.name = descriptor.name;
+    entry.version = descriptor.version;
+    entry.manifest_path = descriptor.manifest_path;
+    entry.manifest_sha256 = descriptor.manifest_sha256;
+    entry.archive_path = descriptor.archive_path;
+    entry.archive_sha256 = descriptor.archive_sha256;
+    entry.archive_size = descriptor.archive_size;
+    entry.manifest_size = descriptor.manifest_size;
+    packet.client_resources.push_back(std::move(entry));
+  }
+  packet.addon_vdfs.reserve(addon_context_->Archives().size());
+  for (const auto& addon : addon_context_->Archives()) {
+    packet.addon_vdfs.push_back(addon.descriptor);
+  }
+  packet.addon_bundle = addon_context_->TransportBundle().descriptor;
+  SerializeAndSend(packet, TrafficClass::Control, connection);
+  SPDLOG_INFO("Incoming connection from {}. Now connected users: {}.", FormatConnectionDetails(connection), player_manager_.GetPlayerCount());
 }
 
 void GameServer::DeleteFromPlayerList(PlayerId player_id) {
@@ -1627,7 +1607,7 @@ void GameServer::HandlePlayerDeath(Character& victim, std::optional<PlayerId> ki
     packet.packet_type = PT_DODIE;
     packet.player_id = id;
     packet.state_sequence = victim.state_sequence;
-    BroadcastToRelevant(player_manager_, victim, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, victim, packet, TrafficClass::Control);
     return;
   }
   if (old_health != victim.health) {
@@ -1649,9 +1629,8 @@ void GameServer::SomeoneJoinGame(Packet p) {
 
   if (!allow_modification) {
     if (!player.passed_crc_test) {
-      resource_server_->RevokeToken(p.id);
-      player_manager_.RemovePlayerByConnection(p.id);
-      g_net_server->AddToBanList(p.id, 3600000);  // i dorzucamy banana na 1h
+      ban_manager_->AddTemporaryBan(transport_.GetPlayerIp(p.id), std::chrono::hours(1));
+      transport_.CloseConnection(p.id, CloseReason::Banned, "Client integrity check failed");
       return;
     }
   }
@@ -1705,6 +1684,11 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 
   PlayerStateUpdatePacket packet;
   if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "PlayerStateUpdatePacket")) {
+    return;
+  }
+
+  if (!updated_player.AcceptClientStateSequence(packet.state_sequence)) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     return;
   }
 
@@ -1950,7 +1934,7 @@ void GameServer::HandleVoice(Packet p) {
       }
     }
 
-    SerializeAndSend(packet, HIGH_PRIORITY, UNRELIABLE, viewer.connection, kVoiceChannel);
+    SerializeAndSend(packet, TrafficClass::Voice, viewer.connection);
   });
 }
 
@@ -1985,7 +1969,7 @@ void GameServer::SendVoiceConfiguration(const Player& player) {
   packet.enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
   packet.transmit_enabled = packet.enabled != 0 && !player.voice_muted ? 1 : 0;
   packet.range = player.voice_range;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection, kVoiceChannel);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
 }
 
 bool GameServer::IsVoiceChannelSpatial(const std::string& channel) const {
@@ -2024,7 +2008,7 @@ void GameServer::SendAdminAuthStatus(const Player& player) {
   AdminAuthPacket packet{};
   packet.packet_type = PT_ADMIN_AUTH;
   packet.authenticated = player.is_admin ? 1 : 0;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
 }
 
 void GameServer::HandleAdminLogin(Player& player, const std::string& password) {
@@ -2067,6 +2051,12 @@ void GameServer::HandleDiagnosticsCommand(Player& player) {
 
   output << "Generated: " << FormatCurrentDateTime() << "\n\n";
   output << DiagnosticsManager::Instance().BuildReport();
+  output << "\nGameNetworkingSockets transport diagnostics\n"
+            "Live transport rates/quality/queues are GNS estimates; gameplay counts above are application messages.\n";
+  player_manager_.ForEachPlayer([&](const Player& connected_player) {
+    output << "\nPlayer " << connected_player.player_id << ", connection " << connected_player.connection << "\n";
+    output << transport_.GetDiagnostics(connected_player.connection) << '\n';
+  });
   output.close();
   if (!output) {
     SendMessageToPlayer(player.player_id, 255, 80, 0, "Failed to write diagnostic.txt.");
@@ -2167,7 +2157,7 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
 
   player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
     if (existing_player.player_id != player.player_id) {
-      SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
+      SerializeAndSend(packet, TrafficClass::Control, existing_player.connection);
     }
   });
 }
@@ -2319,20 +2309,22 @@ void GameServer::SendItemGroundCreate(const ItemGroundManager::ItemGround& item_
   packet.physics_enabled = item_ground.physics_enabled;
   packet.position = item_ground.position;
   packet.rotation = item_ground.rotation;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+  // Item mutations must stay ordered with world transitions. They carry no
+  // world epoch that could make an independently delivered item snapshot safe.
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void GameServer::SendItemGroundDestroy(std::uint32_t item_ground_id, Net::ConnectionHandle connection) {
   ItemGroundDestroyPacket packet{};
   packet.packet_type = PT_ITEM_GROUND_DESTROY;
   packet.item_ground_id = item_ground_id;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void GameServer::SendItemGroundClear(Net::ConnectionHandle connection) {
   ItemGroundClearPacket packet{};
   packet.packet_type = PT_ITEM_GROUND_CLEAR;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection, kItemGroundChannel);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void GameServer::StreamItemGroundToPlayer(ItemGroundManager::ItemGround& item_ground, Player& player, bool force) {
@@ -2402,7 +2394,7 @@ void GameServer::SendInventoryAddCorrection(Player& player, const std::string& i
   packet.player_id = player.player_id;
   packet.item_instance = item_definition->index;
   packet.item_amount = amount;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
 }
 
 void GameServer::SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount) {
@@ -2420,7 +2412,7 @@ void GameServer::SendInventoryRemoveCorrection(Player& player, const std::string
   packet.player_id = player.player_id;
   packet.item_instance = item_definition->index;
   packet.item_amount = amount;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
 }
 
 std::optional<std::string> GameServer::ResolveItemInstance(std::string instance) const {
@@ -2540,8 +2532,8 @@ bool GameServer::SetItemGroundPhysicsEnabled(std::uint32_t item_ground_id, bool 
 }
 
 nlohmann::json GameServer::BuildMasterServerPayload() const {
-  const auto port = g_net_server ? g_net_server->GetPort() : static_cast<std::uint32_t>(config_.Get<std::int32_t>("port"));
-  const auto ip_address = g_net_server ? g_net_server->GetAddress() : std::string{};
+  const auto port = g_transport ? g_transport->GetPort() : static_cast<std::uint32_t>(config_.Get<std::int32_t>("port"));
+  const auto ip_address = g_transport ? g_transport->GetAddress() : std::string{};
 
   const auto name = SanitizeServerText(config_.Get<std::string>("name"));
   const auto player_count = static_cast<std::uint32_t>(player_manager_.GetPlayerCount());
@@ -2622,7 +2614,7 @@ void GameServer::SendGameInfo(Net::ConnectionHandle who, GothicClock::Time time)
     packet.flags |= HIDE_MAP;
   }
 
-  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, who, 9);
+  SerializeAndSend(packet, TrafficClass::Control, who);
 }
 
 void GameServer::SendSkySettings(Net::ConnectionHandle connection) {
@@ -2631,7 +2623,7 @@ void GameServer::SendSkySettings(Net::ConnectionHandle connection) {
                                       state.rain_stop_hour, state.rain_stop_min, state.wind_scale, state.dont_rain, state.rain_weight,
                                       state.render_lightning);
 
-  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, connection);
+  SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
 void GameServer::BroadcastGameInfo() {
@@ -2648,7 +2640,7 @@ void GameServer::BroadcastSkySettings() {
                                       state.rain_stop_hour, state.rain_stop_min, state.wind_scale, state.dont_rain, state.rain_weight,
                                       state.render_lightning);
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE, player.connection); });
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, TrafficClass::Control, player.connection); });
 }
 
 void GameServer::BroadcastPlayerPings() {
@@ -2665,7 +2657,7 @@ void GameServer::BroadcastPlayerPings() {
   }
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) {
-    SerializeAndSend(packet, LOW_PRIORITY, UNRELIABLE, player.connection);
+    SerializeAndSend(packet, TrafficClass::State, player.connection);
   });
 }
 
@@ -2699,7 +2691,7 @@ void GameServer::SendDisconnectionInfo(PlayerId disconnected_player_id) {
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) {
     if (player.player_id != disconnected_player_id) {
-      SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+      SerializeAndSend(packet, TrafficClass::Control, player.connection);
     }
   });
 }
@@ -2714,7 +2706,7 @@ void GameServer::SendMessageToAll(std::uint8_t r, std::uint8_t g, std::uint8_t b
   }
 
   auto packet = CreateMessagePacket(std::nullopt, std::nullopt, r, g, b, text);
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, player.connection); });
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, TrafficClass::Control, player.connection); });
 }
 
 void GameServer::SendMessageToPlayer(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& text) {
@@ -2729,7 +2721,7 @@ void GameServer::SendMessageToPlayer(PlayerId player_id, std::uint8_t r, std::ui
   }
 
   auto packet = CreateMessagePacket(std::nullopt, player_id, r, g, b, text);
-  SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, target_player->get().connection);
+  SerializeAndSend(packet, TrafficClass::Control, target_player->get().connection);
 }
 
 void GameServer::SendPlayerMessageToAll(PlayerId sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& text) {
@@ -2744,7 +2736,7 @@ void GameServer::SendPlayerMessageToAll(PlayerId sender_id, std::uint8_t r, std:
   }
 
   auto packet = CreateMessagePacket(sender_id, std::nullopt, r, g, b, text);
-  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, player.connection); });
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, TrafficClass::Control, player.connection); });
 }
 
 void GameServer::SendPlayerMessageToPlayer(PlayerId sender_id, PlayerId receiver_id, std::uint8_t r, std::uint8_t g, std::uint8_t b,
@@ -2766,12 +2758,12 @@ void GameServer::SendPlayerMessageToPlayer(PlayerId sender_id, PlayerId receiver
   }
 
   auto packet = CreateMessagePacket(sender_id, receiver_id, r, g, b, text);
-  SerializeAndSend(packet, LOW_PRIORITY, RELIABLE_ORDERED, receiver->get().connection);
+  SerializeAndSend(packet, TrafficClass::Control, receiver->get().connection);
 }
 
 bool GameServer::TriggerClientEvent(const std::vector<PlayerId>& targets, const std::string& event_name, PlayerId source_element,
                                     const std::string& payload) {
-  if (!g_net_server) {
+  if (!g_transport) {
     SPDLOG_WARN("Cannot trigger client event '{}' before network server is initialized", event_name);
     return false;
   }
@@ -2794,8 +2786,7 @@ bool GameServer::TriggerClientEvent(const std::vector<PlayerId>& targets, const 
       SPDLOG_WARN("triggerClientEvent: player {} is not connected", player_id);
       continue;
     }
-    SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, connection.value());
-    sent = true;
+    sent = SerializeAndSend(packet, TrafficClass::Control, connection.value()) || sent;
   }
 
   return sent;
@@ -2808,7 +2799,7 @@ void GameServer::SendDeathInfo(PlayerId dead_player_id) {
 
   if (const auto subject = GetCharacter(dead_player_id)) {
     packet.state_sequence = subject->get().state_sequence;
-    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
 
@@ -2819,7 +2810,7 @@ void GameServer::SendRespawnInfo(PlayerId respawned_player_id) {
 
   if (const auto subject = GetCharacter(respawned_player_id)) {
     packet.state_sequence = subject->get().state_sequence;
-    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
 
@@ -2831,7 +2822,7 @@ void GameServer::SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId>
 
   if (const auto subject = GetCharacter(player_id)) {
     packet.state_sequence = subject->get().state_sequence;
-    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
 
@@ -2842,7 +2833,7 @@ void GameServer::SendStandUpInfo(PlayerId player_id) {
 
   if (const auto subject = GetCharacter(player_id)) {
     packet.state_sequence = subject->get().state_sequence;
-    BroadcastToRelevant(player_manager_, subject->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
 
@@ -2882,7 +2873,7 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
     if (!IsSameVisibilityScope(existing_player, joining_player)) {
       return;
     }
-    SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE, existing_player.connection);
+    SerializeAndSend(packet, TrafficClass::Control, existing_player.connection);
   });
 }
 
@@ -2896,9 +2887,9 @@ void GameServer::RefreshPlayerStreaming(bool send_state_updates) {
   const auto stream_subject_to_viewer = [send_state_updates](Player& subject, Player& viewer) {
     if (subject.streamed_by_players.insert(viewer.player_id).second) {
       viewer.spawned_players.insert(subject.player_id);
-      SerializeAndSend(MakePlayerSpawnPacket(subject), IMMEDIATE_PRIORITY, RELIABLE_ORDERED, viewer.connection);
+      SerializeAndSend(MakePlayerSpawnPacket(subject), TrafficClass::Control, viewer.connection);
     } else if (send_state_updates) {
-      SerializeAndSend(MakePlayerStateUpdatePacket(subject), IMMEDIATE_PRIORITY, UNRELIABLE, viewer.connection);
+      SerializeAndSend(MakePlayerStateUpdatePacket(subject), TrafficClass::State, viewer.connection);
     }
   };
 
@@ -3056,7 +3047,7 @@ void GameServer::BroadcastNpcControl(PlayerId npc_id) {
     return;
   }
   const auto packet = MakeNpcControlPacket(npc->get());
-  BroadcastToRelevant(player_manager_, npc->get(), packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, npc->get(), packet, TrafficClass::Control);
   if (packet.action_id != 0 && packet.host_player_id != 0) {
     pending_npc_events_.emplace_back([npc_id, id = packet.action_id] {
       EventManager::Instance().TriggerEvent(kEventOnNpcActionSentName, OnNpcActionSentEvent{npc_id, kNpcActionPlayAnimation, id});
@@ -3092,7 +3083,7 @@ bool GameServer::SetNpcAnimation(PlayerId npc_id, const std::string& animation) 
     return false;
   }
   if (npc->get().is_ingame && old_revision != npc->get().animation_revision) {
-    BroadcastToRelevant(player_manager_, npc->get(), MakeNpcAnimationPacket(npc->get()), IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+    BroadcastToRelevant(player_manager_, npc->get(), MakeNpcAnimationPacket(npc->get()), TrafficClass::Control);
   }
   return true;
 }
@@ -3152,7 +3143,7 @@ void GameServer::RefreshNpcStreaming(PlayerId npc_id) {
     for (const auto viewer_id : added_viewers) {
       const auto connection = player_manager_.GetConnectionHandle(viewer_id);
       if (connection) {
-        SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, *connection);
+        SerializeAndSend(packet, TrafficClass::Control, *connection);
       }
     }
   }
@@ -3301,7 +3292,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
 
   const auto packet = MakePlayerSpawnPacket(player);
 
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
   StreamRelevantGroundItemsToPlayer(player, true);
 
   RefreshPlayerStreaming();
@@ -3338,7 +3329,7 @@ bool GameServer::UnspawnPlayer(PlayerId player_id) {
   subject_left_packet.packet_type = PT_LEFT_GAME;
   subject_left_packet.disconnected_id = player.player_id;
 
-  SerializeAndSend(subject_left_packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(subject_left_packet, TrafficClass::Control, player.connection);
 
   player.is_ingame = 0;
   player.npc_world_ready = false;
@@ -3366,7 +3357,7 @@ bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
   packet.player_id = player.player_id;
   packet.name = player.name;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -3393,7 +3384,7 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
 
   // Transform revisions are independent of the action epoch: Lua movement
   // must not restart a running action or extend its timeout.
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   if (is_npc) {
     RefreshNpcStreaming(player_id);
   } else {
@@ -3419,7 +3410,7 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
   AdvancePlayerStateSequence(player);
 
   const auto packet = MakePlayerStateUpdatePacket(player);
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -3473,7 +3464,7 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   packet.world_name = player.world;
   packet.start_point = start_point_name;
 
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED, player.connection);
+  SerializeAndSend(packet, TrafficClass::Control, player.connection);
 
   if (!player.is_ingame || !world_changed) {
     return true;
@@ -3750,7 +3741,7 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
   packet.teeth_texture = player.teeth_texture;
   packet.skin_color = player.skin_color;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -3882,7 +3873,7 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
   AdvancePlayerStateSequence(player);
 
   const auto packet = MakePlayerStateUpdatePacket(player);
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -3972,7 +3963,7 @@ bool GameServer::PlayAnimation(PlayerId player_id, const std::string& animation)
   packet.player_id = player.player_id;
   packet.animation = *animation_id;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4012,7 +4003,7 @@ bool GameServer::StopAnimation(PlayerId player_id, const std::string& animation)
   packet.player_id = player.player_id;
   packet.animation = animation_id;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4037,7 +4028,7 @@ bool GameServer::PlayFaceAnimation(PlayerId player_id, const std::string& animat
   packet.player_id = player.player_id;
   packet.animation = std::move(animation_name);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4059,7 +4050,7 @@ bool GameServer::StopFaceAnimation(PlayerId player_id, const std::string& animat
   packet.player_id = player.player_id;
   packet.animation = std::move(animation_name);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4075,7 +4066,7 @@ bool GameServer::PlayGesticulation(PlayerId player_id) {
   packet.packet_type = PT_PLAYER_GESTICULATION;
   packet.player_id = player.player_id;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4109,7 +4100,7 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
   packet.item_instance = item_definition->index;
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4138,7 +4129,7 @@ bool GameServer::EquipItem(PlayerId player_id, const std::string& instance, std:
   packet.slot_id = static_cast<std::int16_t>(std::clamp<std::int32_t>(
       slot_id, std::numeric_limits<std::int16_t>::min(), std::numeric_limits<std::int16_t>::max()));
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4165,7 +4156,7 @@ bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
   packet.player_id = player.player_id;
   packet.item_instance = item_definition->index;
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4407,7 +4398,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   packet.item_instance = item_definition->index;
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
-  BroadcastToRelevant(player_manager_, player, packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4736,7 +4727,7 @@ bool GameServer::GetWeatherDisabled() const {
 }
 
 bool GameServer::KickPlayer(PlayerId player_id, const std::string& reason) {
-  if (!g_net_server) {
+  if (!g_transport) {
     SPDLOG_WARN("kickPlayer called before the server is initialized");
     return false;
   }
@@ -4754,12 +4745,11 @@ bool GameServer::KickPlayer(PlayerId player_id, const std::string& reason) {
     SPDLOG_INFO("Kicking player {} ({})", player.player_id, player.name);
   }
 
-  g_net_server->CloseConnection(player.connection, true);
-  return true;
+  return transport_.CloseConnection(player.connection, CloseReason::Kicked, reason);
 }
 
 bool GameServer::BanPlayer(PlayerId player_id, const std::string& reason) {
-  if (!g_net_server) {
+  if (!g_transport) {
     SPDLOG_WARN("banPlayer called before the server is initialized");
     return false;
   }
@@ -4776,31 +4766,17 @@ bool GameServer::BanPlayer(PlayerId player_id, const std::string& reason) {
   }
 
   const auto& player = player_opt->get();
-  const char* ip = g_net_server->GetPlayerIp(player.connection);
-  if (!ip || std::string_view(ip).empty()) {
+  const std::string& ip = player.ip_address;
+  if (ip.empty()) {
     SPDLOG_WARN("banPlayer could not resolve IP for player id {}", player_id);
     return false;
   }
 
-  auto& ban_list = ban_manager_->GetBanList();
-  auto ban_it = std::find_if(ban_list.begin(), ban_list.end(), [&](const BanEntry& entry) { return entry.ip == ip; });
-
-  if (ban_it == ban_list.end()) {
-    BanEntry entry{};
-    entry.nickname = player.name;
-    entry.ip = ip;
-    entry.date = FormatCurrentDateTime();
-    entry.reason = reason;
-    ban_list.emplace_back(std::move(entry));
-  } else {
-    ban_it->nickname = player.name;
-    ban_it->date = FormatCurrentDateTime();
-    ban_it->reason = reason;
+  ban_manager_->AddBan(BanEntry{player.name, ip, FormatCurrentDateTime(), reason});
+  if (!ban_manager_->Save()) {
+    SPDLOG_ERROR("Ban for {} is active for this run but could not be persisted", ip);
   }
-
-  g_net_server->AddToBanList(ip, 0);
-  ban_manager_->Save();
-  g_net_server->CloseConnection(player.connection, true);
+  transport_.CloseConnection(player.connection, CloseReason::Banned, reason);
   return true;
 }
 
@@ -4889,32 +4865,18 @@ std::optional<std::int32_t> GameServer::GetPlayerRespawnTime(PlayerId player_id)
 }
 
 std::uint32_t GameServer::GetPort() const {
-  if (g_net_server) {
-    return g_net_server->GetPort();
+  if (g_transport) {
+    return g_transport->GetPort();
   }
   return 0;
 }
 
 std::string GameServer::GetPlayerIp(PlayerId player_id) const {
-  if (!g_net_server) {
-    return {};
-  }
-
-  auto connection_opt = player_manager_.GetConnectionHandle(player_id);
-  if (!connection_opt.has_value()) {
-    return {};
-  }
-
-  const char* ip = g_net_server->GetPlayerIp(connection_opt.value());
-  if (!ip || std::string_view(ip).empty() || std::string_view(ip) == "UNASSIGNED_SYSTEM_ADDRESS") {
-    return {};
-  }
-
-  return ip;
+  const auto player = player_manager_.GetPlayer(player_id);
+  return player ? player->get().ip_address : std::string{};
 }
-
 std::int32_t GameServer::GetPlayerPing(PlayerId player_id) const {
-  if (!g_net_server) {
+  if (!g_transport) {
     return -1;
   }
 
@@ -4923,7 +4885,7 @@ std::int32_t GameServer::GetPlayerPing(PlayerId player_id) const {
     return -1;
   }
 
-  return g_net_server->GetPing(connection_opt.value());
+  return g_transport->GetPing(connection_opt.value());
 }
 
 std::string GameServer::GetPlayerMacAddress(PlayerId player_id) const {

@@ -23,10 +23,6 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#ifdef _WIN32
-#include "windows_paths.h"
-#endif
-
 #include "game_client.hpp"
 
 #include <bitsery/adapter/buffer.h>
@@ -36,30 +32,21 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
-#include <cassert>
 #include <charconv>
 #include <cctype>
 #include <cmath>
-#include <dylib.hpp>
 #include <iomanip>
 #include <limits>
 #include <stdexcept>
-#include <system_error>
 #include <utility>
 
 #include "net_enums.h"
 #include "packets.h"
 #include "shared/crypto_utils.h"
-#include "znet_client.h"
 
 namespace gmp::client {
 
 using namespace Net;
-
-Net::NetClient* g_netclient = nullptr;
-
-constexpr std::uint32_t kPlayerStateChannel = 1;
-constexpr std::uint32_t kVoiceChannel = 5;
 
 namespace {
 bool IsValidNpcAnimation(const NpcAnimationPacket& animation, std::uint32_t max_slots) {
@@ -115,60 +102,54 @@ bool ParseServerEndpoint(std::string_view full_address, std::string& host, std::
   return std::none_of(host.begin(), host.end(), [](unsigned char character) { return std::isspace(character); });
 }
 
-std::string GetConnectionFailureMessage(std::uint8_t message) {
-  switch (static_cast<Net::PacketID>(message)) {
-    case Net::ID_INVALID_PASSWORD:
-      return "Invalid server password";
-    case Net::ID_NO_FREE_INCOMING_CONNECTIONS:
+static std::string GetConnectionCloseMessage(const Net::ConnectionEvent& event) {
+  switch (event.reason) {
+    case Net::CloseReason::Normal:
+      return "Server closed the connection";
+    case Net::CloseReason::ServerFull:
       return "Server is full";
-    case Net::ID_CONNECTION_BANNED:
+    case Net::CloseReason::Banned:
       return "Connection banned";
-    case Net::ID_ALREADY_CONNECTED:
-      return "Already connected";
-    case Net::ID_INCOMPATIBLE_PROTOCOL_VERSION:
-      return "Incompatible protocol version";
-    case Net::ID_IP_RECENTLY_CONNECTED:
-      return "IP recently connected";
+    case Net::CloseReason::Shutdown:
+      return "Server shut down";
+    case Net::CloseReason::Kicked:
+      return "Kicked from the server";
     default:
-      return std::string("Connection failed: ") + Net::PacketIDToString(static_cast<Net::PacketID>(message));
+      return event.detail.empty() ? "Network connection failed" : event.detail;
   }
 }
 
 template <typename TContainer = std::vector<std::uint8_t>, typename Packet>
-static void SerializeAndSend(const Packet& packet, Net::PacketPriority priority, Net::PacketReliability reliable, std::uint32_t channel = 0) {
+static bool SerializeAndSend(Net::ClientTransport& transport, const Packet& packet, Net::TrafficClass traffic) {
   TContainer buffer;
   auto written_size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<TContainer>>(buffer, packet);
-  g_netclient->SendPacket(buffer.data(), written_size, reliable, priority, channel);
+  if (!transport.Send(buffer.data(), static_cast<std::uint32_t>(written_size), traffic)) {
+    SPDLOG_WARN("Failed to send gameplay packet {} ({} bytes, traffic class {})", buffer.front(), written_size,
+                static_cast<int>(traffic));
+    // Losing a reliable action would leave client and server state inconsistent.
+    // The transport reports this failure from the next main-thread Pulse.
+    if (traffic == Net::TrafficClass::Control) {
+      transport.Disconnect(Net::CloseReason::Failure);
+    }
+    return false;
+  }
+  return true;
 }
 
 GameClient::GameClient(EventObserver& eventObserver, gmp::TaskScheduler& taskScheduler)
     : event_observer_(eventObserver), resource_downloader_(eventObserver, taskScheduler) {
-  assert(g_netclient != nullptr);
   InitPacketHandlers();
-  g_netclient->AddPacketHandler(*this);
+  transport_.SetCallbacks([this](unsigned char* data, std::uint32_t size) { HandlePacket(data, size); },
+                          [this](const Net::ConnectionEvent& event) { OnTransportEvent(event); });
 }
 
 GameClient::~GameClient() {
   Disconnect();
-  assert(g_netclient != nullptr);
-
   resource_downloader_.StopDownload();
-
-  g_netclient->RemovePacketHandler(*this);
+  transport_.SetCallbacks({}, {});
 }
 
 void GameClient::InitPacketHandlers() {
-  packet_handlers_[Net::ID_CONNECTION_REQUEST_ACCEPTED] = [this](Packet p) { OnConnectionAccepted(p); };
-  packet_handlers_[Net::ID_CONNECTION_ATTEMPT_FAILED] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_INVALID_PASSWORD] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_NO_FREE_INCOMING_CONNECTIONS] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_ALREADY_CONNECTED] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_CONNECTION_BANNED] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_INCOMPATIBLE_PROTOCOL_VERSION] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_IP_RECENTLY_CONNECTED] = [this](Packet p) { OnConnectionFailedPacket(p); };
-  packet_handlers_[Net::ID_DISCONNECTION_NOTIFICATION] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
-  packet_handlers_[Net::ID_CONNECTION_LOST] = [this](Packet p) { OnDisconnectOrLostConnection(p); };
-
   packet_handlers_[PT_INITIAL_INFO] = [this](Packet p) { OnInitialInfo(p); };
   packet_handlers_[PT_ACTUAL_STATISTICS] = [this](Packet p) { OnActualStatistics(p); };
   packet_handlers_[PT_MAP_ONLY] = [this](Packet p) { OnMapOnly(p); };
@@ -223,7 +204,7 @@ void GameClient::InitPacketHandlers() {
 
 void GameClient::ConnectAsync(std::string_view full_address) {
   if (GetConnectionState() == ConnectionState::Connecting || GetConnectionState() == ConnectionState::Connected ||
-      (g_netclient && g_netclient->IsConnected())) {
+      transport_.IsConnected()) {
     Disconnect();
   }
 
@@ -235,9 +216,11 @@ void GameClient::ConnectAsync(std::string_view full_address) {
       std::lock_guard<std::mutex> lock(connection_mutex_);
       connection_state_ = ConnectionState::Failed;
       connection_error_ = error;
+      connection_close_reason_ = Net::CloseReason::Failure;
       notify_connected_pending_ = false;
       notify_connection_failed_pending_ = false;
       notify_connection_lost_pending_ = false;
+      notify_connection_closed_pending_ = false;
     }
     event_observer_.OnConnectionFailed(error);
     return;
@@ -250,11 +233,13 @@ void GameClient::ConnectAsync(std::string_view full_address) {
     is_in_game_ = false;
     outgoing_state_sequence_ = 0;
     connection_error_.clear();
+    connection_close_reason_ = Net::CloseReason::None;
     server_ip_ = host;
     server_port_ = port;
     notify_connected_pending_ = false;
     notify_connection_failed_pending_ = false;
     notify_connection_lost_pending_ = false;
+    notify_connection_closed_pending_ = false;
   }
 
   resource_downloader_.Reset();
@@ -267,7 +252,7 @@ void GameClient::ConnectAsync(std::string_view full_address) {
 
   event_observer_.OnConnectionStarted();
 
-  if (g_netclient->Connect(host.c_str(), port)) {
+  if (transport_.Connect(host.c_str(), port)) {
     return;
   }
 
@@ -276,6 +261,7 @@ void GameClient::ConnectAsync(std::string_view full_address) {
     std::lock_guard<std::mutex> lock(connection_mutex_);
     connection_state_ = ConnectionState::Failed;
     connection_error_ = error;
+    connection_close_reason_ = Net::CloseReason::Failure;
   }
 
   event_observer_.OnConnectionFailed(error);
@@ -287,6 +273,10 @@ void GameClient::Disconnect() {
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);
     notify_disconnected = connection_state_ == ConnectionState::Connected && !connection_lost_;
+    if (connection_state_ == ConnectionState::Connecting || connection_state_ == ConnectionState::Connected) {
+      connection_close_reason_ = Net::CloseReason::Normal;
+      connection_error_.clear();
+    }
     connection_state_ = ConnectionState::Disconnected;
     connection_lost_ = false;
     is_in_game_ = false;
@@ -295,13 +285,12 @@ void GameClient::Disconnect() {
     notify_connected_pending_ = false;
     notify_connection_failed_pending_ = false;
     notify_connection_lost_pending_ = false;
+    notify_connection_closed_pending_ = false;
   }
 
   resource_downloader_.StopDownload();
 
-  if (g_netclient) {
-    g_netclient->Disconnect();
-  }
+  transport_.Disconnect();
 
   if (player_manager_.HasLocalPlayer() || !player_manager_.GetAllPlayers().empty()) {
     event_observer_.OnPlayersClearing();
@@ -317,7 +306,7 @@ void GameClient::Disconnect() {
 
 bool GameClient::IsConnected() const {
   std::lock_guard<std::mutex> lock(connection_mutex_);
-  return !connection_lost_ && connection_state_ == ConnectionState::Connected && g_netclient && g_netclient->IsConnected();
+  return !connection_lost_ && connection_state_ == ConnectionState::Connected && transport_.IsConnected();
 }
 
 GameClient::ConnectionState GameClient::GetConnectionState() const {
@@ -330,8 +319,13 @@ std::string GameClient::GetConnectionError() const {
   return connection_error_;
 }
 
+Net::CloseReason GameClient::GetConnectionCloseReason() const {
+  std::lock_guard<std::mutex> lock(connection_mutex_);
+  return connection_close_reason_;
+}
+
 int GameClient::GetPing() {
-  return g_netclient->GetPing();
+  return transport_.GetPing();
 }
 
 std::int32_t GameClient::GetPlayerPing(std::uint64_t player_id) {
@@ -345,11 +339,11 @@ std::int32_t GameClient::GetPlayerPing(std::uint64_t player_id) {
 }
 
 Net::NetworkStats GameClient::GetNetworkStats() const {
-  if (!g_netclient || !IsConnected()) {
+  if (!IsConnected()) {
     return {};
   }
 
-  return g_netclient->GetNetworkStats();
+  return transport_.GetNetworkStats();
 }
 
 void GameClient::HandleNetwork() {
@@ -359,8 +353,8 @@ void GameClient::HandleNetwork() {
     should_pulse = connection_state_ == ConnectionState::Connecting || connection_state_ == ConnectionState::Connected;
   }
 
-  if (should_pulse && g_netclient) {
-    g_netclient->Pulse();
+  if (should_pulse) {
+    transport_.Pulse();
   }
   DispatchPendingConnectionNotifications();
 }
@@ -438,7 +432,7 @@ void GameClient::JoinGame(const std::string& player_name, const std::string& cha
   packet.walk_style = walk_style;
   packet.player_name = player_name;
 
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendChatMessage(const std::string& msg) {
@@ -448,7 +442,7 @@ void GameClient::SendChatMessage(const std::string& msg) {
   packet.r = 255;
   packet.g = 255;
   packet.b = 255;
-  SerializeAndSend(packet, MEDIUM_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id) {
@@ -458,7 +452,7 @@ void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id) 
   if (target_id) {
     packet.target_id = target_id;
   }
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendDropItem(std::int32_t instance, std::uint16_t amount, const glm::vec3& position,
@@ -470,7 +464,7 @@ void GameClient::SendDropItem(std::int32_t instance, std::uint16_t amount, const
   packet.position = position;
   packet.rotation = rotation;
   packet.physics_enabled = physics_enabled;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendTakeItem(std::int32_t instance, std::uint16_t amount,
@@ -480,14 +474,14 @@ void GameClient::SendTakeItem(std::int32_t instance, std::uint16_t amount,
   packet.item_instance = instance;
   packet.item_amount = amount;
   packet.item_ground_id = item_ground_id;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendPlayerWorldEnter(const std::string& world_name) {
   PlayerWorldEnterPacket packet;
   packet.packet_type = PT_PLAYER_WORLD_ENTER;
   packet.world_name = world_name;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill) {
@@ -497,7 +491,7 @@ void GameClient::SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std
   packet.damage = damage;
   packet.damage_type = damage_type;
   packet.dont_kill = dont_kill;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id) {
@@ -505,26 +499,26 @@ void GameClient::SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id)
   packet.packet_type = PT_PLAYER_UNCONSCIOUS;
   packet.player_id = 0;
   packet.attacker_id = attacker_id;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendPlayerStandUp() {
   PlayerStandUpPacket packet;
   packet.packet_type = PT_PLAYER_STANDUP;
   packet.player_id = 0;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SendPlayerDeath(std::optional<std::uint32_t> killer_id) {
   PlayerDeathReportPacket packet;
   packet.packet_type = PT_PLAYER_DIED;
   packet.killer_id = killer_id;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 bool GameClient::SendVoiceFrame(std::uint32_t talkspurt_id, std::uint32_t sequence,
                                 const std::vector<std::uint8_t>& encoded_data) {
-  if (!is_in_game_ || !g_netclient || encoded_data.empty() || encoded_data.size() > kMaxVoiceFrameSize || talkspurt_id == 0) {
+  if (!is_in_game_ || encoded_data.empty() || encoded_data.size() > kMaxVoiceFrameSize || talkspurt_id == 0) {
     return false;
   }
 
@@ -533,20 +527,18 @@ bool GameClient::SendVoiceFrame(std::uint32_t talkspurt_id, std::uint32_t sequen
   packet.talkspurt_id = talkspurt_id;
   packet.sequence = sequence;
   packet.voice_data = encoded_data;
-  SerializeAndSend(packet, HIGH_PRIORITY, UNRELIABLE, kVoiceChannel);
-  return true;
+  return SerializeAndSend(transport_, packet, TrafficClass::Voice);
 }
 
 bool GameClient::SendVoiceChannel(const std::string& channel) {
-  if (!is_in_game_ || !g_netclient || channel.empty() || channel.size() > kMaxVoiceChannelNameLength) {
+  if (!is_in_game_ || channel.empty() || channel.size() > kMaxVoiceChannelNameLength) {
     return false;
   }
 
   VoiceChannelPacket packet{};
   packet.packet_type = PT_VOICE_CHANNEL;
   packet.channel = channel;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED, kVoiceChannel);
-  return true;
+  return SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::UpdatePlayerStats(const PlayerState& state) {
@@ -562,7 +554,7 @@ void GameClient::UpdatePlayerStats(const PlayerState& state) {
   }
   packet.state_sequence = outgoing_state_sequence_;
   packet.state = state;
-  SerializeAndSend(packet, IMMEDIATE_PRIORITY, UNRELIABLE_SEQUENCED, kPlayerStateChannel);
+  SerializeAndSend(transport_, packet, TrafficClass::State);
 }
 
 bool GameClient::SendLuaEventToServer(const std::string& event_name, std::uint32_t source_element, const std::string& payload) {
@@ -581,13 +573,15 @@ bool GameClient::SendLuaEventToServer(const std::string& event_name, std::uint32
   packet.event_name = event_name;
   packet.source_element = source_element;
   packet.payload.assign(payload.begin(), payload.end());
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
-  return true;
+  return SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::SyncGameTime() {
-  std::uint8_t data[2] = {PT_GAME_INFO, 0};
-  g_netclient->SendPacket(data, 1, RELIABLE, IMMEDIATE_PRIORITY);
+  const std::uint8_t data = PT_GAME_INFO;
+  if (!transport_.Send(&data, sizeof(data), TrafficClass::Control)) {
+    SPDLOG_WARN("Failed to send game time request");
+    transport_.Disconnect(Net::CloseReason::Failure);
+  }
 }
 
 // ============================================================================
@@ -1304,7 +1298,7 @@ void GameClient::SendNpcActionResult(std::uint32_t npc_id, std::uint32_t epoch, 
   packet.control_epoch = epoch;
   packet.action_id = action_id;
   packet.success = success ? 1 : 0;
-  SerializeAndSend(packet, HIGH_PRIORITY, RELIABLE_ORDERED);
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 void GameClient::OnJoinGame(Packet p) {
@@ -1967,20 +1961,41 @@ void GameClient::OnLuaEvent(Packet p) {
   event_observer_.OnLuaEvent(packet.event_name, packet.source_element, payload);
 }
 
-void GameClient::OnDisconnectOrLostConnection(Packet p) {
-  SPDLOG_WARN("OnDisconnectOrLostConnection, code: {}", p.data[0]);
+void GameClient::OnTransportEvent(const Net::ConnectionEvent& event) {
+  if (event.kind == Net::ConnectionEvent::Kind::Connected) {
+    std::lock_guard<std::mutex> lock(connection_mutex_);
+    if (connection_state_ != ConnectionState::Connecting) {
+      return;
+    }
+    SPDLOG_INFO("Server accepted connection");
+    connection_state_ = ConnectionState::Connected;
+    connection_lost_ = false;
+    connection_error_.clear();
+    connection_close_reason_ = Net::CloseReason::None;
+    notify_connected_pending_ = true;
+    return;
+  }
+
+  const auto error = GetConnectionCloseMessage(event);
+  SPDLOG_WARN("Connection ended: {} (reason {}, transport: {})", error, static_cast<int>(event.reason), event.detail);
   {
     std::lock_guard<std::mutex> lock(connection_mutex_);
-    if (connection_state_ != ConnectionState::Disconnected || !connection_lost_) {
-      connection_lost_ = true;
-      connection_state_ = ConnectionState::Disconnected;
-      is_in_game_ = false;
-      outgoing_state_sequence_ = 0;
-      admin_authenticated_ = false;
-      notify_connected_pending_ = false;
-      notify_connection_failed_pending_ = false;
-      notify_connection_lost_pending_ = true;
+    if (connection_state_ != ConnectionState::Connecting && connection_state_ != ConnectionState::Connected) {
+      return;
     }
+    const bool connecting = connection_state_ == ConnectionState::Connecting;
+    const bool failed = event.kind == Net::ConnectionEvent::Kind::Failure;
+    connection_state_ = connecting ? ConnectionState::Failed : ConnectionState::Disconnected;
+    connection_lost_ = failed && !connecting;
+    connection_close_reason_ = event.reason;
+    connection_error_ = error;
+    is_in_game_ = false;
+    outgoing_state_sequence_ = 0;
+    admin_authenticated_ = false;
+    notify_connected_pending_ = false;
+    notify_connection_failed_pending_ = connecting;
+    notify_connection_lost_pending_ = !connecting && failed;
+    notify_connection_closed_pending_ = !connecting && !failed;
   }
 
   resource_downloader_.StopDownload();
@@ -1996,6 +2011,7 @@ void GameClient::DispatchPendingConnectionNotifications() {
   bool notify_connected = false;
   bool notify_connection_failed = false;
   bool notify_connection_lost = false;
+  bool notify_connection_closed = false;
   std::string connection_error;
 
   {
@@ -2003,11 +2019,13 @@ void GameClient::DispatchPendingConnectionNotifications() {
     notify_connected = notify_connected_pending_;
     notify_connection_failed = notify_connection_failed_pending_;
     notify_connection_lost = notify_connection_lost_pending_;
+    notify_connection_closed = notify_connection_closed_pending_;
     connection_error = connection_error_;
 
     notify_connected_pending_ = false;
     notify_connection_failed_pending_ = false;
     notify_connection_lost_pending_ = false;
+    notify_connection_closed_pending_ = false;
   }
 
   if (notify_connected) {
@@ -2016,78 +2034,12 @@ void GameClient::DispatchPendingConnectionNotifications() {
   if (notify_connection_failed) {
     event_observer_.OnConnectionFailed(connection_error);
   }
+  if (notify_connection_closed) {
+    event_observer_.OnConnectionClosed(connection_error);
+  }
   if (notify_connection_lost) {
     event_observer_.OnConnectionLost();
   }
-}
-
-void GameClient::OnConnectionAccepted(Packet p) {
-  SPDLOG_INFO("Connection accepted, code: {}", p.data[0]);
-  {
-    std::lock_guard<std::mutex> lock(connection_mutex_);
-    if (connection_state_ != ConnectionState::Connecting) {
-      SPDLOG_WARN("Ignoring connection acceptance while not connecting");
-      return;
-    }
-
-    connection_state_ = ConnectionState::Connected;
-    connection_lost_ = false;
-    connection_error_.clear();
-    notify_connected_pending_ = true;
-    notify_connection_failed_pending_ = false;
-    notify_connection_lost_pending_ = false;
-  }
-}
-
-void GameClient::OnConnectionFailedPacket(Packet p) {
-  const std::string error = GetConnectionFailureMessage(p.data[0]);
-  SPDLOG_ERROR("Connection failed: {}", error);
-  {
-    std::lock_guard<std::mutex> lock(connection_mutex_);
-    if (connection_state_ != ConnectionState::Connecting) {
-      SPDLOG_WARN("Ignoring connection failure while not connecting");
-      return;
-    }
-
-    connection_state_ = ConnectionState::Failed;
-    connection_lost_ = false;
-    connection_error_ = error;
-    notify_connected_pending_ = false;
-    notify_connection_failed_pending_ = true;
-    notify_connection_lost_pending_ = false;
-  }
-}
-
-void LoadNetworkLibrary() {
-  try {
-#ifdef _WIN32
-    // Client.Net is linked into GMP.dll (or a test executable). Locate znet
-    // beside that module, even after Gothic changes the working directory.
-    static const char module_anchor = 0;
-    static HMODULE lib = [] {
-      const auto library_path = gmp::paths::ContainingModulePath(&module_anchor).parent_path() / L"znet.dll";
-      HMODULE module = LoadLibraryW(library_path.c_str());
-      if (!module) {
-        throw std::system_error(GetLastError(), std::system_category(), "Loading znet.dll beside the client module");
-      }
-      return module;
-    }();
-    // Keep the DLL loaded for the lifetime of its NetClient objects.
-    auto create_net_client_func = reinterpret_cast<Net::NetClient* (*)()>(GetProcAddress(lib, "CreateNetClient"));
-    if (!create_net_client_func) {
-      throw std::runtime_error("znet.dll does not export CreateNetClient");
-    }
-#else
-    static dylib lib("znet");
-    auto create_net_client_func = lib.get_function<Net::NetClient*()>("CreateNetClient");
-#endif
-    g_netclient = create_net_client_func();
-  } catch (std::exception& ex) {
-    SPDLOG_ERROR("LoadNetworkLibrary error: {}", ex.what());
-    // If loading the network library fails, then GMP will not work.
-    std::abort();
-  }
-  SPDLOG_DEBUG("znet dynamic library loaded: {}", (void*)g_netclient);
 }
 
 }  // namespace gmp::client

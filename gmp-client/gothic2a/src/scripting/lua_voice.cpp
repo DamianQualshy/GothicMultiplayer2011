@@ -31,7 +31,7 @@ SOFTWARE.
 #include <vector>
 
 #include "net_game.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace gmp::gothic {
 namespace {

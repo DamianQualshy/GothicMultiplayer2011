@@ -71,7 +71,7 @@ SOFTWARE.
 #include "scripting/lua_sound3d.h"
 #include "scripting/process_input.h"
 #include "shared/event.h"
-#include "shared/lua_runtime/lua_value_codec.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 #include "sky_utils.h"
 #include "sol/sol.hpp"
 #include "version.h"
@@ -1248,7 +1248,7 @@ bool NetGame::Connect(std::string_view full_address) {
   ResetVoiceChatScriptState();
   game_client->ConnectAsync(full_address);
   // Return true to indicate the connection attempt was started.
-  // Actual connection status is reported by RakNet packets pumped in HandleNetwork().
+  // Connection status is reported by transport callbacks pumped in HandleNetwork().
   return true;
 }
 
@@ -1893,9 +1893,13 @@ void NetGame::OnDisconnected() {
 }
 
 void NetGame::OnConnectionLost() {
-  SPDLOG_WARN("Connection lost");
+  OnConnectionClosed("Connection to the server was lost");
+}
+
+void NetGame::OnConnectionClosed(const std::string& reason) {
+  SPDLOG_WARN("Connection closed: {}", reason);
   if (connection_progress_visible_ && !IsInGame) {
-    ShowConnectionProgressError("Connection to the server was lost");
+    ShowConnectionProgressError(reason);
     Disconnect();
     return;
   }
@@ -1907,7 +1911,8 @@ void NetGame::OnConnectionLost() {
   }
   IsInGame = false;
   IsReadyToJoin = false;
-  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s", Language::Instance()[Language::DISCONNECTED].ToChar());
+  CChat::GetInstance()->WriteMessage(NORMAL, false, zCOLOR(255, 0, 0, 255), "%s: %s",
+                                    Language::Instance()[Language::DISCONNECTED].ToChar(), reason.c_str());
   if (return_to_menu) {
     GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
   }

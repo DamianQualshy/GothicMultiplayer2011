@@ -63,7 +63,7 @@ SOFTWARE.
 #include "lua_way.h"
 #include "lua_interface.h"
 #include "lua_voice.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 using namespace Gothic_II_Addon;
 
@@ -3476,9 +3476,9 @@ std::int32_t Function_GetFpsRate() {
 * @name     getNetworkStats
 * @side     client
 * @category Multiplayer
-* @note     Packet loss fields are ratios from 0.0 to 1.0.
-* @note     Send buffer fields aggregate low, medium, and high priority packets.
-* @return   ({packetReceived, packetlossTotal, packetlossLastSecond, messagesInResendBuffer, messageInSendBuffer, bytesInResendBuffer, bytesInSendBuffer})  Table containing current network statistics.
+* @note     GNS connection quality is a recent fraction from 0.0 to 1.0, or -1 when unavailable; it is not cumulative packet loss.
+* @note     Traffic rates are recent transport estimates. Pending and unacknowledged values are bytes, queue time is microseconds.
+* @return   ({available, pingMs, localQuality, remoteQuality, outgoingPacketsPerSecond, outgoingBytesPerSecond, incomingPacketsPerSecond, incomingBytesPerSecond, sendRateBytesPerSecond, pendingUnreliableBytes, pendingReliableBytes, unacknowledgedReliableBytes, controlQueueTimeUsec, realtimeQueueTimeUsec})  Table containing current network statistics.
 *
 */
 sol::object Function_GetNetworkStats(sol::this_state ts) {
@@ -3491,13 +3491,20 @@ sol::object Function_GetNetworkStats(sol::this_state ts) {
   }
 
   sol::table tbl = lua.create_table();
-  tbl["packetReceived"] = stats.packetReceived;
-  tbl["packetlossTotal"] = stats.packetlossTotal;
-  tbl["packetlossLastSecond"] = stats.packetlossLastSecond;
-  tbl["messagesInResendBuffer"] = stats.messagesInResendBuffer;
-  tbl["messageInSendBuffer"] = stats.messageInSendBuffer;
-  tbl["bytesInResendBuffer"] = stats.bytesInResendBuffer;
-  tbl["bytesInSendBuffer"] = stats.bytesInSendBuffer;
+  tbl["available"] = stats.available;
+  tbl["pingMs"] = stats.ping_ms;
+  tbl["localQuality"] = stats.local_quality;
+  tbl["remoteQuality"] = stats.remote_quality;
+  tbl["outgoingPacketsPerSecond"] = stats.outgoing_packets_per_second;
+  tbl["outgoingBytesPerSecond"] = stats.outgoing_bytes_per_second;
+  tbl["incomingPacketsPerSecond"] = stats.incoming_packets_per_second;
+  tbl["incomingBytesPerSecond"] = stats.incoming_bytes_per_second;
+  tbl["sendRateBytesPerSecond"] = stats.send_rate_bytes_per_second;
+  tbl["pendingUnreliableBytes"] = stats.pending_unreliable_bytes;
+  tbl["pendingReliableBytes"] = stats.pending_reliable_bytes;
+  tbl["unacknowledgedReliableBytes"] = stats.unacknowledged_reliable_bytes;
+  tbl["controlQueueTimeUsec"] = stats.control_queue_time_usec;
+  tbl["realtimeQueueTimeUsec"] = stats.realtime_queue_time_usec;
 
   return sol::make_object(lua, tbl);
 }

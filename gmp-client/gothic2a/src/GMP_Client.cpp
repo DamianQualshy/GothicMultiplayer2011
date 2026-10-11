@@ -136,8 +136,6 @@ BOOL WINAPI DllMain(HINSTANCE hinstDLL, DWORD fdwReason, LPVOID lpvReserved) {
       spdlog::flush_on(spdlog::level::info);
       spdlog::set_level(spdlog::level::info);
 
-      gmp::client::LoadNetworkLibrary();
-
       // Window hook
       CallPatch(0x0050323F, (DWORD)&HookCreateWindowExA, 1);
       CallPatch(0x004FD794, (DWORD)&HookwinResizeMainWindow, 0);

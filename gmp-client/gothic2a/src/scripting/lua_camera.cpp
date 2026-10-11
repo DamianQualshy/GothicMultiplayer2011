@@ -29,7 +29,7 @@ SOFTWARE.
 
 #include "ZenGin/zGothicAPI.h"
 #include "lua_helpers.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 #include "net_game.h"
 
 using namespace Gothic_II_Addon;

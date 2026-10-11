@@ -32,8 +32,8 @@ SOFTWARE.
 #include "hooking/MemoryPatch.h"
 #include "ZenGin/zGothicAPI.h"
 #include "shared/event.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/lua_constants.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/lua_constants.h"
 #include "scripting/gothic_events.h"
 
 using namespace Gothic_II_Addon;

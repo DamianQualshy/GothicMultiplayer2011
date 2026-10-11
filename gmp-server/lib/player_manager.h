@@ -33,7 +33,7 @@ SOFTWARE.
 #include <vector>
 
 #include "character.h"
-#include "znet_server.h"
+#include "transport/transport.h"
 
 /**
  * @brief Manages all player-related data and operations.
@@ -43,6 +43,8 @@ SOFTWARE.
  */
 class PlayerManager {
 public:
+  // Session-scoped gameplay ID allocated from player slots. Neither this ID nor
+  // the associated transport handle is a persistent account/player identity.
   using PlayerId = std::uint32_t;
 
   /**
@@ -55,6 +57,9 @@ public:
    */
   struct Player : Character {
     Net::ConnectionHandle connection{};
+    // Keep the admitted endpoint available through onPlayerDisconnect, after
+    // the transport has already released its ephemeral connection handle.
+    std::string ip_address;
     std::unordered_set<PlayerId> spawned_players;
     std::uint8_t passed_crc_test{0};
     bool npc_world_ready{false};
@@ -63,6 +68,22 @@ public:
     bool voice_muted{false};
     std::string voice_channel{"default"};
     std::uint32_t voice_range{0};
+
+    // Client-to-server state freshness belongs to this connection's session,
+    // independently of the authoritative Character::state_sequence sent back
+    // to viewers. Do not reset it on respawn, streaming or world changes.
+    std::optional<std::uint32_t> last_client_state_sequence;
+
+    bool AcceptClientStateSequence(std::uint32_t sequence) {
+      // The client skips zero when its counter wraps.
+      if (sequence == 0) return false;
+      if (last_client_state_sequence) {
+        const auto delta = sequence - *last_client_state_sequence;
+        if (delta == 0 || delta >= 0x80000000u) return false;
+      }
+      last_client_state_sequence = sequence;
+      return true;
+    }
   };
 
   PlayerManager() = default;
@@ -76,7 +97,7 @@ public:
    * @brief Adds a new player with the given connection handle
    * @param connection The network connection handle
    * @param name The player's name
-   * @return The assigned player ID
+   * @return The assigned player ID, or 0 when full or the connection is invalid/already assigned
    */
   PlayerId AddPlayer(Net::ConnectionHandle connection, const std::string& name, std::uint32_t max_slots);
 

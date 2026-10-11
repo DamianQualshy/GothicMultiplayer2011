@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "lua_sky.h"
 #include "game_server.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
 

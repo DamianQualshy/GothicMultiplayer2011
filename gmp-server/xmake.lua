@@ -20,7 +20,7 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
-includes("lib/znet", "lib/znet_rak")
+
 
 target("Server")
     set_kind("static")
@@ -28,9 +28,9 @@ target("Server")
     add_files("lib/Lua/*.cpp")
     add_includedirs("$(builddir)/config")
     add_includedirs("lib", {public = true})
-    add_deps("common", "SharedLib", "AddonSupport", "LuaRuntime", "znet_server", "ResourcePacker")
+    add_deps("common", "SharedLib", "AddonSupport", "LuaRuntime", "Transport", "ResourcePacker")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
-    add_packages("spdlog", "fmt", "toml11", "nlohmann_json", "bitsery", "glm", "sol2", "cpp-httplib", "dylib",
+    add_packages("spdlog", "fmt", "toml11", "nlohmann_json", "bitsery", "glm", "sol2", "cpp-httplib",
                  "openssl", "libsodium", "libopus", "sqlite3", "mariadb-connector-c", {public = true})
     local master_endpoint = get_config("master_server_endpoint")
     if master_endpoint and #master_endpoint > 0 then

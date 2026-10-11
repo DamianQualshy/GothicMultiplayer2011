@@ -32,7 +32,7 @@ target("LuaRuntime")
     add_headerfiles("*.h")
     
     -- Include directories
-    -- Public include allows: #include "shared/lua_runtime/script_base.h"
+    -- Public include allows: #include "Shared/lua_runtime/script_base.h"
     add_includedirs("$(projectdir)", {public = true})
     
     -- Dependencies

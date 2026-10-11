@@ -27,7 +27,7 @@ SOFTWARE.
 #include <memory>
 #include <string>
 
-#include "shared/lua_runtime/lua_math.h"
+#include "Shared/lua_runtime/lua_math.h"
 #include "sol/sol.hpp"
 
 #include "ZenGin/zGothicAPI.h"

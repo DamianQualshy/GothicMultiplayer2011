@@ -143,6 +143,7 @@ public:
   void OnConnectionFailed(const std::string& error) override;
   void OnDisconnected() override;
   void OnConnectionLost() override;
+  void OnConnectionClosed(const std::string& reason) override;
   void OnAdminAuthChanged(bool authenticated) override;
   void OnResourceDownloadPhase(const std::string& phase) override;
   void OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) override;

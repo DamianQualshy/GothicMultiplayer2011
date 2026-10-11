@@ -141,7 +141,7 @@ void ServerListState::OnExit() {
 
 StateResult ServerListState::Update() {
   if (connectionAttemptInProgress_) {
-    // Pump RakNet so pending packets (initial info, resources) are processed while still in menus
+    // Pump transport callbacks and gameplay messages while still in menus.
     NetGame::Instance().HandleNetwork();
   }
 
@@ -421,7 +421,7 @@ void ServerListState::ConnectToServer() {
 
   SPDLOG_INFO("Starting connection to: {}", context_.selectedServerIP.ToChar());
 
-  // Start the RakNet connection attempt. Completion is reported by packets pumped in Update().
+  // Start the connection attempt. Completion is reported by transport callbacks in Update().
   NetGame::Instance().Connect(context_.selectedServerIP.ToChar());
 }
 

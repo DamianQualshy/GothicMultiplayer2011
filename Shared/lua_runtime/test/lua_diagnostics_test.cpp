@@ -27,7 +27,7 @@ SOFTWARE.
 #include <string>
 #include <string_view>
 
-#include "shared/lua_runtime/lua_diagnostics.h"
+#include "Shared/lua_runtime/lua_diagnostics.h"
 
 namespace {
 

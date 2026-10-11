@@ -51,6 +51,7 @@ public:
   virtual void OnConnectionFailed(const std::string& error) {}
   virtual void OnDisconnected() {}
   virtual void OnConnectionLost() {}
+  virtual void OnConnectionClosed(const std::string& reason) {}
   virtual void OnAdminAuthChanged(bool authenticated) {}
   virtual void OnResourceDownloadPhase(const std::string&) {}
   virtual void OnResourceDownloadProgress(const std::string& resource_name, std::uint64_t downloaded_bytes, std::uint64_t total_bytes) {}

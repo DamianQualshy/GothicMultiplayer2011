@@ -25,12 +25,19 @@ SOFTWARE.
 #include "player_manager.h"
 
 PlayerManager::PlayerId PlayerManager::AddPlayer(Net::ConnectionHandle connection, const std::string& name, std::uint32_t max_slots) {
+  if (connection == Net::kInvalidConnection || HasConnection(connection)) {
+    return 0;
+  }
   PlayerId player_id = 0;
   for (PlayerId candidate = 1; candidate <= max_slots; ++candidate) {
     if (players_.find(candidate) == players_.end()) {
       player_id = candidate;
       break;
     }
+  }
+
+  if (player_id == 0) {
+    return 0;
   }
 
   if (player_id >= next_player_id_) {

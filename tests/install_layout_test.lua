@@ -21,7 +21,7 @@ function main()
         }
     end
 
-    local filenames = {"GMP.dll", "znet.dll", "SDL3.dll", "BugTrap.dll", "discord_game_sdk.dll"}
+    local filenames = {"GMP.dll", "SDL3.dll", "BugTrap.dll", "discord_game_sdk.dll"}
     for _, filename in ipairs(filenames) do
         io.writefile(path.join(source, filename), "fixture: " .. filename)
         install(target(filename))

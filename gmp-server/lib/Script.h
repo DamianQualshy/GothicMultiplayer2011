@@ -2,7 +2,7 @@
 #include <vector>
 #include <string>
 
-#include "shared/lua_runtime/script_base.h"
+#include "Shared/lua_runtime/script_base.h"
 
 // Server Lua VM - trusted (loaded from local disk by admin)
 // Uses TrustedScriptBase which includes TrustedPolicy at compile-time

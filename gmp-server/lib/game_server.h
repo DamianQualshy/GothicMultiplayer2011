@@ -62,7 +62,7 @@ struct Response;
 #include "resource_manager.h"
 #include "resource_server.h"
 #include "server_addon_context.h"
-#include "znet_server.h"
+#include "transport/transport.h"
 #include "gothic_clock.h"
 #include "gothic_weather.h"
 
@@ -80,7 +80,7 @@ struct Packet {
   Net::ConnectionHandle id;
 };
 
-class GameServer : public Net::PacketHandler {
+class GameServer {
 public:
   using PlayerId = PlayerManager::PlayerId;
   using Player = PlayerManager::Player;
@@ -88,7 +88,7 @@ public:
   using BanEntry = BanManager::BanEntry;
 
   GameServer();
-  ~GameServer() override;
+  ~GameServer();
 
   void AddToPublicListHTTP();
   nlohmann::json BuildMasterServerPayload() const;
@@ -248,6 +248,8 @@ private:
     std::uint32_t packets_in_window{0};
   };
 
+  void HandleConnectionEvent(const Net::ConnectionEvent& event);
+  void HandlePlayerConnected(Net::ConnectionHandle connection);
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
   void HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier);
@@ -315,6 +317,7 @@ private:
   void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
   std::optional<std::reference_wrapper<Player>> GetIngamePlayerByConnection(Net::ConnectionHandle connection);
 
+  Net::ServerTransport transport_;
   std::unique_ptr<BanManager> ban_manager_;
   std::unique_ptr<LuaScript> lua_script_;
   std::unique_ptr<ResourceManager> resource_manager_;

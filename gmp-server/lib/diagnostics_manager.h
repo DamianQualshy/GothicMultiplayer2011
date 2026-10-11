@@ -59,6 +59,7 @@ public:
   void SetServerSnapshot(ServerSnapshot snapshot);
   void RecordIncomingPacket(std::uint8_t packet_id, std::uint32_t bytes);
   void RecordOutgoingPacket(std::uint8_t packet_id, std::uint32_t bytes);
+  void RecordSendFailure(std::uint8_t packet_id);
   void RecordPacketRejected(std::uint8_t packet_id);
   void RecordPacketHandlerTime(std::uint8_t packet_id, std::chrono::nanoseconds elapsed);
 
@@ -69,6 +70,7 @@ private:
     std::uint64_t count{0};
     std::uint64_t bytes{0};
     std::uint64_t rejected{0};
+    std::uint64_t send_failures{0};
     std::uint64_t handler_time_ns{0};
     std::uint64_t max_handler_time_ns{0};
   };

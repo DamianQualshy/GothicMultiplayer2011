@@ -33,9 +33,9 @@ SOFTWARE.
 #include "Script.h"
 #include "game_server.h"
 #include "Lua/event_bind.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/lua_diagnostics.h"
-#include "shared/lua_runtime/timer_manager.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/lua_diagnostics.h"
+#include "Shared/lua_runtime/timer_manager.h"
 
 namespace fs = std::filesystem;
 

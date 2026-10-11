@@ -29,10 +29,10 @@ SOFTWARE.
 #include <glm/glm.hpp>
 
 #include "game_server.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/shared_bind.h"
-#include "shared/lua_runtime/timer_manager.h"
-#include "shared/lua_runtime/lua_constants.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/shared_bind.h"
+#include "Shared/lua_runtime/timer_manager.h"
+#include "Shared/lua_runtime/lua_constants.h"
 
 namespace {
 

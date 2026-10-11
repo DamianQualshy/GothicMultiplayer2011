@@ -22,11 +22,21 @@
 
 target("ConnectionTest")
     set_kind("binary")
+    set_encodings("utf-8")
     add_files("fake_client.cpp", "fake_client_connection_test.cpp", "real_client_connection_test.cpp")
-    add_deps("Server", "zNetInterface", "Client.Net", "ClientRakNetShared")
-    add_packages("spdlog", "dylib", "bitsery")
+    add_deps("Server", "Client.Net")
+    add_packages("spdlog", "bitsery")
     add_packages("gtest")
     add_tests("default")
     set_rundir(os.projectdir())
     -- disable the build by default
+    set_default(false)
+
+target("TransportTest")
+    set_kind("binary")
+    add_files("transport_test.cpp")
+    add_deps("Transport")
+    add_packages("gtest", "gamenetworkingsockets")
+    add_tests("default")
+    set_rundir(os.projectdir())
     set_default(false)

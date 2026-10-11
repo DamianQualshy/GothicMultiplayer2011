@@ -87,8 +87,8 @@ private:
     fs::path targetPath;
   };
 
-  static constexpr std::array<const wchar_t*, 4> runtimeDlls = {
-      L"SDL3.dll", L"BugTrap.dll", L"discord_game_sdk.dll", L"znet.dll"};
+  static constexpr std::array<const wchar_t*, 3> runtimeDlls = {
+      L"SDL3.dll", L"BugTrap.dll", L"discord_game_sdk.dll"};
 
   std::string gothicPath;
   std::string gmpDllPath;
@@ -549,10 +549,8 @@ private:
       return true;
     }
 
-    const fs::path dllDirectory = GetGMPDllDirectory();
     const std::vector<RuntimeFile> runtimeFiles = {
         {"GMP.dll", GetGMPDllPath()},
-        {"znet.dll", dllDirectory / L"znet.dll"},
     };
 
     SPDLOG_INFO("Checking runtime DLL update source...");
@@ -962,7 +960,7 @@ public:
     SPDLOG_INFO("  --workdir <path>  Working directory for Gothic2.exe (default: Gothic2.exe directory)");
     SPDLOG_INFO("                    Relative overrides are resolved against the invoking directory.");
     SPDLOG_INFO("  --update-source <url>");
-    SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll, znet.dll, and .sha256 files");
+    SPDLOG_INFO("                    Base HTTP(S) URL containing GMP.dll and its .sha256 file");
     SPDLOG_INFO("  --no-update       Skip the runtime DLL update check");
     SPDLOG_INFO("  --debug, -d       Pause after injection to attach IDA/debugger");
     SPDLOG_INFO("  --help, -h        Show this help message");

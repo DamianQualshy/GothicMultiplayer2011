@@ -213,6 +213,11 @@ void DiagnosticsManager::RecordOutgoingPacket(std::uint8_t packet_id, std::uint3
   AddPacket(outgoing_current_[packet_id], bytes);
 }
 
+void DiagnosticsManager::RecordSendFailure(std::uint8_t packet_id) {
+  ++outgoing_total_[packet_id].send_failures;
+  ++outgoing_current_[packet_id].send_failures;
+}
+
 void DiagnosticsManager::RecordPacketRejected(std::uint8_t packet_id) {
   ++incoming_total_[packet_id].rejected;
   ++incoming_current_[packet_id].rejected;
@@ -231,6 +236,7 @@ std::string DiagnosticsManager::BuildReport() const {
   oss << "Gothic Multiplayer diagnostics\n";
   oss << "==============================\n\n";
   oss << "Last completed stats window: " << FormatFixed(last_window_seconds_, 2) << " s\n\n";
+  oss << "Outgoing gameplay counts include only messages accepted by the transport, not peer delivery acknowledgements.\n\n";
 
   AppendTable(oss, BuildServerTable());
   oss << '\n';
@@ -285,7 +291,7 @@ DiagnosticsManager::StatsTable DiagnosticsManager::BuildPacketTable() const {
   std::vector<PacketRow> active_packets;
   active_packets.reserve(256);
   for (std::size_t i = 0; i < incoming_last_.size(); ++i) {
-    const auto activity = incoming_last_[i].count + outgoing_last_[i].count + incoming_total_[i].rejected;
+    const auto activity = incoming_last_[i].count + outgoing_last_[i].count + incoming_total_[i].rejected + outgoing_total_[i].send_failures;
     if (activity != 0 || incoming_total_[i].count != 0 || outgoing_total_[i].count != 0) {
       active_packets.push_back(PacketRow{static_cast<std::uint8_t>(i), activity});
     }
@@ -299,8 +305,8 @@ DiagnosticsManager::StatsTable DiagnosticsManager::BuildPacketTable() const {
   });
 
   StatsTable table;
-  table.title = "Packet diagnostics";
-  table.columns = {"packet", "in/s", "in bytes/s", "out/s", "out bytes/s", "rejects", "avg handler", "max handler", "total in", "total out"};
+  table.title = "Gameplay message diagnostics";
+  table.columns = {"packet", "in/s", "in bytes/s", "out/s", "out bytes/s", "rejects", "send failures", "avg handler", "max handler", "total in", "total out"};
 
   for (const auto row_info : active_packets) {
     const auto id = row_info.packet_id;
@@ -317,6 +323,7 @@ DiagnosticsManager::StatsTable DiagnosticsManager::BuildPacketTable() const {
         FormatRate(out_last.count, last_window_seconds_),
         FormatBytesPerSecond(out_last.bytes, last_window_seconds_),
         FormatInteger(in_total.rejected),
+        FormatInteger(out_total.send_failures),
         FormatMicroseconds(avg_handler_ns),
         FormatMicroseconds(in_last.max_handler_time_ns),
         FormatInteger(in_total.count),
@@ -325,7 +332,7 @@ DiagnosticsManager::StatsTable DiagnosticsManager::BuildPacketTable() const {
   }
 
   if (table.rows.empty()) {
-    table.rows.push_back({"none", "0.0", "0.0 B/s", "0.0", "0.0 B/s", "0", "0.0 us", "0.0 us", "0", "0"});
+    table.rows.push_back({"none", "0.0", "0.0 B/s", "0.0", "0.0 B/s", "0", "0", "0.0 us", "0.0 us", "0", "0"});
   }
 
   return table;

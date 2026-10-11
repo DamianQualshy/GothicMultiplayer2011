@@ -29,7 +29,7 @@ SOFTWARE.
 #include <algorithm>
 #include <cmath>
 
-#include "shared/lua_runtime/lua_constants.h"
+#include "Shared/lua_runtime/lua_constants.h"
 
 namespace {
 constexpr float kInitialRainStartSkyTime = 0.187f;

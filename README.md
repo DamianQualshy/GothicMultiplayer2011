@@ -86,12 +86,12 @@ xmake install -o "C:\Program Files (x86)\Gothic II"
 After installation, you should find:
 - **Server**: `[Gothic2Directory]\GMP_Server\` - Contains server executable and config files
 - **Client Launcher**: `[Gothic2Directory]\Multiplayer\GMPLauncher.exe`
-- **Client Runtime**: `[Gothic2Directory]\Multiplayer\Runtime\` - `GMP.dll`, `znet.dll`, `SDL3.dll`, `BugTrap.dll`, and `discord_game_sdk.dll` (all required)
+- **Client Runtime**: `[Gothic2Directory]\Multiplayer\Runtime\` - `GMP.dll`, `SDL3.dll`, `BugTrap.dll`, and `discord_game_sdk.dll` (all required)
 - **Client Configuration**: `[Gothic2Directory]\Multiplayer\GMP_Config.toml` - Created on first launch
 
 The launcher locates these paths from its executable location and starts `System\Gothic2.exe` with `System` as the working directory. Shortcuts should point to `Multiplayer\GMPLauncher.exe`; their "Start in" directory does not affect the default game or runtime paths. Gothic's own files, including `Shw32.dll`, stay in `System`.
 
-The runtime updater downloads `GMP.dll` and `znet.dll` into `Multiplayer\Runtime`. Other runtime DLLs are supplied by the installer. Installing `ClientMain` also installs the launcher and networking runtime.
+The runtime updater downloads `GMP.dll` into `Multiplayer\Runtime`. Other runtime DLLs are supplied by the installer. Installing `ClientMain` also installs the launcher.
 
 ## 🎮 Usage
 

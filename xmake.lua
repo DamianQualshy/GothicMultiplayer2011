@@ -24,7 +24,7 @@ set_project("GothicMultiplayer")
 set_version("0.2", {build = "%Y%m%d"})
 
 set_languages("c++20")
-set_defaultarchs("linux|x64", "windows|x86")
+set_defaultarchs("linux|x86_64", "windows|x86")
 set_runtimes("MT")
 
 -- sol2 otherwise converts missing or invalid Lua arguments with unchecked
@@ -56,12 +56,18 @@ option_end()
 
 option("gmp_update_source_url")
     set_showmenu(true)
-    set_description("Base HTTP(S) URL where GMPLauncher downloads GMP.dll, znet.dll, and their .sha256 files")
+    set_description("Base HTTP(S) URL where GMPLauncher downloads GMP.dll and its .sha256 file")
     set_default("")
 option_end()
 
 
 add_rules("mode.debug", "mode.release", "mode.releasedbg")
+
+includes("xmake/packages/gamenetworkingsockets.lua")
+add_requires("gamenetworkingsockets v1.6.0", {configs = {shared = false}})
+-- Share the already required crypto package instead of linking another copy.
+add_requireconfs("gamenetworkingsockets.protobuf-cpp.abseil", {override = true, version = "20250814.0"})
+add_requireconfs("gamenetworkingsockets.openssl", {override = true, version = "1.1.1-w"})
 
 add_requires("spdlog 1.15.1", {configs = {fmt_external = true}})
 -- Pulling in gtest_main doesn't work, due to a runtime conflict MT (static) vs MD (dynamic), so we still have to define it ourselves
@@ -82,7 +88,6 @@ add_requires("mariadb-connector-c 3.4.9", {configs = {
 add_requires("fmt 11.0.2",
              "toml11 4.4.*", 
              "lua 5.4.7",
-             "dylib 2.2.*",
              "nlohmann_json 3.12.*",
              "bitsery 5.2.*",
              "glm 1.0.*",
@@ -93,15 +98,11 @@ add_requires("fmt 11.0.2",
              "libopus 1.5.*",
              "minizip 1.2.13",
              "openssl 1.1.1-w",
-             "libsodium 1.0.*",
-             "polyhook2",
-             "asmjit",
-             "stb",
-             "minimp3")
+             "libsodium 1.0.*")
 
-includes("common", "shared", "gmp-server", "thirdparty", "tests")
+includes("common", "Shared", "gmp-server", "thirdparty", "gmp-client/client-net", "tests")
 
 if is_plat("windows") then
-    add_requires("discord")
+    add_requires("polyhook2", "asmjit", "stb", "minimp3", "discord")
     includes("gmp-client")
 end

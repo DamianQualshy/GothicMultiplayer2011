@@ -27,7 +27,7 @@ SOFTWARE.
 #include <string>
 
 #include "CChat.h"
-#include "shared/lua_runtime/lua_math.h"
+#include "Shared/lua_runtime/lua_math.h"
 
 namespace gmp::gothic {
 

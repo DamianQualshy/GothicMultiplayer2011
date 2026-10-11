@@ -40,9 +40,9 @@ SOFTWARE.
 #include "lua_item.h"
 #include "lua_item_ground.h"
 #include "shared/event.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/lua_diagnostics.h"
-#include "shared/lua_runtime/lua_value_codec.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/lua_diagnostics.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 
 namespace lua {
 namespace bindings {

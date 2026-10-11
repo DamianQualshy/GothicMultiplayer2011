@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "resource_manager.h"
 
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 #include <spdlog/spdlog.h>
 
@@ -33,7 +33,7 @@ SOFTWARE.
 #include <toml.hpp>
 
 #include "Script.h"
-#include "shared/lua_runtime/timer_manager.h"
+#include "Shared/lua_runtime/timer_manager.h"
 
 namespace fs = std::filesystem;
 

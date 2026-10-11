@@ -6,10 +6,10 @@ target("ClientMain")
     add_includedirs("src/gothic-patches")
     add_includedirs("src")
 
-    add_deps("common", "SharedLib", "AddonSupport", "ZenKit", "LuaRuntime", "ResourceLoader", "zNetInterface", "Client.Net", "Client.Resources", "Client.Voice", "SDL3", "BugTrap", "gothic_api")
+    add_deps("common", "SharedLib", "AddonSupport", "ZenKit", "LuaRuntime", "ResourceLoader", "Client.Net", "Client.Resources", "Client.Voice", "SDL3", "BugTrap", "gothic_api")
     -- Runtime components must also be deployed by `xmake install ... ClientMain`.
-    add_deps("ClientRakNetShared", "GMPLauncher", {inherit = false})
-    add_packages("spdlog", "fmt", "cpp-httplib", "dylib", "glm", "bitsery", "nlohmann_json", "polyhook2", "asmjit", "sol2", "minimp3", "stb", "discord")
+    add_deps("GMPLauncher", {inherit = false})
+    add_packages("spdlog", "fmt", "cpp-httplib", "glm", "bitsery", "nlohmann_json", "polyhook2", "asmjit", "sol2", "minimp3", "stb", "discord")
     -- D3D9 for legacy renderer, D3D11/DXGI/D3DCompiler for modern renderer
     add_syslinks("wsock32", "ws2_32", "Iphlpapi", "user32", "gdi32", "kernel32", "d3d9", "d3d11", "dxgi", "d3dcompiler")
 
@@ -47,7 +47,7 @@ target("ClientMain")
         install_to_multiplayer_dir(target)
 
         -- Selecting ClientMain does not run dependency on_install hooks in xmake.
-        for _, name in ipairs({"GMPLauncher", "ClientRakNetShared", "SDL3", "BugTrap"}) do
+        for _, name in ipairs({"GMPLauncher", "SDL3", "BugTrap"}) do
             local dependency = target:dep(name)
             dependency:script("install")(dependency)
         end

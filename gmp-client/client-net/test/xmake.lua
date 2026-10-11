@@ -1,5 +1,6 @@
 target("ClientNpcPacketTest")
     set_kind("binary")
+    set_encodings("utf-8")
     add_files("npc_packet_test.cpp")
     add_deps("Client.Net")
     add_packages("gtest")

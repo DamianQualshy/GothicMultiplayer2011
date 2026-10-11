@@ -32,9 +32,9 @@ SOFTWARE.
 #include <memory>
 #include <string_view>
 
-#include "shared/lua_runtime/lua_diagnostics.h"
-#include "shared/lua_runtime/bind_helpers.h"
-#include "shared/lua_runtime/shared_bind.h"
+#include "Shared/lua_runtime/lua_diagnostics.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/shared_bind.h"
 #include "shared/event.h"
 
 ClientResourceRuntime::ClientResourceRuntime() = default;

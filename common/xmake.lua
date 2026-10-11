@@ -22,5 +22,11 @@
 
 target("common")
     set_kind("headeronly")
-    add_includedirs(".", "znet", {public = true})
+    add_includedirs(".", "protocol", {public = true})
     add_packages("glm")
+target("Transport")
+    set_kind("static")
+    add_files("transport/transport.cpp")
+    add_includedirs(".", {public = true})
+    add_packages("gamenetworkingsockets", {public = true})
+    set_default(false)

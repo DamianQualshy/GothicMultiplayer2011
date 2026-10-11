@@ -31,7 +31,7 @@ SOFTWARE.
 
 #include "../game_server.h"
 #include "lua_item.h"
-#include "shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace lua {
 namespace bindings {
