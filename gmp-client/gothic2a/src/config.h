@@ -119,6 +119,8 @@ public:
     return static_cast<float>(voice_output_volume_percent_) / 100.0f;
   }
 
+  int GetInterpolationDelayMs() const { return interpolation_delay_ms_; }
+
   void SetVoiceOutputVolume(float volume);
 
   static Config& Instance() {
@@ -142,4 +144,5 @@ private:
   bool voice_chat_enabled_ = true;
   int voice_push_to_talk_key_ = KEY_K;
   int voice_output_volume_percent_ = 100;
+  int interpolation_delay_ms_ = 120;
 };

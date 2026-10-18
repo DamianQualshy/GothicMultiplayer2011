@@ -62,8 +62,30 @@ public:
     std::string ip_address;
     std::string identity;
     std::unordered_set<PlayerId> spawned_players;
+    struct SentActorState {
+      std::uint64_t generation{0};
+      std::uint32_t sequence{0};
+      std::chrono::steady_clock::time_point sent_at{};
+    };
+    std::unordered_map<PlayerId, SentActorState> sent_actor_states;
     std::uint8_t passed_crc_test{0};
     bool npc_world_ready{false};
+    bool has_joined{false};
+    std::optional<std::uint64_t> client_clock_origin;
+    std::uint64_t server_clock_origin{0};
+    std::uint64_t last_source_time_ms{0};
+    bool inventory_initialized{false};
+    std::optional<std::uint32_t> last_item_request_id;
+
+    bool AcceptItemRequest(std::uint32_t request_id) {
+      if (request_id == 0) return false;
+      if (last_item_request_id) {
+        const auto delta = request_id - *last_item_request_id;
+        if (delta == 0 || delta >= 0x80000000u) return false;
+      }
+      last_item_request_id = request_id;
+      return true;
+    }
     bool is_admin{false};
     bool voice_enabled{true};
     bool voice_muted{false};
@@ -84,6 +106,11 @@ public:
       }
       last_client_state_sequence = sequence;
       return true;
+    }
+
+    bool AcceptClientState(std::uint64_t generation, std::uint32_t acknowledged_command, std::uint32_t sequence) {
+      return generation == actor_generation && acknowledged_command == command_revision &&
+          AcceptClientStateSequence(sequence);
     }
   };
 

@@ -49,6 +49,7 @@ public:
   const std::vector<MessagePacket>& Messages() const { return messages_; }
   const std::string& Error() const { return error_; }
   const PlayerSpawnPacket* FindSpawn(std::uint32_t player_id) const;
+  bool SendActorAction(ActorActionPacket action);
 
 private:
   void HandlePacket(unsigned char* data, std::uint32_t size);

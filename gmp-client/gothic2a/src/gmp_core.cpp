@@ -50,7 +50,7 @@ void GMPCore::Initialize() {
     return;
   }
 
-  if (Config::Instance().IsMCPPipeEnabled()) {
+  if (gmp::mcp::MCPPipeHandler::IsRequested()) {
     SPDLOG_INFO("MCP Pipe enabled in config - starting server");
     gmp::mcp::MCPPipeHandler::Instance().Start();
   }
@@ -80,7 +80,7 @@ void GMPCore::Shutdown() {
   }
 
   // Stop MCP Pipe Server
-  if (Config::Instance().IsMCPPipeEnabled()) {
+  if (gmp::mcp::MCPPipeHandler::IsRequested()) {
     gmp::mcp::MCPPipeHandler::Instance().Stop();
   }
 
@@ -100,7 +100,7 @@ void GMPCore::OnFrameStart() {
   }
 
   // Process MCP commands and state updates
-  if (Config::Instance().IsMCPPipeEnabled()) {
+  if (gmp::mcp::MCPPipeHandler::IsRequested()) {
     gmp::mcp::MCPPipeHandler::Instance().ProcessPendingMessages();
   }
 
@@ -140,7 +140,7 @@ void GMPCore::ExitGame(int exitCode) {
   // Disconnect from server (quick operation, doesn't block)
   NetGame::Instance().Disconnect();
 
-  if (Config::Instance().IsMCPPipeEnabled()) {
+  if (gmp::mcp::MCPPipeHandler::IsRequested()) {
     gmp::mcp::MCPPipeHandler::Instance().Stop();
   }
 

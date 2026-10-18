@@ -24,8 +24,13 @@ SOFTWARE.
 
 #pragma once
 
+#include <algorithm>
+#include <atomic>
 #include <cstdint>
+#include <chrono>
 #include <ctime>
+#include <deque>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -41,6 +46,9 @@ struct Character {
 
   // Retain the existing name for compatibility with player packets and APIs.
   CharacterId player_id{0};
+  // Allocated independently of reusable player slots; never reset on reconnect.
+  std::uint64_t actor_generation{AllocateGeneration()};
+  std::uint32_t command_revision{0};
   std::string name;
   std::string instance;
   std::uint8_t name_color_r{255};
@@ -67,21 +75,45 @@ struct Character {
   std::uint8_t headstate{0};
   std::uint8_t is_ingame{0};
 
-  std::int16_t health{0};
-  std::int16_t max_health{100};
-  std::int16_t mana{0};
-  std::int16_t max_mana{100};
+  std::int32_t health{0};
+  std::int32_t max_health{100};
+  std::int32_t mana{0};
+  std::int32_t max_mana{100};
   std::int32_t level{0};
   std::int32_t exp{0};
   std::int32_t next_level_exp{0};
   std::int32_t learn_points{0};
   std::int32_t strength{0};
   std::int32_t dexterity{0};
+  bool invulnerable{false};
   std::unordered_map<std::string, std::int32_t> inventory;
+
+  std::int32_t InventoryCount(const std::string& instance) const {
+    const auto it = inventory.find(instance);
+    return it == inventory.end() ? 0 : std::max<std::int32_t>(0, it->second);
+  }
+
+  bool AddInventory(const std::string& instance, std::int32_t amount) {
+    if (instance.empty() || amount <= 0 || InventoryCount(instance) > std::numeric_limits<std::int32_t>::max() - amount) return false;
+    if (!inventory.contains(instance) && inventory.size() >= kMaxInventoryEntries) return false;
+    inventory[instance] = InventoryCount(instance) + amount;
+    return true;
+  }
+
+  // An inventory transaction either transfers the whole requested quantity or
+  // leaves ownership unchanged. Callers can explicitly clamp administrative removals.
+  bool RemoveInventory(const std::string& instance, std::int32_t amount) {
+    const auto count = InventoryCount(instance);
+    if (instance.empty() || amount <= 0 || amount > count) return false;
+    if (amount == count) inventory.erase(instance);
+    else inventory[instance] = count - amount;
+    return true;
+  }
   std::unordered_map<int, int> weapon_skills;
   std::unordered_map<int, int> talents;
 
   std::time_t tod{0};
+  std::optional<std::chrono::steady_clock::time_point> death_started_at;
   std::optional<std::int32_t> respawn_time_ms;
   PlayerState state{};
   std::uint32_t state_sequence{0};
@@ -90,4 +122,66 @@ struct Character {
   std::optional<std::int32_t> pending_equipped_shield_instance;
   std::optional<std::int32_t> pending_melee_weapon_instance;
   std::optional<std::int32_t> pending_ranged_weapon_instance;
+  std::optional<std::int32_t> pending_equipped_amulet_instance;
+  std::optional<std::int32_t> pending_equipped_belt_instance;
+  std::optional<std::int32_t> pending_equipped_ring_left_instance;
+  std::optional<std::int32_t> pending_equipped_ring_right_instance;
+  struct EquipmentCommand {
+    std::uint32_t command_revision{0};
+    std::int32_t expected_instance{0};
+    std::int32_t previous_instance{0};
+    std::chrono::steady_clock::time_point deadline;
+  };
+  std::unordered_map<std::int16_t, EquipmentCommand> pending_equipment_commands;
+  std::unordered_map<std::int16_t, std::uint32_t> equipment_command_revisions;
+  std::optional<std::uint32_t> last_actor_action_id;
+  std::optional<std::uint32_t> last_cast_action_id;
+  std::optional<std::uint32_t> last_hit_action_id;
+  std::unordered_set<CharacterId> hit_victims;
+  std::chrono::steady_clock::time_point last_attack_at{};
+  std::chrono::steady_clock::time_point last_cast_at{};
+  std::chrono::steady_clock::time_point last_item_use_at{};
+  std::chrono::steady_clock::time_point action_window_started{};
+  std::uint32_t actions_in_window{0};
+  std::unordered_map<std::string, std::chrono::steady_clock::time_point> timed_overlays;
+  std::optional<CharacterId> last_validated_attacker;
+  std::chrono::steady_clock::time_point last_damage_at{};
+  struct ApprovedAttack {
+    std::uint32_t action_id{0};
+    std::int32_t damage_cap{0};
+    std::uint32_t damage_types{0};
+    std::uint32_t range{0};
+    std::chrono::steady_clock::time_point expires_at{};
+    std::unordered_set<CharacterId> victims;
+    std::uint32_t max_victims{1};
+    glm::vec3 origin{0.0f};
+  };
+  std::deque<ApprovedAttack> approved_projectiles;
+  std::uint32_t combat_barrier_revision{0};
+  bool CombatRevisionIsCurrent(std::uint32_t revision) const {
+    return (revision == command_revision || IsNewActorSequence(command_revision, revision)) &&
+           (!combat_barrier_revision || revision == combat_barrier_revision || IsNewActorSequence(revision, combat_barrier_revision));
+  }
+
+  static std::uint64_t AllocateGeneration() {
+    static std::atomic<std::uint64_t> next{1};
+    return next.fetch_add(1, std::memory_order_relaxed);
+  }
+
+  void RenewGeneration() {
+    actor_generation = AllocateGeneration();
+    approved_projectiles.clear();
+    combat_barrier_revision = 0;
+    last_validated_attacker.reset();
+    pending_equipment_commands.clear();
+    pending_equipped_armor_instance.reset();
+    pending_equipped_helmet_instance.reset();
+    pending_equipped_shield_instance.reset();
+    pending_melee_weapon_instance.reset();
+    pending_ranged_weapon_instance.reset();
+    pending_equipped_amulet_instance.reset();
+    pending_equipped_belt_instance.reset();
+    pending_equipped_ring_left_instance.reset();
+    pending_equipped_ring_right_instance.reset();
+  }
 };

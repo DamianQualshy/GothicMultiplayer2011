@@ -381,15 +381,37 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
-* This event is triggered when a player casts a spell.
+* This event is triggered when the player/npc attempts to use an item.
+*
+* @version  0.3.0
+* @name     onPlayerUseItem
+* @side     server
+* @category Player
+* @note     This event can be cancelled.
+* @param    (number) player_id      Player/npc using the item.
+* @param    (Item|nil) item          Item definition, or nil for an unknown item.
+* @param    (number) quantity       Amount consumed; zero for a reusable item.
+* @param    (string) scheme         Item use scheme.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerUseItemName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnPlayerUseItemEvent>(args.event);
+    sol::state_view lua(args.callback.lua_state());
+    args.callback(event.player_id, MakeItemOrNil(lua, event.item_instance), event.quantity, event.scheme);
+  }};
+
+/* luagmp (event)
+*
+* This event is triggered when the player/npc attempts to cast a spell.
 *
 * @version  0.3.0
 * @name     onPlayerCastSpell
 * @side     server
 * @category Player
-* @param    (number) caster_id    Caster player id.
+* @note     This event can be cancelled.
+* @param    (number) caster_id    Caster player or server NPC id.
 * @param    (number) spell_id     Spell identifier.
-* @param    (number|nil) target_id Optional target player id (nil if none).
+* @param    (number|nil) target_id Optional target player or server NPC id (nil if none).
 *
 */
   kLuaEventProxies[kEventOnPlayerCastSpellName] = {[](LuaProxyArgs args) {
@@ -496,15 +518,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipAmulet
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped amulet item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipAmuletName] = {[](LuaProxyArgs args) {
     OnPlayerEquipAmuletEvent amulet_event = std::any_cast<OnPlayerEquipAmuletEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, amulet_event.item_index);
-    args.callback(amulet_event.player_id, item);
+    args.callback(amulet_event.player_id, item, MakeItemOrNil(lua, amulet_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -515,15 +539,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipArmor
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped armor item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipArmorName] = {[](LuaProxyArgs args) {
     OnPlayerEquipArmorEvent armor_event = std::any_cast<OnPlayerEquipArmorEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, armor_event.item_index);
-    args.callback(armor_event.player_id, item);
+    args.callback(armor_event.player_id, item, MakeItemOrNil(lua, armor_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -534,15 +560,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipBelt
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped belt item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipBeltName] = {[](LuaProxyArgs args) {
     OnPlayerEquipBeltEvent belt_event = std::any_cast<OnPlayerEquipBeltEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, belt_event.item_index);
-    args.callback(belt_event.player_id, item);
+    args.callback(belt_event.player_id, item, MakeItemOrNil(lua, belt_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -553,16 +581,18 @@ void RegisterProxies() {
 * @name     onPlayerEquipHandItem
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (number) hand           Hand id (0 = left, 1 = right).
 * @param    (Item|nil) item         Equipped hand item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipHandItemName] = {[](LuaProxyArgs args) {
     OnPlayerEquipHandItemEvent hand_item_event = std::any_cast<OnPlayerEquipHandItemEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, hand_item_event.item_index);
-    args.callback(hand_item_event.player_id, hand_item_event.hand, item);
+    args.callback(hand_item_event.player_id, hand_item_event.hand, item, MakeItemOrNil(lua, hand_item_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -573,15 +603,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipHelmet
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped helmet item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipHelmetName] = {[](LuaProxyArgs args) {
     OnPlayerEquipHelmetEvent helmet_event = std::any_cast<OnPlayerEquipHelmetEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, helmet_event.item_index);
-    args.callback(helmet_event.player_id, item);
+    args.callback(helmet_event.player_id, item, MakeItemOrNil(lua, helmet_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -592,15 +624,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipMeleeWeapon
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped melee weapon item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipMeleeWeaponName] = {[](LuaProxyArgs args) {
     OnPlayerEquipMeleeWeaponEvent melee_weapon_event = std::any_cast<OnPlayerEquipMeleeWeaponEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, melee_weapon_event.item_index);
-    args.callback(melee_weapon_event.player_id, item);
+    args.callback(melee_weapon_event.player_id, item, MakeItemOrNil(lua, melee_weapon_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -611,15 +645,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipRangedWeapon
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped ranged weapon item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipRangedWeaponName] = {[](LuaProxyArgs args) {
     OnPlayerEquipRangedWeaponEvent ranged_weapon_event = std::any_cast<OnPlayerEquipRangedWeaponEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, ranged_weapon_event.item_index);
-    args.callback(ranged_weapon_event.player_id, item);
+    args.callback(ranged_weapon_event.player_id, item, MakeItemOrNil(lua, ranged_weapon_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -630,16 +666,18 @@ void RegisterProxies() {
 * @name     onPlayerEquipRing
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (number) ring_slot      Logical ring slot (0 or 1).
 * @param    (Item|nil) item         Equipped ring item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipRingName] = {[](LuaProxyArgs args) {
     OnPlayerEquipRingEvent ring_event = std::any_cast<OnPlayerEquipRingEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, ring_event.item_index);
-    args.callback(ring_event.player_id, ring_event.ring_slot, item);
+    args.callback(ring_event.player_id, ring_event.ring_slot, item, MakeItemOrNil(lua, ring_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -650,15 +688,17 @@ void RegisterProxies() {
 * @name     onPlayerEquipShield
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (Item|nil) item         Equipped shield item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipShieldName] = {[](LuaProxyArgs args) {
     OnPlayerEquipShieldEvent shield_event = std::any_cast<OnPlayerEquipShieldEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, shield_event.item_index);
-    args.callback(shield_event.player_id, item);
+    args.callback(shield_event.player_id, item, MakeItemOrNil(lua, shield_event.previous_item_index));
   }};
 
 /* luagmp (event)
@@ -669,16 +709,18 @@ void RegisterProxies() {
 * @name     onPlayerEquipSpellSlot
 * @side     server
 * @category Player
+* @note     This event can be cancelled.
 * @param    (number) player_id      Player id.
 * @param    (number) slot_id        Active spell slot id (0 if none).
 * @param    (Item|nil) item         Active spell item (nil if none).
+* @param    (Item|nil) previous_item Previously equipped item.
 *
 */
   kLuaEventProxies[kEventOnPlayerEquipSpellSlotName] = {[](LuaProxyArgs args) {
     OnPlayerEquipSpellSlotEvent spell_event = std::any_cast<OnPlayerEquipSpellSlotEvent>(args.event);
     sol::state_view lua(args.callback.lua_state());
     sol::object item = MakeItemOrNil(lua, spell_event.item_index);
-    args.callback(spell_event.player_id, spell_event.slot_id, item);
+    args.callback(spell_event.player_id, spell_event.slot_id, item, MakeItemOrNil(lua, spell_event.previous_item_index));
   }};
 
 /* luagmp (event)

@@ -30,9 +30,22 @@ SOFTWARE.
 void Initialize(void);
 void SetSuppressLocalEquipEvents(bool suppress);
 bool ShouldSuppressLocalEquipEvents();
+
+// Prevent server presentation from being recaptured as another local action.
+class ScopedNetworkObservationSuppression {
+public:
+  ScopedNetworkObservationSuppression() : previous_(ShouldSuppressLocalEquipEvents()) { SetSuppressLocalEquipEvents(true); }
+  ~ScopedNetworkObservationSuppression() { SetSuppressLocalEquipEvents(previous_); }
+  ScopedNetworkObservationSuppression(const ScopedNetworkObservationSuppression&) = delete;
+  ScopedNetworkObservationSuppression& operator=(const ScopedNetworkObservationSuppression&) = delete;
+private:
+  bool previous_;
+};
 void SetSuppressLocalLifecycleEvents(bool suppress);
 bool ShouldSuppressLocalLifecycleEvents();
 void SetDamageAnimationsEnabled(bool enabled);
 bool AreDamageAnimationsEnabled();
 void SetMunitionTrailEnabled(bool enabled);
 bool IsMunitionTrailEnabled();
+void ResetLocalActionObservation();
+void RefreshLocalActionObservation();

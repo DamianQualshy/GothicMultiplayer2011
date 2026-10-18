@@ -34,6 +34,7 @@ SOFTWARE.
 #include <queue>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 #include "common_structs.h"
@@ -80,12 +81,19 @@ public:
 
   // Send methods
   void SendChatMessage(const std::string& msg);
-  void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id);
-  void SendDropItem(std::int32_t instance, std::uint16_t amount, const glm::vec3& position,
+  void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance = 0, std::uint32_t caster_id = 0, std::int32_t mana_after = -1);
+  std::uint32_t SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
                     const glm::vec3& rotation, bool physics_enabled);
-  void SendTakeItem(std::int32_t instance, std::uint16_t amount, std::optional<std::uint32_t> item_ground_id);
-  void SendPlayerWorldEnter(const std::string& world_name);
-  void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
+  std::uint32_t SendTakeItem(std::int32_t instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id);
+  void SendPlayerWorldEnter(const std::string& world_name, const std::vector<InventoryEntry>& inventory = {});
+  void SendActorAction(ActorActionPacket action);
+  void SendEquipmentResult(std::int16_t slot, std::int32_t requested, bool success, std::int32_t observed,
+                           std::uint32_t command_revision, std::uint32_t actor_id = 0, std::uint32_t control_epoch = 0);
+  void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill,
+                     std::optional<std::uint32_t> attacker_id = {}, std::uint32_t control_epoch = 0, bool finishing_move = false);
+  // Native casts can hit synchronously; their approval must precede the hit.
+  void BeginHitBatch();
+  void EndHitBatch(bool accepted);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
@@ -133,7 +141,9 @@ private:
   void DispatchPendingConnectionNotifications();
 
   // Helper to update player state from PlayerState struct
-  void UpdatePlayerState(Player* player, const PlayerState& state);
+  void UpdatePlayerState(Player* player, const PlayerState& state, std::optional<std::uint32_t> command_revision = {});
+  void ApplyAttribute(Player& player, PlayerAttributeId id, std::int32_t value);
+  void ApplyEquipmentSlot(Player& player, std::int16_t slot, std::int32_t instance);
 
   // Packet handlers
   void OnInitialInfo(Packet packet);
@@ -152,8 +162,16 @@ private:
   void OnEquipItem(Packet packet);
   void OnUnequipItem(Packet packet);
   void OnRemoveItem(Packet packet);
+  void OnActorAction(Packet packet);
+  void DrainMobStateReplay();
+  void ResetMobStateReplay() {
+    world_objects_ready_ = false;
+    pending_mob_states_.clear();
+  }
+  void OnItemTransactionResult(Packet packet);
+  Player* FindActor(std::uint64_t id);
+  Player* FindActor(std::uint64_t id, std::uint64_t generation);
   void OnMessage(Packet packet);
-  void OnExistingPlayers(Packet packet);
   void OnPlayerSpawn(Packet packet);
   void ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc = false);
   void OnNpcSpawn(Packet packet);
@@ -204,6 +222,29 @@ private:
   std::uint32_t server_port_{0};
   std::uint32_t max_slots_{0};
   std::uint32_t outgoing_state_sequence_{0};
+  std::uint32_t outgoing_action_sequence_{0};
+  std::uint32_t outgoing_item_request_{0};
+  std::uint32_t last_item_result_{0};
+  std::uint16_t pending_local_correction_mask_{0};
+  struct PendingEquipmentVerification {
+    bool equip;
+    std::int32_t instance;
+    std::int16_t slot;
+    std::uint32_t revision;
+  };
+  std::vector<PendingEquipmentVerification> pending_equipment_verifications_;
+  struct PendingInventoryCommand {
+    bool give;
+    std::int32_t instance;
+    std::int32_t amount;
+  };
+  std::vector<PendingInventoryCommand> pending_inventory_commands_;
+  // World-object state is scoped to the receiving hero's world incarnation,
+  // independently of the actor who originally operated the object.
+  bool world_objects_ready_{false};
+  std::vector<ActorActionPacket> pending_mob_states_;
+  std::vector<std::vector<PlayerHitReportPacket>> pending_hit_batches_;
+  void SendCapturedHit(PlayerHitReportPacket packet);
   bool admin_authenticated_{false};
   bool connection_lost_{false};
   bool is_in_game_{false};

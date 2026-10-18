@@ -29,10 +29,12 @@ SOFTWARE.
 #include <cmath>
 #include <ctime>
 #include <memory>
+#include <limits>
 #include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "CActiveAniID.h"
 #include "CIngame.h"
@@ -79,6 +81,7 @@ constexpr DWORD kUseItemToStateHookAddress = 0x007558F0;
 constexpr DWORD kEquipItemHookAddress = 0x007323C0;
 constexpr DWORD kUnequipItemHookAddress = 0x007326C0;
 constexpr DWORD kDoDieHookAddress = 0x00736760;
+constexpr DWORD kAttackFinishHookAddress = 0x00751AF0;
 constexpr DWORD kDropUnconsciousHookAddress = 0x00735EB0;
 constexpr DWORD kStandUpHookAddress = 0x00682B40;
 constexpr DWORD kCallOnStateFuncHookAddress = 0x00720870;
@@ -87,6 +90,7 @@ constexpr DWORD kOnDamageAnimHookAddress = 0x00675BD0;
 constexpr DWORD kOnDamageHitHookAddress = 0x00666610;
 constexpr DWORD kCreateArrowTrailHookAddress = 0x006A0420;
 constexpr DWORD kCheckRemoveNpcHookAddress = 0x007792E0;
+constexpr DWORD kShootArrowHookAddress = 0x007446B0;
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
 using DropItemOriginalFn = int(__thiscall*)(oCNpc*, zCVob*);
@@ -96,6 +100,7 @@ using UseItemToStateOriginalFn = int(__thiscall*)(oCNpc*, oCMsgManipulate*);
 using EquipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
 using UnequipItemOriginalFn = void(__thiscall*)(oCNpc*, oCItem*);
 using DoDieOriginalFn = void(__thiscall*)(oCNpc*, oCNpc*);
+using AttackFinishOriginalFn = int(__thiscall*)(oCNpc*, oCMsgAttack*);
 using DropUnconsciousOriginalFn = void(__thiscall*)(oCNpc*, float, oCNpc*);
 using StandUpOriginalFn = void(__thiscall*)(oCNpc*, int, int);
 using CallOnStateFuncOriginalFn = void(__thiscall*)(oCMobInter*, oCNpc*, int);
@@ -104,6 +109,7 @@ using OnDamageAnimOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescript
 using OnDamageHitOriginalFn = void(__thiscall*)(oCNpc*, oCNpc::oSDamageDescriptor&);
 using CreateArrowTrailOriginalFn = void(__thiscall*)(oCAIArrowBase*, zCVob*);
 using CheckRemoveNpcOriginalFn = int(__thiscall*)(oCSpawnManager*, oCNpc*);
+using ShootArrowOriginalFn = int(__thiscall*)(oCNpc*, int);
 
 CastSpellOriginalFn g_originalCastSpell = nullptr;
 DropItemOriginalFn g_originalDropItem = nullptr;
@@ -113,6 +119,7 @@ UseItemToStateOriginalFn g_originalUseItemToState = nullptr;
 EquipItemOriginalFn g_originalEquipItem = nullptr;
 UnequipItemOriginalFn g_originalUnequipItem = nullptr;
 DoDieOriginalFn g_originalDoDie = nullptr;
+AttackFinishOriginalFn g_originalAttackFinish = nullptr;
 DropUnconsciousOriginalFn g_originalDropUnconscious = nullptr;
 StandUpOriginalFn g_originalStandUp = nullptr;
 CallOnStateFuncOriginalFn g_originalCallOnStateFunc = nullptr;
@@ -121,6 +128,7 @@ OnDamageAnimOriginalFn g_originalOnDamageAnim = nullptr;
 OnDamageHitOriginalFn g_originalOnDamageHit = nullptr;
 CreateArrowTrailOriginalFn g_originalCreateArrowTrail = nullptr;
 CheckRemoveNpcOriginalFn g_originalCheckRemoveNpc = nullptr;
+ShootArrowOriginalFn g_originalShootArrow = nullptr;
 bool g_damageAnimationsEnabled = false;
 bool g_munitionTrailEnabled = true;
 
@@ -129,8 +137,12 @@ int GetInventoryAmount(oCNpc* npc, int instance_id) {
     return 0;
   }
 
-  oCItem* item = npc->inventory2.IsIn(instance_id, 1);
-  return item ? std::max(0, item->amount) : 0;
+  std::int64_t amount = 0;
+  for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
+    oCItem* item = entry->GetData();
+    if (item && item->GetInstance() == instance_id) amount += std::max(0, item->amount);
+  }
+  return static_cast<int>(std::min<std::int64_t>(amount, std::numeric_limits<std::int32_t>::max()));
 }
 
 }  // namespace
@@ -243,19 +255,51 @@ glm::vec3 GetDropFallbackPosition(oCNpc* npc) {
   return position;
 }
 
-std::unordered_set<std::string> s_local_equipped_items;
-std::unordered_map<oCNpc*, const oCMsgManipulate*> s_last_take_msg;
+oCNpc* s_observed_hero = nullptr;
+zCModel* s_observed_hero_model = nullptr;
+bool s_observed_connected = false;
 
-struct LastUseState {
-  const oCMsgManipulate* msg = nullptr;
-  std::string item;
-  std::string scheme;
-  DWORD tick = 0;
-};
-
-std::unordered_map<oCNpc*, LastUseState> s_last_use_state;
 bool s_suppress_local_equip_events = false;
 bool s_suppress_local_lifecycle_events = false;
+std::vector<oCNpc*> s_damage_calculation_victims;
+
+struct FinishingMoveObservation {
+  oCMsgAttack* message;
+  oCNpc* attacker;
+  oCNpc* victim;
+  bool reported;
+};
+
+std::vector<FinishingMoveObservation> s_finishing_move_observations;
+FinishingMoveObservation* s_finishing_move_context = nullptr;
+
+struct ScopedFinishingMoveObservation {
+  FinishingMoveObservation* previous;
+  explicit ScopedFinishingMoveObservation(FinishingMoveObservation& observation)
+      : previous(s_finishing_move_context) {
+    s_finishing_move_context = &observation;
+  }
+  ~ScopedFinishingMoveObservation() { s_finishing_move_context = previous; }
+};
+
+void ResetLocalActionObservation() {
+  s_finishing_move_observations.clear();
+  s_observed_hero = nullptr;
+  s_observed_hero_model = nullptr;
+  s_observed_connected = false;
+  if (auto* animations = CActiveAniID::GetInstance()) animations->Reset();
+}
+
+void RefreshLocalActionObservation() {
+  zCModel* model = player ? player->GetModel() : nullptr;
+  const bool connected = NetGame::Instance().IsConnected();
+  if (s_observed_hero != player || s_observed_hero_model != model || s_observed_connected != connected) {
+    ResetLocalActionObservation();
+    s_observed_hero = player;
+    s_observed_hero_model = model;
+    s_observed_connected = connected;
+  }
+}
 
 void SetSuppressLocalEquipEvents(bool suppress) {
   s_suppress_local_equip_events = suppress;
@@ -298,8 +342,52 @@ void ClearNpcHands(oCNpc* npc) {
   }
 }
 
+// Hook: oCNpc::EV_AttackFinish - report each native finishing move once.
+int __fastcall OnAttackFinish(oCNpc* npc, void* /*edx*/, oCMsgAttack* message) {
+  if (!npc || !message || !message->target) return 1;
+  auto* victim = zDYNAMIC_CAST<oCNpc>(message->target);
+  auto observed = std::find_if(s_finishing_move_observations.begin(), s_finishing_move_observations.end(),
+      [message](const auto& observation) { return observation.message == message; });
+  if (observed == s_finishing_move_observations.end()) {
+    // Cancelled messages may never receive a final call. Keep their records bounded.
+    if (s_finishing_move_observations.size() >= 128) s_finishing_move_observations.erase(s_finishing_move_observations.begin());
+    s_finishing_move_observations.push_back({message, npc, victim, false});
+    observed = s_finishing_move_observations.end() - 1;
+  } else if (!message->IsInUse() || observed->attacker != npc || observed->victim != victim) {
+    *observed = {message, npc, victim, false};
+  }
+  if (observed->reported) {
+    // Native death normally clears KO, preventing the kill branch from adding
+    // blood and death sounds again while the finishing animation is running.
+    auto* model = npc->GetModel();
+    auto* animation = model ? model->GetAniFromAniID(message->hitAni) : nullptr;
+    const int completed = !animation || !model->IsAniActive(animation);
+    if (completed) s_finishing_move_observations.erase(observed);
+    return completed;
+  }
+
+  // Keep the active context on the stack: nested engine calls can grow the records.
+  auto context = *observed;
+  ScopedFinishingMoveObservation scope(context);
+  const int completed = g_originalAttackFinish ? g_originalAttackFinish(npc, message) : 1;
+  observed = std::find_if(s_finishing_move_observations.begin(), s_finishing_move_observations.end(),
+      [message](const auto& observation) { return observation.message == message; });
+  if (observed != s_finishing_move_observations.end()) {
+    if (completed) s_finishing_move_observations.erase(observed);
+    else observed->reported = context.reported;
+  }
+  return completed;
+}
+
 // Hook: oCNpc::DoDie - clears hands after death
 void __fastcall OnDoDie(oCNpc* thisNpc, void* /*edx*/, oCNpc* attacker) {
+  if (std::find(s_damage_calculation_victims.begin(), s_damage_calculation_victims.end(), thisNpc) != s_damage_calculation_victims.end()) return;
+  if (!ShouldSuppressLocalLifecycleEvents() && s_finishing_move_context &&
+      s_finishing_move_context->attacker == attacker && s_finishing_move_context->victim == thisNpc &&
+      NetGame::Instance().ReportFinishingMove(attacker, thisNpc, !s_finishing_move_context->reported)) {
+    s_finishing_move_context->reported = true;
+    return;
+  }
   if (g_originalDoDie) {
     g_originalDoDie(thisNpc, attacker);
   }
@@ -315,6 +403,7 @@ void __fastcall OnDoDie(oCNpc* thisNpc, void* /*edx*/, oCNpc* attacker) {
 
 // Hook: oCNpc::DropUnconscious - clears hands after going unconscious
 void __fastcall OnDropUnconscious(oCNpc* thisNpc, void* /*edx*/, float duration, oCNpc* attacker) {
+  if (std::find(s_damage_calculation_victims.begin(), s_damage_calculation_victims.end(), thisNpc) != s_damage_calculation_victims.end()) return;
   if (g_originalDropUnconscious) {
     g_originalDropUnconscious(thisNpc, duration, attacker);
   }
@@ -330,23 +419,30 @@ void __fastcall OnDropUnconscious(oCNpc* thisNpc, void* /*edx*/, float duration,
 
 // Hook: oCNpc::StandUp - notify server when the local player stands up from unconscious
 void __fastcall OnStandUp(oCNpc* thisNpc, void* /*edx*/, int param1, int param2) {
-  const bool was_unconscious = thisNpc->IsUnconscious();
   if (g_originalStandUp) {
     g_originalStandUp(thisNpc, param1, param2);
   }
-  if (thisNpc == player && was_unconscious && NetGame::Instance().IsConnected() && !ShouldSuppressLocalLifecycleEvents()) {
+  if (thisNpc == player && NetGame::Instance().IsConnected() && !ShouldSuppressLocalLifecycleEvents()) {
     NetGame::Instance().SendPlayerStandUp();
   }
 }
 
 // Hook: oCMobInter::CallOnStateFunc - skip SLEEPABIT state to prevent sleep exploit
 void __fastcall OnCallOnStateFunc(oCMobInter* mob, void* /*edx*/, oCNpc* npc, int state) {
+  if (!mob) return;
   // Skip "SLEEPABIT" to prevent sleep exploit in multiplayer
   if (!mob->onStateFuncName.IsEmpty() && memcmp("SLEEPABIT", mob->onStateFuncName.ToChar(), 9) == 0) {
     return;
   }
   if (g_originalCallOnStateFunc) {
     g_originalCallOnStateFunc(mob, npc, state);
+  }
+  if (npc == player && NetGame::Instance().IsConnected()) {
+    const std::string name = mob->GetObjectName().ToChar();
+    if (!name.empty()) {
+      const auto position = mob->GetPositionWorld();
+      NetGame::Instance().SendMobState(name, glm::vec3(position[VX], position[VY], position[VZ]), state);
+    }
   }
 }
 
@@ -390,19 +486,7 @@ int __fastcall OnCheckRemoveNpc(oCSpawnManager* spawn_manager, void* /*edx*/, oC
 // Hook: oCNpc::OnDamage_Hit - filter arrow/spell damage from other players
 // In multiplayer, damage from other players' arrows/spells should be server-controlled
 void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDescriptor& damageDesc) {
-  // Skip spell damage from non-player attackers (server controls this)
-  if (damageDesc.nSpellID > 0 && damageDesc.nSpellID != -1 && player != damageDesc.pNpcAttacker) {
-    return;
-  }
-  // Skip arrow/bolt damage from non-player attackers or self-damage
-  if (damageDesc.pItemWeapon) {
-    const zSTRING weapon_name = damageDesc.pItemWeapon->GetInstanceName();
-    if (weapon_name == "ITRW_ARROW" || weapon_name == "ITRW_BOLT") {
-      if (damageDesc.pNpcAttacker && (player != damageDesc.pNpcAttacker || player == thisNpc)) {
-        return;
-      }
-    }
-  }
+  if (!thisNpc) return;
   const int old_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
   int damage = 0;
 
@@ -414,27 +498,49 @@ void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDesc
   const bool server_controlled_player_damage =
       connected && attacker_is_network_player && victim_is_network_player && damageDesc.pNpcAttacker != thisNpc;
 
+  if (server_controlled_player_damage && !NetGame::Instance().CanReportActorDamage(damageDesc.pNpcAttacker)) {
+    // Spectators present the accepted server result. They never execute the
+    // native hit gameplay callbacks or calculate another copy of the damage.
+    damageDesc.bIsDead = 0;
+    damageDesc.bIsUnconscious = 0;
+    return;
+  }
+
   if (server_controlled_player_damage) {
-    constexpr int kProtectedDamageHealth = 1000000;
+    constexpr int kProtectedDamageHealth = 1000000000;
     if (g_originalOnDamageHit) {
-      thisNpc->attribute[NPC_ATR_HITPOINTS] = kProtectedDamageHealth;
+      struct DamageCalculation {
+        oCNpc* victim;
+        int health;
+        explicit DamageCalculation(oCNpc* npc) : victim(npc), health(npc->attribute[NPC_ATR_HITPOINTS]) {
+          victim->AddRef();
+          s_damage_calculation_victims.push_back(victim);
+          victim->attribute[NPC_ATR_HITPOINTS] = kProtectedDamageHealth;
+        }
+        ~DamageCalculation() {
+          victim->attribute[NPC_ATR_HITPOINTS] = health;
+          s_damage_calculation_victims.pop_back();
+          victim->Release();
+        }
+      } calculation(thisNpc);
       g_originalOnDamageHit(thisNpc, damageDesc);
-      damage = std::max(0, kProtectedDamageHealth - thisNpc->attribute[NPC_ATR_HITPOINTS]);
-      thisNpc->attribute[NPC_ATR_HITPOINTS] = old_health;
+      damage = static_cast<int>(std::clamp<std::int64_t>(static_cast<std::int64_t>(kProtectedDamageHealth) -
+          thisNpc->attribute[NPC_ATR_HITPOINTS], 0, std::numeric_limits<int>::max()));
     }
     damageDesc.bIsDead = 0;
     damageDesc.bIsUnconscious = 0;
   } else if (g_originalOnDamageHit) {
     g_originalOnDamageHit(thisNpc, damageDesc);
     const int new_health = thisNpc->attribute[NPC_ATR_HITPOINTS];
-    damage = std::max(0, old_health - new_health);
+    damage = static_cast<int>(std::clamp<std::int64_t>(static_cast<std::int64_t>(old_health) - new_health,
+        0, std::numeric_limits<int>::max()));
   }
 
   // Report only the damage delta; the server decides whether and how to apply it.
-  if (attacker_is_local_player && thisNpc != player && connected) {
+  if (server_controlled_player_damage && connected) {
     if (auto victim_id = NetGame::Instance().GetPlayerIdByNpc(thisNpc); victim_id.has_value()) {
       if (damage > 0) {
-        NetGame::Instance().SendPlayerHit(static_cast<std::uint32_t>(victim_id.value()), damage,
+        NetGame::Instance().SendActorHit(damageDesc.pNpcAttacker, static_cast<std::uint32_t>(victim_id.value()), damage,
                                           static_cast<std::uint32_t>(damageDesc.enuModeDamage),
                                           damageDesc.bDamageDontKill != 0);
       }
@@ -522,207 +628,209 @@ void InstallFloorSlidingCrashfix() {
   });
 }
 
-bool ShouldEmitMessageOnce(std::unordered_map<oCNpc*, const oCMsgManipulate*>& cache, oCNpc* npc, oCMsgManipulate* msg) {
-  if (!npc || !msg) {
-    return false;
+// Compare completed native mutations, not message addresses or item classes.
+// Engine messages are reused, and two equipped rings can share an instance.
+int __fastcall OnDropItem(oCNpc* npc, void* /*unusedEdx*/, zCVob* vob) {
+  auto* item = vob ? zDYNAMIC_CAST<oCItem>(vob) : nullptr;
+  if (npc != player || !item || !NetGame::Instance().IsConnected()) {
+    return g_originalDropItem ? g_originalDropItem(npc, vob) : 0;
   }
-  auto it = cache.find(npc);
-  if (it != cache.end() && it->second == msg) {
-    return false;
+  item->AddRef();
+  const int instance = item->GetInstance();
+  int before = GetInventoryAmount(npc, instance);
+  const int amount = std::max(1, item->amount);
+  const std::string name = ResolveItemInstanceName(item);
+  const glm::vec3 fallback = GetDropFallbackPosition(npc);
+  const auto event = EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnDropItemName,
+      gmp::gothic::OnDropItemEvent{name, amount});
+  if (event.cancelled || GetInventoryAmount(npc, instance) < amount) {
+    item->Release();
+    return 0;
   }
-  cache[npc] = msg;
-  return true;
-}
-
-const int DROP_ITEM_TIMEOUT = 200;
-
-// DROP & TAKE
-int __fastcall OnDropItem(oCNpc* thisNpc, void* /*unusedEdx*/, zCVob* vob) {
-  oCItem* item = vob ? zDYNAMIC_CAST<oCItem>(vob) : nullptr;
-  if (thisNpc != player || !item) {
-    return g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
-  }
-
-  static int dropItemTimeout = 0;
-  if (global_ingame && dropItemTimeout < GetTickCount()) {
-    const auto instance_name = ResolveItemInstanceName(item);
-    const auto amount = static_cast<short>(std::max(1, item->amount));
-    auto event_result = EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnDropItemName,
-                                                               gmp::gothic::OnDropItemEvent{instance_name, amount});
-    if (event_result.cancelled) {
-      return 0;
-    }
-
-    const glm::vec3 fallback_position = GetDropFallbackPosition(thisNpc);
-    int result = g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
-    glm::vec3 position = GetItemPosition(item);
-    if (IsZeroVector(position) && !IsZeroVector(fallback_position)) {
-      position = fallback_position;
-    }
-
-    NetGame::Instance().SendDropItem(item->GetInstance(), amount, position, GetItemRotation(item), item->physicsEnabled != 0);
+  before = GetInventoryAmount(npc, instance);
+  const int result = g_originalDropItem ? g_originalDropItem(npc, vob) : 0;
+  const int removed = std::max(0, before - GetInventoryAmount(npc, instance));
+  if (removed > 0) {
+    auto position = GetItemPosition(item);
+    if (IsZeroVector(position)) position = fallback;
+    const auto rotation = GetItemRotation(item);
+    const bool physics = item->physicsEnabled != 0;
+    NetGame::Instance().SendDropItem(instance, removed, position, rotation, physics);
     item->RemoveVobFromWorld();
-    dropItemTimeout = GetTickCount() + DROP_ITEM_TIMEOUT;
-    return result;
   }
-
-  return g_originalDropItem ? g_originalDropItem(thisNpc, vob) : 0;
+  item->Release();
+  return result;
 }
 
-int __fastcall OnTakeItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
-  if (thisNpc != player) {
-    return g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
+int __fastcall OnTakeItem(oCNpc* npc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
+  auto* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
+  if (npc != player || !item || !NetGame::Instance().IsConnected()) {
+    return g_originalTakeItem ? g_originalTakeItem(npc, msg) : 0;
   }
-
-  oCItem* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
-  if (item && global_ingame && ShouldEmitMessageOnce(s_last_take_msg, thisNpc, msg)) {
-    const auto instance_name = ResolveItemInstanceName(item);
-    const auto instance_id = item->GetInstance();
-    const auto amount = static_cast<short>(std::max(1, item->amount));
-    const auto item_ground_id = gmp::gothic::ClientItemGroundManager::Instance().GetIdByItem(item);
-    const int previous_amount = item_ground_id.has_value() ? GetInventoryAmount(thisNpc, instance_id) : 0;
-    auto event_result =
-        EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnTakeItemName,
-                                               gmp::gothic::OnTakeItemEvent{instance_name, true, amount, item_ground_id});
-    if (event_result.cancelled) {
-      return 0;
+  item->AddRef();
+  // Copy before native pickup: stacking can retire the world object/message.
+  const std::string name = ResolveItemInstanceName(item);
+  const int instance = item->GetInstance();
+  const int before = GetInventoryAmount(npc, instance);
+  const int offered = std::max(1, item->amount);
+  const auto ground = gmp::gothic::ClientItemGroundManager::Instance().GetIdByItem(item);
+  const auto* ground_record = ground ? gmp::gothic::ClientItemGroundManager::Instance().GetById(*ground) : nullptr;
+  const auto restore_ground = ground_record ? std::optional<gmp::gothic::ClientItemGroundManager::ItemGround>(*ground_record) : std::nullopt;
+  const auto event = EventManager::Instance().DispatchEvent(gmp::gothic::kEventOnTakeItemName,
+      gmp::gothic::OnTakeItemEvent{name, ground.has_value(), offered, ground});
+  if (event.cancelled) { item->Release(); return 0; }
+  // A native world item without a managed identity has no server ownership or
+  // quantity. Server scripts must import it as managed loot before pickup.
+  if (!ground || !item->GetHomeWorld()) { item->Release(); return 0; }
+  const auto* current_ground = gmp::gothic::ClientItemGroundManager::Instance().GetById(*ground);
+  if (!current_ground || current_ground->item != item) { item->Release(); return 0; }
+  const int result = g_originalTakeItem ? g_originalTakeItem(npc, msg) : 0;
+  const int gained = std::max(0, GetInventoryAmount(npc, instance) - before);
+  if (gained > 0) {
+    if (ground) gmp::gothic::ClientItemGroundManager::Instance().DetachItem(*ground);
+    if (NetGame::Instance().SendTakeItem(instance, gained, ground) == 0 && restore_ground) {
+      const auto& record = *restore_ground;
+      gmp::gothic::ClientItemGroundManager::Instance().Upsert(record.id, record.instance, record.amount,
+          record.physics_enabled, record.position, record.rotation);
     }
-
-    int result = g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
-    if (item_ground_id.has_value()) {
-      gmp::gothic::ClientItemGroundManager::Instance().RememberPendingTake(instance_id, amount, previous_amount);
-      gmp::gothic::ClientItemGroundManager::Instance().DetachItem(*item_ground_id);
-    }
-    NetGame::Instance().SendTakeItem(instance_id, amount, item_ground_id);
-    return result;
   }
-
-  return g_originalTakeItem ? g_originalTakeItem(thisNpc, msg) : 0;
+  item->Release();
+  return result;
 }
 
-bool ShouldEmitUseItem(oCNpc* npc, oCMsgManipulate* msg) {
-  if (!npc || !msg) {
-    return false;
-  }
-  auto& state = s_last_use_state[npc];
-  if (state.msg == msg) {
-    return false;
-  }
-
-  const DWORD now = GetTickCount();
-  const std::string item = ResolveItemInstanceName(msg);
+int ObserveUseItem(oCNpc* npc, oCMsgManipulate* msg, bool to_state) {
+  // UseItem can call UseItemToState. Observe the completed outer operation once,
+  // while still allowing another actor's scripted use inside that operation.
+  static std::vector<oCNpc*> observed_actors;
+  const bool local = npc == player;
+  const bool observe = std::find(observed_actors.begin(), observed_actors.end(), npc) == observed_actors.end() &&
+                       NetGame::Instance().CanReportActorDamage(npc);
+  struct UseObservationScope {
+    std::vector<oCNpc*>& actors;
+    bool active;
+    UseObservationScope(std::vector<oCNpc*>& actors, oCNpc* actor, bool active) : actors(actors), active(active) {
+      if (active) actors.push_back(actor);
+    }
+    ~UseObservationScope() { if (active) actors.pop_back(); }
+  } observation_scope(observed_actors, npc, observe);
+  const auto actor_id = NetGame::Instance().GetPlayerIdByNpc(npc);
+  const std::string name = ResolveItemInstanceName(msg);
   const std::string scheme = ResolveItemSchemeName(msg);
-  if ((!item.empty() && state.item == item && now - state.tick < 750) ||
-      (!scheme.empty() && state.scheme == scheme && now - state.tick < 750)) {
-    return false;
-  }
-
-  state.msg = msg;
-  state.item = item;
-  state.scheme = scheme;
-  state.tick = now;
-  return true;
-}
-
-int __fastcall OnUseItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
-  int from_state = 0;
-  int to_state = 0;
-  oCMobInter* mob = msg ? zDYNAMIC_CAST<oCMobInter>(msg->targetVob) : nullptr;
-  if (mob) {
-    from_state = mob->GetState();
-  }
-
-  int result = g_originalUseItem ? g_originalUseItem(thisNpc, msg) : 0;
-
-  if (mob) {
-    to_state = mob->GetState();
-  }
-
-  if (thisNpc == player && ShouldEmitUseItem(thisNpc, msg)) {
-    EventManager::Instance().TriggerEvent(
-        gmp::gothic::kEventOnUseItemName,
-        gmp::gothic::OnUseItemEvent{ResolveItemInstanceName(msg), ResolveItemSchemeName(msg), from_state, to_state});
-  }
-
-  return result;
-}
-
-int __fastcall OnUseItemToState(oCNpc* thisNpc, void* /*unusedEdx*/, oCMsgManipulate* msg) {
-  int from_state = 0;
-  int to_state = 0;
-  oCMobInter* mob = msg ? zDYNAMIC_CAST<oCMobInter>(msg->targetVob) : nullptr;
-  if (mob) {
-    from_state = mob->GetState();
-  }
-
-  int result = g_originalUseItemToState ? g_originalUseItemToState(thisNpc, msg) : 0;
-
-  if (mob) {
-    to_state = mob->GetState();
-  }
-
-  if (thisNpc == player && ShouldEmitUseItem(thisNpc, msg)) {
-    EventManager::Instance().TriggerEvent(
-        gmp::gothic::kEventOnUseItemName,
-        gmp::gothic::OnUseItemEvent{ResolveItemInstanceName(msg), ResolveItemSchemeName(msg), from_state, to_state});
-  }
-
-  return result;
-}
-
-void __fastcall OnEquipItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCItem* item) {
-  if (g_originalEquipItem) {
-    g_originalEquipItem(thisNpc, item);
-  }
-
-  if (thisNpc != player || ShouldSuppressLocalEquipEvents()) {
-    return;
-  }
-
-  const std::string instance = ResolveItemInstanceName(item);
-  if (instance.empty()) {
-    return;
-  }
-
-  if (s_local_equipped_items.insert(instance).second) {
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnEquipName, gmp::gothic::OnItemEvent{instance});
-  }
-}
-
-void __fastcall OnUnequipItem(oCNpc* thisNpc, void* /*unusedEdx*/, oCItem* item) {
-  if (g_originalUnequipItem) {
-    g_originalUnequipItem(thisNpc, item);
-  }
-
-  if (thisNpc != player || ShouldSuppressLocalEquipEvents()) {
-    return;
-  }
-
-  const std::string instance = ResolveItemInstanceName(item);
-  if (instance.empty()) {
-    return;
-  }
-
-  if (s_local_equipped_items.erase(instance) > 0) {
-    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnUnequipName, gmp::gothic::OnItemEvent{instance});
-  }
-}
-
-int __fastcall OnCastSpell(oCSpell* thisSpell) {
-  int result = g_originalCastSpell ? g_originalCastSpell(thisSpell) : 0;
-
-  if ((DWORD)thisSpell->spellCasterNpc == (DWORD)player) {
-    if (global_ingame) {
-      if (thisSpell->spellTargetNpc) {
-        if (thisSpell->GetSpellID() == 46 && !global_ingame->Shrinker->IsShrinked(thisSpell->spellTargetNpc)) {
-          global_ingame->Shrinker->ShrinkNpc(thisSpell->spellTargetNpc);
-        }
-        NetGame::Instance().SendCastSpell(thisSpell->spellTargetNpc, thisSpell->GetSpellID());
-      } else {
-        NetGame::Instance().SendCastSpell(0, thisSpell->GetSpellID());
+  auto* item = msg && msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
+  int instance = item ? item->GetInstance() : 0;
+  if (instance == 0 && !name.empty() && zCParser::GetParser()) instance = zCParser::GetParser()->GetIndex(name.c_str());
+  const int before = observe ? GetInventoryAmount(npc, instance) : 0;
+  const int health = observe ? npc->GetAttribute(NPC_ATR_HITPOINTS) : 0;
+  const int mana = observe ? npc->GetAttribute(NPC_ATR_MANA) : 0;
+  auto* mob = msg && msg->targetVob ? zDYNAMIC_CAST<oCMobInter>(msg->targetVob) : nullptr;
+  // Hold a reference across native calls; never read the retired message again.
+  if (mob) mob->AddRef();
+  const int from = mob ? mob->GetState() : 0;
+  const int result = to_state ? (g_originalUseItemToState ? g_originalUseItemToState(npc, msg) : 0)
+      : (g_originalUseItem ? g_originalUseItem(npc, msg) : 0);
+  const int to = mob ? mob->GetState() : 0;
+  if (mob) mob->Release();
+  if (observe && NetGame::Instance().CanReportActorDamage(npc)) {
+    const int consumed = std::max(0, before - GetInventoryAmount(npc, instance));
+    const int health_delta = npc->GetAttribute(NPC_ATR_HITPOINTS) - health;
+    const int mana_delta = npc->GetAttribute(NPC_ATR_MANA) - mana;
+    if (result != 0 || consumed > 0 || health_delta != 0 || mana_delta != 0 || from != to) {
+      if (local) EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnUseItemName,
+          gmp::gothic::OnUseItemEvent{name, scheme, from, to});
+      if (instance > 0 && NetGame::Instance().IsConnected()) {
+        NetGame::Instance().SendItemUsePresentation(instance, scheme, consumed, health_delta, mana_delta,
+            static_cast<std::uint32_t>(actor_id.value_or(0)));
       }
     }
   }
+  return result;
+}
+
+int __fastcall OnUseItem(oCNpc* npc, void* /*unusedEdx*/, oCMsgManipulate* msg) { return ObserveUseItem(npc, msg, false); }
+int __fastcall OnUseItemToState(oCNpc* npc, void* /*unusedEdx*/, oCMsgManipulate* msg) { return ObserveUseItem(npc, msg, true); }
+
+void __fastcall OnEquipItem(oCNpc* npc, void* /*unusedEdx*/, oCItem* item) {
+  if (!item) { if (g_originalEquipItem) g_originalEquipItem(npc, item); return; }
+  item->AddRef();
+  const bool before = item->HasFlag(ITM_FLAG_ACTIVE) != 0;
+  const std::string name = ResolveItemInstanceName(item);
+  if (g_originalEquipItem) g_originalEquipItem(npc, item);
+  const bool after = item->HasFlag(ITM_FLAG_ACTIVE) != 0;
+  item->Release();
+  if (npc == player && !ShouldSuppressLocalEquipEvents() && !before && after && !name.empty()) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnEquipName, gmp::gothic::OnItemEvent{name});
+  }
+}
+
+void __fastcall OnUnequipItem(oCNpc* npc, void* /*unusedEdx*/, oCItem* item) {
+  if (!item) { if (g_originalUnequipItem) g_originalUnequipItem(npc, item); return; }
+  item->AddRef();
+  const bool before = item->HasFlag(ITM_FLAG_ACTIVE) != 0;
+  const std::string name = ResolveItemInstanceName(item);
+  if (g_originalUnequipItem) g_originalUnequipItem(npc, item);
+  const bool after = item->HasFlag(ITM_FLAG_ACTIVE) != 0;
+  item->Release();
+  if (npc == player && !ShouldSuppressLocalEquipEvents() && before && !after && !name.empty()) {
+    EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnUnequipName, gmp::gothic::OnItemEvent{name});
+  }
+}
+
+namespace {
+class NativeHitBatch {
+public:
+  explicit NativeHitBatch(bool observe) : client_(observe ? NetGame::Instance().game_client.get() : nullptr) {
+    if (client_) client_->BeginHitBatch();
+  }
+  ~NativeHitBatch() { Finish(false); }
+  bool IsCurrent() const { return client_ && NetGame::Instance().game_client.get() == client_; }
+  void Finish(bool accepted) {
+    if (IsCurrent()) client_->EndHitBatch(accepted);
+    client_ = nullptr;
+  }
+private:
+  gmp::client::GameClient* client_;
+};
+}
+
+int __fastcall OnShootArrow(oCNpc* npc, void* /*unusedEdx*/, int param) {
+  const bool observe = NetGame::Instance().CanReportActorDamage(npc);
+  NativeHitBatch hits(observe);
+  const int mode = npc ? npc->GetWeaponMode() : 0;
+  const auto origin = npc ? npc->GetPositionWorld() : zVEC3(0.0f, 0.0f, 0.0f);
+  const auto heading = npc ? npc->GetAtVectorWorld() : zVEC3(0.0f, 0.0f, 1.0f);
+  const auto target = npc ? NetGame::Instance().GetPlayerIdByNpc(zDYNAMIC_CAST<oCNpc>(npc->GetFocusVob())) : std::nullopt;
+  const int result = g_originalShootArrow ? g_originalShootArrow(npc, param) : 0;
+  const bool accepted = hits.IsCurrent() && NetGame::Instance().CanReportActorDamage(npc) && result != 0;
+  if (accepted) {
+    NetGame::Instance().SendShotPresentation(static_cast<std::uint8_t>(mode),
+        glm::vec3(origin[VX], origin[VY], origin[VZ]), glm::vec3(heading[VX], heading[VY], heading[VZ]),
+        target ? std::optional<std::uint32_t>(static_cast<std::uint32_t>(*target)) : std::nullopt,
+        static_cast<std::uint32_t>(NetGame::Instance().GetPlayerIdByNpc(npc).value_or(0)));
+  }
+  hits.Finish(accepted);
+  return result;
+}
+int __fastcall OnCastSpell(oCSpell* thisSpell) {
+  if (!thisSpell) return 0;
+  auto* caster = thisSpell->spellCasterNpc;
+  const bool local = NetGame::Instance().CanReportActorDamage(caster);
+  NativeHitBatch hits(local);
+  const auto caster_id = NetGame::Instance().GetPlayerIdByNpc(caster);
+  const int spell_id = thisSpell->GetSpellID();
+  const auto target_id = NetGame::Instance().GetPlayerIdByNpc(thisSpell->spellTargetNpc);
+  int item_instance = 0;
+  if (auto* caster = thisSpell->spellCasterNpc) {
+    if (auto* book = caster->GetSpellBook()) {
+      if (auto* item = book->GetSpellItem(thisSpell)) item_instance = item->GetInstance();
+    }
+  }
+  int result = g_originalCastSpell ? g_originalCastSpell(thisSpell) : 0;
+  const bool accepted = hits.IsCurrent() && result != 0 && NetGame::Instance().CanReportActorDamage(caster);
+  if (accepted)
+    NetGame::Instance().game_client->SendCastSpell(static_cast<std::uint32_t>(target_id.value_or(0)),
+        static_cast<std::uint16_t>(spell_id), item_instance,
+        static_cast<std::uint32_t>(caster_id.value_or(0)), caster->GetAttribute(NPC_ATR_MANA));
+  hits.Finish(accepted);
 
   return result;
 }
@@ -794,6 +902,9 @@ void Initialize(void) {
     if (auto original = CreateHook(kCastSpellHookAddress, (DWORD)OnCastSpell)) {
       g_originalCastSpell = reinterpret_cast<CastSpellOriginalFn>(*original);
     }
+    if (auto original = CreateHook(kShootArrowHookAddress, (DWORD)OnShootArrow)) {
+      g_originalShootArrow = reinterpret_cast<ShootArrowOriginalFn>(*original);
+    }
     if (auto original = CreateHook(kDropItemHookAddress, (DWORD)OnDropItem)) {
       g_originalDropItem = reinterpret_cast<DropItemOriginalFn>(*original);
     }
@@ -815,6 +926,9 @@ void Initialize(void) {
     // oCNpc::DoDie - clear hands after death
     if (auto original = CreateHook(kDoDieHookAddress, (DWORD)OnDoDie)) {
       g_originalDoDie = reinterpret_cast<DoDieOriginalFn>(*original);
+    }
+    if (auto original = CreateHook(kAttackFinishHookAddress, (DWORD)OnAttackFinish)) {
+      g_originalAttackFinish = reinterpret_cast<AttackFinishOriginalFn>(*original);
     }
     // oCNpc::DropUnconscious - clear hands after going unconscious
     if (auto original = CreateHook(kDropUnconsciousHookAddress, (DWORD)OnDropUnconscious)) {

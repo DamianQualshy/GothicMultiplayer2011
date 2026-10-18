@@ -81,17 +81,51 @@ ItemGroundManager::ItemGroundId ReadItemGroundId(const sol::object& object) {
 
 }  // namespace
 
+/* luagmp (class)
+*
+* Represents a synchronized item placed in the world.
+*
+* @version  0.3.0
+* @name     ItemGround
+* @side     server
+* @category Item
+*
+*/
 LuaItemGround::LuaItemGround(ItemGroundManager::ItemGroundId id) : id_(id) {}
 
+/* luagmp (property)
+*
+* Represents the unique ground item id.
+*
+* @name     id
+* @return   (number)
+*
+*/
 ItemGroundManager::ItemGroundId LuaItemGround::getId() const {
   return id_;
 }
 
+/* luagmp (property)
+*
+* Represents the Gothic item instance name.
+*
+* @name     instance
+* @return   (string)
+*
+*/
 std::string LuaItemGround::getInstance() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->instance : std::string{};
 }
 
+/* luagmp (property)
+*
+* Represents the read-only registry item definition for this ground item.
+*
+* @name     item
+* @return   (Item|nil)
+*
+*/
 sol::object LuaItemGround::getItem(sol::this_state state) const {
   sol::state_view lua(state);
   auto* item_ground = GetItemGround(id_);
@@ -101,11 +135,27 @@ sol::object LuaItemGround::getItem(sol::this_state state) const {
   return MakeItemObject(lua, item_ground->instance);
 }
 
+/* luagmp (property)
+*
+* Represents the item amount.
+*
+* @name     amount
+* @return   (number)
+*
+*/
 std::int32_t LuaItemGround::getAmount() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->amount : 0;
 }
 
+/* luagmp (property)
+*
+* Enables or disables client-side physics for this ground item.
+*
+* @name     physicsEnabled
+* @return   (boolean)
+*
+*/
 bool LuaItemGround::getPhysicsEnabled() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->physics_enabled : false;
@@ -117,11 +167,27 @@ void LuaItemGround::setPhysicsEnabled(bool enabled) {
   }
 }
 
+/* luagmp (property)
+*
+* Represents the world name where this ground item exists.
+*
+* @name     world
+* @return   (string)
+*
+*/
 std::string LuaItemGround::getWorld() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->world : std::string{};
 }
 
+/* luagmp (property)
+*
+* Represents the virtual world id where this ground item exists.
+*
+* @name     virtualWorld
+* @return   (number)
+*
+*/
 std::int32_t LuaItemGround::getVirtualWorld() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->virtual_world : 0;
@@ -133,113 +199,6 @@ void LuaItemGround::setVirtualWorld(std::int32_t virtual_world) {
   }
 }
 
-sol::table LuaItemGround::getPosition(sol::this_state state) const {
-  auto* item_ground = GetItemGround(id_);
-  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
-                                            item_ground ? item_ground->position : glm::vec3{0.0f});
-}
-
-void LuaItemGround::setPosition(float x, float y, float z) {
-  if (g_server) {
-    g_server->SetItemGroundPosition(id_, glm::vec3{x, y, z});
-  }
-}
-
-sol::table LuaItemGround::getRotation(sol::this_state state) const {
-  auto* item_ground = GetItemGround(id_);
-  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
-                                            item_ground ? item_ground->rotation : glm::vec3{0.0f});
-}
-
-void LuaItemGround::setRotation(float x, float y, float z) {
-  if (g_server) {
-    g_server->SetItemGroundRotation(id_, glm::vec3{x, y, z});
-  }
-}
-
-void BindItemGround(sol::state& lua) {
-/* luagmp (class)
-*
-* Represents a synchronized item placed in the world.
-*
-* @version  0.3.0
-* @name     ItemGround
-* @side     server
-* @category Item
-*
-*/
-  auto item_ground_type = lua.new_usertype<LuaItemGround>("ItemGround", sol::no_constructor);
-
-/* luagmp (property)
-*
-* Represents the unique ground item id.
-*
-* @name     id
-* @return   (number)
-*
-*/
-  item_ground_type["id"] = sol::property(&LuaItemGround::getId);
-
-/* luagmp (property)
-*
-* Represents the Gothic item instance name.
-*
-* @name     instance
-* @return   (string)
-*
-*/
-  item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
-
-/* luagmp (property)
-*
-* Represents the read-only registry item definition for this ground item.
-*
-* @name     item
-* @return   (Item|nil)
-*
-*/
-  item_ground_type["item"] = sol::property([](const LuaItemGround& item_ground, sol::this_state state) { return item_ground.getItem(state); });
-
-/* luagmp (property)
-*
-* Represents the item amount.
-*
-* @name     amount
-* @return   (number)
-*
-*/
-  item_ground_type["amount"] = sol::property(&LuaItemGround::getAmount);
-
-/* luagmp (property)
-*
-* Enables or disables client-side physics for this ground item.
-*
-* @name     physicsEnabled
-* @return   (boolean)
-*
-*/
-  item_ground_type["physicsEnabled"] = sol::property(&LuaItemGround::getPhysicsEnabled, &LuaItemGround::setPhysicsEnabled);
-
-/* luagmp (property)
-*
-* Represents the world name where this ground item exists.
-*
-* @name     world
-* @return   (string)
-*
-*/
-  item_ground_type["world"] = sol::property(&LuaItemGround::getWorld);
-
-/* luagmp (property)
-*
-* Represents the virtual world id where this ground item exists.
-*
-* @name     virtualWorld
-* @return   (number)
-*
-*/
-  item_ground_type["virtualWorld"] = sol::property(&LuaItemGround::getVirtualWorld, &LuaItemGround::setVirtualWorld);
-
 /* luagmp (method)
 *
 * Returns the ground item world position.
@@ -248,7 +207,11 @@ void BindItemGround(sol::state& lua) {
 * @return   ({x, y, z}) Position table.
 *
 */
-  item_ground_type["getPosition"] = &LuaItemGround::getPosition;
+sol::table LuaItemGround::getPosition(sol::this_state state) const {
+  auto* item_ground = GetItemGround(id_);
+  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
+                                            item_ground ? item_ground->position : glm::vec3{0.0f});
+}
 
 /* luagmp (method)
 *
@@ -260,7 +223,11 @@ void BindItemGround(sol::state& lua) {
 * @param    (number) z  Z coordinate.
 *
 */
-  item_ground_type["setPosition"] = &LuaItemGround::setPosition;
+void LuaItemGround::setPosition(float x, float y, float z) {
+  if (g_server) {
+    g_server->SetItemGroundPosition(id_, glm::vec3{x, y, z});
+  }
+}
 
 /* luagmp (method)
 *
@@ -270,7 +237,11 @@ void BindItemGround(sol::state& lua) {
 * @return   ({x, y, z}) Rotation table.
 *
 */
-  item_ground_type["getRotation"] = &LuaItemGround::getRotation;
+sol::table LuaItemGround::getRotation(sol::this_state state) const {
+  auto* item_ground = GetItemGround(id_);
+  return ::lua::bind_helpers::MakeVec3Table(sol::state_view(state),
+                                            item_ground ? item_ground->rotation : glm::vec3{0.0f});
+}
 
 /* luagmp (method)
 *
@@ -282,7 +253,11 @@ void BindItemGround(sol::state& lua) {
 * @param    (number) z  Z rotation.
 *
 */
-  item_ground_type["setRotation"] = &LuaItemGround::setRotation;
+void LuaItemGround::setRotation(float x, float y, float z) {
+  if (g_server) {
+    g_server->SetItemGroundRotation(id_, glm::vec3{x, y, z});
+  }
+}
 
 /* luagmp (class)
 *
@@ -294,8 +269,6 @@ void BindItemGround(sol::state& lua) {
 * @category Item
 *
 */
-  sol::table manager = lua.create_table();
-
 /* luagmp (method)
 *
 * Returns a ground item by id.
@@ -308,7 +281,9 @@ void BindItemGround(sol::state& lua) {
 * @return   (ItemGround|nil)   Ground item object or nil if missing.
 *
 */
-  manager["getById"] = [](ItemGroundManager::ItemGroundId id, sol::this_state state) { return MakeItemGroundObject(id, state); };
+sol::object Function_ItemGround_GetById(ItemGroundManager::ItemGroundId id, sol::this_state state) {
+  return MakeItemGroundObject(id, state);
+}
 
 /* luagmp (method)
 *
@@ -329,27 +304,27 @@ void BindItemGround(sol::state& lua) {
 * @return   (number) Ground item id, or 0 on failure.
 *
 */
-  manager["create"] = [](const sol::table& arg) -> ItemGroundManager::ItemGroundId {
-    if (g_server == nullptr) {
-      return 0;
-    }
+ItemGroundManager::ItemGroundId Function_ItemGround_Create(const sol::table& arg) {
+  if (g_server == nullptr) {
+    return 0;
+  }
 
-    auto instance = GetValueOr<std::string>(arg, "instance", {});
-    if (instance.empty()) {
-      SPDLOG_WARN("ItemGroundManager.create called without an instance");
-      return 0;
-    }
+  auto instance = GetValueOr<std::string>(arg, "instance", {});
+  if (instance.empty()) {
+    SPDLOG_WARN("ItemGroundManager.create called without an instance");
+    return 0;
+  }
 
-    ItemGroundManager::CreateOptions options;
-    options.instance = instance;
-    options.amount = std::max<std::int32_t>(1, GetValueOr<std::int32_t>(arg, "amount", 1));
-    options.physics_enabled = GetValueOr<bool>(arg, "physicsEnabled", false);
-    options.position = ReadVec3(arg, "position", glm::vec3{0.0f});
-    options.rotation = ReadVec3(arg, "rotation", glm::vec3{0.0f});
-    options.world = GetValueOr<std::string>(arg, "world", {});
-    options.virtual_world = GetValueOr<std::int32_t>(arg, "virtualWorld", 0);
-    return g_server->CreateItemGround(std::move(options));
-  };
+  ItemGroundManager::CreateOptions options;
+  options.instance = instance;
+  options.amount = std::max<std::int32_t>(1, GetValueOr<std::int32_t>(arg, "amount", 1));
+  options.physics_enabled = GetValueOr<bool>(arg, "physicsEnabled", false);
+  options.position = ReadVec3(arg, "position", glm::vec3{0.0f});
+  options.rotation = ReadVec3(arg, "rotation", glm::vec3{0.0f});
+  options.world = GetValueOr<std::string>(arg, "world", {});
+  options.virtual_world = GetValueOr<std::int32_t>(arg, "virtualWorld", 0);
+  return g_server->CreateItemGround(std::move(options));
+}
 
 /* luagmp (method)
 *
@@ -363,19 +338,36 @@ void BindItemGround(sol::state& lua) {
 * @return   (boolean) True if the ground item was destroyed.
 *
 */
-  manager["destroy"] = [](const sol::object& object) -> bool {
-    if (g_server == nullptr) {
-      return false;
-    }
+bool Function_ItemGround_Destroy(const sol::object& object) {
+  if (g_server == nullptr) {
+    return false;
+  }
 
-    const auto id = ReadItemGroundId(object);
-    if (id == 0) {
-      SPDLOG_WARN("ItemGroundManager.destroy expects an item ground id or ItemGround object");
-      return false;
-    }
-    return g_server->DestroyItemGround(id);
-  };
+  const auto id = ReadItemGroundId(object);
+  if (id == 0) {
+    SPDLOG_WARN("ItemGroundManager.destroy expects an item ground id or ItemGround object");
+    return false;
+  }
+  return g_server->DestroyItemGround(id);
+}
 
+void BindItemGround(sol::state& lua) {
+  auto item_ground_type = lua.new_usertype<LuaItemGround>("ItemGround", sol::no_constructor);
+  item_ground_type["id"] = sol::property(&LuaItemGround::getId);
+  item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
+  item_ground_type["item"] = sol::property(&LuaItemGround::getItem);
+  item_ground_type["amount"] = sol::property(&LuaItemGround::getAmount);
+  item_ground_type["physicsEnabled"] = sol::property(&LuaItemGround::getPhysicsEnabled, &LuaItemGround::setPhysicsEnabled);
+  item_ground_type["world"] = sol::property(&LuaItemGround::getWorld);
+  item_ground_type["virtualWorld"] = sol::property(&LuaItemGround::getVirtualWorld, &LuaItemGround::setVirtualWorld);
+  item_ground_type["getPosition"] = &LuaItemGround::getPosition;
+  item_ground_type["setPosition"] = &LuaItemGround::setPosition;
+  item_ground_type["getRotation"] = &LuaItemGround::getRotation;
+  item_ground_type["setRotation"] = &LuaItemGround::setRotation;
+  sol::table manager = lua.create_table();
+  manager["getById"] = Function_ItemGround_GetById;
+  manager["create"] = Function_ItemGround_Create;
+  manager["destroy"] = Function_ItemGround_Destroy;
   lua["ItemGroundManager"] = manager;
 }
 

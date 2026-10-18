@@ -168,6 +168,9 @@ void Config::LoadConfigFromFile() {
     extended_menu_scenes = *extended_scenes;
   }
   voice_output_volume_percent_ = std::clamp(voice_output_volume_percent_, 0, 100);
+  if (auto delay = toml.GetValue<int>("gmp", "interpolation_delay_ms"); delay) {
+    interpolation_delay_ms_ = std::clamp(*delay, 0, 500);
+  }
 
   // If nickname is empty, the user didn't set up the config yet.
   is_default_ = Nickname.IsEmpty();
@@ -185,6 +188,7 @@ void Config::DefaultSettings() {
   voice_chat_enabled_ = true;
   voice_push_to_talk_key_ = KEY_K;
   voice_output_volume_percent_ = 100;
+  interpolation_delay_ms_ = 120;
   vsync_enabled = true;
   extended_menu_scenes = false;
   is_default_ = true;
@@ -202,6 +206,7 @@ void Config::SaveConfigToFile() {
   toml["gmp"]["voice_push_to_talk_key"] =
       toml::value(std::string(voice_key_name.empty() ? std::string_view{"KEY_K"} : voice_key_name));
   toml["gmp"]["voice_output_volume"] = toml::value(voice_output_volume_percent_);
+  toml["gmp"]["interpolation_delay_ms"] = toml::value(interpolation_delay_ms_);
   toml["gmp"]["extended_menu_scenes"] = toml::value(extended_menu_scenes);
 
   std::string renderer_str;

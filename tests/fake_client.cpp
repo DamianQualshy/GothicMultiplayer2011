@@ -86,6 +86,16 @@ const PlayerSpawnPacket* FakeClient::FindSpawn(std::uint32_t player_id) const {
   return found == spawns_.end() ? nullptr : &*found;
 }
 
+bool FakeClient::SendActorAction(ActorActionPacket action) {
+  if (!initial_info_) return false;
+  const auto* actor = FindSpawn(initial_info_->player_id);
+  if (!actor) return false;
+  action.actor_id = actor->player_id;
+  action.actor_generation = actor->actor_generation;
+  action.source_time_ms = ActorClockMilliseconds();
+  return SendPacket(client_, action);
+}
+
 void FakeClient::HandlePacket(unsigned char* data, std::uint32_t size) {
   if (size == 0) {
     error_ = "Received an empty gameplay message";
@@ -111,7 +121,10 @@ void FakeClient::HandlePacket(unsigned char* data, std::uint32_t size) {
       const bool local = initial_info_ && initial_info_->player_id == packet.player_id;
       spawns_.push_back(std::move(packet));
       if (local) {
-        PlayerWorldEnterPacket ready{Net::PT_PLAYER_WORLD_ENTER, initial_info_->map_name};
+        PlayerWorldEnterPacket ready{};
+        ready.packet_type = Net::PT_PLAYER_WORLD_ENTER;
+        ready.actor_generation = spawns_.back().actor_generation;
+        ready.world_name = initial_info_->map_name;
         if (!SendPacket(client_, ready)) error_ = "Could not send world readiness";
       }
       return;
@@ -137,6 +150,10 @@ void FakeClient::HandlePacket(unsigned char* data, std::uint32_t size) {
 void FakeClient::SendJoinGame() {
   JoinGamePacket packet{};
   packet.packet_type = Net::PT_JOIN_GAME;
+  packet.actor_generation = initial_info_->actor_generation;
+  packet.normal = glm::vec3(0.0f, 0.0f, 1.0f);
+  packet.body_model = "Hum_Body_Naked0";
+  packet.head_model = "Hum_Head_Pony";
   packet.player_name = username_;
   if (!SendPacket(client_, packet)) error_ = "Could not send join message";
 }

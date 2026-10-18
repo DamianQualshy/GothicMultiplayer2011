@@ -87,8 +87,9 @@ std::vector<NpcManager::NpcId> NpcManager::GetNpcIds() const {
 }
 
 void NpcManager::ResetFrontStart(Npc& npc, TimePoint now) {
-  if (!npc.actions.empty()) {
-    npc.actions.front().started_at = npc.host_player_id == 0 ? std::nullopt : std::optional<TimePoint>{now};
+  if (!npc.actions.empty() && npc.host_player_id != 0 && !npc.actions.front().started_at) {
+    // Host migration resumes the original phase and deadline.
+    npc.actions.front().started_at = now;
   }
 }
 
@@ -106,6 +107,12 @@ bool NpcManager::SetHost(NpcId npc_id, std::uint32_t host_player_id, TimePoint n
   }
   ++npc.control_epoch;
   npc.host_player_id = host_player_id;
+  // Incoming IDs belong to the reporting host's session, not to the NPC ID.
+  npc.last_actor_action_id.reset();
+  npc.last_cast_action_id.reset();
+  npc.last_hit_action_id.reset();
+  npc.hit_victims.clear();
+  npc.approved_projectiles.clear();
   ResetFrontStart(npc, now);
   return true;
 }
@@ -134,6 +141,7 @@ bool NpcManager::SetAnimation(NpcId npc_id, const std::string& animation) {
     return false;
   }
   npc.animation = animation;
+  npc.animation_started_at_ms = ActorClockMilliseconds();
   ++npc.animation_revision;
   return true;
 }

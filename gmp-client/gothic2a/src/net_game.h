@@ -71,10 +71,20 @@ public:
   bool IsConnected();
   bool Connect(std::string_view full_address);
   void JoinGame();
-  void SendDropItem(std::int32_t instance, short amount, const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled);
-  void SendTakeItem(std::int32_t instance, short amount, std::optional<std::uint32_t> item_ground_id);
+  std::uint32_t SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position, const glm::vec3& rotation, bool physics_enabled);
+  std::uint32_t SendTakeItem(std::int32_t instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id);
+  void SendAnimationAction(const std::string& name, bool started, std::uint64_t source_time_ms);
+  void SendShotPresentation(std::uint8_t weapon_mode, const glm::vec3& origin, const glm::vec3& heading,
+                           std::optional<std::uint32_t> target_id, std::uint32_t actor_id = 0);
+  void SendItemUsePresentation(std::int32_t instance, const std::string& scheme, std::int32_t quantity,
+                               std::int32_t health_delta, std::int32_t mana_delta, std::uint32_t actor_id = 0);
+  void SendMobState(const std::string& name, const glm::vec3& position, std::int32_t target_state);
+  bool CanReportActorDamage(oCNpc* attacker);
+  void SendActorHit(oCNpc* attacker, std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill,
+                    bool finishing_move = false);
+  bool ReportFinishingMove(oCNpc* attacker, oCNpc* victim, bool send_report = true);
   void SendPlayerWorldEnter(const std::string& world_name);
-  void SendCastSpell(oCNpc* Target, short SpellId);
+  void SendCastSpell(oCNpc* Target, short SpellId, std::int32_t item_instance = 0, std::uint32_t caster_id = 0);
   void SendMessage(const char* msg);
   void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
@@ -167,6 +177,7 @@ public:
   void OnNpcAnimation(const NpcAnimationPacket& animation) override;
   void OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) override;
   void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state) override;
+  void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state, bool authoritative_correction) override;
   void OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) override;
   void OnPlayerNameUpdate(std::uint64_t player_id, const std::string& name) override;
   void OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string& instance) override;
@@ -186,11 +197,19 @@ public:
   void OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId attribute_id, std::int32_t value) override;
   void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) override;
   void OnPlayerDied(std::uint64_t player_id) override;
+  void OnPlayerDied(std::uint64_t player_id, bool apply_state) override;
   void OnPlayerRespawned(std::uint64_t player_id) override;
+  void OnPlayerRespawned(std::uint64_t player_id, bool apply_state) override;
   void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) override;
+  void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id, bool apply_state) override;
   void OnPlayerStandUp(std::uint64_t player_id) override;
+  void OnPlayerStandUp(std::uint64_t player_id, bool apply_state) override;
   void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
-  void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::uint16_t amount) override;
+  void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
+  void OnActorAction(const ActorActionPacket& action) override;
+  void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t item_instance, std::int32_t resulting_amount,
+                                bool accepted, std::optional<std::uint32_t> item_ground_id) override;
+  void OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector<InventoryEntry>& inventory) override;
   void OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) override;
   void OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount, bool physics_enabled,
                           const glm::vec3& position, const glm::vec3& rotation) override;
@@ -198,10 +217,19 @@ public:
   void OnItemsGroundDestroy() override;
   void OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
   void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) override;
+  void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+                       std::uint32_t revision, bool apply_state) override;
   void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) override;
+  void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+                         std::uint32_t revision, bool apply_state) override;
   void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
+  void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
+                    std::uint64_t actor_generation, std::uint32_t control_epoch) override;
   void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) override;
+  void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id,
+                            std::uint64_t source_time_ms, std::uint64_t actor_generation,
+                            std::uint64_t target_generation, std::uint32_t control_epoch) override;
   void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& message) override;
   void OnLuaEvent(const std::string& event_name, std::uint32_t source_element, const std::string& payload) override;
 
@@ -229,6 +257,8 @@ private:
     zCModelAni* animation{nullptr};
     int animation_id{-1};
     bool finished{false};
+    std::chrono::steady_clock::time_point expected_finish{};
+    float last_progress{0.0f};
   };
 
   void ProcessNpcActions();
@@ -251,9 +281,22 @@ private:
   void StopNpcPersistentAnimation(std::uint64_t npc_id);
   void ProcessNpcPersistentAnimation(Gothic2APlayer& actor);
   std::unordered_map<std::uint32_t, NpcAnimationRuntime> npc_animations_;
+  struct PendingInventoryMutation { std::int32_t instance; std::int32_t delta; };
+  std::unordered_map<std::uint32_t, PendingInventoryMutation> pending_inventory_mutations_;
+  std::uint64_t pending_inventory_generation_{0};
+  std::uint64_t stand_up_report_generation_{0};
+  std::uint64_t stand_up_report_after_ms_{0};
+  std::unordered_map<std::uint64_t, Gothic2APlayer*> actors_by_id_;
+  std::unordered_map<oCNpc*, Gothic2APlayer*> actors_by_npc_;
+  std::unordered_map<oCNpc*, std::unordered_set<oCItem*>> proxy_presentation_items_;
+  void PruneProxyPresentationItems(Gothic2APlayer& actor, const PlayerState& state);
+  void ReleaseProxyPresentationItems(oCNpc* npc);
 
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);
+  void ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due = false);
+  void ApplyServerStats(Gothic2APlayer& actor);
+  void ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing = false);
   void ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id, bool trigger_event);
   void ApplyPendingLocalSpawnPosition();
   void UpdateClientEventState();
@@ -299,4 +342,8 @@ private:
 
 public:
   std::optional<std::uint64_t> GetPlayerIdByNpc(oCNpc* npc);
+  void ActorNpcChanged(Gothic2APlayer& actor, oCNpc* previous);
+  void UnregisterActor(Gothic2APlayer& actor);
+  void TrackProxyPresentationItem(oCNpc* npc, oCItem* item);
+  Gothic2APlayer* FindEngineActor(std::uint64_t id) { return GetPlayerById(id); }
 };

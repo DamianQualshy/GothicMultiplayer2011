@@ -10,7 +10,7 @@
 class LuaScript : public lua::TrustedScriptBase {
 public:
   LuaScript();
-  ~LuaScript() = default;
+  ~LuaScript();
 
 protected:
   void BindDomainSpecific() override;

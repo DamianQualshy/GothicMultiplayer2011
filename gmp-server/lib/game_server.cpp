@@ -23,6 +23,7 @@ SOFTWARE.
 */
 
 #include "game_server.h"
+#include "Lua/lua_item.h"
 #include "npc_packets.h"
 
 #include <bitsery/ext/value_range.h>
@@ -58,6 +59,7 @@ SOFTWARE.
 #include <vector>
 
 #include "diagnostics_manager.h"
+#include "inventory_sync.h"
 #include "gothic_clock.h"
 #include "Lua/event_bind.h"
 #include "master_server_endpoint.h"
@@ -116,8 +118,82 @@ constexpr std::int32_t kItemFlagTwoHandedAxe = 1 << 17;
 constexpr std::int32_t kItemFlagShield = 1 << 18;
 constexpr std::int32_t kItemFlagBow = 1 << 19;
 constexpr std::int32_t kItemFlagCrossbow = 1 << 20;
+constexpr std::int32_t kItemFlagRing = 1 << 11;
+constexpr std::int32_t kItemFlagAmulet = 1 << 22;
+constexpr std::int32_t kItemFlagBelt = 1 << 24;
 constexpr std::int32_t kItemWearTorso = 1;
 constexpr std::int32_t kItemWearHead = 2;
+
+bool IsLiveCharacter(const Character& actor) {
+  return actor.is_ingame && actor.tod == 0 && actor.health > 0 && actor.state.life_state == PLAYER_LIFE_ALIVE;
+}
+
+bool SameCharacterScope(const Character& a, const Character& b) {
+  return a.world == b.world && a.virtual_world == b.virtual_world;
+}
+
+bool AcceptActionId(std::optional<std::uint32_t>& last, std::uint32_t incoming) {
+  if (incoming == 0 || (last && !IsNewActorSequence(incoming, *last))) return false;
+  last = incoming;
+  return true;
+}
+
+struct CombatBounds {
+  std::int32_t damage{0};
+  std::uint32_t types{0};
+  std::uint32_t reach{0};
+  std::uint32_t interval_ms{250};
+};
+
+CombatBounds GetCombatBounds(const Character& actor, const ItemRegistry& registry) {
+  if (actor.state.weapon_mode <= 1) {
+    return {std::clamp(actor.strength, 5, 1000000), 1u << 1, 300, 250}; // Gothic blunt damage.
+  }
+  const bool ranged = actor.state.weapon_mode == 5 || actor.state.weapon_mode == 6;
+  const auto* weapon = registry.FindByIndex(ranged ? actor.state.ranged_weapon_instance : actor.state.melee_weapon_instance);
+  if (!weapon || actor.InventoryCount(weapon->instance) == 0 || !weapon->damage || weapon->damage->total < 0) return {};
+  const auto flags = ranged ? (kItemFlagBow | kItemFlagCrossbow) :
+                            (kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe);
+  if ((weapon->flags & flags) == 0 || actor.state.weapon_mode == 7) return {};
+  const auto attribute = ranged ? actor.dexterity : actor.strength;
+  const auto total = std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->damage->total) + std::max(0, attribute), 0, 1000000);
+  return {static_cast<std::int32_t>(total), static_cast<std::uint32_t>(weapon->damage->types) & 255u,
+          ranged ? 10000u : static_cast<std::uint32_t>(std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->range.value_or(150)) + 150, 150, 500)),
+          ranged ? 500u : 200u};
+}
+
+bool CanFinishCharacter(const Character& attacker, const Character& victim, const ItemRegistry& registry) {
+  if (attacker.state.weapon_mode < 2 || attacker.state.weapon_mode > 4 || victim.health <= 0 ||
+      victim.state.life_state != PLAYER_LIFE_UNCONSCIOUS || (victim.flags & PlayerManager::PL_UNCONCIOUS) == 0) return false;
+  const auto* weapon = registry.FindByIndex(attacker.state.melee_weapon_instance);
+  constexpr auto melee_flags = kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe;
+  if (!weapon || (weapon->flags & melee_flags) == 0 || attacker.InventoryCount(weapon->instance) == 0) return false;
+  const auto reach = std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->range.value_or(150)) + 150, 150, 500);
+  return glm::distance(attacker.state.position, victim.state.position) <= static_cast<float>(reach);
+}
+
+std::int32_t BoundDamageByEquipment(const Character& victim, const ItemRegistry& registry,
+                                   std::uint32_t damage_types, std::int32_t attack_bound) {
+  std::int64_t least_protection = std::numeric_limits<std::int32_t>::max();
+  for (std::int32_t type = 0; type < 8; ++type) {
+    if ((damage_types & (1u << type)) == 0) continue;
+    std::int64_t protection = 0;
+    for (const auto index : {victim.state.equipped_armor_instance, victim.state.equipped_helmet_instance,
+                            victim.state.equipped_shield_instance, victim.state.equipped_amulet_instance,
+                            victim.state.equipped_belt_instance, victim.state.equipped_ring_left_instance,
+                            victim.state.equipped_ring_right_instance}) {
+      const auto* item = registry.FindByIndex(index);
+      if (!item || victim.InventoryCount(item->instance) == 0) continue;
+      for (const auto& entry : item->protections) if (entry.type == type) {
+        if (entry.value < 0) return 0;
+        protection += entry.value;
+      }
+    }
+    least_protection = std::min(least_protection, protection);
+  }
+  if (least_protection == std::numeric_limits<std::int32_t>::max()) return 0;
+  return static_cast<std::int32_t>(std::clamp<std::int64_t>(attack_bound - least_protection, std::min(5, attack_bound), attack_bound));
+}
 
 bool SelectConfiguredResources(const ResourceManager& resource_manager, const std::vector<std::string>& resource_names,
                                std::vector<ResourceManager::DiscoveredResource>& selected_resources) {
@@ -245,6 +321,7 @@ std::uint8_t GetPlayerLifeState(const Character& player) {
 }
 
 void ClearTransientCombatState(Character& player) {
+  player.approved_projectiles.clear();
   player.state.left_hand_item_instance = 0;
   player.state.right_hand_item_instance = 0;
   player.state.animation = -1;
@@ -252,6 +329,11 @@ void ClearTransientCombatState(Character& player) {
   player.state.weapon_mode = 0;
   player.state.active_spell_nr = 0;
   player.state.active_spell_instance = 0;
+}
+
+void ClearRecoveredPose(Character& player) {
+  ClearTransientCombatState(player);
+  player.state.body_state &= ~127u; // BS_STAND, preserving body-state modifiers.
 }
 
 void PopulatePlayerSpawnSnapshot(PlayerSpawnPacket& packet, const Character& player) {
@@ -304,23 +386,47 @@ std::uint32_t AdvancePlayerStateSequence(Character& player) {
   return player.state_sequence;
 }
 
+std::uint32_t AdvanceActorCommand(Character& actor) {
+  if (++actor.command_revision == 0) ++actor.command_revision;
+  return actor.command_revision;
+}
+
 PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const Character& player) {
   PlayerStateUpdatePacket packet{};
   packet.packet_type = PT_ACTUAL_STATISTICS;
   packet.player_id = player.player_id;
   packet.state_sequence = player.state_sequence;
+  packet.actor_generation = player.actor_generation;
+  packet.command_revision = player.command_revision;
   packet.state = player.state;
+  packet.state.correction_mask = kSyncAll;
   packet.state.health_points = player.health;
   packet.state.mana_points = player.mana;
   packet.state.life_state = GetPlayerLifeState(player);
+  packet.state.invulnerable = player.invulnerable;
   return packet;
 }
 
-PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player) {
+PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player, const ItemRegistry* inventory_registry = nullptr) {
   PlayerSpawnPacket packet{};
   packet.packet_type = PT_PLAYER_SPAWN;
   packet.player_id = player.player_id;
   packet.state_sequence = player.state_sequence;
+  packet.actor_generation = player.actor_generation;
+  packet.command_revision = player.command_revision;
+  packet.source_time_ms = player.state.source_time_ms;
+  packet.invulnerable = player.invulnerable;
+  packet.weapon_mode = player.state.weapon_mode;
+  packet.active_spell_nr = player.state.active_spell_nr;
+  packet.active_spell_instance = player.state.active_spell_instance;
+  packet.head_direction = player.state.head_direction;
+  packet.melee_weapon_instance = player.state.melee_weapon_instance;
+  packet.ranged_weapon_instance = player.state.ranged_weapon_instance;
+  packet.body_state = player.state.body_state;
+  packet.walk_mode = player.state.walk_mode;
+  packet.look_yaw = player.state.look_yaw;
+  packet.look_pitch = player.state.look_pitch;
+  packet.focus_target_id = player.state.focus_target_id;
   packet.player_name = player.name;
   packet.position = player.state.position;
   packet.normal = player.state.nrot;
@@ -343,6 +449,14 @@ PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player) {
   packet.skin_color = player.skin_color;
   packet.walk_style = player.walkstyle;
   PopulatePlayerSpawnSnapshot(packet, player);
+  if (inventory_registry) {
+    for (const auto& [instance, amount] : player.inventory) {
+      if (const auto* item = inventory_registry->Find(instance); item && amount > 0)
+        packet.inventory.push_back({item->index, amount});
+    }
+    std::sort(packet.inventory.begin(), packet.inventory.end(),
+        [](const InventoryEntry& left, const InventoryEntry& right) { return left.item_instance < right.item_instance; });
+  }
   return packet;
 }
 
@@ -353,6 +467,8 @@ bool IsSameVisibilityScope(const Character& a, const Character& b) {
 NpcControlPacket MakeNpcControlPacket(const NpcManager::Npc& npc) {
   NpcControlPacket packet;
   packet.npc_id = npc.player_id;
+  packet.actor_generation = npc.actor_generation;
+  packet.source_time_ms = npc.state.source_time_ms;
   packet.control_epoch = npc.control_epoch;
   packet.host_player_id = npc.host_player_id;
   packet.state_sequence = npc.state_sequence;
@@ -365,6 +481,7 @@ NpcControlPacket MakeNpcControlPacket(const NpcManager::Npc& npc) {
         ? std::chrono::duration_cast<std::chrono::milliseconds>(now - *action.started_at).count() : 0;
     const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(now - action.queued_at).count();
     packet.action_id = action.id;
+    packet.elapsed_ms = static_cast<std::uint32_t>(std::max<std::int64_t>(0, elapsed));
     packet.animation = action.animation;
     packet.timeout_ms = static_cast<std::uint32_t>(std::max<std::int64_t>(1,
         std::min<std::int64_t>(static_cast<std::int64_t>(action.timeout_ms) - elapsed,
@@ -376,6 +493,8 @@ NpcControlPacket MakeNpcControlPacket(const NpcManager::Npc& npc) {
 NpcAnimationPacket MakeNpcAnimationPacket(const NpcManager::Npc& npc) {
   NpcAnimationPacket packet;
   packet.npc_id = npc.player_id;
+  packet.actor_generation = npc.actor_generation;
+  packet.source_time_ms = npc.animation_started_at_ms;
   packet.revision = npc.animation_revision;
   packet.animation = npc.animation;
   return packet;
@@ -383,6 +502,11 @@ NpcAnimationPacket MakeNpcAnimationPacket(const NpcManager::Npc& npc) {
 
 bool IsFinitePosition(const glm::vec3& value) {
   return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+}
+
+bool IsValidActorPosition(const glm::vec3& value) {
+  constexpr float limit = 10000000.0f;
+  return IsFinitePosition(value) && std::abs(value.x) <= limit && std::abs(value.y) <= limit && std::abs(value.z) <= limit;
 }
 
 bool IsInsideStreamRange(const Character& viewer, const Character& subject, float radius, float height) {
@@ -573,6 +697,7 @@ void StreamOutSubjectFromViewer(Character& subject, PlayerManager::Player& viewe
   }
 
   viewer.spawned_players.erase(subject.player_id);
+  viewer.sent_actor_states.erase(subject.player_id);
 
   DisconnectionInfoPacket packet{};
   packet.packet_type = PT_LEFT_GAME;
@@ -611,36 +736,12 @@ bool CanSeeItemGround(const PlayerManager::Player& player, const ItemGroundManag
   return player.is_ingame && player.world == item_ground.world && player.virtual_world == item_ground.virtual_world;
 }
 
-void AddInventoryItem(PlayerManager::Player& player, const std::string& instance, std::int32_t amount) {
-  if (instance.empty() || amount <= 0) {
-    return;
-  }
-
-  auto& stored_amount = player.inventory[instance];
-  if (stored_amount < 0) {
-    stored_amount = 0;
-  }
-  const std::int64_t next_amount = static_cast<std::int64_t>(stored_amount) + amount;
-  stored_amount = static_cast<std::int32_t>(
-      std::clamp<std::int64_t>(next_amount, 0, std::numeric_limits<std::int32_t>::max()));
+bool AddInventoryItem(Character& player, const std::string& instance, std::int32_t amount) {
+  return player.AddInventory(instance, amount);
 }
 
-void RemoveInventoryItem(PlayerManager::Player& player, const std::string& instance, std::int32_t amount) {
-  if (instance.empty() || amount <= 0) {
-    return;
-  }
-
-  auto it = player.inventory.find(instance);
-  if (it == player.inventory.end()) {
-    return;
-  }
-
-  const std::int32_t next_amount = it->second - amount;
-  if (next_amount <= 0) {
-    player.inventory.erase(it);
-  } else {
-    it->second = next_amount;
-  }
+bool RemoveInventoryItem(Character& player, const std::string& instance, std::int32_t amount) {
+  return player.RemoveInventory(instance, amount);
 }
 
 std::int32_t MergePendingEquipmentState(std::optional<std::int32_t>& pending, std::int32_t current, std::int32_t incoming) {
@@ -656,13 +757,16 @@ std::int32_t MergePendingEquipmentState(std::optional<std::int32_t>& pending, st
   return current;
 }
 
-void SendPlayerAttributeUpdate(PlayerManager& player_manager, const Character& subject, PlayerAttributeId attribute_id,
+void SendPlayerAttributeUpdate(PlayerManager& player_manager, Character& subject, PlayerAttributeId attribute_id,
                                std::int32_t value) {
   PlayerAttributeUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_ATTRIBUTE_UPDATE;
   packet.player_id = subject.player_id;
   packet.attribute_id = attribute_id;
   packet.value = value;
+  packet.actor_generation = subject.actor_generation;
+  packet.command_revision = AdvanceActorCommand(subject);
+  packet.state_sequence = AdvancePlayerStateSequence(subject);
 
   BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
@@ -672,6 +776,9 @@ void SendPlayerAttributeSnapshot(PlayerManager& player_manager, const Character&
   packet.packet_type = PT_PLAYER_ATTRIBUTE_SNAPSHOT;
   packet.player_id = subject.player_id;
   packet.strength = subject.strength;
+  packet.actor_generation = subject.actor_generation;
+  packet.command_revision = subject.command_revision;
+  packet.state_sequence = subject.state_sequence;
   packet.dexterity = subject.dexterity;
   packet.level = subject.level;
   packet.exp = subject.exp;
@@ -689,6 +796,8 @@ void SendPlayerInstanceUpdate(PlayerManager& player_manager, const Character& su
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
   packet.instance = subject.instance;
+  packet.actor_generation = subject.actor_generation;
+  packet.command_revision = subject.command_revision;
   SerializeAndSend(packet, TrafficClass::Control, connection);
 }
 
@@ -697,6 +806,8 @@ void BroadcastPlayerInstanceUpdate(PlayerManager& player_manager, const Characte
   packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
   packet.player_id = subject.player_id;
   packet.instance = subject.instance;
+  packet.actor_generation = subject.actor_generation;
+  packet.command_revision = subject.command_revision;
   BroadcastToRelevant(player_manager, subject, packet, TrafficClass::Control);
 }
 
@@ -867,6 +978,7 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerDeathName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDropItemName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerTakeItemName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerUseItemName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeHealthName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangeManaName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerWorldChangeName);
@@ -1090,7 +1202,10 @@ void GameServer::Run() {
     BroadcastPlayerPings();
   }
 
+  DispatchPendingActorEvents();
   ProcessRespawns();
+  ProcessEquipmentCommands();
+  ProcessActorEffects();
   ProcessVoiceActivity(now);
 
   EventManager::Instance().TriggerEvent(kEventOnTickName, OnTickEvent{});
@@ -1126,48 +1241,34 @@ void GameServer::Run() {
   }
   DiagnosticsManager::Instance().SetServerSnapshot(snapshot);
   DiagnosticsManager::Instance().EndFrame();
-  auto npc_events = std::move(pending_npc_events_);
-  pending_npc_events_.clear();
-  for (const auto& dispatch : npc_events) {
-    dispatch();
-  }
+  DispatchPendingActorEvents();
 }
 
 void GameServer::ProcessRespawns() {
-  auto respawn_time_seconds = config_.Get<std::int32_t>("respawn_time_seconds");
-  if (respawn_time_seconds < 0) {
-    return;
-  }
-
-  const auto now = std::time(nullptr);
-
+  const auto default_seconds = config_.Get<std::int32_t>("respawn_time_seconds");
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<PlayerId> due;
   player_manager_.ForEachPlayer([&](Player& player) {
-    if (!player.is_ingame || player.tod == 0) {
-      return;
-    }
-
-    if (player.respawn_time_ms.has_value()) {
-      const auto respawn_ms = player.respawn_time_ms.value();
-      if (respawn_ms == 0) {
-        return;
-      }
-      const auto respawn_seconds = static_cast<std::int64_t>(respawn_ms + 999) / 1000;
-      if (player.tod + respawn_seconds > now) {
-        return;
-      }
-    } else if (respawn_time_seconds != 0) {
-      if (player.tod + respawn_time_seconds > now) {
-        return;
-      }
-    }
-
-    RespawnPlayerInternal(player);
+    if (!player.is_ingame || player.tod == 0 || !player.death_started_at) return;
+    // An explicit override wins over a disabled default. Zero explicitly disables
+    // automatic respawn for this player; default zero means immediate respawn.
+    if (player.respawn_time_ms && *player.respawn_time_ms == 0) return;
+    if (!player.respawn_time_ms && default_seconds < 0) return;
+    const std::int64_t delay_ms = player.respawn_time_ms ? *player.respawn_time_ms
+        : static_cast<std::int64_t>(default_seconds) * 1000;
+    if (now - *player.death_started_at < std::chrono::milliseconds(delay_ms)) return;
+    due.push_back(player.player_id);
   });
+  for (const auto id : due) {
+    const auto current = player_manager_.GetPlayer(id);
+    if (current && current->get().is_ingame && current->get().tod != 0) RespawnPlayerInternal(current->get());
+  }
 }
 
 bool GameServer::RespawnPlayerInternal(Player& player) {
   player.flags = 0;
   player.tod = 0;
+  player.death_started_at.reset();
   const auto old_health = player.health;
   const auto old_mana = player.mana;
   player.health = player.max_health;
@@ -1176,19 +1277,30 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
   player.state.mana_points = player.mana;
   player.state.life_state = GetPlayerLifeState(player);
   ClearTransientCombatState(player);
+  AdvanceActorCommand(player);
+  player.combat_barrier_revision = player.command_revision;
   AdvancePlayerStateSequence(player);
   // Lua health/mana callbacks may immediately override the restored values.
   // Deliver the respawn first so those ordered attribute updates remain final.
   SendRespawnInfo(player.player_id);
-  if (old_health != player.health) {
+  const auto player_id = player.player_id;
+  const auto generation = player.actor_generation;
+  const auto restored_health = player.health;
+  const auto restored_mana = player.mana;
+  const auto position = player.state.position;
+  if (old_health != restored_health) {
     EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
+                                          OnPlayerChangeHealthEvent{player_id, old_health, restored_health});
   }
-  if (old_mana != player.mana) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
+  auto current = player_manager_.GetPlayer(player_id);
+  if (!current || current->get().actor_generation != generation) return true;
+  if (old_mana != restored_mana) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player_id, old_mana, restored_mana});
   }
-
-  EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player.player_id, player.state.position});
+  current = player_manager_.GetPlayer(player_id);
+  if (current && current->get().actor_generation == generation) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player_id, position});
+  }
   return true;
 }
 
@@ -1217,6 +1329,12 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
       break;
     case PT_NPC_ACTION_RESULT:
       HandleNpcActionResult(p);
+      break;
+    case PT_EQUIPMENT_RESULT:
+      HandleEquipmentResult(p);
+      break;
+    case PT_ACTOR_ACTION:
+      HandleActorAction(p);
       break;
     case PT_MSG:
       HandleNormalMsg(p);
@@ -1324,6 +1442,7 @@ void GameServer::HandlePlayerConnected(Net::ConnectionHandle connection) {
   packet.max_slots = static_cast<std::uint16_t>(max_slots);
   if (auto new_player = player_manager_.GetPlayer(new_player_id)) {
     const Player& player = new_player->get();
+    packet.actor_generation = player.actor_generation;
     packet.voice_enabled = config_.Get<bool>("voice_enabled") && player.voice_enabled ? 1 : 0;
     packet.voice_transmit_enabled = packet.voice_enabled != 0 && !player.voice_muted ? 1 : 0;
     packet.voice_range = player.voice_range;
@@ -1392,19 +1511,75 @@ void GameServer::HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier)
     return;
   }
 
-  auto attacker_opt = GetIngamePlayerByConnection(p.id);
-  auto victim_opt = player_manager_.GetPlayer(packet.victim_id);
-  if (!attacker_opt.has_value() || !victim_opt.has_value()) {
-    return;
+  auto sender = GetIngamePlayerByConnection(p.id);
+  if (!sender || !sender->get().npc_world_ready) return;
+  const auto attacker_id = packet.attacker_id.value_or(sender->get().player_id);
+  auto attacker_opt = GetCharacter(attacker_id);
+  auto victim_opt = GetCharacter(packet.victim_id);
+  if (!attacker_opt || !victim_opt || attacker_id == packet.victim_id) return;
+  if (attacker_id != sender->get().player_id) {
+    const auto npc = npc_manager_.GetNpc(attacker_id);
+    if (!npc || npc->get().host_player_id != sender->get().player_id || npc->get().control_epoch != packet.control_epoch ||
+        !IsEligibleNpcHost(npc->get(), sender->get().player_id)) return;
   }
-
   auto& attacker = attacker_opt->get();
   auto& victim = victim_opt->get();
-  if (!victim.is_ingame || victim.tod != 0) {
+  if (packet.actor_generation != attacker.actor_generation || packet.victim_generation != victim.actor_generation ||
+      !attacker.CombatRevisionIsCurrent(packet.command_revision) ||
+      !IsLiveCharacter(attacker) || !victim.is_ingame || victim.tod != 0 || !SameCharacterScope(attacker, victim) ||
+      !SameCharacterScope(sender->get(), victim) || (!sender->get().spawned_players.contains(victim.player_id) &&
+       victim.player_id != sender->get().player_id) || victim.invulnerable || !IsFinitePosition(attacker.state.position) ||
+      !IsFinitePosition(victim.state.position) || (!packet.finishing_move &&
+       (packet.damage <= 0 || packet.damage_type == 0 || packet.damage_type > 255)) ||
+      packet.attack_id == 0) return;
+  if (packet.finishing_move && !CanFinishCharacter(attacker, victim, item_registry_)) return;
+
+  const auto now = std::chrono::steady_clock::now();
+  auto bounds = GetCombatBounds(attacker, item_registry_);
+  while (!attacker.approved_projectiles.empty() && attacker.approved_projectiles.front().expires_at < now)
+    attacker.approved_projectiles.pop_front();
+  const auto approved = packet.finishing_move ? attacker.approved_projectiles.end() :
+      std::find_if(attacker.approved_projectiles.begin(), attacker.approved_projectiles.end(),
+      [&](const Character::ApprovedAttack& attack) {
+        return attack.expires_at >= now && (packet.damage_type & ~attack.damage_types) == 0 &&
+               !attack.victims.contains(victim.player_id) && attack.victims.size() < attack.max_victims &&
+               glm::distance(attack.origin, victim.state.position) <= static_cast<float>(attack.range);
+      });
+  const bool projectile = approved != attacker.approved_projectiles.end();
+  if (!projectile && attacker.state.weapon_mode >= 5) return;
+  if (projectile) {
+    bounds.damage = approved->damage_cap;
+    bounds.types = approved->damage_types;
+    bounds.reach = approved->range;
+  }
+  if (!packet.finishing_move && (bounds.damage <= 0 || bounds.reach == 0 || (packet.damage_type & ~bounds.types) != 0 ||
+      (!projectile && glm::distance(attacker.state.position, victim.state.position) > static_cast<float>(bounds.reach)))) return;
+  if (attacker.last_hit_action_id && *attacker.last_hit_action_id == packet.attack_id) {
+    if ((packet.finishing_move && !attacker.hit_victims.empty()) || attacker.hit_victims.contains(victim.player_id) ||
+        attacker.hit_victims.size() >= 32 ||
+        now - attacker.last_attack_at > std::chrono::seconds(1)) return;
+  } else {
+    if (attacker.last_hit_action_id && (!IsNewActorSequence(packet.attack_id, *attacker.last_hit_action_id) ||
+        (!projectile && now - attacker.last_attack_at < std::chrono::milliseconds(bounds.interval_ms)))) return;
+    attacker.last_hit_action_id = packet.attack_id;
+    attacker.last_attack_at = now;
+    attacker.hit_victims.clear();
+  }
+  attacker.hit_victims.insert(victim.player_id);
+  if (projectile) approved->victims.insert(victim.player_id);
+  victim.last_validated_attacker = attacker_id;
+  victim.last_damage_at = now;
+  if (packet.finishing_move) {
+    // Gothic's finishing move calls DoDie directly, bypassing damage and armor.
+    ApplyCharacterDamage(victim, attacker_id, victim.health, bounds.types ? bounds.types : 4u, false, false, true);
     return;
   }
-
-  ApplyPlayerDamage(victim, attacker.player_id, packet.damage, packet.damage_type, packet.dont_kill);
+  // Native protection/critical-hit calculation is attested, but its result may
+  // never exceed the catalog weapon and actor attribute bound.
+  ApplyCharacterDamage(victim, attacker_id,
+      std::min(packet.damage, BoundDamageByEquipment(victim, item_registry_, packet.damage_type, bounds.damage)),
+      packet.damage_type, packet.dont_kill,
+      !projectile && attacker.state.weapon_mode < 5 && (packet.damage_type & ~6u) == 0);
 }
 
 void GameServer::HandlePlayerUnconsciousReport(Packet p, std::uint8_t packet_identifier) {
@@ -1419,14 +1594,17 @@ void GameServer::HandlePlayerUnconsciousReport(Packet p, std::uint8_t packet_ide
   }
 
   auto& player = player_opt->get();
-  if (player.tod != 0) {
+  if (packet.actor_generation != player.actor_generation || packet.command_revision != player.command_revision ||
+      !player.npc_world_ready || player.tod != 0 || player.health > 1) {
     return;
   }
 
   std::optional<PlayerId> attacker;
   if (packet.attacker_id.has_value()) {
-    auto attacker_opt = player_manager_.GetPlayer(packet.attacker_id.value());
-    if (attacker_opt.has_value() && attacker_opt->get().is_ingame) {
+    auto attacker_opt = GetCharacter(packet.attacker_id.value());
+    if (attacker_opt && attacker_opt->get().is_ingame && SameCharacterScope(player, attacker_opt->get()) &&
+        player.last_validated_attacker == packet.attacker_id &&
+        std::chrono::steady_clock::now() - player.last_damage_at <= std::chrono::seconds(2)) {
       attacker = packet.attacker_id.value();
     }
   }
@@ -1446,25 +1624,40 @@ void GameServer::HandlePlayerStandUpReport(Packet p, std::uint8_t packet_identif
   }
 
   auto& player = player_opt->get();
-  if (player.tod != 0 || (player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
+  if (packet.actor_generation != player.actor_generation || packet.command_revision != player.command_revision ||
+      !player.npc_world_ready || player.tod != 0 || (player.flags & PlayerManager::PL_UNCONCIOUS) == 0 ||
+      std::chrono::steady_clock::now() - player.last_damage_at < std::chrono::seconds(1)) {
     return;
   }
 
   const auto old_health = player.health;
   player.flags &= ~PlayerManager::PL_UNCONCIOUS;
+  ClearRecoveredPose(player);
   if (player.health <= 0) {
     player.health = 1;
   }
   player.state.health_points = player.health;
   player.state.life_state = GetPlayerLifeState(player);
+  AdvanceActorCommand(player);
+  player.combat_barrier_revision = player.command_revision;
   AdvancePlayerStateSequence(player);
   if (old_health != player.health) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
     SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
   }
-  EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
-  SendStandUpInfo(player.player_id);
+  const auto player_id = player.player_id;
+  const auto new_hp = player.health;
+  SendStandUpInfo(player_id);
+  const auto generation = player.actor_generation;
+  pending_npc_events_.push_back([this, player_id, generation, old_health, new_hp] {
+    const auto current = GetCharacter(player_id);
+    if (!current || current->get().actor_generation != generation) return;
+    if (old_health != new_hp) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+        OnPlayerChangeHealthEvent{player_id, old_health, new_hp});
+    const auto after_health = GetCharacter(player_id);
+    if (after_health && after_health->get().actor_generation == generation &&
+        GetPlayerLifeState(after_health->get()) == PLAYER_LIFE_ALIVE)
+      EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player_id});
+  });
 }
 
 void GameServer::HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifier) {
@@ -1479,21 +1672,18 @@ void GameServer::HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifie
   }
 
   auto& player = player_opt->get();
-  if (player.tod != 0) {
+  if (packet.actor_generation != player.actor_generation || !player.npc_world_ready || player.tod != 0 || player.health > 0) {
     return;
   }
 
   std::optional<PlayerId> killer_id;
   if (packet.killer_id.has_value()) {
-    auto killer_opt = player_manager_.GetPlayer(packet.killer_id.value());
-    if (killer_opt.has_value() && killer_opt->get().is_ingame) {
+    auto killer_opt = GetCharacter(packet.killer_id.value());
+    if (killer_opt && killer_opt->get().is_ingame && SameCharacterScope(player, killer_opt->get()) &&
+        player.last_validated_attacker == packet.killer_id &&
+        std::chrono::steady_clock::now() - player.last_damage_at <= std::chrono::seconds(2)) {
       killer_id = packet.killer_id.value();
     }
-  }
-
-  if (killer_id.has_value() && (player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
-    MakePlayerUnconscious(player, killer_id);
-    return;
   }
 
   HandlePlayerDeath(player, killer_id);
@@ -1501,10 +1691,27 @@ void GameServer::HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifie
 
 bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type,
                                    bool dont_kill) {
-  if (!victim.is_ingame || victim.tod != 0 || damage <= 0) {
+  return ApplyCharacterDamage(victim, attacker_id, damage, damage_type, dont_kill);
+}
+
+bool GameServer::ApplyCharacterDamage(Character& victim, std::optional<PlayerId> attacker_id, std::int32_t damage,
+                                     std::uint32_t damage_type, bool dont_kill, bool melee_attack, bool finishing_move) {
+  if (!victim.is_ingame || victim.tod != 0 || victim.invulnerable || damage <= 0) {
     return false;
   }
-
+  const auto victim_id = victim.player_id;
+  const auto victim_generation = victim.actor_generation;
+  const auto victim_world = victim.world;
+  const auto victim_virtual_world = victim.virtual_world;
+  std::optional<std::uint64_t> attacker_generation;
+  std::optional<std::pair<std::uint32_t, std::uint32_t>> npc_control;
+  if (attacker_id) {
+    const auto attacker = GetCharacter(*attacker_id);
+    if (!attacker) return false;
+    attacker_generation = attacker->get().actor_generation;
+    if (const auto npc = npc_manager_.GetNpc(*attacker_id))
+      npc_control = std::pair{npc->get().host_player_id, npc->get().control_epoch};
+  }
   std::optional<std::uint64_t> event_attacker;
   if (attacker_id.has_value()) {
     event_attacker = attacker_id.value();
@@ -1521,34 +1728,57 @@ bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attac
   if (damage <= 0) {
     return false;
   }
-
-  const auto old_health = victim.health;
-  auto new_health = static_cast<std::int32_t>(old_health) - damage;
-  const bool player_damage = attacker_id.has_value();
-  const bool victim_was_unconscious = (victim.flags & PlayerManager::PL_UNCONCIOUS) != 0;
+  auto current_opt = GetCharacter(victim_id);
+  if (!current_opt || current_opt->get().actor_generation != victim_generation || !current_opt->get().is_ingame ||
+      current_opt->get().tod != 0 || current_opt->get().invulnerable || current_opt->get().world != victim_world ||
+      current_opt->get().virtual_world != victim_virtual_world) return false;
+  auto& current = current_opt->get();
+  if (attacker_id) {
+    const auto attacker = GetCharacter(*attacker_id);
+    if (!attacker || attacker->get().actor_generation != attacker_generation || !IsLiveCharacter(attacker->get()) ||
+        !SameCharacterScope(current, attacker->get())) return false;
+    if (finishing_move && !CanFinishCharacter(attacker->get(), current, item_registry_)) return false;
+    if (npc_control) {
+      const auto npc = npc_manager_.GetNpc(*attacker_id);
+      if (!npc || npc->get().host_player_id != npc_control->first || npc->get().control_epoch != npc_control->second ||
+          !IsEligibleNpcHost(npc->get(), npc_control->first)) return false;
+    }
+  }
+  const auto old_health = current.health;
+  auto new_health = static_cast<std::int64_t>(old_health) - damage;
+  const bool player_damage = attacker_id && player_manager_.GetPlayer(*attacker_id) && player_manager_.GetPlayer(victim_id);
+  const bool victim_was_unconscious = (current.flags & PlayerManager::PL_UNCONCIOUS) != 0;
 
   if (new_health <= 0) {
-    if (player_damage && !victim_was_unconscious) {
-      MakePlayerUnconscious(victim, attacker_id);
+    // Classic PvP melee first knocks out; paid projectiles and environmental
+    // damage can kill. Explicit nonlethal damage also protects an existing KO.
+    if (player_manager_.GetPlayer(victim_id) && !victim_was_unconscious &&
+        (dont_kill || (player_damage && melee_attack))) {
+      MakePlayerUnconscious(player_manager_.GetPlayer(victim_id)->get(), attacker_id);
       return false;
     }
-    if (!player_damage && dont_kill && old_health > 0) {
+    if (dont_kill && old_health > 0) {
       new_health = 1;
     } else {
-      HandlePlayerDeath(victim, attacker_id);
+      HandlePlayerDeath(current, attacker_id);
       return true;
     }
   }
-  new_health = std::clamp<std::int32_t>(new_health, 0, victim.max_health);
+  new_health = std::clamp<std::int64_t>(new_health, 0, current.max_health);
 
-  victim.health = static_cast<std::int16_t>(new_health);
-  victim.state.health_points = victim.health;
-  victim.state.life_state = GetPlayerLifeState(victim);
-  AdvancePlayerStateSequence(victim);
-  if (old_health != victim.health) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
-    SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
+  current.health = static_cast<std::int32_t>(new_health);
+  current.state.health_points = current.health;
+  current.state.life_state = GetPlayerLifeState(current);
+  AdvancePlayerStateSequence(current);
+  if (old_health != current.health) {
+    const auto new_hp = current.health;
+    SendPlayerAttributeUpdate(player_manager_, current, ATTR_HEALTH, new_hp);
+    pending_npc_events_.push_back([this, victim_id, victim_generation, old_health, new_hp] {
+      const auto actor = GetCharacter(victim_id);
+      if (!actor || actor->get().actor_generation != victim_generation) return;
+      EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                           OnPlayerChangeHealthEvent{victim_id, old_health, new_hp});
+    });
   }
 
   return false;
@@ -1566,11 +1796,11 @@ bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> a
   victim.state.health_points = 1;
   victim.state.life_state = GetPlayerLifeState(victim);
   ClearTransientCombatState(victim);
+  AdvanceActorCommand(victim);
+  victim.combat_barrier_revision = victim.command_revision;
   AdvancePlayerStateSequence(victim);
 
   if (old_health != victim.health) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
     SendPlayerAttributeUpdate(player_manager_, victim, ATTR_HEALTH, victim.health);
   }
 
@@ -1582,8 +1812,19 @@ bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> a
   if (attacker_id.has_value()) {
     event_attacker = attacker_id.value();
   }
-  EventManager::Instance().TriggerEvent(kEventOnPlayerUnconsciousName, OnPlayerUnconsciousEvent{event_attacker, victim.player_id});
   SendUnconsciousInfo(victim.player_id, attacker_id);
+  const auto victim_id = victim.player_id;
+  const auto generation = victim.actor_generation;
+  pending_npc_events_.push_back([this, victim_id, generation, old_health, event_attacker] {
+    const auto actor = GetCharacter(victim_id);
+    if (!actor || actor->get().actor_generation != generation) return;
+    if (old_health != 1) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+        OnPlayerChangeHealthEvent{victim_id, old_health, 1});
+    const auto current = GetCharacter(victim_id);
+    if (current && current->get().actor_generation == generation &&
+        GetPlayerLifeState(current->get()) == PLAYER_LIFE_UNCONSCIOUS)
+      EventManager::Instance().TriggerEvent(kEventOnPlayerUnconsciousName, OnPlayerUnconsciousEvent{event_attacker, victim_id});
+  });
   return true;
 }
 
@@ -1593,12 +1834,17 @@ void GameServer::HandlePlayerDeath(Character& victim, std::optional<PlayerId> ki
   }
 
   const auto old_health = victim.health;
+  const auto victim_id = victim.player_id;
+  const auto generation = victim.actor_generation;
   victim.health = 0;
   victim.state.health_points = 0;
   victim.flags &= ~PlayerManager::PL_UNCONCIOUS;
   victim.tod = std::time(nullptr);
+  victim.death_started_at = std::chrono::steady_clock::now();
   victim.state.life_state = GetPlayerLifeState(victim);
   ClearTransientCombatState(victim);
+  AdvanceActorCommand(victim);
+  victim.combat_barrier_revision = victim.command_revision;
   AdvancePlayerStateSequence(victim);
   if (npc_manager_.GetNpc(victim.player_id)) {
     const auto id = victim.player_id;
@@ -1608,16 +1854,19 @@ void GameServer::HandlePlayerDeath(Character& victim, std::optional<PlayerId> ki
     packet.packet_type = PT_DODIE;
     packet.player_id = id;
     packet.state_sequence = victim.state_sequence;
+    packet.actor_generation = victim.actor_generation;
+    packet.command_revision = victim.command_revision;
     BroadcastToRelevant(player_manager_, victim, packet, TrafficClass::Control);
-    return;
-  }
-  if (old_health != victim.health) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim.player_id, old_health, victim.health});
-  }
-
-  EventManager::Instance().TriggerEvent(kEventOnPlayerDeathName, OnPlayerDeathEvent{victim.player_id, killer_id});
-
-  SendDeathInfo(victim.player_id);
+  } else SendDeathInfo(victim_id);
+  pending_npc_events_.push_back([this, victim_id, generation, old_health, killer_id] {
+    const auto actor = GetCharacter(victim_id);
+    if (!actor || actor->get().actor_generation != generation) return;
+    if (old_health != 0) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+        OnPlayerChangeHealthEvent{victim_id, old_health, 0});
+    const auto current = GetCharacter(victim_id);
+    if (current && current->get().actor_generation == generation && current->get().tod != 0)
+      EventManager::Instance().TriggerEvent(kEventOnPlayerDeathName, OnPlayerDeathEvent{victim_id, killer_id});
+  });
 }
 
 void GameServer::SomeoneJoinGame(Packet p) {
@@ -1627,6 +1876,8 @@ void GameServer::SomeoneJoinGame(Packet p) {
     return;
   }
   auto& player = player_opt.value().get();
+
+  if (player.has_joined) return;
 
   if (!allow_modification) {
     if (!player.passed_crc_test) {
@@ -1641,9 +1892,18 @@ void GameServer::SomeoneJoinGame(Packet p) {
     return;
   }
   SPDLOG_TRACE("{} from {}", packet, p.id);
-
+  if (packet.protocol_version != kActorProtocolVersion || packet.actor_generation != player.actor_generation) {
+    transport_.CloseConnection(p.id, CloseReason::Failure, "Actor protocol version mismatch");
+    return;
+  }
+  if (!IsValidActorPosition(packet.position) || !IsFinitePosition(packet.normal) ||
+      glm::dot(packet.normal, packet.normal) < 0.0001f || glm::dot(packet.normal, packet.normal) > 4.0f || packet.walk_style > 4 ||
+      SanitizeServerText(packet.body_model) != packet.body_model || SanitizeServerText(packet.head_model) != packet.head_model ||
+      packet.body_texture > 32767 || packet.head_texture > 32767 || packet.teeth_texture > 32767 || packet.skin_color > 32767) return;
+  player.has_joined = true;
   player.state.position = packet.position;
-  player.state.nrot = packet.normal;
+  player.state.nrot = glm::normalize(packet.normal);
+  player.state.source_time_ms = ActorClockMilliseconds();
   player.state.left_hand_item_instance = packet.left_hand_item_instance;
   player.state.right_hand_item_instance = packet.right_hand_item_instance;
   player.state.equipped_armor_instance = packet.equipped_armor_instance;
@@ -1688,23 +1948,62 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     return;
   }
 
-  if (!updated_player.AcceptClientStateSequence(packet.state_sequence)) {
+  if (packet.actor_generation != updated_player.actor_generation || packet.command_revision != updated_player.command_revision) {
     DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     return;
   }
 
   const auto old_state = updated_player.state;
+  const auto updated_actor_id = updated_player.player_id;
   const auto old_health = updated_player.health;
-  const auto old_mana = updated_player.mana;
   const auto item_index_or_nil = [](std::int32_t item_index) -> std::optional<std::int32_t> {
     return item_index <= 0 ? std::nullopt : std::optional<std::int32_t>{item_index};
   };
 
   auto client_state = packet.state;
+  if (!IsValidActorPosition(client_state.position) || !IsFinitePosition(client_state.nrot) ||
+      glm::dot(client_state.nrot, client_state.nrot) < 0.0001f ||
+      glm::dot(client_state.nrot, client_state.nrot) > 4.0f || client_state.weapon_mode > 7 ||
+      client_state.active_spell_nr > 8 || client_state.head_direction > 4 || client_state.walk_mode > 2 ||
+      client_state.body_state >= 31 ||
+      !std::isfinite(client_state.look_yaw) || !std::isfinite(client_state.look_pitch) ||
+      client_state.look_yaw < 0.0f || client_state.look_yaw > 1.0f ||
+      client_state.look_pitch < 0.0f || client_state.look_pitch > 1.0f ||
+      client_state.health_points < 0 || client_state.mana_points < 0 || client_state.source_time_ms == 0) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+  client_state.nrot = glm::normalize(client_state.nrot);
+  if (!updated_player.AcceptClientState(packet.actor_generation, packet.command_revision, packet.state_sequence)) return;
+  const auto now_ms = ActorClockMilliseconds();
+  if (!updated_player.client_clock_origin) {
+    updated_player.client_clock_origin = client_state.source_time_ms;
+    updated_player.server_clock_origin = now_ms;
+  }
+  if (client_state.source_time_ms < *updated_player.client_clock_origin) return;
+  const auto elapsed_ms = client_state.source_time_ms - *updated_player.client_clock_origin;
+  if (elapsed_ms > now_ms - updated_player.server_clock_origin + 250) return;
+  const auto mapped_time = updated_player.server_clock_origin + elapsed_ms;
+  if (mapped_time < updated_player.last_source_time_ms) return;
+  updated_player.last_source_time_ms = mapped_time;
+  client_state.source_time_ms = mapped_time;
+  client_state.correction_mask = kSyncAll;
+  if (client_state.focus_target_id) {
+    const auto focus = GetCharacter(*client_state.focus_target_id);
+    if (!focus || !IsSameVisibilityScope(updated_player, focus->get()) ||
+        !updated_player.spawned_players.count(*client_state.focus_target_id)) client_state.focus_target_id.reset();
+  }
   ResolvePlayerStateItemIndexes(updated_player.player_id, client_state);
+  ValidatePlayerEquipment(updated_player, client_state);
 
   updated_player.state.position = client_state.position;
   updated_player.state.nrot = client_state.nrot;
+  updated_player.state.source_time_ms = client_state.source_time_ms;
+  updated_player.state.body_state = client_state.body_state;
+  updated_player.state.walk_mode = client_state.walk_mode;
+  updated_player.state.look_yaw = client_state.look_yaw;
+  updated_player.state.look_pitch = client_state.look_pitch;
+  updated_player.state.focus_target_id = client_state.focus_target_id;
   updated_player.state.left_hand_item_instance = client_state.left_hand_item_instance;
   updated_player.state.right_hand_item_instance = client_state.right_hand_item_instance;
   updated_player.state.equipped_armor_instance =
@@ -1738,21 +2037,12 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 
   if (updated_player.tod == 0) {
     const auto requested_health = std::clamp<std::int32_t>(client_state.health_points, 0, updated_player.max_health);
-    const auto requested_mana = std::clamp<std::int32_t>(client_state.mana_points, 0, updated_player.max_mana);
-    bool died = false;
     const auto effective_health = requested_health > old_health ? static_cast<std::int32_t>(old_health) : requested_health;
 
     if (effective_health < old_health && (updated_player.flags & PlayerManager::PL_UNCONCIOUS) == 0) {
-      died = ApplyPlayerDamage(updated_player, std::nullopt, static_cast<std::int32_t>(old_health) - effective_health, 0, false);
+      ApplyPlayerDamage(updated_player, std::nullopt, static_cast<std::int32_t>(old_health) - effective_health, 0, false);
     }
 
-    if (!died && requested_mana != old_mana) {
-      updated_player.mana = static_cast<std::int16_t>(requested_mana);
-      if (old_mana != updated_player.mana) {
-        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName,
-                                              OnPlayerChangeManaEvent{updated_player.player_id, old_mana, updated_player.mana});
-      }
-    }
   }
 
   updated_player.state.health_points = updated_player.health;
@@ -1766,75 +2056,93 @@ void GameServer::HandlePlayerUpdate(Packet p) {
         OnPlayerWeaponModeChangeEvent{updated_player.player_id, old_state.weapon_mode, updated_player.state.weapon_mode});
   }
 
-  if (old_state.left_hand_item_instance != updated_player.state.left_hand_item_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.left_hand_item_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHandItemName,
-                                          OnPlayerEquipHandItemEvent{updated_player.player_id, 0, item_index});
+  const auto correct_held_equipment = [&](Character& actor) {
+    AdvanceActorCommand(actor);
+    AdvancePlayerStateSequence(actor);
+    auto correction = MakePlayerStateUpdatePacket(actor);
+    correction.state.correction_mask = kSyncEquipment;
+    BroadcastToRelevant(player_manager_, actor, correction, TrafficClass::Control);
+  };
+  for (const auto hand : {0, 1}) {
+    auto actor = GetCharacter(updated_actor_id);
+    if (!actor || actor->get().actor_generation != packet.actor_generation) return;
+    auto& state = actor->get().state;
+    auto& field = hand == 0 ? state.left_hand_item_instance : state.right_hand_item_instance;
+    const auto observed = field;
+    const auto previous = hand == 0 ? old_state.left_hand_item_instance : old_state.right_hand_item_instance;
+    if (observed == previous) continue;
+    field = previous;
+    const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipHandItemName,
+        OnPlayerEquipHandItemEvent{updated_actor_id, static_cast<std::uint8_t>(hand),
+                                  item_index_or_nil(observed), item_index_or_nil(previous)});
+    actor = GetCharacter(updated_actor_id);
+    if (!actor || actor->get().actor_generation != packet.actor_generation) return;
+    if (result.cancelled) correct_held_equipment(actor->get());
+    else {
+      auto& current = actor->get().state;
+      (hand == 0 ? current.left_hand_item_instance : current.right_hand_item_instance) = observed;
+    }
   }
 
-  if (old_state.right_hand_item_instance != updated_player.state.right_hand_item_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.right_hand_item_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHandItemName,
-                                          OnPlayerEquipHandItemEvent{updated_player.player_id, 1, item_index});
-  }
-
-  if (old_state.equipped_armor_instance != updated_player.state.equipped_armor_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_armor_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipArmorName, OnPlayerEquipArmorEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.equipped_amulet_instance != updated_player.state.equipped_amulet_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_amulet_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipAmuletName, OnPlayerEquipAmuletEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.equipped_belt_instance != updated_player.state.equipped_belt_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_belt_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipBeltName, OnPlayerEquipBeltEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.equipped_ring_left_instance != updated_player.state.equipped_ring_left_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_ring_left_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRingName, OnPlayerEquipRingEvent{updated_player.player_id, 0, item_index});
-  }
-
-  if (old_state.equipped_ring_right_instance != updated_player.state.equipped_ring_right_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_ring_right_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRingName, OnPlayerEquipRingEvent{updated_player.player_id, 1, item_index});
-  }
-
-  if (old_state.equipped_helmet_instance != updated_player.state.equipped_helmet_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_helmet_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHelmetName, OnPlayerEquipHelmetEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.equipped_shield_instance != updated_player.state.equipped_shield_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.equipped_shield_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipShieldName, OnPlayerEquipShieldEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.melee_weapon_instance != updated_player.state.melee_weapon_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.melee_weapon_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipMeleeWeaponName,
-                                          OnPlayerEquipMeleeWeaponEvent{updated_player.player_id, item_index});
-  }
-
-  if (old_state.ranged_weapon_instance != updated_player.state.ranged_weapon_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.ranged_weapon_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRangedWeaponName,
-                                          OnPlayerEquipRangedWeaponEvent{updated_player.player_id, item_index});
+  const std::array previous_equipment{
+      std::pair{EquipmentSlot::Armor, old_state.equipped_armor_instance},
+      std::pair{EquipmentSlot::Helmet, old_state.equipped_helmet_instance},
+      std::pair{EquipmentSlot::Shield, old_state.equipped_shield_instance},
+      std::pair{EquipmentSlot::Amulet, old_state.equipped_amulet_instance},
+      std::pair{EquipmentSlot::Belt, old_state.equipped_belt_instance},
+      std::pair{EquipmentSlot::RingLeft, old_state.equipped_ring_left_instance},
+      std::pair{EquipmentSlot::RingRight, old_state.equipped_ring_right_instance},
+      std::pair{EquipmentSlot::MeleeWeapon, old_state.melee_weapon_instance},
+      std::pair{EquipmentSlot::RangedWeapon, old_state.ranged_weapon_instance}};
+  for (const auto& [slot, previous] : previous_equipment) {
+    auto actor = GetCharacter(updated_actor_id);
+    if (!actor || actor->get().actor_generation != packet.actor_generation) return;
+    const auto observed = EquipmentStateField(actor->get().state, slot);
+    const auto slot_id = EquipmentSlotPacketId(slot);
+    if (observed == previous ||
+        IsNewActorSequence(actor->get().equipment_command_revisions[slot_id], packet.command_revision)) continue;
+    const auto revision = actor->get().command_revision;
+    EquipmentStateField(actor->get().state, slot) = previous;
+    const bool accepted = TriggerEquipmentEvent(updated_actor_id, slot, item_index_or_nil(observed), item_index_or_nil(previous));
+    actor = GetCharacter(updated_actor_id);
+    if (!actor || actor->get().actor_generation != packet.actor_generation) return;
+    if (!IsNewActorSequence(actor->get().equipment_command_revisions[slot_id], revision)) {
+      if (accepted) EquipmentStateField(actor->get().state, slot) = observed;
+      else SendEquipmentCorrection(actor->get(), slot, observed);
+    }
   }
 
   if (old_state.active_spell_nr != updated_player.state.active_spell_nr ||
       old_state.active_spell_instance != updated_player.state.active_spell_instance) {
-    const auto item_index = item_index_or_nil(updated_player.state.active_spell_instance);
-    EventManager::Instance().TriggerEvent(kEventOnPlayerEquipSpellSlotName,
-                                          OnPlayerEquipSpellSlotEvent{updated_player.player_id,
-                                                                      updated_player.state.active_spell_nr,
-                                                                      item_index});
+    const auto observed_slot = updated_player.state.active_spell_nr;
+    const auto observed_item = updated_player.state.active_spell_instance;
+    updated_player.state.active_spell_nr = old_state.active_spell_nr;
+    updated_player.state.active_spell_instance = old_state.active_spell_instance;
+    const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipSpellSlotName,
+        OnPlayerEquipSpellSlotEvent{updated_actor_id, observed_slot, item_index_or_nil(observed_item),
+                                   item_index_or_nil(old_state.active_spell_instance)});
+    const auto actor = GetCharacter(updated_actor_id);
+    if (!actor || actor->get().actor_generation != packet.actor_generation) return;
+    if (result.cancelled) correct_held_equipment(actor->get());
+    else {
+      actor->get().state.active_spell_nr = observed_slot;
+      actor->get().state.active_spell_instance = observed_item;
+    }
   }
 
-  BroadcastPlayerStateToViewers(player_manager_, updated_player);
+  // Publish player poses on the server cadence. Immediate relay plus tick relay
+  // sent identical revisions twice and amplified bursty client arrivals.
+  if (client_state.health_points != updated_player.health) {
+    SendPlayerAttributeUpdate(player_manager_, updated_player, ATTR_HEALTH, updated_player.health);
+    if (client_state.life_state != GetPlayerLifeState(updated_player)) {
+      auto correction = MakePlayerStateUpdatePacket(updated_player);
+      correction.state.correction_mask = kSyncHealth | kSyncLife;
+      SerializeAndSend(correction, TrafficClass::Control, updated_player.connection);
+    }
+  }
+  if (client_state.mana_points != updated_player.mana) {
+    SendPlayerAttributeUpdate(player_manager_, updated_player, ATTR_MANA, updated_player.mana);
+  }
 }
 
 void GameServer::HandleLuaEvent(Packet p) {
@@ -2128,39 +2436,348 @@ void GameServer::HandleNormalMsg(Packet p) {
   EventManager::Instance().TriggerEvent(kEventOnPlayerMessageName, OnPlayerMessageEvent{player.player_id, packet.message});
 }
 
+bool GameServer::CanReportActorAction(const Player& sender, const Character& actor, std::uint32_t control_epoch,
+                                     std::uint32_t command_revision) const {
+  return CanControlActor(sender, actor, control_epoch) && IsLiveCharacter(actor) && actor.CombatRevisionIsCurrent(command_revision);
+}
+
+bool GameServer::CanControlActor(const Player& sender, const Character& actor, std::uint32_t control_epoch) const {
+  if (!sender.npc_world_ready || !SameCharacterScope(sender, actor)) return false;
+  if (sender.player_id == actor.player_id) return true;
+  const auto npc = npc_manager_.GetNpc(actor.player_id);
+  return npc && npc->get().host_player_id == sender.player_id && npc->get().control_epoch == control_epoch &&
+         IsEligibleNpcHost(npc->get(), sender.player_id);
+}
+
 void GameServer::HandleCastSpell(Packet p, bool target) {
-  auto player_opt = GetIngamePlayerByConnection(p.id);
-  if (!player_opt.has_value()) {
-    return;
-  }
-
-  auto& player = player_opt.value().get();
-
-  CastSpellPacket packet;
+  CastSpellPacket packet{};
   if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "CastSpellPacket")) {
     return;
   }
-  packet.caster_id = player.player_id;
-
-  if (target) {
-    if (!packet.target_id.has_value()) {
-      SPDLOG_ERROR("No target in cast spell packet!");
+  auto sender = GetIngamePlayerByConnection(p.id);
+  if (!sender || !sender->get().npc_world_ready) return;
+  const auto caster_id = packet.caster_id.value_or(sender->get().player_id);
+  auto actor = GetCharacter(caster_id);
+  if (!actor || packet.actor_generation != actor->get().actor_generation ||
+      !CanControlActor(sender->get(), actor->get(), packet.control_epoch)) return;
+  auto& caster = actor->get();
+  const auto actor_generation = caster.actor_generation;
+  const auto observed_item_index = packet.item_instance ? packet.item_instance : caster.state.active_spell_instance;
+  const auto reject_cast = [&] {
+    // The native cast may already have paid mana or consumed a scroll. A Lua
+    // callback can replace either actor; only reconcile this same incarnation.
+    const auto current = GetCharacter(caster_id);
+    if (!current || current->get().actor_generation != actor_generation) return;
+    AdvancePlayerStateSequence(current->get());
+    SendPlayerAttributeUpdate(player_manager_, current->get(), ATTR_MANA, current->get().mana);
+    if (observed_item_index > 0) SendItemTransactionResult(current->get(), 0, observed_item_index, false);
+  };
+  const auto now = std::chrono::steady_clock::now();
+  // Casts share the same source timeline as poses and other actor actions.
+  // Validate/map before consuming resources so malformed presentation time
+  // cannot create an approved attack without its viewer presentation.
+  const auto cast_server_time = ActorClockMilliseconds();
+  if (sender->get().client_clock_origin && packet.source_time_ms >= *sender->get().client_clock_origin) {
+    const auto elapsed = packet.source_time_ms - *sender->get().client_clock_origin;
+    if (elapsed > cast_server_time - sender->get().server_clock_origin + 2000) {
+      reject_cast();
       return;
     }
-
-    auto target_opt = player_manager_.GetPlayer(*packet.target_id);
-    if (!target_opt.has_value() || !target_opt.value().get().is_ingame) {
+    packet.source_time_ms = sender->get().server_clock_origin + elapsed;
+  } else {
+    packet.source_time_ms = cast_server_time;
+  }
+  if (!CanReportActorAction(sender->get(), caster, packet.control_epoch, packet.command_revision)) {
+    reject_cast();
+    return;
+  }
+  if (packet.spell_id >= 100 || !AcceptActionId(caster.last_cast_action_id, packet.action_id)) {
+    reject_cast();
+    return;
+  }
+  const auto* item = item_registry_.FindByIndex(observed_item_index);
+  if (!item || (item->mainflag & (1 << 9)) == 0 || !item->spell || *item->spell != packet.spell_id ||
+      caster.InventoryCount(item->instance) == 0) {
+    reject_cast();
+    return;
+  }
+  const auto spell_range = static_cast<std::uint32_t>(item->range.value_or(0) > 0
+      ? std::clamp(*item->range, 1, 10000) : 10000);
+  const auto spell_damage = item->damage ? std::clamp(item->damage->total, 0, 1000000) : 1000000;
+  const auto spell_types = item->damage ? static_cast<std::uint32_t>(item->damage->types) & 255u : 255u;
+  const auto item_instance = item->instance;
+  const auto item_index = item->index;
+  const bool scroll = (item->flags & (1 << 21)) != 0;
+  const auto mage_talent = caster.talents.find(7);
+  if (!scroll && item->mag_circle.value_or(0) > (mage_talent == caster.talents.end() ? 0 : mage_talent->second)) {
+    reject_cast();
+    return;
+  }
+  if (target != packet.target_id.has_value()) {
+    reject_cast();
+    return;
+  }
+  if (packet.target_id) {
+    auto victim = GetCharacter(*packet.target_id);
+    if (!victim || !IsLiveCharacter(victim->get()) || !SameCharacterScope(caster, victim->get()) ||
+        packet.target_generation != victim->get().actor_generation ||
+        (victim->get().player_id != sender->get().player_id && !sender->get().spawned_players.contains(victim->get().player_id)) ||
+        glm::distance(caster.state.position, victim->get().state.position) > static_cast<float>(spell_range)) {
+      reject_cast();
       return;
     }
   }
-
-  EventManager::Instance().TriggerEvent(kEventOnPlayerCastSpellName, OnPlayerCastSpellEvent{player.player_id, packet.spell_id, packet.target_id});
-
-  player_manager_.ForEachIngamePlayer([&](const Player& existing_player) {
-    if (existing_player.player_id != player.player_id) {
-      SerializeAndSend(packet, TrafficClass::Control, existing_player.connection);
+  const auto mana_before_callbacks = caster.mana;
+  const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerCastSpellName,
+      OnPlayerCastSpellEvent{caster_id, packet.spell_id, packet.target_id});
+  actor = GetCharacter(caster_id);
+  sender = GetIngamePlayerByConnection(p.id);
+  if (!actor || !sender || actor->get().actor_generation != actor_generation) {
+    reject_cast();
+    return;
+  }
+  if (!CanReportActorAction(sender->get(), actor->get(), packet.control_epoch, packet.command_revision)) {
+    reject_cast();
+    return;
+  }
+  if (result.cancelled || actor->get().InventoryCount(item_instance) == 0) {
+    reject_cast();
+    return;
+  }
+  if (packet.target_id) {
+    const auto victim = GetCharacter(*packet.target_id);
+    if (!victim || victim->get().actor_generation != packet.target_generation || !IsLiveCharacter(victim->get()) ||
+        !SameCharacterScope(actor->get(), victim->get()) ||
+        glm::distance(actor->get().state.position, victim->get().state.position) > static_cast<float>(spell_range)) {
+      reject_cast();
+      return;
     }
+  }
+  auto& current = actor->get();
+  if (packet.target_id) {
+    const auto victim = GetCharacter(*packet.target_id);
+    if (!victim || victim->get().actor_generation != packet.target_generation || !IsLiveCharacter(victim->get()) ||
+        !SameCharacterScope(current, victim->get()) ||
+        glm::distance(current.state.position, victim->get().state.position) > static_cast<float>(spell_range)) {
+      reject_cast();
+      return;
+    }
+  }
+  if (scroll && !RemoveInventoryItem(current, item_instance, 1)) {
+    reject_cast();
+    return;
+  }
+  current.last_cast_at = now;
+  const auto old_mana = current.mana;
+  if (current.mana == mana_before_callbacks)
+    current.mana = static_cast<std::int32_t>(std::clamp<std::int64_t>(
+        static_cast<std::int64_t>(current.mana) + packet.mana_delta, 0, current.max_mana));
+  current.state.mana_points = current.mana;
+  current.state.active_spell_instance = scroll && current.InventoryCount(item_instance) == 0 ? 0 : item_index;
+  current.state.weapon_mode = 7;
+  auto approval = Character::ApprovedAttack{packet.action_id, spell_damage, spell_types,
+                                                         spell_range, now + std::chrono::seconds(5), {}, packet.target_id ? 1u : 32u};
+  approval.origin = current.state.position;
+  while (current.approved_projectiles.size() >= 64) current.approved_projectiles.pop_front();
+  current.approved_projectiles.push_back(std::move(approval));
+  AdvancePlayerStateSequence(current);
+  SendPlayerAttributeUpdate(player_manager_, current, ATTR_MANA, current.mana);
+  if (scroll) SendItemTransactionResult(current, 0, item_index, true);
+  const auto new_mana = current.mana;
+  if (old_mana != new_mana) pending_npc_events_.push_back([this, caster_id, actor_generation, old_mana, new_mana] {
+    const auto caster = GetCharacter(caster_id);
+    if (caster && caster->get().actor_generation == actor_generation)
+      EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{caster_id, old_mana, new_mana});
   });
+  packet.caster_id = caster_id;
+  packet.item_instance = item_index;
+  player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+    if (viewer.connection != p.id && viewer.npc_world_ready && current.streamed_by_players.contains(viewer.player_id) &&
+        SameCharacterScope(current, viewer)) SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
+  });
+}
+
+void GameServer::HandleActorAction(Packet p) {
+  ActorActionPacket packet{};
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "ActorActionPacket")) return;
+  auto sender = GetIngamePlayerByConnection(p.id);
+  if (!sender || !sender->get().npc_world_ready) return;
+  const auto actor_id = packet.actor_id ? packet.actor_id : sender->get().player_id;
+  auto actor = GetCharacter(actor_id);
+  if (!actor || packet.actor_generation != actor->get().actor_generation ||
+      !CanControlActor(sender->get(), actor->get(), packet.control_epoch)) return;
+  auto& current = actor->get();
+  const auto now = std::chrono::steady_clock::now();
+  if (!CanReportActorAction(sender->get(), current, packet.control_epoch, packet.command_revision)) {
+    if (packet.kind == ActorActionKind::ItemUse) {
+      SendItemTransactionResult(current, 0, packet.item_instance, false);
+      SendPlayerAttributeUpdate(player_manager_, current, ATTR_HEALTH, current.health);
+      SendPlayerAttributeUpdate(player_manager_, current, ATTR_MANA, current.mana);
+    } else if (packet.kind == ActorActionKind::Shot) {
+      const auto* weapon = item_registry_.FindByIndex(current.state.ranged_weapon_instance);
+      const auto* ammo = weapon ? item_registry_.Find(weapon->munition.value_or(packet.weapon_mode == 5 ? "ITRW_ARROW" : "ITRW_BOLT")) : nullptr;
+      if (ammo) SendItemTransactionResult(current, 0, ammo->index, false);
+    }
+    return;
+  }
+  if (!AcceptActionId(current.last_actor_action_id, packet.action_id)) return;
+  if (now - current.action_window_started >= std::chrono::seconds(1)) {
+    current.action_window_started = now;
+    current.actions_in_window = 0;
+  }
+  if (++current.actions_in_window > 100) return;
+  packet.actor_id = actor_id;
+  // Map the host's sample clock onto the same server timeline as actor poses.
+  const auto server_time = ActorClockMilliseconds();
+  if (sender->get().client_clock_origin && packet.source_time_ms >= *sender->get().client_clock_origin) {
+    const auto elapsed = packet.source_time_ms - *sender->get().client_clock_origin;
+    if (elapsed > server_time - sender->get().server_clock_origin + 2000) return;
+    packet.source_time_ms = sender->get().server_clock_origin + elapsed;
+  } else packet.source_time_ms = server_time;
+  if (!IsFinitePosition(packet.position) || !IsFinitePosition(packet.direction)) return;
+
+  switch (packet.kind) {
+    case ActorActionKind::AnimationStart:
+    case ActorActionKind::AnimationStop:
+      packet.name = AnimationRegistry::NormalizeName(packet.name);
+      if (packet.name.empty() || !animation_registry_.ContainsName(packet.name)) return;
+      break;
+    case ActorActionKind::Shot: {
+      if ((packet.weapon_mode != 5 && packet.weapon_mode != 6) || packet.weapon_mode != current.state.weapon_mode ||
+          glm::distance(packet.position, current.state.position) > 250.0f) return;
+      const auto direction_length = glm::length(packet.direction);
+      if (!std::isfinite(direction_length) || direction_length < 0.01f || direction_length > 2.0f) return;
+      packet.direction /= direction_length;
+      auto bounds = GetCombatBounds(current, item_registry_);
+      const auto* weapon = item_registry_.FindByIndex(current.state.ranged_weapon_instance);
+      const auto* ammo = weapon ? item_registry_.Find(weapon->munition.value_or(packet.weapon_mode == 5 ? "ITRW_ARROW" : "ITRW_BOLT")) : nullptr;
+      if (bounds.damage <= 0 || !ammo || now - current.last_attack_at < std::chrono::milliseconds(bounds.interval_ms) ||
+          !RemoveInventoryItem(current, ammo->instance, 1)) return;
+      current.last_attack_at = now;
+      auto approval = Character::ApprovedAttack{packet.action_id, bounds.damage, bounds.types, bounds.reach,
+                                                             now + std::chrono::seconds(5), {}, 1};
+      approval.origin = packet.position;
+      while (current.approved_projectiles.size() >= 64) current.approved_projectiles.pop_front();
+      current.approved_projectiles.push_back(std::move(approval));
+      SendItemTransactionResult(current, 0, ammo->index, true);
+      break;
+    }
+    case ActorActionKind::ItemUse: {
+      const auto generation = current.actor_generation;
+      const auto health_before_callbacks = current.health;
+      const auto mana_before_callbacks = current.mana;
+      const auto* definition = item_registry_.FindByIndex(packet.item_instance);
+      packet.scheme = definition ? definition->scemename : std::string{};
+      const auto decision = EventManager::Instance().DispatchEvent(kEventOnPlayerUseItemName,
+          OnPlayerUseItemEvent{actor_id, packet.item_instance, packet.quantity, packet.scheme});
+      const auto reject_use = [&] {
+        const auto actor = GetCharacter(actor_id);
+        if (!actor || actor->get().actor_generation != generation) return;
+        AdvancePlayerStateSequence(actor->get());
+        SendItemTransactionResult(actor->get(), 0, packet.item_instance, false);
+        SendPlayerAttributeUpdate(player_manager_, actor->get(), ATTR_HEALTH, actor->get().health);
+        SendPlayerAttributeUpdate(player_manager_, actor->get(), ATTR_MANA, actor->get().mana);
+      };
+      sender = GetIngamePlayerByConnection(p.id);
+      actor = GetCharacter(actor_id);
+      definition = item_registry_.FindByIndex(packet.item_instance);
+      if (decision.cancelled || !sender || !actor || actor->get().actor_generation != generation ||
+          !CanReportActorAction(sender->get(), actor->get(), packet.control_epoch, packet.command_revision) ||
+          !definition || packet.quantity < 0 || packet.quantity > 32 ||
+          actor->get().InventoryCount(definition->instance) < std::max(1, packet.quantity)) {
+        reject_use();
+        return;
+      }
+      const auto instance = definition->instance;
+      if (packet.quantity > 0 && !RemoveInventoryItem(actor->get(), instance, packet.quantity)) {
+        reject_use();
+        return;
+      }
+      auto& user = actor->get();
+      const auto health = user.health == health_before_callbacks
+          ? static_cast<std::int32_t>(std::clamp<std::int64_t>(
+              static_cast<std::int64_t>(user.health) + packet.health_delta, 0, user.max_health)) : user.health;
+      const auto mana = user.mana == mana_before_callbacks
+          ? static_cast<std::int32_t>(std::clamp<std::int64_t>(
+              static_cast<std::int64_t>(user.mana) + packet.mana_delta, 0, user.max_mana)) : user.mana;
+      packet.health_delta = health - health_before_callbacks;
+      packet.mana_delta = mana - mana_before_callbacks;
+      ClearRemovedEquipment(user, packet.item_instance, user.InventoryCount(instance));
+      SendItemTransactionResult(user, 0, packet.item_instance, true);
+      SetPlayerHealth(actor_id, health);
+      actor = GetCharacter(actor_id);
+      if (!actor || actor->get().actor_generation != generation) return;
+      SetPlayerMana(actor_id, mana);
+      break;
+    }
+    case ActorActionKind::MobState: {
+      if (actor_id != sender->get().player_id || packet.name.empty() || packet.name.size() > 128 ||
+          SanitizeServerText(packet.name) != packet.name || packet.target_state < 0 || packet.target_state > 64 ||
+          glm::distance(packet.position, current.state.position) > 400.0f) return;
+      const auto record = std::find_if(mob_states_.begin(), mob_states_.end(), [&](const MobStateRecord& value) {
+        return value.world == current.world && value.virtual_world == current.virtual_world && value.name == packet.name &&
+               glm::distance(value.position, packet.position) < 50.0f;
+      });
+      if (record == mob_states_.end()) {
+        if (mob_states_.size() >= 4096) return;
+        mob_states_.push_back({current.world, current.virtual_world, packet.name, packet.position, packet.target_state});
+      } else record->state = packet.target_state;
+      player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+        if (viewer.connection != p.id && viewer.npc_world_ready && SameCharacterScope(current, viewer)) {
+          packet.target_generation = viewer.actor_generation;
+          SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
+        }
+      });
+      return;
+    }
+    default: return;
+  }
+  // Item callbacks can replace the actor, disconnect it or change its world.
+  actor = GetCharacter(actor_id);
+  if (!actor || actor->get().actor_generation != packet.actor_generation || !IsLiveCharacter(actor->get())) return;
+  player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+    if (viewer.connection != p.id && viewer.npc_world_ready && actor->get().streamed_by_players.contains(viewer.player_id) &&
+        SameCharacterScope(actor->get(), viewer)) SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
+  });
+}
+
+void GameServer::ReplayActorActions(Player& viewer) {
+  if (!viewer.npc_world_ready) return;
+  for (const auto& record : mob_states_) {
+    if (record.world != viewer.world || record.virtual_world != viewer.virtual_world) continue;
+    ActorActionPacket packet{};
+    packet.kind = ActorActionKind::MobState;
+    packet.target_generation = viewer.actor_generation;
+    packet.name = record.name;
+    packet.position = record.position;
+    packet.target_state = record.state;
+    packet.source_time_ms = ActorClockMilliseconds();
+    SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
+  }
+}
+
+void GameServer::ProcessActorEffects() {
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<std::pair<PlayerId, std::string>> expired;
+  auto collect = [&](const Character& character) {
+    for (const auto& [overlay, deadline] : character.timed_overlays) {
+      if (deadline <= now) expired.emplace_back(character.player_id, overlay);
+    }
+  };
+  for (const auto& [_, player] : player_manager_.GetAllPlayers()) collect(player);
+  for (const auto id : npc_manager_.GetNpcIds()) if (const auto npc = npc_manager_.GetNpc(id)) collect(npc->get());
+  for (const auto& [id, overlay] : expired) {
+    auto actor = GetCharacter(id);
+    if (!actor) continue;
+    actor->get().timed_overlays.erase(overlay);
+    RemovePlayerOverlay(id, overlay);
+  }
+}
+
+void GameServer::DispatchPendingActorEvents() {
+  auto events = std::move(pending_npc_events_);
+  pending_npc_events_.clear();
+  for (auto& event : events) event();
 }
 
 void GameServer::HandleDropItem(Packet p) {
@@ -2177,13 +2794,26 @@ void GameServer::HandleDropItem(Packet p) {
   }
 
   const auto* item_definition = item_registry_.FindByIndex(packet.item_instance);
-  if (!item_definition) {
-    SPDLOG_WARN("Player {} tried to drop unknown item parser index {}", player.player_id, packet.item_instance);
+  const bool request_is_new = packet.actor_generation == player.actor_generation && player.AcceptItemRequest(packet.request_id);
+  // Native mutations are speculative until this transfer commits. Every validly
+  // decoded request receives the class's authoritative resulting count.
+  if (!request_is_new || !item_definition || !player.inventory_initialized || !player.npc_world_ready ||
+      player.state.life_state != PLAYER_LIFE_ALIVE || packet.item_amount <= 0 ||
+      !IsFinitePosition(packet.position) || !IsFinitePosition(packet.rotation) ||
+      glm::distance(packet.position, player.state.position) > 400.0f ||
+      player.InventoryCount(item_definition->instance) < packet.item_amount) {
+    SendItemTransactionResult(player, packet.request_id, packet.item_instance, false);
     return;
   }
-  const auto& instance = item_definition->instance;
-
-  const auto amount = std::max<std::int32_t>(1, packet.item_amount);
+  const auto instance = item_definition->instance;
+  const auto amount = packet.item_amount;
+  const auto player_id = player.player_id;
+  const auto actor_generation = player.actor_generation;
+  // Reserve ownership before exposing the object to a re-entrant script.
+  if (!RemoveInventoryItem(player, instance, amount)) {
+    SendItemTransactionResult(player, packet.request_id, packet.item_instance, false);
+    return;
+  }
   ItemGroundManager::CreateOptions options;
   options.instance = instance;
   options.amount = amount;
@@ -2195,14 +2825,21 @@ void GameServer::HandleDropItem(Packet p) {
 
   const auto item_ground_id = CreateItemGround(std::move(options));
   auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerDropItemName,
-                                                       OnPlayerDropItemEvent{player.player_id, item_ground_id});
-  if (result.cancelled) {
+                                                       OnPlayerDropItemEvent{player_id, item_ground_id});
+  const auto current_player = GetIngamePlayerByConnection(p.id);
+  if (!current_player || current_player->get().actor_generation != actor_generation) {
     DestroyItemGround(item_ground_id);
-    SendInventoryAddCorrection(player, instance, amount);
     return;
   }
-
-  RemoveInventoryItem(player, instance, amount);
+  auto& current = current_player->get();
+  if (result.cancelled || item_ground_id == 0 || !item_ground_manager_.Get(item_ground_id)) {
+    DestroyItemGround(item_ground_id);
+    AddInventoryItem(current, instance, amount);
+    SendItemTransactionResult(current, packet.request_id, packet.item_instance, false);
+    return;
+  }
+  ClearRemovedEquipment(current, packet.item_instance, current.InventoryCount(instance));
+  SendItemTransactionResult(current, packet.request_id, packet.item_instance, true, item_ground_id);
 }
 
 void GameServer::HandleTakeItem(Packet p) {
@@ -2218,43 +2855,48 @@ void GameServer::HandleTakeItem(Packet p) {
     return;
   }
 
-  if (!packet.item_ground_id.has_value()) {
-    SPDLOG_WARN("Player {} took item parser index {} without an item ground id", player.player_id, packet.item_instance);
-    return;
-  }
-
-  auto* item_ground = item_ground_manager_.Get(*packet.item_ground_id);
-  if (item_ground == nullptr) {
-    SPDLOG_WARN("Player {} tried to take missing item ground {}", player.player_id, *packet.item_ground_id);
-    return;
-  }
-
-  if (!CanSeeItemGround(player, *item_ground)) {
-    SPDLOG_WARN("Player {} tried to take item ground {} outside their world or virtual world", player.player_id,
-                *packet.item_ground_id);
-    return;
-  }
-
-  const auto* item_definition = item_registry_.Find(item_ground->instance);
-  if (!item_definition || item_definition->index != packet.item_instance) {
-    SPDLOG_WARN("Player {} tried to take item ground {} with mismatched parser index {}", player.player_id,
-                item_ground->id, packet.item_instance);
+  const bool request_is_new = packet.actor_generation == player.actor_generation && player.AcceptItemRequest(packet.request_id);
+  auto* item_ground = packet.item_ground_id ? item_ground_manager_.Get(*packet.item_ground_id) : nullptr;
+  const auto* item_definition = item_ground ? item_registry_.Find(item_ground->instance) : nullptr;
+  if (!request_is_new || !player.inventory_initialized || !player.npc_world_ready ||
+      player.state.life_state != PLAYER_LIFE_ALIVE || !item_ground || !item_definition ||
+      item_definition->index != packet.item_instance || packet.item_amount != item_ground->amount ||
+      !CanSeeItemGround(player, *item_ground) || !item_ground->streamed_to.contains(player.player_id) ||
+      glm::distance(item_ground->position, player.state.position) > 400.0f ||
+      !item_ground_manager_.Reserve(item_ground->id, player.player_id)) {
+    if (item_ground && CanSeeItemGround(player, *item_ground)) SendItemGroundCreate(*item_ground, player.connection);
+    SendItemTransactionResult(player, packet.request_id, packet.item_instance, false, packet.item_ground_id);
     return;
   }
 
   const auto instance = item_ground->instance;
   const auto amount = item_ground->amount;
+  const auto ground_id = item_ground->id;
+  const auto player_id = player.player_id;
+  const auto actor_generation = player.actor_generation;
   auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerTakeItemName,
-                                                       OnPlayerTakeItemEvent{player.player_id, item_ground->id});
-  if (result.cancelled) {
-    SendItemGroundCreate(*item_ground, player.connection);
-    SendInventoryRemoveCorrection(player, instance, amount);
+                                                       OnPlayerTakeItemEvent{player_id, ground_id});
+  // Both entities can be destroyed or moved by Lua. Never retain pointers across
+  // the callback, and never transfer a replacement/mutated ground item.
+  const auto current_player = GetIngamePlayerByConnection(p.id);
+  item_ground = item_ground_manager_.Get(ground_id);
+  if (!current_player || current_player->get().actor_generation != actor_generation) {
+    item_ground_manager_.ReleaseReservation(ground_id, player_id);
     return;
   }
-
-  AddInventoryItem(player, instance, amount);
-  SendInventoryAddCorrection(player, instance, amount);
-  DestroyItemGround(item_ground->id);
+  auto& current = current_player->get();
+  const bool unchanged_item = item_ground && item_ground->reserved_by == player_id && item_ground->instance == instance &&
+                              item_ground->amount == amount && CanSeeItemGround(current, *item_ground) &&
+                              glm::distance(item_ground->position, current.state.position) <= 400.0f;
+  if (result.cancelled || !unchanged_item || !current.npc_world_ready || current.state.life_state != PLAYER_LIFE_ALIVE ||
+      !AddInventoryItem(current, instance, amount)) {
+    item_ground_manager_.ReleaseReservation(ground_id, player_id);
+    if (item_ground && CanSeeItemGround(current, *item_ground)) SendItemGroundCreate(*item_ground, current.connection);
+    SendItemTransactionResult(current, packet.request_id, packet.item_instance, false, ground_id);
+    return;
+  }
+  DestroyItemGround(ground_id);
+  SendItemTransactionResult(current, packet.request_id, packet.item_instance, true, ground_id);
 }
 
 void GameServer::HandlePlayerWorldEnter(Packet p) {
@@ -2279,6 +2921,8 @@ void GameServer::HandlePlayerWorldEnter(Packet p) {
   if (entered_world.empty()) {
     return;
   }
+  if (packet.actor_generation != player.actor_generation || player.npc_world_ready) return;
+  if (!InitializePlayerInventory(player, packet.inventory)) return;
   player.npc_world_ready = true;
 
   EventManager::Instance().TriggerEvent(kEventOnPlayerWorldEnterName, OnPlayerWorldEnterEvent{player.player_id, player.world});
@@ -2293,6 +2937,28 @@ void GameServer::HandlePlayerWorldEnter(Packet p) {
     RefreshNpcStreaming(npc_id);
   }
   StreamRelevantGroundItemsToPlayer(ready_player->get(), true);
+  // Grants and commands issued while the world was loading may have reached a
+  // discarded native hero. Reconcile canonical counts after readiness rather
+  // than interpreting a later GiveItem as an acknowledgement of a pending take.
+  auto& canonical = ready_player->get();
+  for (const auto& [instance, amount] : canonical.inventory) {
+    const auto* definition = item_registry_.Find(instance);
+    if (!definition) continue;
+    SendItemTransactionResult(canonical, 0, definition->index, true);
+  }
+  for (const auto& entry : packet.inventory) {
+    const auto* definition = item_registry_.FindByIndex(entry.item_instance);
+    if (definition && canonical.InventoryCount(definition->instance) == 0)
+      SendItemTransactionResult(canonical, 0, entry.item_instance, false);
+  }
+  ValidatePlayerEquipment(canonical, canonical.state);
+  AdvanceActorCommand(canonical);
+  AdvancePlayerStateSequence(canonical);
+  AdvancePlayerStateSequence(canonical);
+  auto equipment = MakePlayerStateUpdatePacket(canonical);
+  equipment.state.correction_mask = kSyncEquipment | kSyncCombat;
+  BroadcastToRelevant(player_manager_, canonical, equipment, TrafficClass::Control);
+  ReplayActorActions(ready_player->get());
 }
 
 void GameServer::SendItemGroundCreate(const ItemGroundManager::ItemGround& item_ground, Net::ConnectionHandle connection) {
@@ -2380,40 +3046,30 @@ void GameServer::RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_
   player_manager_.ForEachIngamePlayer([&](Player& player) { StreamItemGroundToPlayer(item_ground, player); });
 }
 
-void GameServer::SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount) {
-  if (instance.empty() || amount <= 0) {
-    return;
-  }
-  const auto* item_definition = item_registry_.Find(instance);
-  if (!item_definition) {
-    SPDLOG_ERROR("Cannot send inventory correction for unknown item instance '{}'", instance);
-    return;
-  }
-
-  GiveItemPacket packet{};
-  packet.packet_type = PT_GIVEITEM;
-  packet.player_id = player.player_id;
-  packet.item_instance = item_definition->index;
-  packet.item_amount = amount;
-  SerializeAndSend(packet, TrafficClass::Control, player.connection);
+bool GameServer::InitializePlayerInventory(Player& player, const std::vector<InventoryEntry>& inventory) {
+  if (!ValidateNativeInventoryDeclaration(inventory, item_registry_)) return false;
+  player.inventory_initialized = true;
+  ValidatePlayerEquipment(player, player.state);
+  return true;
 }
 
-void GameServer::SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount) {
-  if (instance.empty() || amount <= 0) {
-    return;
-  }
-  const auto* item_definition = item_registry_.Find(instance);
-  if (!item_definition) {
-    SPDLOG_ERROR("Cannot send inventory correction for unknown item instance '{}'", instance);
-    return;
-  }
-
-  RemoveItemPacket packet{};
-  packet.packet_type = PT_REMOVEITEM;
-  packet.player_id = player.player_id;
-  packet.item_instance = item_definition->index;
-  packet.item_amount = amount;
-  SerializeAndSend(packet, TrafficClass::Control, player.connection);
+void GameServer::SendItemTransactionResult(Character& player, std::uint32_t request_id, std::int32_t item_instance,
+                                         bool accepted, std::optional<std::uint32_t> item_ground_id) {
+  AdvancePlayerStateSequence(player);
+  ItemTransactionResultPacket packet{};
+  packet.packet_type = PT_ITEM_TRANSACTION_RESULT;
+  packet.actor_id = player.player_id;
+  packet.request_id = request_id;
+  packet.item_instance = item_instance;
+  const auto* definition = item_registry_.FindByIndex(item_instance);
+  packet.resulting_amount = definition ? player.InventoryCount(definition->instance) : 0;
+  packet.accepted = accepted;
+  packet.item_ground_id = item_ground_id;
+  packet.actor_generation = player.actor_generation;
+  packet.state_sequence = player.state_sequence;
+  if (const auto connection = player_manager_.GetConnectionHandle(player.player_id))
+    SerializeAndSend(packet, TrafficClass::Control, *connection);
+  else BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
 }
 
 std::optional<std::string> GameServer::ResolveItemInstance(std::string instance) const {
@@ -2456,6 +3112,7 @@ void GameServer::ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& 
 }
 
 std::uint32_t GameServer::CreateItemGround(ItemGroundManager::CreateOptions options) {
+  if (options.amount <= 0 || !IsFinitePosition(options.position) || !IsFinitePosition(options.rotation)) return 0;
   auto resolved_instance = ResolveItemInstance(options.instance);
   if (!resolved_instance.has_value()) {
     SPDLOG_WARN("Cannot create ground item for unknown item instance '{}'", SanitizeServerText(options.instance));
@@ -2463,7 +3120,6 @@ std::uint32_t GameServer::CreateItemGround(ItemGroundManager::CreateOptions opti
   }
   options.instance = *resolved_instance;
   options.world = SanitizeWorldName(options.world.empty() ? server_world_ : options.world);
-  options.amount = std::max<std::int32_t>(1, options.amount);
   options.virtual_world = std::clamp<std::int32_t>(options.virtual_world, 0, 65535);
 
   auto& item_ground = item_ground_manager_.Create(std::move(options));
@@ -2489,6 +3145,7 @@ bool GameServer::DestroyItemGround(std::uint32_t item_ground_id) {
 }
 
 bool GameServer::SetItemGroundPosition(std::uint32_t item_ground_id, const glm::vec3& position) {
+  if (!IsFinitePosition(position)) return false;
   auto* item_ground = item_ground_manager_.Get(item_ground_id);
   if (item_ground == nullptr) {
     return false;
@@ -2500,6 +3157,7 @@ bool GameServer::SetItemGroundPosition(std::uint32_t item_ground_id, const glm::
 }
 
 bool GameServer::SetItemGroundRotation(std::uint32_t item_ground_id, const glm::vec3& rotation) {
+  if (!IsFinitePosition(rotation)) return false;
   auto* item_ground = item_ground_manager_.Get(item_ground_id);
   if (item_ground == nullptr) {
     return false;
@@ -2800,6 +3458,8 @@ void GameServer::SendDeathInfo(PlayerId dead_player_id) {
 
   if (const auto subject = GetCharacter(dead_player_id)) {
     packet.state_sequence = subject->get().state_sequence;
+    packet.actor_generation = subject->get().actor_generation;
+    packet.command_revision = subject->get().command_revision;
     BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
@@ -2811,6 +3471,10 @@ void GameServer::SendRespawnInfo(PlayerId respawned_player_id) {
 
   if (const auto subject = GetCharacter(respawned_player_id)) {
     packet.state_sequence = subject->get().state_sequence;
+    packet.actor_generation = subject->get().actor_generation;
+    packet.command_revision = subject->get().command_revision;
+    packet.health = subject->get().health;
+    packet.mana = subject->get().mana;
     BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
@@ -2823,6 +3487,8 @@ void GameServer::SendUnconsciousInfo(PlayerId player_id, std::optional<PlayerId>
 
   if (const auto subject = GetCharacter(player_id)) {
     packet.state_sequence = subject->get().state_sequence;
+    packet.actor_generation = subject->get().actor_generation;
+    packet.command_revision = subject->get().command_revision;
     BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
@@ -2834,6 +3500,8 @@ void GameServer::SendStandUpInfo(PlayerId player_id) {
 
   if (const auto subject = GetCharacter(player_id)) {
     packet.state_sequence = subject->get().state_sequence;
+    packet.actor_generation = subject->get().actor_generation;
+    packet.command_revision = subject->get().command_revision;
     BroadcastToRelevant(player_manager_, subject->get(), packet, TrafficClass::Control);
   }
 }
@@ -2841,6 +3509,7 @@ void GameServer::SendStandUpInfo(PlayerId player_id) {
 void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
   JoinGamePacket packet;
   packet.packet_type = PT_JOIN_GAME;
+  packet.actor_generation = joining_player.actor_generation;
   packet.position = joining_player.state.position;
   packet.normal = joining_player.state.nrot;
   packet.left_hand_item_instance = joining_player.state.left_hand_item_instance;
@@ -2890,7 +3559,12 @@ void GameServer::RefreshPlayerStreaming(bool send_state_updates) {
       viewer.spawned_players.insert(subject.player_id);
       SerializeAndSend(MakePlayerSpawnPacket(subject), TrafficClass::Control, viewer.connection);
     } else if (send_state_updates) {
+      auto& sent = viewer.sent_actor_states[subject.player_id];
+      const auto now = std::chrono::steady_clock::now();
+      if (sent.generation == subject.actor_generation && sent.sequence == subject.state_sequence &&
+          now - sent.sent_at < std::chrono::seconds(1)) return;
       SerializeAndSend(MakePlayerStateUpdatePacket(subject), TrafficClass::State, viewer.connection);
+      sent = {subject.actor_generation, subject.state_sequence, now};
     }
   };
 
@@ -3002,7 +3676,7 @@ void GameServer::DestroyNpcsForResource(const std::string& owner) {
 
 bool GameServer::SpawnNpc(PlayerId npc_id, std::optional<glm::vec3> position) {
   const auto npc_opt = npc_manager_.GetNpc(npc_id);
-  if (!npc_opt || npc_opt->get().is_ingame || npc_opt->get().max_health <= 0 || (position && !IsFinitePosition(*position)) ||
+  if (!npc_opt || npc_opt->get().is_ingame || npc_opt->get().max_health <= 0 || (position && !IsValidActorPosition(*position)) ||
       !npc_manager_.BumpControlEpoch(npc_id)) {
     return false;
   }
@@ -3020,6 +3694,9 @@ bool GameServer::SpawnNpc(PlayerId npc_id, std::optional<glm::vec3> position) {
   ClearTransientCombatState(npc);
   AdvancePlayerStateSequence(npc);
   npc.is_ingame = 1;
+  npc.RenewGeneration();
+  npc.state.source_time_ms = ActorClockMilliseconds();
+  AdvanceActorCommand(npc);
   RefreshNpcStreaming(npc_id);
   return true;
 }
@@ -3138,7 +3815,7 @@ void GameServer::RefreshNpcStreaming(PlayerId npc_id) {
   }
   if (!added_viewers.empty()) {
     NpcSpawnPacket packet;
-    packet.actor = MakePlayerSpawnPacket(npc);
+    packet.actor = MakePlayerSpawnPacket(npc, &item_registry_);
     packet.control = MakeNpcControlPacket(npc);
     packet.animation = MakeNpcAnimationPacket(npc);
     for (const auto viewer_id : added_viewers) {
@@ -3242,7 +3919,8 @@ void GameServer::HandleNpcActionResult(Packet p) {
     return;
   }
   const auto npc = npc_manager_.GetNpc(packet.npc_id);
-  if (!npc || !IsEligibleNpcHost(npc->get(), player->get().player_id)) {
+  if (!npc || packet.actor_generation != npc->get().actor_generation ||
+      !IsEligibleNpcHost(npc->get(), player->get().player_id)) {
     return;
   }
   const auto completed = npc_manager_.FinishAction(packet.npc_id, player->get().player_id,
@@ -3274,6 +3952,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   }
 
   if (position_override.has_value()) {
+    if (!IsValidActorPosition(*position_override)) return false;
     player.state.position = *position_override;
   }
 
@@ -3290,8 +3969,11 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   AdvancePlayerStateSequence(player);
 
   player.is_ingame = 1;
+  player.RenewGeneration();
+  player.state.source_time_ms = ActorClockMilliseconds();
+  AdvanceActorCommand(player);
 
-  const auto packet = MakePlayerSpawnPacket(player);
+  const auto packet = MakePlayerSpawnPacket(player, &item_registry_);
 
   SerializeAndSend(packet, TrafficClass::Control, player.connection);
   StreamRelevantGroundItemsToPlayer(player, true);
@@ -3299,10 +3981,12 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   RefreshPlayerStreaming();
 
   if (was_dead) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player.player_id, player.state.position});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerRespawnName, OnPlayerRespawnEvent{player_id, packet.position});
   }
-
-  EventManager::Instance().TriggerEvent(kEventOnPlayerSpawnName, OnPlayerSpawnEvent{player.player_id, player.state.position});
+  const auto current = player_manager_.GetPlayer(player_id);
+  if (current && current->get().actor_generation == packet.actor_generation) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerSpawnName, OnPlayerSpawnEvent{player_id, packet.position});
+  }
   return true;
 }
 
@@ -3362,8 +4046,8 @@ bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
   return true;
 }
 
-bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position) {
-  if (!IsFinitePosition(position)) {
+bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position, std::optional<bool> teleport) {
+  if (!IsValidActorPosition(position)) {
     return false;
   }
   auto player_opt = GetCharacter(player_id);
@@ -3375,6 +4059,8 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
   auto& player = player_opt->get();
   const bool is_npc = npc_manager_.GetNpc(player_id).has_value();
   player.state.position = position;
+  player.state.source_time_ms = ActorClockMilliseconds();
+  AdvanceActorCommand(player);
   const auto state_sequence = AdvancePlayerStateSequence(player);
 
   PlayerPositionUpdatePacket packet{};
@@ -3382,6 +4068,12 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
   packet.player_id = player.player_id;
   packet.state_sequence = state_sequence;
   packet.position = position;
+  packet.actor_generation = player.actor_generation;
+  packet.command_revision = player.command_revision;
+  packet.source_time_ms = player.state.source_time_ms;
+  // Script-driven NPC movement participates in the pose timeline. Player
+  // corrections are explicit teleports and reset prediction.
+  packet.teleport = teleport.value_or(!is_npc);
 
   // Transform revisions are independent of the action epoch: Lua movement
   // must not restart a running action or extend its timeout.
@@ -3408,9 +4100,12 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
   auto& player = player_opt->get();
   const float angle_radians = angle;
   player.state.nrot = glm::vec3{std::sin(angle_radians), 0.0f, std::cos(angle_radians)};
+  player.state.source_time_ms = ActorClockMilliseconds();
+  AdvanceActorCommand(player);
   AdvancePlayerStateSequence(player);
 
-  const auto packet = MakePlayerStateUpdatePacket(player);
+  auto packet = MakePlayerStateUpdatePacket(player);
+  packet.state.correction_mask = kSyncOrientation;
   BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
@@ -3427,6 +4122,8 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
       SetNpcHostPlayer(player_id, 0);
       ClearNpcActions(player_id);
       npc->get().world = sanitized;
+      npc->get().RenewGeneration();
+      npc->get().state.source_time_ms = ActorClockMilliseconds();
       RefreshNpcStreaming(player_id);
     }
     return true;
@@ -3439,6 +4136,7 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
 
   auto& player = player_opt->get();
   const auto sanitized_world = SanitizeWorldName(world);
+  if (sanitized_world.empty()) return false;
   const bool world_changed = sanitized_world != player.world;
   std::string start_point_name = SanitizeServerText(start_point.value_or(""));
   if (start_point_name.size() > 64) {
@@ -3458,12 +4156,20 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   }
 
   player.world = sanitized_world;
+  if (world_changed) {
+    player.RenewGeneration();
+    AdvanceActorCommand(player);
+    player.client_clock_origin.reset();
+    player.last_source_time_ms = 0;
+  }
 
   PlayerWorldUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_WORLD_UPDATE;
   packet.player_id = player.player_id;
   packet.world_name = player.world;
   packet.start_point = start_point_name;
+  packet.actor_generation = player.actor_generation;
+  packet.command_revision = player.command_revision;
 
   SerializeAndSend(packet, TrafficClass::Control, player.connection);
 
@@ -3485,6 +4191,8 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
       SetNpcHostPlayer(player_id, 0);
       ClearNpcActions(player_id);
       npc->get().virtual_world = clamped;
+      npc->get().RenewGeneration();
+      AdvanceActorCommand(npc->get());
       RefreshNpcStreaming(player_id);
     }
     return true;
@@ -3506,6 +4214,12 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   }
 
   player.virtual_world = clamped_virtual_world;
+  if (virtual_world_changed) {
+    player.RenewGeneration();
+    AdvanceActorCommand(player);
+    player.state.source_time_ms = ActorClockMilliseconds();
+    SerializeAndSend(MakePlayerSpawnPacket(player, &item_registry_), TrafficClass::Control, player.connection);
+  }
 
   if (!player.is_ingame || !virtual_world_changed) {
     return true;
@@ -3604,7 +4318,7 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
 
   auto& player = player_opt->get();
   const auto old_health = player.health;
-  player.max_health = static_cast<std::int16_t>(std::clamp<std::int32_t>(max_health, 0, std::numeric_limits<std::int16_t>::max()));
+  player.max_health = std::max<std::int32_t>(0, max_health);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_HEALTH, player.max_health);
   if (player.tod == 0 && player.max_health <= 0) {
     HandlePlayerDeath(player, std::nullopt);
@@ -3613,14 +4327,14 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
   if (player.health > player.max_health) {
     player.health = player.max_health;
   }
-  if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
-  }
   player.state.health_points = player.health;
   player.state.life_state = GetPlayerLifeState(player);
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
+  if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player_id, old_health, player.health});
+  }
   return true;
 }
 
@@ -3646,21 +4360,44 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
   const bool should_stand_up = player.tod == 0 && (player.flags & PlayerManager::PL_UNCONCIOUS) != 0 && clamped > 1;
   if (should_stand_up) {
     player.flags &= ~PlayerManager::PL_UNCONCIOUS;
+    ClearRecoveredPose(player);
+    AdvanceActorCommand(player);
+    player.combat_barrier_revision = player.command_revision;
   }
 
-  player.health = static_cast<std::int16_t>(clamped);
-  if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player.player_id, old_health, player.health});
-  }
+  player.health = clamped;
   player.state.health_points = player.health;
   player.state.life_state = GetPlayerLifeState(player);
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
+  const auto generation = player.actor_generation;
+  const auto new_health = player.health;
   if (should_stand_up) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player.player_id});
-    SendStandUpInfo(player.player_id);
+    SendStandUpInfo(player_id);
   }
+  if (old_health != new_health && !npc_manager_.GetNpc(player_id)) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
+                                          OnPlayerChangeHealthEvent{player_id, old_health, new_health});
+  }
+  const auto current = GetCharacter(player_id);
+  if (should_stand_up && current && current->get().actor_generation == generation &&
+      GetPlayerLifeState(current->get()) == PLAYER_LIFE_ALIVE) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerStandUpName, OnPlayerStandUpEvent{player_id});
+  }
+  return true;
+}
+
+bool GameServer::SetPlayerInvulnerable(PlayerId player_id, bool enabled) {
+  const auto actor = GetCharacter(player_id);
+  if (!actor) return false;
+  auto& subject = actor->get();
+  subject.invulnerable = enabled;
+  subject.state.invulnerable = enabled;
+  AdvanceActorCommand(subject);
+  AdvancePlayerStateSequence(subject);
+  auto packet = MakePlayerStateUpdatePacket(subject);
+  packet.state.correction_mask = kSyncLife | kSyncHealth | kSyncMana;
+  BroadcastToRelevant(player_manager_, subject, packet, TrafficClass::Control);
   return true;
 }
 
@@ -3673,17 +4410,17 @@ bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
 
   auto& player = player_opt->get();
   const auto old_mana = player.mana;
-  player.max_mana = static_cast<std::int16_t>(std::clamp<std::int32_t>(max_mana, 0, std::numeric_limits<std::int16_t>::max()));
+  player.max_mana = std::max<std::int32_t>(0, max_mana);
   if (player.mana > player.max_mana) {
     player.mana = player.max_mana;
-  }
-  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
   }
   player.state.mana_points = player.mana;
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MAX_MANA, player.max_mana);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MANA, player.mana);
+  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player_id, old_mana, player.mana});
+  }
   return true;
 }
 
@@ -3697,13 +4434,13 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(mana, 0, player.max_mana);
   const auto old_mana = player.mana;
-  player.mana = static_cast<std::int16_t>(clamped);
-  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player.player_id, old_mana, player.mana});
-  }
+  player.mana = clamped;
   player.state.mana_points = player.mana;
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_MANA, player.mana);
+  if (old_mana != player.mana && !npc_manager_.GetNpc(player_id)) {
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{player_id, old_mana, player.mana});
+  }
   return true;
 }
 
@@ -3758,6 +4495,8 @@ bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instan
     UnstreamNpc(npc->get());
     SetNpcHostPlayer(player_id, 0);
     npc->get().instance = instance_name;
+    npc->get().RenewGeneration();
+    AdvanceActorCommand(npc->get());
     RefreshNpcStreaming(player_id);
     return true;
   }
@@ -3772,6 +4511,8 @@ bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instan
   if (player.instance.size() > 255) {
     player.instance.resize(255);
   }
+  if (player.instance.empty()) return false;
+  AdvanceActorCommand(player);
 
   BroadcastPlayerInstanceUpdate(player_manager_, player);
   return true;
@@ -3854,7 +4595,8 @@ bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
 }
 
 bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  if (weapon_mode < 0 || weapon_mode > 7) return false;
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerWeaponMode called for unknown player id {}", player_id);
     return false;
@@ -3862,8 +4604,9 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
 
   auto& player = player_opt->get();
   const auto old_mode = player.state.weapon_mode;
-  const auto clamped_mode = static_cast<std::uint8_t>(std::clamp<std::int32_t>(weapon_mode, 0, 255));
+  const auto clamped_mode = static_cast<std::uint8_t>(weapon_mode);
   player.state.weapon_mode = clamped_mode;
+  AdvanceActorCommand(player);
 
   if (old_mode != player.state.weapon_mode) {
     EventManager::Instance().TriggerEvent(
@@ -3873,7 +4616,8 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
 
   AdvancePlayerStateSequence(player);
 
-  const auto packet = MakePlayerStateUpdatePacket(player);
+  auto packet = MakePlayerStateUpdatePacket(player);
+  packet.state.correction_mask = kSyncCombat;
   BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
   return true;
 }
@@ -4072,7 +4816,7 @@ bool GameServer::PlayGesticulation(PlayerId player_id) {
 }
 
 bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("giveItem called for unknown player id {}", player_id);
     return false;
@@ -4093,11 +4837,16 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
   }
 
   auto& player = player_opt->get();
-  AddInventoryItem(player, *item_instance, amount);
+  if (!AddInventoryItem(player, *item_instance, amount)) return false;
+  if (++player.command_revision == 0) ++player.command_revision;
+  AdvancePlayerStateSequence(player);
 
   GiveItemPacket packet{};
   packet.packet_type = PT_GIVEITEM;
   packet.player_id = player.player_id;
+  packet.actor_generation = player.actor_generation;
+  packet.state_sequence = player.state_sequence;
+  packet.command_revision = player.command_revision;
   packet.item_instance = item_definition->index;
   packet.item_amount = std::max<std::int32_t>(0, amount);
 
@@ -4106,7 +4855,7 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
 }
 
 bool GameServer::EquipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("equipItem called for unknown player id {}", player_id);
     return false;
@@ -4123,19 +4872,20 @@ bool GameServer::EquipItem(PlayerId player_id, const std::string& instance, std:
   if (!item_definition) {
     return false;
   }
-  EquipItemPacket packet{};
-  packet.packet_type = PT_EQUIPITEM;
-  packet.player_id = player.player_id;
-  packet.item_instance = item_definition->index;
-  packet.slot_id = static_cast<std::int16_t>(std::clamp<std::int32_t>(
-      slot_id, std::numeric_limits<std::int16_t>::min(), std::numeric_limits<std::int16_t>::max()));
-
-  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
-  return true;
+  const std::array slots{EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
+                         EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
+                         EquipmentSlot::RingLeft, EquipmentSlot::RingRight};
+  for (const auto slot : slots) {
+    if (!IsValidEquipmentItem(*item_definition, slot)) continue;
+    if (slot_id != EQUIP_SLOT_GENERIC && slot_id != EquipmentSlotPacketId(slot)) continue;
+    if (slot_id == EQUIP_SLOT_GENERIC && slot == EquipmentSlot::RingLeft && player.state.equipped_ring_left_instance != 0) continue;
+    return EquipItemInSlot(player_id, *item_instance, slot);
+  }
+  return false;
 }
 
-bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id) {
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("unequipItem called for unknown player id {}", player_id);
     return false;
@@ -4152,13 +4902,16 @@ bool GameServer::UnequipItem(PlayerId player_id, const std::string& instance) {
   if (!item_definition) {
     return false;
   }
-  UnequipItemPacket packet{};
-  packet.packet_type = PT_UNEQUIPITEM;
-  packet.player_id = player.player_id;
-  packet.item_instance = item_definition->index;
-
-  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
-  return true;
+  std::vector<EquipmentSlot> matches;
+  for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
+                         EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
+                         EquipmentSlot::RingLeft, EquipmentSlot::RingRight}) {
+    if ((slot_id == EQUIP_SLOT_GENERIC || slot_id == EquipmentSlotPacketId(slot)) &&
+        EquipmentStateField(player.state, slot) == item_definition->index) matches.push_back(slot);
+  }
+  bool changed = false;
+  for (const auto slot : matches) changed = UnequipItemInSlot(player_id, slot) || changed;
+  return changed;
 }
 
 bool GameServer::EquipArmor(PlayerId player_id, const std::string& instance) {
@@ -4202,62 +4955,83 @@ bool GameServer::UnequipShield(PlayerId player_id) {
 }
 
 bool GameServer::EquipItemInSlot(PlayerId player_id, const std::string& instance, EquipmentSlot slot) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
-  if (!player_opt.has_value()) {
-    SPDLOG_WARN("equip slot item called for unknown player id {}", player_id);
-    return false;
+  auto actor = GetCharacter(player_id);
+  const auto item_instance = ResolveItemInstance(instance);
+  if (!actor || !item_instance) return false;
+  const auto* definition = item_registry_.Find(*item_instance);
+  if (!definition || !IsValidEquipmentItem(*definition, slot)) return false;
+  const auto item_index = definition->index;
+  const auto previous = EquipmentStateField(actor->get().state, slot);
+  const auto generation = actor->get().actor_generation;
+  const auto revision = actor->get().command_revision;
+  const auto packet_slot = EquipmentSlotPacketId(slot);
+  if (previous != item_index && !TriggerEquipmentEvent(player_id, slot, item_index,
+       previous ? std::optional<std::int32_t>(previous) : std::nullopt)) return false;
+  actor = GetCharacter(player_id);
+  if (!actor || actor->get().actor_generation != generation) return false;
+  if (IsNewActorSequence(actor->get().equipment_command_revisions[packet_slot], revision)) return true;
+  auto& player = actor->get();
+  const auto other_ring = slot == EquipmentSlot::RingLeft ? player.state.equipped_ring_right_instance :
+                          slot == EquipmentSlot::RingRight ? player.state.equipped_ring_left_instance : 0;
+  const auto required_count = other_ring == item_index ? 2 : 1;
+  const auto missing_count = required_count - player.InventoryCount(*item_instance);
+  // Script equip helpers grant a missing item; client requests still require ownership.
+  if (missing_count > 0 && !GiveItem(player_id, *item_instance, missing_count)) return false;
+  EquipmentStateField(player.state, slot) = item_index;
+  AdvanceActorCommand(player);
+  AdvancePlayerStateSequence(player);
+  const auto npc = npc_manager_.GetNpc(player_id);
+  if (player_manager_.GetConnectionHandle(player_id) || (npc && npc->get().host_player_id != 0)) {
+    PendingEquipmentStateField(player, slot) = item_index;
+    player.pending_equipment_commands[packet_slot] = {player.command_revision, item_index, previous,
+                                                     std::chrono::steady_clock::now() + std::chrono::seconds(5)};
   }
-
-  auto item_instance = ResolveItemInstance(instance);
-  if (!item_instance.has_value()) {
-    SPDLOG_WARN("equip slot item called with unknown item instance '{}'", SanitizeServerText(instance));
-    return false;
-  }
-
-  const auto* item = item_registry_.Find(*item_instance);
-  if (!item || !IsValidEquipmentItem(*item, slot)) {
-    SPDLOG_WARN("equip slot item called with item instance '{}' that does not fit the requested equipment slot", *item_instance);
-    return false;
-  }
-  auto& player = player_opt->get();
-  if (HasItem(player_id, *item_instance) <= 0) {
-    AddInventoryItem(player, *item_instance, 1);
-  }
-
-  const auto item_index = item->index;
-  auto& state_field = EquipmentStateField(player.state, slot);
-  const bool changed = state_field != item_index;
-  state_field = item_index;
-  PendingEquipmentStateField(player, slot) = item_index;
-  if (changed) {
-    AdvancePlayerStateSequence(player);
-    TriggerEquipmentEvent(player.player_id, slot, item_index);
-  }
-
-  return EquipItem(player_id, *item_instance, EquipmentSlotPacketId(slot));
+  player.equipment_command_revisions[packet_slot] = player.command_revision;
+  EquipItemPacket packet{};
+  packet.packet_type = PT_EQUIPITEM;
+  packet.player_id = player_id;
+  packet.item_instance = item_index;
+  packet.slot_id = packet_slot;
+  packet.actor_generation = generation;
+  packet.command_revision = player.command_revision;
+  packet.state_sequence = player.state_sequence;
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
+  return true;
 }
 
 bool GameServer::UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
-  if (!player_opt.has_value()) {
-    SPDLOG_WARN("unequip slot item called for unknown player id {}", player_id);
-    return false;
-  }
-
-  auto& player = player_opt->get();
-  auto& state_field = EquipmentStateField(player.state, slot);
-  if (state_field <= 0) {
-    return false;
-  }
-
-  const auto* item = item_registry_.FindByIndex(state_field);
-  const auto old_index = state_field;
-  state_field = 0;
-  PendingEquipmentStateField(player, slot) = 0;
+  auto actor = GetCharacter(player_id);
+  if (!actor) return false;
+  const auto previous = EquipmentStateField(actor->get().state, slot);
+  if (previous <= 0) return false;
+  const auto generation = actor->get().actor_generation;
+  const auto revision = actor->get().command_revision;
+  const auto packet_slot = EquipmentSlotPacketId(slot);
+  if (!TriggerEquipmentEvent(player_id, slot, std::nullopt, previous)) return false;
+  actor = GetCharacter(player_id);
+  if (!actor || actor->get().actor_generation != generation) return false;
+  if (IsNewActorSequence(actor->get().equipment_command_revisions[packet_slot], revision)) return true;
+  auto& player = actor->get();
+  EquipmentStateField(player.state, slot) = 0;
+  AdvanceActorCommand(player);
   AdvancePlayerStateSequence(player);
-  TriggerEquipmentEvent(player.player_id, slot, std::nullopt);
-
-  return item ? UnequipItem(player_id, item->instance) : old_index > 0;
+  const auto npc = npc_manager_.GetNpc(player_id);
+  if (player_manager_.GetConnectionHandle(player_id) || (npc && npc->get().host_player_id != 0)) {
+    PendingEquipmentStateField(player, slot) = 0;
+    player.pending_equipment_commands[packet_slot] = {player.command_revision, 0, previous,
+                                                     std::chrono::steady_clock::now() + std::chrono::seconds(5)};
+  }
+  player.equipment_command_revisions[packet_slot] = player.command_revision;
+  UnequipItemPacket packet{};
+  packet.packet_type = PT_UNEQUIPITEM;
+  packet.player_id = player_id;
+  packet.item_instance = previous;
+  packet.slot_id = packet_slot;
+  packet.actor_generation = generation;
+  packet.command_revision = player.command_revision;
+  packet.state_sequence = player.state_sequence;
+  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
+  return true;
 }
 
 bool GameServer::IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const {
@@ -4272,6 +5046,13 @@ bool GameServer::IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentS
       return (item.flags & (kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe)) != 0;
     case EquipmentSlot::RangedWeapon:
       return (item.flags & (kItemFlagBow | kItemFlagCrossbow)) != 0;
+    case EquipmentSlot::Amulet:
+      return (item.flags & kItemFlagAmulet) != 0;
+    case EquipmentSlot::Belt:
+      return (item.flags & kItemFlagBelt) != 0;
+    case EquipmentSlot::RingLeft:
+    case EquipmentSlot::RingRight:
+      return (item.flags & kItemFlagRing) != 0;
   }
 
   return false;
@@ -4289,6 +5070,10 @@ std::int16_t GameServer::EquipmentSlotPacketId(EquipmentSlot slot) const {
       return EQUIP_SLOT_MELEE_WEAPON;
     case EquipmentSlot::RangedWeapon:
       return EQUIP_SLOT_RANGED_WEAPON;
+    case EquipmentSlot::Amulet: return EQUIP_SLOT_AMULET;
+    case EquipmentSlot::Belt: return EQUIP_SLOT_BELT;
+    case EquipmentSlot::RingLeft: return EQUIP_SLOT_RING_LEFT;
+    case EquipmentSlot::RingRight: return EQUIP_SLOT_RING_RIGHT;
   }
 
   return EQUIP_SLOT_GENERIC;
@@ -4306,12 +5091,16 @@ std::int32_t& GameServer::EquipmentStateField(PlayerState& state, EquipmentSlot 
       return state.melee_weapon_instance;
     case EquipmentSlot::RangedWeapon:
       return state.ranged_weapon_instance;
+    case EquipmentSlot::Amulet: return state.equipped_amulet_instance;
+    case EquipmentSlot::Belt: return state.equipped_belt_instance;
+    case EquipmentSlot::RingLeft: return state.equipped_ring_left_instance;
+    case EquipmentSlot::RingRight: return state.equipped_ring_right_instance;
   }
 
   return state.equipped_armor_instance;
 }
 
-std::optional<std::int32_t>& GameServer::PendingEquipmentStateField(Player& player, EquipmentSlot slot) const {
+std::optional<std::int32_t>& GameServer::PendingEquipmentStateField(Character& player, EquipmentSlot slot) const {
   switch (slot) {
     case EquipmentSlot::Armor:
       return player.pending_equipped_armor_instance;
@@ -4323,33 +5112,55 @@ std::optional<std::int32_t>& GameServer::PendingEquipmentStateField(Player& play
       return player.pending_melee_weapon_instance;
     case EquipmentSlot::RangedWeapon:
       return player.pending_ranged_weapon_instance;
+    case EquipmentSlot::Amulet: return player.pending_equipped_amulet_instance;
+    case EquipmentSlot::Belt: return player.pending_equipped_belt_instance;
+    case EquipmentSlot::RingLeft: return player.pending_equipped_ring_left_instance;
+    case EquipmentSlot::RingRight: return player.pending_equipped_ring_right_instance;
   }
 
   return player.pending_equipped_armor_instance;
 }
 
-void GameServer::TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index) const {
+bool GameServer::TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot,
+                                      std::optional<std::int32_t> item_index,
+                                      std::optional<std::int32_t> previous_index) {
+  // A callback may use equipItem/unequipItem to implement the cancelled request.
+  // Those server commands must not re-enter the request handler.
+  if (lua::bindings::IsItemCallbackActiveFor(player_id)) return true;
+  EventManager::EventDispatchResult result;
   switch (slot) {
     case EquipmentSlot::Armor:
-      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipArmorName, OnPlayerEquipArmorEvent{player_id, item_index});
-      break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipArmorName,
+          OnPlayerEquipArmorEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Helmet:
-      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipHelmetName, OnPlayerEquipHelmetEvent{player_id, item_index});
-      break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipHelmetName,
+          OnPlayerEquipHelmetEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Shield:
-      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipShieldName, OnPlayerEquipShieldEvent{player_id, item_index});
-      break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipShieldName,
+          OnPlayerEquipShieldEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::MeleeWeapon:
-      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipMeleeWeaponName, OnPlayerEquipMeleeWeaponEvent{player_id, item_index});
-      break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipMeleeWeaponName,
+          OnPlayerEquipMeleeWeaponEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::RangedWeapon:
-      EventManager::Instance().TriggerEvent(kEventOnPlayerEquipRangedWeaponName, OnPlayerEquipRangedWeaponEvent{player_id, item_index});
-      break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipRangedWeaponName,
+          OnPlayerEquipRangedWeaponEvent{player_id, item_index, previous_index}); break;
+    case EquipmentSlot::Amulet:
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipAmuletName,
+          OnPlayerEquipAmuletEvent{player_id, item_index, previous_index}); break;
+    case EquipmentSlot::Belt:
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipBeltName,
+          OnPlayerEquipBeltEvent{player_id, item_index, previous_index}); break;
+    case EquipmentSlot::RingLeft:
+    case EquipmentSlot::RingRight:
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipRingName,
+          OnPlayerEquipRingEvent{player_id, static_cast<std::uint8_t>(slot == EquipmentSlot::RingLeft ? 0 : 1),
+                                item_index, previous_index}); break;
   }
+  return !result.cancelled;
 }
 
 std::int32_t GameServer::HasItem(PlayerId player_id, const std::string& instance) const {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("hasItem called for unknown player id {}", player_id);
     return 0;
@@ -4369,8 +5180,201 @@ std::int32_t GameServer::HasItem(PlayerId player_id, const std::string& instance
   return std::max<std::int32_t>(0, it->second);
 }
 
+void GameServer::ValidatePlayerEquipment(Character& character, PlayerState& incoming) const {
+  for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
+                         EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
+                         EquipmentSlot::RingLeft, EquipmentSlot::RingRight}) {
+    auto& field = EquipmentStateField(incoming, slot);
+    const auto* item = item_registry_.FindByIndex(field);
+    const auto pending = character.pending_equipment_commands.find(EquipmentSlotPacketId(slot));
+    if (pending != character.pending_equipment_commands.end() ||
+        (field && (!item || !IsValidEquipmentItem(*item, slot) || character.InventoryCount(item->instance) == 0))) {
+      const auto previous_index = EquipmentStateField(character.state, slot);
+      const auto* previous = item_registry_.FindByIndex(previous_index);
+      field = previous && IsValidEquipmentItem(*previous, slot) && character.InventoryCount(previous->instance) > 0
+                  ? previous_index : 0;
+    }
+  }
+  if (incoming.equipped_ring_left_instance && incoming.equipped_ring_left_instance == incoming.equipped_ring_right_instance) {
+    const auto* item = item_registry_.FindByIndex(incoming.equipped_ring_left_instance);
+    if (!item || character.InventoryCount(item->instance) < 2) incoming.equipped_ring_right_instance = 0;
+  }
+  for (auto* field : {&incoming.left_hand_item_instance, &incoming.right_hand_item_instance}) {
+    const auto* item = item_registry_.FindByIndex(*field);
+    if (*field && (!item || character.InventoryCount(item->instance) == 0)) *field = 0;
+  }
+  const auto* spell = item_registry_.FindByIndex(incoming.active_spell_instance);
+    if (incoming.active_spell_instance && (!spell || (spell->mainflag & (1 << 9)) == 0 || !spell->spell || *spell->spell < 0 || *spell->spell >= 100 ||
+      character.InventoryCount(spell->instance) == 0)) {
+    incoming.active_spell_instance = 0;
+    incoming.active_spell_nr = 0;
+  }
+}
+
+std::optional<GameServer::EquipmentSlot> GameServer::PacketEquipmentSlot(std::int16_t slot_id) const {
+  for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
+                         EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
+                         EquipmentSlot::RingLeft, EquipmentSlot::RingRight}) {
+    if (EquipmentSlotPacketId(slot) == slot_id) return slot;
+  }
+  return std::nullopt;
+}
+
+void GameServer::HandleEquipmentResult(Packet p) {
+  EquipmentResultPacket packet{};
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "EquipmentResultPacket")) return;
+  auto sender = GetIngamePlayerByConnection(p.id);
+  const auto slot = PacketEquipmentSlot(packet.slot_id);
+  if (!sender || !slot) return;
+  const auto actor_id = packet.actor_id ? packet.actor_id : sender->get().player_id;
+  auto player = GetCharacter(actor_id);
+  if (!player || packet.actor_generation != player->get().actor_generation) return;
+  if (actor_id != sender->get().player_id) {
+    const auto npc = npc_manager_.GetNpc(actor_id);
+    if (!npc || npc->get().host_player_id != sender->get().player_id || npc->get().control_epoch != packet.control_epoch ||
+        !IsEligibleNpcHost(npc->get(), sender->get().player_id)) return;
+  }
+  const auto pending = player->get().pending_equipment_commands.find(packet.slot_id);
+  if (pending == player->get().pending_equipment_commands.end() ||
+      pending->second.command_revision != packet.command_revision ||
+      pending->second.expected_instance != packet.item_instance) return;
+  CompleteEquipmentCommand(player->get().player_id, *slot,
+                            packet.success && packet.observed_instance == pending->second.expected_instance);
+}
+
+void GameServer::SendEquipmentCorrection(Character& character, EquipmentSlot slot, std::int32_t rejected_instance) {
+  const auto item_index = EquipmentStateField(character.state, slot);
+  const auto revision = AdvanceActorCommand(character);
+  const auto sequence = AdvancePlayerStateSequence(character);
+  if (item_index) {
+    EquipItemPacket packet{};
+    packet.packet_type = PT_EQUIPITEM;
+    packet.player_id = character.player_id;
+    packet.item_instance = item_index;
+    packet.slot_id = EquipmentSlotPacketId(slot);
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = revision;
+    packet.state_sequence = sequence;
+    BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+  } else {
+    UnequipItemPacket packet{};
+    packet.packet_type = PT_UNEQUIPITEM;
+    packet.player_id = character.player_id;
+    packet.item_instance = rejected_instance;
+    packet.slot_id = EquipmentSlotPacketId(slot);
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = revision;
+    packet.state_sequence = sequence;
+    BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+  }
+}
+
+void GameServer::CompleteEquipmentCommand(PlayerId player_id, EquipmentSlot slot, bool success) {
+  auto actor = GetCharacter(player_id);
+  if (!actor) return;
+  auto& character = actor->get();
+  const auto packet_slot = EquipmentSlotPacketId(slot);
+  const auto pending = character.pending_equipment_commands.find(packet_slot);
+  if (pending == character.pending_equipment_commands.end()) return;
+  const auto command = pending->second;
+  character.pending_equipment_commands.erase(pending);
+  PendingEquipmentStateField(character, slot).reset();
+  if (success) return;
+
+  const auto* previous = item_registry_.FindByIndex(command.previous_instance);
+  auto restored = previous && IsValidEquipmentItem(*previous, slot) && character.InventoryCount(previous->instance) > 0
+                      ? previous->index : 0;
+  if (restored && ((slot == EquipmentSlot::RingLeft && character.state.equipped_ring_right_instance == restored) ||
+                   (slot == EquipmentSlot::RingRight && character.state.equipped_ring_left_instance == restored)) &&
+      character.InventoryCount(previous->instance) < 2) restored = 0;
+  EquipmentStateField(character.state, slot) = restored;
+  if (++character.command_revision == 0) ++character.command_revision;
+  AdvancePlayerStateSequence(character);
+  if (restored) {
+    EquipItemPacket packet{};
+    packet.packet_type = PT_EQUIPITEM;
+    packet.player_id = player_id;
+    packet.item_instance = restored;
+    packet.slot_id = packet_slot;
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = character.command_revision;
+    packet.state_sequence = character.state_sequence;
+    BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+  } else {
+    UnequipItemPacket packet{};
+    packet.packet_type = PT_UNEQUIPITEM;
+    packet.player_id = player_id;
+    packet.item_instance = command.expected_instance ? command.expected_instance : command.previous_instance;
+    packet.slot_id = packet_slot;
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = character.command_revision;
+    packet.state_sequence = character.state_sequence;
+    BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+  }
+  const auto generation = character.actor_generation;
+  pending_npc_events_.push_back([this, player_id, generation, slot, restored] {
+    const auto actor = GetCharacter(player_id);
+    if (!actor || actor->get().actor_generation != generation) return;
+    TriggerEquipmentEvent(player_id, slot, restored ? std::optional<std::int32_t>(restored) : std::nullopt);
+  });
+}
+
+void GameServer::ProcessEquipmentCommands() {
+  const auto now = std::chrono::steady_clock::now();
+  std::vector<std::pair<PlayerId, EquipmentSlot>> expired;
+  for (const auto& [id, player] : player_manager_.GetAllPlayers()) {
+    for (const auto& [slot_id, command] : player.pending_equipment_commands) {
+      if (command.deadline > now) continue;
+      if (const auto slot = PacketEquipmentSlot(slot_id)) expired.emplace_back(id, *slot);
+    }
+  }
+  for (const auto id : npc_manager_.GetNpcIds()) {
+    auto npc = npc_manager_.GetNpc(id);
+    if (!npc) continue;
+    for (const auto& [slot_id, command] : npc->get().pending_equipment_commands) {
+      if (command.deadline > now) continue;
+      if (const auto slot = PacketEquipmentSlot(slot_id)) expired.emplace_back(id, *slot);
+    }
+  }
+  for (const auto& [id, slot] : expired) CompleteEquipmentCommand(id, slot, false);
+}
+
+void GameServer::ClearRemovedEquipment(Character& character, std::int32_t item_index, std::int32_t remaining_amount) {
+  // Removing the last owned copy also clears its presentation and pending command.
+  std::int32_t kept_rings = 0;
+  for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
+                         EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
+                         EquipmentSlot::RingLeft, EquipmentSlot::RingRight}) {
+    auto& field = EquipmentStateField(character.state, slot);
+    if (field != item_index) continue;
+    const bool ring = slot == EquipmentSlot::RingLeft || slot == EquipmentSlot::RingRight;
+    if (remaining_amount > 0 && (!ring || ++kept_rings <= remaining_amount)) continue;
+    field = 0;
+    const auto slot_id = EquipmentSlotPacketId(slot);
+    PendingEquipmentStateField(character, slot).reset();
+    character.pending_equipment_commands.erase(slot_id);
+    if (++character.command_revision == 0) ++character.command_revision;
+    AdvancePlayerStateSequence(character);
+    UnequipItemPacket packet{};
+    packet.packet_type = PT_UNEQUIPITEM;
+    packet.player_id = character.player_id;
+    packet.item_instance = item_index;
+    packet.slot_id = slot_id;
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = character.command_revision;
+    packet.state_sequence = character.state_sequence;
+    BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+    const auto id = character.player_id;
+    const auto generation = character.actor_generation;
+    pending_npc_events_.push_back([this, id, generation, slot] {
+      const auto actor = GetCharacter(id);
+      if (actor && actor->get().actor_generation == generation) TriggerEquipmentEvent(id, slot, std::nullopt);
+    });
+  }
+}
+
 bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std::int32_t amount) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("removeItem called for unknown player id {}", player_id);
     return false;
@@ -4391,15 +5395,27 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   }
 
   auto& player = player_opt->get();
-  RemoveInventoryItem(player, *item_instance, amount);
+  const auto actor_generation = player.actor_generation;
+  const auto removed_amount = std::min(amount, player.InventoryCount(*item_instance));
+  if (!RemoveInventoryItem(player, *item_instance, removed_amount)) return false;
+  ClearRemovedEquipment(player, item_definition->index, player.InventoryCount(*item_instance));
+  // Unequip callbacks may remove or replace this character.
+  player_opt = GetCharacter(player_id);
+  if (!player_opt || player_opt->get().actor_generation != actor_generation) return false;
+  auto& current = player_opt->get();
+  if (++current.command_revision == 0) ++current.command_revision;
+  AdvancePlayerStateSequence(current);
 
   RemoveItemPacket packet{};
   packet.packet_type = PT_REMOVEITEM;
-  packet.player_id = player.player_id;
+  packet.player_id = player_id;
   packet.item_instance = item_definition->index;
-  packet.item_amount = std::max<std::int32_t>(0, amount);
+  packet.item_amount = removed_amount;
+  packet.actor_generation = current.actor_generation;
+  packet.command_revision = current.command_revision;
+  packet.state_sequence = current.state_sequence;
 
-  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
+  BroadcastToRelevant(player_manager_, current, packet, TrafficClass::Control);
   return true;
 }
 
@@ -4837,6 +5853,7 @@ bool GameServer::RespawnPlayer(PlayerId player_id) {
 }
 
 bool GameServer::SetPlayerRespawnTime(PlayerId player_id, std::int32_t respawn_time_ms) {
+  if (respawn_time_ms < 0) return false;
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerRespawnTime called for unknown player id {}", player_id);
@@ -4862,7 +5879,8 @@ std::optional<std::int32_t> GameServer::GetPlayerRespawnTime(PlayerId player_id)
     return 0;
   }
 
-  return default_respawn_seconds * 1000;
+  return static_cast<std::int32_t>(std::min<std::int64_t>(
+      static_cast<std::int64_t>(default_respawn_seconds) * 1000, std::numeric_limits<std::int32_t>::max()));
 }
 
 std::uint32_t GameServer::GetPort() const {

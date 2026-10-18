@@ -77,6 +77,62 @@ TEST(PlayerManagerStateSequenceTest, ReusedPlayerSlotStartsNewClientSequenceHist
   EXPECT_TRUE(players.GetPlayer(new_id)->get().AcceptClientStateSequence(1));
   EXPECT_FALSE(players.GetPlayer(new_id)->get().AcceptClientStateSequence(1));
 }
+TEST(PlayerManagerStateSequenceTest, CommandsAndIncarnationsRejectOldEchoesWithoutConsumingNewSequence) {
+  PlayerManager::Player player;
+  const auto generation = player.actor_generation;
+  player.command_revision = 10;
+  EXPECT_FALSE(player.AcceptClientState(generation, 9, 40));
+  EXPECT_FALSE(player.AcceptClientState(generation + 1, 10, 40));
+  EXPECT_FALSE(player.last_client_state_sequence);
+  EXPECT_TRUE(player.AcceptClientState(generation, 10, 40));
+  player.command_revision = 11;
+  EXPECT_FALSE(player.AcceptClientState(generation, 10, 41));
+  EXPECT_TRUE(player.AcceptClientState(generation, 11, 41));
+}
+
+TEST(PlayerManagerConnectionTest, ReusedSlotAndManagerResetNeverReuseActorGeneration) {
+  PlayerManager players;
+  const auto id = players.AddPlayer(70001, "first", 1);
+  const auto generation = players.GetPlayer(id)->get().actor_generation;
+  ASSERT_TRUE(players.RemovePlayerByConnection(70001));
+  const auto reused = players.AddPlayer(80001, "second", 1);
+  ASSERT_EQ(reused, id);
+  EXPECT_NE(players.GetPlayer(reused)->get().actor_generation, generation);
+  players.Clear();
+  const auto after_reset = players.AddPlayer(90001, "third", 1);
+  EXPECT_NE(players.GetPlayer(after_reset)->get().actor_generation, generation);
+}
+
+TEST(ActorComponentSequenceTest, OlderIndependentComponentIsDeliveredWithoutRewindingMovement) {
+  ActorComponentSequences sequences;
+  EXPECT_EQ(sequences.Accept(kSyncPosition, 11), kSyncPosition);
+  EXPECT_EQ(sequences.Accept(kSyncHealth, 10), kSyncHealth);
+  EXPECT_EQ(sequences.Accept(kSyncPosition | kSyncHealth, 10), 0);
+  EXPECT_EQ(sequences.Accept(kSyncPosition | kSyncHealth, 12), kSyncPosition | kSyncHealth);
+  EXPECT_EQ(sequences.Accept(kSyncHealth, 12), 0);
+}
+
+TEST(ActorComponentSequenceTest, WrapDoesNotAcceptAmbiguousOrPreviousEraRevision) {
+  ActorComponentSequences sequences;
+  sequences.Reset(0xfffffffe);
+  EXPECT_EQ(sequences.Accept(kSyncEquipment, 1), kSyncEquipment);
+  EXPECT_EQ(sequences.Accept(kSyncEquipment, 0xfffffffe), 0);
+  EXPECT_EQ(sequences.Accept(kSyncEquipment, 0x80000001), 0);
+}
+
+TEST(ActorComponentSequenceTest, DeferredPresentationSurvivesUnrelatedCorrectionsOnly) {
+  ActorComponentSequences sequences;
+  sequences.Reset(10);
+  const auto captured = sequences;
+  const auto presentation = kSyncEquipment | kSyncCombat | kSyncPose;
+  sequences.Accept(kSyncHealth, 11);
+  EXPECT_EQ(sequences.CurrentComponents(presentation, captured), presentation);
+  sequences.Accept(kSyncCombat, 12);
+  EXPECT_EQ(sequences.CurrentComponents(presentation, captured), kSyncEquipment | kSyncPose);
+  sequences.Reset();
+  EXPECT_EQ(sequences.CurrentComponents(presentation, captured), 0);
+}
+
 int main(int argc, char** argv) {
   ::testing::InitGoogleTest(&argc, argv);
   return RUN_ALL_TESTS();

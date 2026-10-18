@@ -34,6 +34,8 @@ SOFTWARE.
 
 struct NpcControlPacket;
 struct NpcAnimationPacket;
+struct ActorActionPacket;
+struct InventoryEntry;
 
 namespace gmp::client {
 
@@ -84,6 +86,9 @@ public:
   virtual void OnNpcAnimation(const NpcAnimationPacket& animation) {}
   virtual void OnPlayerLeft(std::uint64_t player_id, const std::string& player_name) {}
   virtual void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state) {}
+  virtual void OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state, bool authoritative_correction) {
+    OnPlayerStateUpdate(player_id, state);
+  }
   virtual void OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) {}
   virtual void OnPlayerNameUpdate(std::uint64_t player_id, const std::string& name) {}
   virtual void OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string& instance) {}
@@ -104,13 +109,19 @@ public:
   virtual void OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId attribute_id, std::int32_t value) {}
   virtual void OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& world_name, const std::string& start_point) {}
   virtual void OnPlayerDied(std::uint64_t player_id) {}
+  virtual void OnPlayerDied(std::uint64_t player_id, bool apply_state) { if (apply_state) OnPlayerDied(player_id); }
   virtual void OnPlayerRespawned(std::uint64_t player_id) {}
+  virtual void OnPlayerRespawned(std::uint64_t player_id, bool apply_state) { if (apply_state) OnPlayerRespawned(player_id); }
   virtual void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id) {}
+  virtual void OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::uint64_t> attacker_id, bool apply_state) {
+    if (apply_state) OnPlayerUnconscious(player_id, attacker_id);
+  }
   virtual void OnPlayerStandUp(std::uint64_t player_id) {}
+  virtual void OnPlayerStandUp(std::uint64_t player_id, bool apply_state) { if (apply_state) OnPlayerStandUp(player_id); }
   virtual void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {}
   
   // Item events
-  virtual void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::uint16_t amount) {}
+  virtual void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
   virtual void OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) {}
   virtual void OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount,
                                   bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {}
@@ -118,12 +129,41 @@ public:
   virtual void OnItemsGroundDestroy() {}
   virtual void OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
   virtual void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) {}
+  virtual void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+                              std::uint32_t revision, bool apply_state) {
+    if (apply_state) OnItemEquipped(player_id, item_instance, slot_id);
+  }
   virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) {}
+  virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) {
+    OnItemUnequipped(player_id, item_instance);
+  }
+  virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+                                std::uint32_t revision, bool apply_state) {
+    if (apply_state) OnItemUnequipped(player_id, item_instance, slot_id);
+  }
   virtual void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
+  virtual void OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector<InventoryEntry>& inventory) {}
+  virtual void OnItemTransactionResult(std::uint32_t request_id, std::int32_t instance, std::int32_t resulting_amount,
+                                       bool accepted, std::optional<std::uint32_t> ground_id) {}
+  virtual void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t instance,
+                                            std::int32_t resulting_amount, bool accepted,
+                                            std::optional<std::uint32_t> ground_id) {
+    OnItemTransactionResult(request_id, instance, resulting_amount, accepted, ground_id);
+  }
+  virtual void OnActorAction(const ActorActionPacket& action) {}
   
   // Spell/combat events
   virtual void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {}
+  virtual void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
+                           std::uint64_t actor_generation, std::uint32_t control_epoch) {
+    OnSpellCast(caster_id, spell_id);
+  }
   virtual void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) {}
+  virtual void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id,
+                                   std::uint64_t source_time_ms, std::uint64_t actor_generation,
+                                   std::uint64_t target_generation, std::uint32_t control_epoch) {
+    OnSpellCastOnTarget(caster_id, target_id, spell_id);
+  }
   
   // Chat/messaging events
   virtual void OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b,

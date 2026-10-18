@@ -35,6 +35,7 @@ SOFTWARE.
 #include "dev/dev_tools.h"
 #include "config.h"
 #include "main_menu.h"
+#include "Mod.h"
 #include "net_game.h"
 
 CIngame* global_ingame = NULL;
@@ -57,34 +58,17 @@ std::int16_t GetCurrentAnimationId() {
 }
 
 void TrackLocalActiveAnimations() {
-  if (!player) {
-    return;
-  }
-
   CActiveAniID* active_ani_id = CActiveAniID::GetInstance();
   if (!active_ani_id) {
     return;
   }
 
-  zCModel* model = player->GetModel();
-  if (!model || model->numActiveAnis <= 0) {
-    return;
-  }
-
-  zCModelAni* primary_ani = model->aniChannels[0] ? model->aniChannels[0]->protoAni : nullptr;
-  zCModelAni* secondary_ani =
-      (model->numActiveAnis > 1 && model->aniChannels[1]) ? model->aniChannels[1]->protoAni : nullptr;
-
-  if (!primary_ani) {
-    return;
-  }
-
-  if (primary_ani->GetAniName().Search(TURN) < 2) {
-    active_ani_id->AddAni(primary_ani->GetAniID());
-  }
-
-  if (secondary_ani && primary_ani->GetAniID() != secondary_ani->GetAniID() && secondary_ani->GetAniName().Search(TURN) < 2) {
-    active_ani_id->AddAni(secondary_ani->GetAniID());
+  active_ani_id->Observe();
+  auto transitions = active_ani_id->TakeTransitions();
+  if (NetGame::Instance().IsConnected()) {
+    for (const auto& transition : transitions) {
+      NetGame::Instance().SendAnimationAction(transition.name, transition.started, transition.source_time_ms);
+    }
   }
 }
 
@@ -186,6 +170,10 @@ void CIngame::CheckSwampLights() {
 
 void CIngame::Loop() {
   if (global_ingame) {
+    RefreshLocalActionObservation();
+    // Capture every render before the lower-frequency pose sample. One-shot
+    // transitions use the reliable action stream independently of pose cadence.
+    TrackLocalActiveAnimations();
     if (NetGame::Instance().IsConnected()) {
       if (global_ingame->NextTimeSync == time(NULL)) {
         if (!global_ingame->IgnoreFirstSync)
@@ -201,8 +189,6 @@ void CIngame::Loop() {
         global_ingame->CheckForHPDiff();
       }
     }
-    // SENDING MY ANIMATION
-    TrackLocalActiveAnimations();
     // KINDA POSITION INTERPOLATION :C
     for (int i = 0; i < (int)global_ingame->Interpolation.size(); i++) {
       if (global_ingame->Interpolation[i] && global_ingame->Interpolation[i]->IsInterpolating)
@@ -303,10 +289,10 @@ void CIngame::CheckForHPDiff() {
     }
 
     if (NetGame::Instance().players[i]->base_player().health() !=
-        static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS])) {
+        NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]) {
       if (NetGame::Instance().players[i]->IsLocalPlayer()) {
         NetGame::Instance().players[i]->base_player().set_health(
-            static_cast<short>(NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]));
+            NetGame::Instance().players[i]->npc->attribute[NPC_ATR_HITPOINTS]);
         continue;
       }
       const auto life_state = NetGame::Instance().players[i]->base_player().life_state();

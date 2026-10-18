@@ -34,9 +34,11 @@ SOFTWARE.
 
 #include <cstdint>
 #include <string>
+#include <functional>
 
 #include "ZenGin/zGothicAPI.h"
 #include "players.hpp"
+#include "animation_sync.h"
 
 class CInterpolatePos;
 
@@ -67,6 +69,11 @@ public:
   ~Gothic2APlayer();
 
   void AnalyzePosition(zVEC3& Pos);
+  void AnalyzePose(const zVEC3& position, const zVEC3& heading, std::uint64_t source_time_ms, bool teleport = false);
+  void QueuePresentation(std::uint64_t source_time_ms, std::function<void()> apply);
+  const gmp::ActorPresentationEpochs& presentation_epochs() const { return presentation_epochs_; }
+  void InvalidatePresentation(std::uint16_t components) { presentation_epochs_.Invalidate(components); }
+  double PresentationTime(double local_time_ms) const;
   static void DeleteAllPlayers();
   void DisablePlayer();
   int GetHealth();
@@ -104,4 +111,5 @@ private:
   int ScriptInstance;
   zCOLOR name_color_{255, 255, 255, 255};
   std::string last_handled_animation_name_;
+  gmp::ActorPresentationEpochs presentation_epochs_;
 };

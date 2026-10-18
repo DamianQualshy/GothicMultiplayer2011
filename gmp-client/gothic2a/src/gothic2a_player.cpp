@@ -35,10 +35,15 @@ SOFTWARE.
 
 #include <cstdio>
 #include <list>
+#include <array>
+#include <optional>
+#include <vector>
 
 #include "CIngame.h"
 #include "CInterpolatePos.h"
 #include "net_game.h"
+#include "Mod.h"
+#include "script_instance_scope.h"
 
 // NEEDED FOR SETTING NPC TYPES
 #define B_SETVISUALS "B_SETVISUALS"
@@ -78,6 +83,7 @@ oCNpc* CreateNpcAtPosition(int instance_id, zVEC3 position) {
 }
 
 void SetLocalHero(oCNpc* npc) {
+  npc->SetAsPlayer();
   Gothic_II_Addon::player = npc;
   if (auto* camera = zCAICamera::GetCurrent()) {
     camera->SetTarget(npc);
@@ -89,7 +95,12 @@ void RemoveNpcFromWorld(oCNpc* npc) {
     return;
   }
 
-  ogame->GetGameWorld()->RemoveVob(npc);
+  if (ogame->GetSpawnManager()) {
+    ogame->GetSpawnManager()->DeleteNpc(npc);
+  } else {
+    npc->Disable();
+    ogame->GetGameWorld()->RemoveVob(npc);
+  }
 }
 
 void ApplyPlayerAppearance(oCNpc* npc, gmp::client::Player& player) {
@@ -135,6 +146,7 @@ Gothic2APlayer::Gothic2APlayer(gmp::client::Player& base_player, bool is_local_p
 }
 
 Gothic2APlayer::~Gothic2APlayer() {
+  NetGame::Instance().UnregisterActor(*this);
   this->npc = NULL;
   this->ScriptInstance = NULL;
   delete this->InterPos;
@@ -146,14 +158,22 @@ void Gothic2APlayer::AnalyzePosition(zVEC3& Pos) {
     return;
   }
 
-  if (IsFighting()) {
-    InterPos->StopInterpolation();
-    SetPosition(Pos);
-    return;
-  }
-
   InterPos->UpdateInterpolation(Pos[VX], Pos[VY], Pos[VZ]);
 };
+
+void Gothic2APlayer::AnalyzePose(const zVEC3& position, const zVEC3& heading, std::uint64_t source_time_ms, bool teleport) {
+  if (InterPos && npc) {
+    InterPos->UpdatePoseInterpolation(position[VX], position[VY], position[VZ], heading[VX], heading[VY], heading[VZ], source_time_ms, teleport);
+  }
+}
+
+void Gothic2APlayer::QueuePresentation(std::uint64_t source_time_ms, std::function<void()> apply) {
+  if (InterPos && npc) InterPos->QueuePresentation(source_time_ms, std::move(apply));
+}
+
+double Gothic2APlayer::PresentationTime(double local_time_ms) const {
+  return InterPos ? InterPos->PresentationTime(local_time_ms) : local_time_ms;
+}
 
 void Gothic2APlayer::DeleteAllPlayers() {
   if (global_ingame && global_ingame->Shrinker) {
@@ -172,6 +192,7 @@ void Gothic2APlayer::DeleteAllPlayers() {
     }
     delete remote_player;
   }
+  NetGame::Instance().players.clear();
 };
 
 void Gothic2APlayer::DisablePlayer() {
@@ -235,7 +256,7 @@ void Gothic2APlayer::LeaveGame() {
   else {
     npc->Disable();
   }
-  this->npc = NULL;
+  SetNpc(nullptr);
   base_player_.set_enabled(false);
 };
 
@@ -250,7 +271,7 @@ void Gothic2APlayer::RespawnPlayer() {
     global_ingame->Shrinker->UnShrinkNpc(npc);
   }
   CloseSpellBook(npc);
-  auto max_health = static_cast<short>(npc->attribute[NPC_ATR_HITPOINTSMAX]);
+  auto max_health = base_player_.max_health();
   if (!IsLocalPlayer()) {
     base_player_.set_health(max_health);
     base_player_.set_update_health_packet_counter(0);
@@ -261,13 +282,16 @@ void Gothic2APlayer::RespawnPlayer() {
     npc->RefreshNpc();
     npc->SetMovLock(0);
     npc->SetWeaponMode(NPC_WEAPON_NONE);
-    max_health = static_cast<short>(npc->attribute[NPC_ATR_HITPOINTSMAX]);
+    max_health = base_player_.max_health();
     base_player_.set_health(max_health);
     base_player_.set_update_health_packet_counter(0);
     SetHealth(max_health);
     auto pos = npc->GetPositionWorld();
     npc->ResetPos(pos);
   }
+  npc->SetAttribute(NPC_ATR_MANAMAX, base_player_.max_mana());
+  npc->SetAttribute(NPC_ATR_MANA, base_player_.mana());
+  npc->SetAttribute(NPC_ATR_HITPOINTSMAX, base_player_.max_health());
 }
 
 void Gothic2APlayer::SetHealth(int Value) {
@@ -320,12 +344,14 @@ void Gothic2APlayer::ClearHandledAnimation() {
 }
 
 void Gothic2APlayer::SetNpc(oCNpc* Npc) {
+  auto* previous = this->npc;
   this->npc = Npc;
   this->ScriptInstance = Npc ? Npc->GetInstance() : 0;
+  NetGame::Instance().ActorNpcChanged(*this, previous);
 };
 
 bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
-  if (!npc || !zfactory || !ogame || !ogame->GetGameWorld()) {
+  if (!npc || !zfactory || !ogame || !ogame->GetGameWorld() || !IsNpcInstance(zCParser::GetParser(), instance_id)) {
     return false;
   }
 
@@ -333,10 +359,76 @@ bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
   zVEC3 position = old_npc->GetPositionWorld();
   zVEC3 heading = old_npc->GetAtVectorWorld();
   zSTRING name = old_npc->GetName();
+  std::array<int, NPC_ATR_MAX> attributes{};
+  std::copy(std::begin(old_npc->attribute), std::end(old_npc->attribute), attributes.begin());
+  std::array<int, NPC_HITCHANCE_MAX> hit_chances{};
+  std::copy(std::begin(old_npc->hitChance), std::end(old_npc->hitChance), hit_chances.begin());
+  const int level = old_npc->level;
+  const auto experience = old_npc->experience_points;
+  const auto next_experience = old_npc->experience_points_next_level;
+  const auto learn_points = old_npc->learn_points;
 
-  oCNpc* new_npc = CreateNpcAtPosition(instance_id, position);
+  // Restore constructor parser bindings before binding a new local hero.
+  oCNpc* new_npc = nullptr;
+  {
+    auto* parser = zCParser::GetParser();
+    std::optional<ScriptInstanceScope> scope;
+    if (parser) {
+      scope.emplace(*parser, instance_id);
+    }
+    new_npc = CreateNpcAtPosition(instance_id, position);
+  }
   if (!new_npc) {
     return false;
+  }
+
+  // Keep the real owned inventory objects, including scroll quantities and
+  // two rings of the same class. Constructor possessions are replacement
+  // defaults, not an additional grant.
+  std::vector<oCItem*> defaults;
+  for (auto* entry = new_npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
+    if (auto* item = entry->GetData()) {
+      defaults.push_back(item);
+    }
+  }
+  for (auto* item : defaults) {
+    new_npc->inventory2.Remove(item);
+  }
+
+  struct RetainedItem { oCItem* item; bool equipped; };
+  std::vector<RetainedItem> retained_items;
+  for (auto* entry = old_npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
+    if (auto* item = entry->GetData()) {
+      item->AddRef();
+      retained_items.push_back({item, item->HasFlag(ITM_FLAG_ACTIVE) != 0});
+    }
+  }
+  const bool previous_suppression = ShouldSuppressLocalEquipEvents();
+  SetSuppressLocalEquipEvents(true);
+  for (const auto& retained : retained_items) {
+    if (retained.equipped) {
+      old_npc->UnequipItem(retained.item);
+    }
+    old_npc->inventory2.Remove(retained.item);
+    auto* item = new_npc->inventory2.Insert(retained.item);
+    if (item && retained.equipped) {
+      new_npc->Equip(item);
+    }
+    retained.item->Release();
+  }
+  SetSuppressLocalEquipEvents(previous_suppression);
+
+  // Equipment scripts can modify attributes. Restore the old effective values
+  // after transferring equipment so the replacement neither doubles bonuses
+  // nor replaces them with constructor defaults.
+  std::copy(attributes.begin(), attributes.end(), std::begin(new_npc->attribute));
+  std::copy(hit_chances.begin(), hit_chances.end(), std::begin(new_npc->hitChance));
+  new_npc->level = level;
+  new_npc->experience_points = experience;
+  new_npc->experience_points_next_level = next_experience;
+  new_npc->learn_points = learn_points;
+  for (const auto& talent : base_player_.talents()) {
+    new_npc->SetTalentSkill(talent.first, talent.second);
   }
 
   SetNpc(new_npc);
@@ -345,9 +437,11 @@ bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
 
   if (IsLocalPlayer()) {
     SetLocalHero(new_npc);
+    ResetLocalActionObservation();
   }
   RemoveNpcFromWorld(old_npc);
   ApplyPlayerAppearance(new_npc, base_player_);
+  new_npc->Release();  // World owns the enabled replacement actor.
 
   StopPositionInterpolation();
   ClearHandledAnimation();
@@ -384,24 +478,7 @@ void Gothic2APlayer::SetNpcType(NpcType TYPE) {
       return false;
     }
 
-    oCNpc* New = zfactory->CreateNpc(instance_id);
-    if (!New) {
-      SPDLOG_WARN("Could not create NPC instance {}", instance_name);
-      return false;
-    }
-
-    if (!IsLocalPlayer())
-      New->startAIState = 0;
-    auto position = npc->GetPositionWorld();
-    New->Enable(position);
-    if (IsLocalPlayer())
-      New->SetAsPlayer();
-    New->name[0] = this->npc->GetName();
-    ogame->GetSpawnManager()->DeleteNpc(this->npc);
-    StopPositionInterpolation();
-    ClearHandledAnimation();
-    SetNpc(New);
-    return true;
+    return ReplaceNpcInstance(instance_id);
   };
 
   bool changed = false;

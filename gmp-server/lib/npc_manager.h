@@ -67,6 +67,7 @@ public:
     // Persistent animation is presentation state, not queued execution.
     std::string animation;
     std::uint32_t animation_revision{1};
+    std::uint64_t animation_started_at_ms{0};
   };
 
   NpcManager() = default;
@@ -86,7 +87,7 @@ public:
   std::size_t GetNpcCount() const { return npcs_.size(); }
 
   // Host eligibility (connection, world and streaming) is checked by GameServer.
-  // A host of zero pauses execution but does not pause the queue lifetime limit.
+  // Losing the host preserves elapsed phase and never extends either deadline.
   bool SetHost(NpcId npc_id, std::uint32_t host_player_id, TimePoint now = Clock::now());
   bool BumpControlEpoch(NpcId npc_id, TimePoint now = Clock::now());
   // Empty clears the animation. Reapplying the same value is an idempotent

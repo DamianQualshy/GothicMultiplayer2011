@@ -34,6 +34,10 @@ constexpr std::int16_t EQUIP_SLOT_MELEE_WEAPON = -3;
 constexpr std::int16_t EQUIP_SLOT_RANGED_WEAPON = -4;
 constexpr std::int16_t EQUIP_SLOT_HELMET = -5;
 constexpr std::int16_t EQUIP_SLOT_SHIELD = -6;
+constexpr std::int16_t EQUIP_SLOT_AMULET = -7;
+constexpr std::int16_t EQUIP_SLOT_BELT = -8;
+constexpr std::int16_t EQUIP_SLOT_RING_LEFT = -9;
+constexpr std::int16_t EQUIP_SLOT_RING_RIGHT = -10;
 
 enum PacketID {
   WL_PREPARE_TO_JOIN,
@@ -97,6 +101,9 @@ enum PacketID {
   PT_NPC_SPAWN,
   PT_NPC_CONTROL,
   PT_NPC_ACTION_RESULT,
+  PT_ITEM_TRANSACTION_RESULT,
+  PT_EQUIPMENT_RESULT,
+  PT_ACTOR_ACTION,
   PT_NPC_ANIMATION,
 };
 
@@ -224,6 +231,12 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_NPC_ACTION_RESULT";
     case PT_NPC_ANIMATION:
       return "PT_NPC_ANIMATION";
+    case PT_ACTOR_ACTION:
+      return "PT_ACTOR_ACTION";
+    case PT_ITEM_TRANSACTION_RESULT:
+      return "PT_ITEM_TRANSACTION_RESULT";
+    case PT_EQUIPMENT_RESULT:
+      return "PT_EQUIPMENT_RESULT";
   }
   return "UNKNOWN";
 }

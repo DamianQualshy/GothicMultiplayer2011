@@ -44,6 +44,7 @@ inline const std::string kEventOnPlayerStandUpName = "onPlayerStandUp";
 inline const std::string kEventOnPlayerDeathName = "onPlayerDeath";
 inline const std::string kEventOnPlayerDropItemName = "onPlayerDropItem";
 inline const std::string kEventOnPlayerTakeItemName = "onPlayerTakeItem";
+inline const std::string kEventOnPlayerUseItemName = "onPlayerUseItem";
 inline const std::string kEventOnPlayerCastSpellName = "onPlayerCastSpell";
 inline const std::string kEventOnPlayerChangeHealthName = "onPlayerChangeHealth";
 inline const std::string kEventOnPlayerChangeManaName = "onPlayerChangeMana";
@@ -149,6 +150,13 @@ struct OnPlayerTakeItemEvent {
   ItemGroundManager::ItemGroundId item_ground_id;
 };
 
+struct OnPlayerUseItemEvent {
+  std::uint64_t player_id;
+  std::int32_t item_instance;
+  std::int32_t quantity;
+  std::string scheme;
+};
+
 struct OnPlayerCastSpellEvent {
   std::uint64_t caster_id;
   std::uint16_t spell_id;
@@ -187,54 +195,64 @@ struct OnPlayerWeaponModeChangeEvent {
 struct OnPlayerEquipAmuletEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipArmorEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipBeltEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipHandItemEvent {
   std::uint64_t player_id;
   std::uint8_t hand;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipHelmetEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipMeleeWeaponEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipRangedWeaponEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipRingEvent {
   std::uint64_t player_id;
   std::uint8_t ring_slot;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipShieldEvent {
   std::uint64_t player_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerEquipSpellSlotEvent {
   std::uint64_t player_id;
   std::uint8_t slot_id;
   std::optional<std::int32_t> item_index;
+  std::optional<std::int32_t> previous_item_index;
 };
 
 struct OnPlayerSpawnEvent {

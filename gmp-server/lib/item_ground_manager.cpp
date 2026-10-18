@@ -25,6 +25,7 @@ SOFTWARE.
 #include "item_ground_manager.h"
 
 #include <limits>
+#include <stdexcept>
 #include <utility>
 
 ItemGroundManager::ItemGround& ItemGroundManager::Create(CreateOptions options) {
@@ -58,7 +59,18 @@ const ItemGroundManager::ItemGround* ItemGroundManager::Get(ItemGroundId id) con
 
 void ItemGroundManager::Clear() {
   items_.clear();
-  next_id_ = 1;
+}
+
+bool ItemGroundManager::Reserve(ItemGroundId id, PlayerId player_id) {
+  auto* item = Get(id);
+  if (!item || player_id == 0 || item->reserved_by) return false;
+  item->reserved_by = player_id;
+  return true;
+}
+
+void ItemGroundManager::ReleaseReservation(ItemGroundId id, PlayerId player_id) {
+  auto* item = Get(id);
+  if (item && item->reserved_by == player_id) item->reserved_by.reset();
 }
 
 std::unordered_map<ItemGroundManager::ItemGroundId, ItemGroundManager::ItemGround>& ItemGroundManager::Items() {
@@ -70,14 +82,7 @@ const std::unordered_map<ItemGroundManager::ItemGroundId, ItemGroundManager::Ite
 }
 
 ItemGroundManager::ItemGroundId ItemGroundManager::AllocateId() {
-  for (;;) {
-    if (next_id_ == 0 || next_id_ == std::numeric_limits<ItemGroundId>::max()) {
-      next_id_ = 1;
-    }
-
-    ItemGroundId candidate = next_id_++;
-    if (!items_.contains(candidate)) {
-      return candidate;
-    }
-  }
+  // Never reuse an identity while viewers or a Lua callback can still hold it.
+  if (next_id_ == 0) throw std::overflow_error("Ground item identity space exhausted");
+  return next_id_++;
 }

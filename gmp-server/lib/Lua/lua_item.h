@@ -25,6 +25,7 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -57,6 +58,9 @@ public:
   std::int32_t getProtection(std::int32_t damage_type) const;
   std::int32_t getCondAtr(std::int32_t index) const;
   std::int32_t getCondValue(std::int32_t index) const;
+  sol::object getOnUse(sol::this_state state) const;
+  sol::object getOnEquip(sol::this_state state) const;
+  sol::object getOnUnequip(sol::this_state state) const;
 
 private:
   std::string instance_;
@@ -65,6 +69,18 @@ private:
 sol::object MakeItemObject(sol::state_view lua, std::string_view instance);
 
 void BindItem(sol::state& lua);
+void BindItemManager(sol::state& lua);
+
+enum class ItemCallback { Use, Equip, Unequip };
+struct ItemCallbackResult {
+  bool handled{false};
+  bool accepted{true};
+};
+ItemCallbackResult InvokeItemCallback(std::string_view instance, ItemCallback kind, std::uint32_t player_id,
+                                    std::int32_t quantity_or_slot, std::optional<std::uint32_t> target_id = std::nullopt);
+void RemoveItemCallbacksForResource(const std::string& owner_name);
+void RemoveItemCallbacksForState(lua_State* state);
+bool IsItemCallbackActiveFor(std::uint32_t player_id);
 
 }  // namespace bindings
 }  // namespace lua

@@ -41,6 +41,7 @@ SOFTWARE.
 
 #include "CIngame.h"
 #include "random_utils.h"
+#include "script_instance_scope.h"
 
 // Externs
 extern CIngame* global_ingame;
@@ -59,6 +60,7 @@ void CSyncFuncs::RunSpellLogic(short SpellId, oCNpc* Caster, oCNpc* Target) {
       if (!Caster || !Target)
         return;
       if (auto* parser = zCParser::GetParser()) {
+        ScriptInstanceScope scope(*parser);
         parser->SetInstance("SELF", Caster);
         parser->SetInstance("OTHER", Target);
         parser->CallFunc(zSTRING("SPELL_LOGIC_SLEEP"));
@@ -86,6 +88,7 @@ void CSyncFuncs::RunSpellScript(const char* SpellName, oCNpc* Caster, oCNpc* Tar
   }
 
   char buffer[128];
+  ScriptInstanceScope scope(*parser);
   parser->SetInstance("SELF", Caster);
   if (!Target)
     parser->SetInstance("OTHER", 0);
@@ -116,12 +119,8 @@ void CSyncFuncs::CheckForSpecialEffects(oCItem* Item, oCNpc* Npc) {
     return;
   }
 
-  if (Item->GetInstance() == 6126)
-    Npc->ApplyTimedOverlayMds(SPRINT, 120000);
-  if (Item->GetInstance() == 7017)
-    Npc->ApplyTimedOverlayMds(SPRINT, 15000);
-  if (Item->GetInstance() == 7079)
-    Npc->ApplyTimedOverlayMds(SPRINT, 300000);
+  // Holding an item is not consumption. Timed effects are delivered as
+  // authoritative effect actions; parser indexes have no semantic meaning.
 };
 
 // Odgrywanie dzwieku przy wyciaganiu broni

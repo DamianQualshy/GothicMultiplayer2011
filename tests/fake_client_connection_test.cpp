@@ -173,6 +173,24 @@ TEST_F(FakeClientConnectionTest, LuaIdentitySurvivesDisconnectAndReconnect) {
   EXPECT_EQ(returning.Messages().front().message, joined_message);
 }
 
+TEST_F(FakeClientConnectionTest, TrustedItemUseEventReceivesArgumentsAndCancellationPreservesInventory) {
+  FakeClient user("UseProbe");
+  ASSERT_TRUE(user.Connect("127.0.0.1", server_.GetPort()));
+  ASSERT_TRUE(PumpUntil({&user}, [&] { return HasLocalSpawn(user); })) << user.Error();
+  ActorActionPacket action;
+  action.kind = ActorActionKind::ItemUse;
+  action.item_instance = 1;
+  action.quantity = 2;
+  action.action_id = 1;
+  ASSERT_TRUE(user.SendActorAction(action));
+  ASSERT_TRUE(PumpUntil({&user}, [&] { return user.Messages().size() == 1; })) << user.Error();
+  EXPECT_EQ(user.Messages().front().message, "item use cancelled");
+  action.action_id = 2;
+  ASSERT_TRUE(user.SendActorAction(action));
+  ASSERT_TRUE(PumpUntil({&user}, [&] { return user.Messages().size() == 2; })) << user.Error();
+  EXPECT_EQ(user.Messages().back().message, "item use cancelled");
+}
+
 TEST(ServerStateSequenceTest, ReorderedClientSnapshotsCannotOverwriteAcceptedGameplayState) {
   ConnectionTestWorkspace workspace;
   // Do not start the server loop: dispatch the production packet handler on
@@ -184,13 +202,17 @@ TEST(ServerStateSequenceTest, ReorderedClientSnapshotsCannotOverwriteAcceptedGam
   auto& player = server.GetPlayerManager().GetPlayer(id)->get();
   player.is_ingame = true;
   player.npc_world_ready = true;
+  player.state.nrot = glm::vec3(0.0f, 0.0f, 1.0f);
 
   const auto deliver = [&](std::uint32_t sequence, float x) {
     PlayerStateUpdatePacket packet{};
     packet.packet_type = Net::PT_ACTUAL_STATISTICS;
     packet.state_sequence = sequence;
+    packet.actor_generation = player.actor_generation;
+    packet.command_revision = player.command_revision;
     packet.state = player.state;
     packet.state.position.x = x;
+    packet.state.source_time_ms = ActorClockMilliseconds();
     std::vector<std::uint8_t> bytes;
     const auto size = bitsery::quickSerialization<bitsery::OutputBufferAdapter<std::vector<std::uint8_t>>>(bytes, packet);
     return server.HandlePacket(connection, bytes.data(), static_cast<std::uint32_t>(size));

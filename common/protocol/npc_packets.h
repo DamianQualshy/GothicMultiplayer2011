@@ -35,6 +35,9 @@ constexpr std::uint32_t kNpcActionPlayAnimation = 1;
 
 struct NpcControlPacket {
   std::uint8_t packet_type{Net::PT_NPC_CONTROL};
+  std::uint64_t actor_generation{0};
+  std::uint64_t source_time_ms{0};
+  std::uint32_t elapsed_ms{0};
   std::uint32_t npc_id{0};
   std::uint32_t control_epoch{0};
   std::uint32_t host_player_id{0};
@@ -49,6 +52,9 @@ struct NpcControlPacket {
 template <typename S>
 void serialize(S& s, NpcControlPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value8b(packet.source_time_ms);
+  s.value4b(packet.elapsed_ms);
   s.value4b(packet.npc_id);
   s.value4b(packet.control_epoch);
   s.value4b(packet.host_player_id);
@@ -65,6 +71,8 @@ void serialize(S& s, NpcControlPacket& packet) {
 // value so late viewers and recreated engine actors do not depend on old events.
 struct NpcAnimationPacket {
   std::uint8_t packet_type{Net::PT_NPC_ANIMATION};
+  std::uint64_t actor_generation{0};
+  std::uint64_t source_time_ms{0};
   std::uint32_t npc_id{0};
   std::uint32_t revision{0};
   std::string animation;
@@ -73,6 +81,8 @@ struct NpcAnimationPacket {
 template <typename S>
 void serialize(S& s, NpcAnimationPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value8b(packet.source_time_ms);
   s.value4b(packet.npc_id);
   s.value4b(packet.revision);
   s.text1b(packet.animation, kMaxPlayerAnimationNameLength);
@@ -95,6 +105,7 @@ void serialize(S& s, NpcSpawnPacket& packet) {
 
 struct NpcActionResultPacket {
   std::uint8_t packet_type{Net::PT_NPC_ACTION_RESULT};
+  std::uint64_t actor_generation{0};
   std::uint32_t npc_id{0};
   std::uint32_t control_epoch{0};
   std::uint32_t action_id{0};
@@ -104,6 +115,7 @@ struct NpcActionResultPacket {
 template <typename S>
 void serialize(S& s, NpcActionResultPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
   s.value4b(packet.npc_id);
   s.value4b(packet.control_epoch);
   s.value4b(packet.action_id);

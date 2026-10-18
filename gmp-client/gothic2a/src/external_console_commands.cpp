@@ -388,7 +388,7 @@ nlohmann::ordered_json MakeItemJson(Gothic_II_Addon::zCParser* parser, int index
     }
   }
 
-  AddOptionalInt(item_json, "spell", item.spell);
+  if ((item.mainflag & ITM_CAT_RUNE) != 0) item_json["spell"] = item.spell;
   AddOptionalString(item_json, "scemename", item.scemeName);
   AddOptionalInt(item_json, "mag_circle", item.mag_circle);
   AddProtectionsJson(item_json, item);

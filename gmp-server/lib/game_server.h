@@ -70,6 +70,7 @@ struct Response;
 
 class CLog;
 class GothicClock;
+struct InventoryEntry;
 
 enum CONFIG_FLAGS { HIDE_MAP = 0x04 };
 
@@ -128,6 +129,7 @@ public:
   bool SetPlayerLearnPoints(PlayerId player_id, std::int32_t learn_points);
   bool SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health);
   bool SetPlayerHealth(PlayerId player_id, std::int32_t health);
+  bool SetPlayerInvulnerable(PlayerId player_id, bool enabled);
   bool SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana);
   bool SetPlayerMana(PlayerId player_id, std::int32_t mana);
   bool SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage);
@@ -144,11 +146,11 @@ public:
   bool PlayFaceAnimation(PlayerId player_id, const std::string& animation);
   bool StopFaceAnimation(PlayerId player_id, const std::string& animation);
   bool PlayGesticulation(PlayerId player_id);
-  bool SetPlayerPosition(PlayerId player_id, const glm::vec3& position);
+  bool SetPlayerPosition(PlayerId player_id, const glm::vec3& position, std::optional<bool> teleport = std::nullopt);
   bool SetPlayerAngle(PlayerId player_id, float angle);
   bool GiveItem(PlayerId player_id, const std::string& instance, std::int32_t amount);
   bool EquipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id = -1);
-  bool UnequipItem(PlayerId player_id, const std::string& instance);
+  bool UnequipItem(PlayerId player_id, const std::string& instance, std::int32_t slot_id = Net::EQUIP_SLOT_GENERIC);
   bool EquipArmor(PlayerId player_id, const std::string& instance);
   bool UnequipArmor(PlayerId player_id);
   bool EquipMeleeWeapon(PlayerId player_id, const std::string& instance);
@@ -241,7 +243,7 @@ public:
   std::uint32_t GetPort() const;
 
 private:
-  enum class EquipmentSlot { Armor, Helmet, Shield, MeleeWeapon, RangedWeapon };
+  enum class EquipmentSlot { Armor, Helmet, Shield, MeleeWeapon, RangedWeapon, Amulet, Belt, RingLeft, RingRight };
 
   struct VoiceRateState {
     std::chrono::steady_clock::time_point window_started{};
@@ -252,12 +254,25 @@ private:
   void HandlePlayerConnected(Net::ConnectionHandle connection);
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
+  void HandleActorAction(Packet p);
+  bool CanReportActorAction(const Player& sender, const Character& actor, std::uint32_t control_epoch,
+                            std::uint32_t command_revision) const;
+  bool CanControlActor(const Player& sender, const Character& actor, std::uint32_t control_epoch) const;
+  void ReplayActorActions(Player& viewer);
+  void ProcessActorEffects();
+  void DispatchPendingActorEvents();
   void HandlePlayerHitReport(Packet p, std::uint8_t packet_identifier);
   void HandlePlayerUnconsciousReport(Packet p, std::uint8_t packet_identifier);
   void HandlePlayerStandUpReport(Packet p, std::uint8_t packet_identifier);
   void HandlePlayerDeathReport(Packet p, std::uint8_t packet_identifier);
   void HandleDropItem(Packet p);
   void HandleTakeItem(Packet p);
+  void HandleEquipmentResult(Packet p);
+  void ProcessEquipmentCommands();
+  void CompleteEquipmentCommand(PlayerId player_id, EquipmentSlot slot, bool success);
+  void SendEquipmentCorrection(Character& character, EquipmentSlot slot, std::int32_t rejected_instance = 0);
+  std::optional<EquipmentSlot> PacketEquipmentSlot(std::int16_t slot_id) const;
+  bool InitializePlayerInventory(Player& player, const std::vector<InventoryEntry>& inventory);
   void HandlePlayerWorldEnter(Packet p);
   void HandleLuaEvent(Packet p);
   void HandleVoice(Packet p);
@@ -274,6 +289,8 @@ private:
   void HandleDiagnosticsCommand(Player& player);
   void HandleAdminLogin(Player& player, const std::string& password);
   bool ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill);
+  bool ApplyCharacterDamage(Character& victim, std::optional<PlayerId> attacker_id, std::int32_t damage, std::uint32_t damage_type,
+                            bool dont_kill, bool melee_attack = false, bool finishing_move = false);
   bool MakePlayerUnconscious(Player& victim, std::optional<PlayerId> attacker_id);
   void HandlePlayerDeath(Character& victim, std::optional<PlayerId> killer_id);
   void HandleNormalMsg(Packet p);
@@ -303,18 +320,21 @@ private:
   void StreamRelevantGroundItemsToPlayer(Player& player, bool force = false);
   void UnstreamGroundItemsFromPlayer(Player& player, bool notify_client);
   void RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground);
-  void SendInventoryAddCorrection(Player& player, const std::string& instance, std::int32_t amount);
-  void SendInventoryRemoveCorrection(Player& player, const std::string& instance, std::int32_t amount);
+  void SendItemTransactionResult(Character& player, std::uint32_t request_id, std::int32_t item_instance,
+                                 bool accepted, std::optional<std::uint32_t> item_ground_id = std::nullopt);
+  void ClearRemovedEquipment(Character& character, std::int32_t item_index, std::int32_t remaining_amount);
   bool EquipItemInSlot(PlayerId player_id, const std::string& instance, EquipmentSlot slot);
   bool UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot);
   bool IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const;
   std::int16_t EquipmentSlotPacketId(EquipmentSlot slot) const;
   std::int32_t& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
-  std::optional<std::int32_t>& PendingEquipmentStateField(Player& player, EquipmentSlot slot) const;
-  void TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index) const;
+  std::optional<std::int32_t>& PendingEquipmentStateField(Character& player, EquipmentSlot slot) const;
+  bool TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index,
+                             std::optional<std::int32_t> previous_index = std::nullopt);
   std::optional<std::string> ResolveItemInstance(std::string instance) const;
   std::int32_t ResolveItemIndex(PlayerId player_id, std::int32_t index, const char* field_name) const;
   void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
+  void ValidatePlayerEquipment(Character& character, PlayerState& incoming) const;
   std::optional<std::reference_wrapper<Player>> GetIngamePlayerByConnection(Net::ConnectionHandle connection);
 
   Net::ServerTransport transport_;
@@ -359,6 +379,14 @@ private:
   std::unordered_map<PlayerId, VoiceRateState> voice_rate_states_;
   std::unordered_map<PlayerId, std::chrono::steady_clock::time_point> active_voice_players_;
   std::unordered_map<std::string, bool> voice_channel_spatial_;
+  struct MobStateRecord {
+    std::string world;
+    std::int32_t virtual_world{0};
+    std::string name;
+    glm::vec3 position{0.0f};
+    std::int32_t state{0};
+  };
+  std::vector<MobStateRecord> mob_states_;
 
   std::unique_ptr<ResourceServer> resource_server_;
 };

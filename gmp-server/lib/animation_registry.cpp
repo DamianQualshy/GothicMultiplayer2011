@@ -291,3 +291,8 @@ void AnimationRegistry::Clear() {
   by_mds_and_name_.clear();
   ambiguous_global_names_.clear();
 }
+
+bool AnimationRegistry::ContainsName(std::string_view animation_name) const {
+  const auto name = NormalizeName(animation_name);
+  return global_by_name_.contains(name) || ambiguous_global_names_.contains(name);
+}

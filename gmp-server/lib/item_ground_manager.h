@@ -57,12 +57,16 @@ public:
     std::string world;
     std::int32_t virtual_world{0};
     std::unordered_set<PlayerId> streamed_to;
+    // A callback may re-enter game APIs; reserve before dispatching pickup.
+    std::optional<PlayerId> reserved_by;
   };
 
   ItemGround& Create(CreateOptions options);
   bool Destroy(ItemGroundId id);
   ItemGround* Get(ItemGroundId id);
   const ItemGround* Get(ItemGroundId id) const;
+  bool Reserve(ItemGroundId id, PlayerId player_id);
+  void ReleaseReservation(ItemGroundId id, PlayerId player_id);
   void Clear();
 
   std::unordered_map<ItemGroundId, ItemGround>& Items();

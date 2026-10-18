@@ -33,6 +33,7 @@ SOFTWARE.
 #include "Script.h"
 #include "game_server.h"
 #include "Lua/event_bind.h"
+#include "Lua/lua_item.h"
 #include "Shared/lua_runtime/bind_helpers.h"
 #include "Shared/lua_runtime/lua_diagnostics.h"
 #include "Shared/lua_runtime/timer_manager.h"
@@ -107,6 +108,7 @@ void Resource::Unload(TimerManager& timer_manager) {
 void Resource::ResetRuntimeState(TimerManager& timer_manager) {
   timer_manager.KillTimersForResource(name_);
   lua::bindings::RemoveHandlersForResource(name_);
+  lua::bindings::RemoveItemCallbacksForResource(name_);
   if (g_server) {
     g_server->DestroyNpcsForResource(name_);
   }

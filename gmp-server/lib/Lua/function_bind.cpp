@@ -1203,7 +1203,7 @@ sol::object Function_GetPlayerScale(std::uint32_t player_id, sol::this_state ts)
 *
 */
 bool Function_SetPlayerWeaponMode(std::uint32_t player_id, int weapon_mode) {
-  if (!GetPlayerOrWarn(player_id, "setPlayerWeaponMode")) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerWeaponMode")) {
     return false;
   }
 
@@ -1542,25 +1542,27 @@ bool Function_PlayGesticulation(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* This function will set the player's world position.
+* This function will set the player/npc position.
 *
 * @version  0.3.0
 * @name     setPlayerPosition
 * @side     server
 * @category Player
-* @param    (number) player_id  Target player id.
+* @param    (number) player_id  Target player or server NPC id.
 * @param    (number) x          X coordinate.
 * @param    (number) y          Y coordinate.
 * @param    (number) z          Z coordinate.
+* @param    (boolean|nil) interpolate  Whether to interpolate movement. Defaults to false for players and true for NPCs.
 * @return   (boolean)           True on success.
 *
 */
-bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z) {
+bool Function_SetPlayerPosition(std::uint32_t player_id, float x, float y, float z, sol::optional<bool> interpolate) {
   if (!GetCharacterOrWarn(player_id, "setPlayerPosition")) {
     return false;
   }
 
-  return g_server->SetPlayerPosition(player_id, glm::vec3{x, y, z});
+  const auto teleport = interpolate ? std::optional<bool>{!*interpolate} : std::nullopt;
+  return g_server->SetPlayerPosition(player_id, glm::vec3{x, y, z}, teleport);
 }
 
 /* luagmp (func)
@@ -1898,29 +1900,22 @@ void Function_RespawnPlayer(std::uint32_t player_id) {
 
 /* luagmp (func)
 *
-* This function will set the player time to respawn after death. If set to 0, respawn is disabled for selected player.
+* This function will set a player's automatic respawn delay in milliseconds. Zero disables automatic respawn for that player.
 *
 * @version  0.3.0
 * @name     setPlayerRespawnTime
 * @side     server
 * @category Player
-* @note     The respawnTime can't be smaller than 1001 miliseconds.
 * @param    (number) player_id     Target player id.
 * @param    (number) respawn_time  New respawn time in milliseconds.
+* @return   (boolean)              True on success; false for an unknown player or a negative duration.
 *
 */
-void Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn_time_ms) {
+bool Function_SetPlayerRespawnTime(std::uint32_t player_id, std::int32_t respawn_time_ms) {
   if (!GetPlayerOrWarn(player_id, "setPlayerRespawnTime")) {
-    return;
+    return false;
   }
-
-  constexpr std::int32_t kMinRespawnTimeMs = 1001;
-  if (respawn_time_ms != 0 && respawn_time_ms < kMinRespawnTimeMs) {
-    SPDLOG_WARN("setPlayerRespawnTime called with invalid value {} ms, clamping to {} ms", respawn_time_ms, kMinRespawnTimeMs);
-    respawn_time_ms = kMinRespawnTimeMs;
-  }
-
-  g_server->SetPlayerRespawnTime(player_id, respawn_time_ms);
+  return g_server->SetPlayerRespawnTime(player_id, respawn_time_ms);
 }
 
 /* luagmp (func)
@@ -1951,20 +1946,55 @@ sol::object Function_GetPlayerRespawnTime(std::uint32_t player_id, sol::this_sta
 
 /* luagmp (func)
 *
-* This function will give an item to the player.
+* This function will set the player/npc invulnerability.
+*
+* @version  0.3.0
+* @name     setPlayerInvulnerable
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player or server NPC id.
+* @param    (boolean) enabled   Whether damage should be blocked.
+* @return   (boolean)           True on success; false for an unknown actor.
+*
+*/
+bool Function_SetPlayerInvulnerable(std::uint32_t player_id, bool enabled) {
+  if (!GetCharacterOrWarn(player_id, "setPlayerInvulnerable")) return false;
+  return g_server->SetPlayerInvulnerable(player_id, enabled);
+}
+
+/* luagmp (func)
+*
+* This function will return the current player/npc invulnerability.
+*
+* @version  0.3.0
+* @name     isPlayerInvulnerable
+* @side     server
+* @category Player
+* @param    (number) player_id  Target player or server NPC id.
+* @return   (boolean)           True when invulnerable; false when disabled or the actor does not exist.
+*
+*/
+bool Function_IsPlayerInvulnerable(std::uint32_t player_id) {
+  const auto actor = GetCharacterOrWarn(player_id, "isPlayerInvulnerable");
+  return actor && actor->get().invulnerable;
+}
+
+/* luagmp (func)
+*
+* This function will give an item to the player/npc.
 *
 * @version  0.3.0
 * @name     giveItem
 * @side     server
 * @category Inventory
-* @param    (number) player_id    Target player id.
+* @param    (number) player_id    Target player or server NPC id.
 * @param    (string) instance     Item instance name from scripts.
 * @param    (number) amount       Amount to give.
 * @return   (boolean)             True on success.
 *
 */
 bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
-  if (!GetPlayerOrWarn(player_id, "giveItem")) {
+  if (!GetCharacterOrWarn(player_id, "giveItem")) {
     return false;
   }
 
@@ -1973,20 +2003,20 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
 
 /* luagmp (func)
 *
-* This function will equip an item for the player.
+* This function requests equipment for a player or server NPC. The item must exist in the actor's server inventory.
 *
 * @version  0.3.0
 * @name     equipItem
 * @side     server
 * @category Player
-* @param    (number) player_id    Target player id.
+* @param    (number) player_id    Target player or server NPC id.
 * @param    (string) instance     Item instance name from scripts.
 * @param    (number|nil) slot_id  Optional slot id. Defaults to -1 for first free slot.
 * @return   (boolean)             True on success.
 *
 */
 bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, sol::optional<std::int32_t> slot_id) {
-  if (!GetPlayerOrWarn(player_id, "equipItem")) {
+  if (!GetCharacterOrWarn(player_id, "equipItem")) {
     return false;
   }
 
@@ -1995,7 +2025,7 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 
 /* luagmp (func)
 *
-* This function will unequip an item for the player.
+* This function will unequip an item for the player/npc.
 *
 * @version  0.3.0
 * @name     unequipItem
@@ -2003,15 +2033,16 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
 * @category Player
 * @param    (number) player_id    Target player id.
 * @param    (string) instance     Item instance name from scripts.
+* @param    (number|nil) slot_id   Equipment slot. Omit to clear all matching slots.
 * @return   (boolean)             True on success.
 *
 */
-bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "unequipItem")) {
+bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance, sol::optional<std::int32_t> slot_id) {
+  if (!GetCharacterOrWarn(player_id, "unequipItem")) {
     return false;
   }
 
-  return g_server->UnequipItem(player_id, ClampLuaText(instance, 255));
+  return g_server->UnequipItem(player_id, ClampLuaText(instance, 255), slot_id.value_or(Net::EQUIP_SLOT_GENERIC));
 }
 
 /* luagmp (func)
@@ -2028,7 +2059,7 @@ bool Function_UnequipItem(std::uint32_t player_id, const std::string& instance) 
 *
 */
 bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "equipArmor")) {
+  if (!GetCharacterOrWarn(player_id, "equipArmor")) {
     return false;
   }
 
@@ -2048,7 +2079,7 @@ bool Function_EquipArmor(std::uint32_t player_id, const std::string& instance) {
 *
 */
 bool Function_UnequipArmor(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unequipArmor")) {
+  if (!GetCharacterOrWarn(player_id, "unequipArmor")) {
     return false;
   }
 
@@ -2069,7 +2100,7 @@ bool Function_UnequipArmor(std::uint32_t player_id) {
 *
 */
 bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "equipMeleeWeapon")) {
+  if (!GetCharacterOrWarn(player_id, "equipMeleeWeapon")) {
     return false;
   }
 
@@ -2089,7 +2120,7 @@ bool Function_EquipMeleeWeapon(std::uint32_t player_id, const std::string& insta
 *
 */
 bool Function_UnequipMeleeWeapon(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unequipMeleeWeapon")) {
+  if (!GetCharacterOrWarn(player_id, "unequipMeleeWeapon")) {
     return false;
   }
 
@@ -2110,7 +2141,7 @@ bool Function_UnequipMeleeWeapon(std::uint32_t player_id) {
 *
 */
 bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "equipRangedWeapon")) {
+  if (!GetCharacterOrWarn(player_id, "equipRangedWeapon")) {
     return false;
   }
 
@@ -2130,7 +2161,7 @@ bool Function_EquipRangedWeapon(std::uint32_t player_id, const std::string& inst
 *
 */
 bool Function_UnequipRangedWeapon(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unequipRangedWeapon")) {
+  if (!GetCharacterOrWarn(player_id, "unequipRangedWeapon")) {
     return false;
   }
 
@@ -2151,7 +2182,7 @@ bool Function_UnequipRangedWeapon(std::uint32_t player_id) {
 *
 */
 bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "equipHelmet")) {
+  if (!GetCharacterOrWarn(player_id, "equipHelmet")) {
     return false;
   }
 
@@ -2171,7 +2202,7 @@ bool Function_EquipHelmet(std::uint32_t player_id, const std::string& instance) 
 *
 */
 bool Function_UnequipHelmet(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unequipHelmet")) {
+  if (!GetCharacterOrWarn(player_id, "unequipHelmet")) {
     return false;
   }
 
@@ -2192,7 +2223,7 @@ bool Function_UnequipHelmet(std::uint32_t player_id) {
 *
 */
 bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "equipShield")) {
+  if (!GetCharacterOrWarn(player_id, "equipShield")) {
     return false;
   }
 
@@ -2212,7 +2243,7 @@ bool Function_EquipShield(std::uint32_t player_id, const std::string& instance) 
 *
 */
 bool Function_UnequipShield(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "unequipShield")) {
+  if (!GetCharacterOrWarn(player_id, "unequipShield")) {
     return false;
   }
 
@@ -2233,7 +2264,7 @@ bool Function_UnequipShield(std::uint32_t player_id) {
 *
 */
 int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
-  if (!GetPlayerOrWarn(player_id, "hasItem")) {
+  if (!GetCharacterOrWarn(player_id, "hasItem")) {
     return 0;
   }
 
@@ -2255,7 +2286,7 @@ int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
 *
 */
 bool Function_RemoveItem(std::uint32_t player_id, const std::string& instance, std::int32_t amount) {
-  if (!GetPlayerOrWarn(player_id, "removeItem")) {
+  if (!GetCharacterOrWarn(player_id, "removeItem")) {
     return false;
   }
 
@@ -2716,6 +2747,8 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerRespawnTime"] = Function_GetPlayerRespawnTime;
 
   lua["giveItem"] = Function_GiveItem;
+  lua["setPlayerInvulnerable"] = Function_SetPlayerInvulnerable;
+  lua["isPlayerInvulnerable"] = Function_IsPlayerInvulnerable;
   lua["equipItem"] = Function_EquipItem;
   lua["unequipItem"] = Function_UnequipItem;
   lua["equipArmor"] = Function_EquipArmor;

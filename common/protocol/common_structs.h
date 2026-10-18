@@ -33,6 +33,10 @@ SOFTWARE.
 #include <glm/glm.hpp>
 #include <ostream>
 #include <string>
+#include <optional>
+#include <bitsery/ext/std_optional.h>
+
+#include "actor_sync.h"
 
 using PlayerID = std::uint32_t;
 
@@ -58,6 +62,8 @@ enum PlayerLifeState : std::uint8_t {
 };
 
 struct PlayerState {
+  std::uint64_t source_time_ms{0};
+  std::uint16_t correction_mask{kSyncAll};
   glm::vec3 position{0.0f};
   // Gothic forward/at vector on the horizontal plane.
   glm::vec3 nrot{0.0f};
@@ -73,19 +79,27 @@ struct PlayerState {
   std::int32_t equipped_ring_right_instance{0};
   std::int16_t animation{-1};
   std::string animation_name;
-  std::int16_t health_points{0};
-  std::int16_t mana_points{0};
+  std::int32_t health_points{0};
+  std::int32_t mana_points{0};
   std::uint8_t life_state{PLAYER_LIFE_ALIVE};
+  bool invulnerable{false};
   std::uint8_t weapon_mode{0};
   std::uint8_t active_spell_nr{0};
   std::int32_t active_spell_instance{0};
   std::uint8_t head_direction{0};
   std::int32_t melee_weapon_instance{0};
   std::int32_t ranged_weapon_instance{0};
+  std::uint32_t body_state{0};
+  std::uint8_t walk_mode{0};
+  float look_yaw{0.5f};
+  float look_pitch{0.5f};
+  std::optional<std::uint32_t> focus_target_id;
 };
 
 template <typename S>
 void serialize(S& s, PlayerState& packet) {
+  s.value8b(packet.source_time_ms);
+  s.value2b(packet.correction_mask);
   s.object(packet.position);
   s.object(packet.nrot);
   s.value4b(packet.left_hand_item_instance);
@@ -99,15 +113,21 @@ void serialize(S& s, PlayerState& packet) {
   s.value4b(packet.equipped_ring_right_instance);
   s.value2b(packet.animation);
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
-  s.value2b(packet.health_points);
-  s.value2b(packet.mana_points);
+  s.value4b(packet.health_points);
+  s.value4b(packet.mana_points);
   s.value1b(packet.life_state);
+  s.boolValue(packet.invulnerable);
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
   s.value4b(packet.active_spell_instance);
   s.value1b(packet.head_direction);
   s.value4b(packet.melee_weapon_instance);
   s.value4b(packet.ranged_weapon_instance);
+  s.value4b(packet.body_state);
+  s.value1b(packet.walk_mode);
+  s.value4b(packet.look_yaw);
+  s.value4b(packet.look_pitch);
+  s.ext(packet.focus_target_id, bitsery::ext::StdOptional{}, [](S& s, std::uint32_t& id) { s.value4b(id); });
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_state) {

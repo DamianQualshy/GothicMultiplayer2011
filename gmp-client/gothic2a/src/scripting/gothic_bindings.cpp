@@ -741,7 +741,7 @@ bool Function_SetPlayerHealth(std::int64_t id, int health) {
     npc->SetAttribute(NPC_ATR_HITPOINTS, clamped_health);
 
     if (auto* player = GetPlayerByIdSigned(id)) {
-      player->base_player().set_health(static_cast<short>(clamped_health));
+      player->base_player().set_health(clamped_health);
     }
 
     return true;
@@ -1465,6 +1465,7 @@ sol::object Function_GetPlayerScale(std::int64_t id, sol::this_state ts){
 *
 */
 bool Function_SetPlayerWeaponMode(std::int64_t id, int weapon_mode) {
+  if (weapon_mode < NPC_WEAPON_NONE || weapon_mode > NPC_WEAPON_MAG) return false;
   if (auto* npc = GetNpcById(id); npc) {
     npc->SetWeaponMode(weapon_mode);
     return true;

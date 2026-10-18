@@ -20,11 +20,16 @@ LuaScript::LuaScript() {
   BindDomainSpecific();
 }
 
+LuaScript::~LuaScript() {
+  lua::bindings::RemoveItemCallbacksForState(lua_.lua_state());
+}
+
 void LuaScript::BindDomainSpecific() {
   lua::bindings::BindEvents(lua_);
   lua::bindings::BindServerConstants(lua_);
   lua::bindings::BindFunctions(lua_, timer_manager_);
   lua::bindings::BindItem(lua_);
+  lua::bindings::BindItemManager(lua_);
   lua::bindings::BindNpc(lua_);
   lua::bindings::BindItemGround(lua_);
   lua::bindings::BindJson(lua_);

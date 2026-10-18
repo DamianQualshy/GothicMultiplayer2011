@@ -45,6 +45,7 @@ public:
   std::optional<std::int16_t> ResolveId(std::string_view animation_name) const;
   std::optional<std::int16_t> ResolveId(std::string_view animation_name, const std::vector<std::string>& preferred_mds) const;
   std::size_t Size() const;
+  bool ContainsName(std::string_view animation_name) const;
 
   static std::string NormalizeName(std::string_view name);
   static std::string NormalizeMdsName(std::string_view name);

@@ -33,6 +33,7 @@ public:
           "local players = {}\n"
           "addEventHandler('onPlayerConnect', function(playerId)\n"
           "  players[playerId] = true\n  spawnPlayer(playerId, 0, 0, 0)\n"
+          "  if getPlayerName(playerId) == 'UseProbe' then giveItem(playerId, 'ITMI_TEST', 2) end\n"
           "  if getPlayerName(playerId) == 'IdentityProbe' then\n"
           "    sendMessageToPlayer(playerId, 255, 255, 255, 'identity: ' .. (getPlayerIdentity(playerId) or '<missing>'))\n"
           "  end\nend)\n"
@@ -45,7 +46,12 @@ public:
           "    if getPlayerName(playerId) == 'IdentityProbe' then\n"
           "      sendMessageToPlayer(peerId, 255, 255, 255, 'disconnect identity: ' .. identity)\n"
           "    end\n"
-          "  end\nend)\n");
+          "  end\nend)\n"
+          "addEventHandler('onPlayerUseItem', function(playerId, item, quantity, scheme)\n"
+          "  assert(item.instance == 'ITMI_TEST' and quantity == 2 and scheme == '')\n"
+          "  cancelEvent()\n"
+          "  sendMessageToPlayer(playerId, 255, 255, 255, 'item use cancelled')\n"
+          "end)\n");
     Write(resource / "client" / "main.lua", "-- Connection test resource payload\n");
     Write(root_ / "config.toml",
           "name = \"Connection test server\"\nport = " + std::to_string(FindTestServerPort()) +

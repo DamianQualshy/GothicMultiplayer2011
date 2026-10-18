@@ -39,6 +39,116 @@ SOFTWARE.
 #include <string>
 
 #include "common_structs.h"
+#include "net_enums.h"
+
+struct InventoryEntry {
+  std::int32_t item_instance{0};
+  std::int32_t amount{0};
+};
+
+enum class ActorActionKind : std::uint8_t { AnimationStart, AnimationStop, Shot, ItemUse, MobState };
+
+struct ActorActionPacket {
+  std::uint32_t command_revision{0};
+  std::uint32_t control_epoch{0};
+  std::uint8_t packet_type{Net::PT_ACTOR_ACTION};
+  std::uint64_t actor_generation{0};
+  std::uint64_t target_generation{0};
+  std::uint64_t source_time_ms{0};
+  std::uint32_t action_id{0};
+  std::uint32_t actor_id{0};
+  std::optional<std::uint32_t> target_id;
+  ActorActionKind kind{ActorActionKind::AnimationStart};
+  std::string name;
+  std::string scheme;
+  glm::vec3 position{0.0f};
+  glm::vec3 direction{0.0f};
+  std::uint8_t weapon_mode{0};
+  std::int32_t item_instance{0};
+  std::int32_t quantity{0};
+  std::int32_t health_delta{0};
+  std::int32_t mana_delta{0};
+  std::int32_t target_state{0};
+};
+
+struct ItemTransactionResultPacket {
+  std::uint32_t actor_id{0};
+  std::uint8_t packet_type{Net::PT_ITEM_TRANSACTION_RESULT};
+  std::uint64_t actor_generation{0};
+  std::uint32_t state_sequence{0};
+  std::uint32_t request_id{0};
+  std::int32_t item_instance{0};
+  std::int32_t resulting_amount{0};
+  bool accepted{false};
+  std::optional<std::uint32_t> item_ground_id;
+};
+
+struct EquipmentResultPacket {
+  std::uint32_t actor_id{0};
+  std::uint32_t control_epoch{0};
+  std::uint8_t packet_type{Net::PT_EQUIPMENT_RESULT};
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::int16_t slot_id{Net::EQUIP_SLOT_GENERIC};
+  std::int32_t item_instance{0};
+  std::int32_t observed_instance{0};
+  bool success{false};
+};
+
+template <typename S>
+void serialize(S& s, ActorActionPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.control_epoch);
+  s.value8b(packet.actor_generation);
+  s.value8b(packet.target_generation);
+  s.value8b(packet.source_time_ms);
+  s.value4b(packet.action_id);
+  s.value4b(packet.actor_id);
+  s.ext4b(packet.target_id, bitsery::ext::StdOptional{});
+  s.value1b(packet.kind);
+  s.text1b(packet.name, 128);
+  s.text1b(packet.scheme, 128);
+  s.object(packet.position);
+  s.object(packet.direction);
+  s.value1b(packet.weapon_mode);
+  s.value4b(packet.item_instance);
+  s.value4b(packet.quantity);
+  s.value4b(packet.health_delta);
+  s.value4b(packet.mana_delta);
+  s.value4b(packet.target_state);
+}
+
+template <typename S>
+void serialize(S& s, ItemTransactionResultPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.actor_id);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.state_sequence);
+  s.value4b(packet.request_id);
+  s.value4b(packet.item_instance);
+  s.value4b(packet.resulting_amount);
+  s.boolValue(packet.accepted);
+  s.ext4b(packet.item_ground_id, bitsery::ext::StdOptional{});
+}
+
+template <typename S>
+void serialize(S& s, EquipmentResultPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.actor_id);
+  s.value4b(packet.control_epoch);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value2b(packet.slot_id);
+  s.value4b(packet.item_instance);
+  s.value4b(packet.observed_instance);
+  s.boolValue(packet.success);
+}
+template <typename S>
+void serialize(S& s, InventoryEntry& entry) {
+  s.value4b(entry.item_instance);
+  s.value4b(entry.amount);
+}
 
 namespace glm {
 template <typename S>
@@ -228,6 +338,8 @@ template <>
 struct fmt::formatter<PlayerNameUpdatePacket> : ostream_formatter {};
 
 struct PlayerInstanceUpdatePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   std::string instance;
@@ -236,6 +348,8 @@ struct PlayerInstanceUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerInstanceUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.text1b(packet.instance, 255);
 }
@@ -547,6 +661,9 @@ template <>
 struct fmt::formatter<PlayerTalentUpdatePacket> : ostream_formatter {};
 
 struct PlayerAttributeUpdatePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   PlayerAttributeId attribute_id{0};
@@ -556,6 +673,9 @@ struct PlayerAttributeUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerAttributeUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.player_id);
   s.value1b(packet.attribute_id);
   s.value4b(packet.value);
@@ -572,6 +692,9 @@ template <>
 struct fmt::formatter<PlayerAttributeUpdatePacket> : ostream_formatter {};
 
 struct PlayerAttributeSnapshotPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   std::int32_t strength{0};
@@ -589,6 +712,9 @@ struct PlayerAttributeSnapshotPacket {
 template <typename S>
 void serialize(S& s, PlayerAttributeSnapshotPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.player_id);
   s.value4b(packet.strength);
   s.value4b(packet.dexterity);
@@ -615,6 +741,8 @@ template <>
 struct fmt::formatter<PlayerAttributeSnapshotPacket> : ostream_formatter {};
 
 struct PlayerWorldUpdatePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   std::string world_name;
@@ -624,6 +752,8 @@ struct PlayerWorldUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerWorldUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.text1b(packet.world_name, 64);
   s.text1b(packet.start_point, 64);
@@ -651,6 +781,8 @@ void serialize(S& s, ExistingPlayersPacket& packet) {
 }
 
 struct JoinGamePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t protocol_version{kActorProtocolVersion};
   std::uint8_t packet_type{0};
   glm::vec3 position{0.0f};
   glm::vec3 normal{0.0f};
@@ -680,6 +812,8 @@ struct JoinGamePacket {
 template <typename S>
 void serialize(S& s, JoinGamePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.protocol_version);
   s.object(packet.position);
   s.object(packet.normal);
   s.value4b(packet.left_hand_item_instance);
@@ -736,6 +870,23 @@ template <>
 struct fmt::formatter<JoinGamePacket> : ostream_formatter {};
 
 struct PlayerSpawnPacket {
+  // Owner and NPC snapshots include the complete server-owned inventory.
+  std::vector<InventoryEntry> inventory;
+  bool invulnerable{false};
+  std::uint32_t body_state{0};
+  std::uint8_t walk_mode{0};
+  float look_yaw{0.5f};
+  float look_pitch{0.5f};
+  std::optional<std::uint32_t> focus_target_id;
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint64_t source_time_ms{0};
+  std::uint8_t weapon_mode{0};
+  std::uint8_t active_spell_nr{0};
+  std::int32_t active_spell_instance{0};
+  std::uint8_t head_direction{0};
+  std::int32_t melee_weapon_instance{0};
+  std::int32_t ranged_weapon_instance{0};
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   std::uint32_t state_sequence{0};
@@ -812,6 +963,22 @@ void serialize(S& s, PlayerSpawnPacket::TalentEntry& entry) {
 template <typename S>
 void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value1b(packet.packet_type);
+  s.container(packet.inventory, kMaxInventoryEntries);
+  s.boolValue(packet.invulnerable);
+  s.value4b(packet.body_state);
+  s.value1b(packet.walk_mode);
+  s.value4b(packet.look_yaw);
+  s.value4b(packet.look_pitch);
+  s.ext(packet.focus_target_id, bitsery::ext::StdOptional{}, [](S& s, std::uint32_t& id) { s.value4b(id); });
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value8b(packet.source_time_ms);
+  s.value1b(packet.weapon_mode);
+  s.value1b(packet.active_spell_nr);
+  s.value4b(packet.active_spell_instance);
+  s.value1b(packet.head_direction);
+  s.value4b(packet.melee_weapon_instance);
+  s.value4b(packet.ranged_weapon_instance);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
   s.object(packet.position);
@@ -937,6 +1104,14 @@ template <>
 struct fmt::formatter<MessagePacket> : ostream_formatter {};
 
 struct CastSpellPacket {
+  std::int32_t mana_delta{0};
+  std::uint64_t source_time_ms{0};
+  std::uint32_t command_revision{0};
+  std::int32_t item_instance{0};
+  std::uint32_t control_epoch{0};
+  std::uint64_t actor_generation{0};
+  std::uint64_t target_generation{0};
+  std::uint32_t action_id{0};
   std::uint8_t packet_type;
   std::uint16_t spell_id;
   std::optional<std::uint32_t> target_id;
@@ -946,6 +1121,14 @@ struct CastSpellPacket {
 template <typename S>
 void serialize(S& s, CastSpellPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.mana_delta);
+  s.value8b(packet.source_time_ms);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.item_instance);
+  s.value4b(packet.control_epoch);
+  s.value8b(packet.actor_generation);
+  s.value8b(packet.target_generation);
+  s.value4b(packet.action_id);
   s.value2b(packet.spell_id);
   s.ext4b(packet.target_id, bitsery::ext::StdOptional{});
   s.ext4b(packet.caster_id, bitsery::ext::StdOptional{});
@@ -962,9 +1145,11 @@ inline std::ostream& operator<<(std::ostream& os, const CastSpellPacket& packet)
 }
 
 struct DropItemPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t request_id{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
-  std::int16_t item_amount;
+  std::int32_t item_amount{0};
   glm::vec3 position{0.0f};
   glm::vec3 rotation{0.0f};
   bool physics_enabled{true};
@@ -974,8 +1159,10 @@ struct DropItemPacket {
 template <typename S>
 void serialize(S& s, DropItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.request_id);
   s.value4b(packet.item_instance);
-  s.value2b(packet.item_amount);
+  s.value4b(packet.item_amount);
   s.object(packet.position);
   s.object(packet.rotation);
   s.value1b(packet.physics_enabled);
@@ -997,9 +1184,11 @@ inline std::ostream& operator<<(std::ostream& os, const DropItemPacket& packet) 
 }
 
 struct TakeItemPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t request_id{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
-  std::int16_t item_amount{1};
+  std::int32_t item_amount{1};
   std::optional<std::uint32_t> item_ground_id;
   std::optional<std::uint32_t> player_id;
 };
@@ -1007,8 +1196,10 @@ struct TakeItemPacket {
 template <typename S>
 void serialize(S& s, TakeItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.request_id);
   s.value4b(packet.item_instance);
-  s.value2b(packet.item_amount);
+  s.value4b(packet.item_amount);
   s.ext4b(packet.item_ground_id, bitsery::ext::StdOptional{});
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
 }
@@ -1088,6 +1279,8 @@ void serialize(S& s, ItemGroundClearPacket& packet) {
 }
 
 struct PlayerWorldEnterPacket {
+  std::uint64_t actor_generation{0};
+  std::vector<InventoryEntry> inventory;
   std::uint8_t packet_type;
   std::string world_name;
 };
@@ -1095,6 +1288,8 @@ struct PlayerWorldEnterPacket {
 template <typename S>
 void serialize(S& s, PlayerWorldEnterPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.container(packet.inventory, kMaxInventoryEntries);
   s.text1b(packet.world_name, 255);
 }
 
@@ -1105,6 +1300,9 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerWorldEnterPacket& 
 }
 
 struct GiveItemPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
   std::int32_t item_amount;
@@ -1114,6 +1312,9 @@ struct GiveItemPacket {
 template <typename S>
 void serialize(S& s, GiveItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.item_instance);
   s.value4b(packet.item_amount);
   s.value4b(packet.player_id);
@@ -1127,6 +1328,9 @@ inline std::ostream& operator<<(std::ostream& os, const GiveItemPacket& packet) 
 }
 
 struct EquipItemPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
   std::int16_t slot_id;
@@ -1136,6 +1340,9 @@ struct EquipItemPacket {
 template <typename S>
 void serialize(S& s, EquipItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.item_instance);
   s.value2b(packet.slot_id);
   s.value4b(packet.player_id);
@@ -1149,6 +1356,10 @@ inline std::ostream& operator<<(std::ostream& os, const EquipItemPacket& packet)
 }
 
 struct UnequipItemPacket {
+  std::int16_t slot_id{Net::EQUIP_SLOT_GENERIC};
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
   std::uint32_t player_id;
@@ -1157,6 +1368,10 @@ struct UnequipItemPacket {
 template <typename S>
 void serialize(S& s, UnequipItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value2b(packet.slot_id);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.item_instance);
   s.value4b(packet.player_id);
 }
@@ -1169,6 +1384,9 @@ inline std::ostream& operator<<(std::ostream& os, const UnequipItemPacket& packe
 }
 
 struct RemoveItemPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
   std::int32_t item_instance{0};
   std::int32_t item_amount;
@@ -1178,6 +1396,9 @@ struct RemoveItemPacket {
 template <typename S>
 void serialize(S& s, RemoveItemPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value4b(packet.state_sequence);
   s.value4b(packet.item_instance);
   s.value4b(packet.item_amount);
   s.value4b(packet.player_id);
@@ -1191,6 +1412,8 @@ inline std::ostream& operator<<(std::ostream& os, const RemoveItemPacket& packet
 }
 
 struct PlayerStateUpdatePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type;
   std::uint32_t state_sequence{0};
   PlayerState state;
@@ -1201,6 +1424,8 @@ struct PlayerStateUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerStateUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.state_sequence);
   s.object(packet.state);
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
@@ -1221,6 +1446,10 @@ template <>
 struct fmt::formatter<PlayerStateUpdatePacket> : ostream_formatter {};
 
 struct PlayerPositionUpdatePacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
+  std::uint64_t source_time_ms{0};
+  bool teleport{true};
   std::uint8_t packet_type;
   std::uint32_t state_sequence{0};
   glm::vec3 position;
@@ -1231,6 +1460,10 @@ struct PlayerPositionUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerPositionUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
+  s.value8b(packet.source_time_ms);
+  s.boolValue(packet.teleport);
   s.value4b(packet.state_sequence);
   s.object(packet.position);
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
@@ -1320,6 +1553,8 @@ inline std::ostream& operator<<(std::ostream& os, const DisconnectionInfoPacket&
 }
 
 struct PlayerDeathInfoPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type;
   std::uint32_t player_id;
   std::uint32_t state_sequence{0};
@@ -1328,6 +1563,8 @@ struct PlayerDeathInfoPacket {
 template <typename S>
 void serialize(S& s, PlayerDeathInfoPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
 }
@@ -1339,6 +1576,10 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerDeathInfoPacket& i
 }
 
 struct PlayerRespawnInfoPacket {
+  std::int32_t health{0};
+  std::int32_t mana{0};
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type;
   std::uint32_t player_id;
   std::uint32_t state_sequence{0};
@@ -1347,6 +1588,10 @@ struct PlayerRespawnInfoPacket {
 template <typename S>
 void serialize(S& s, PlayerRespawnInfoPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.health);
+  s.value4b(packet.mana);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
 }
@@ -1358,23 +1603,39 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerRespawnInfoPacket&
 }
 
 struct PlayerHitReportPacket {
+  std::uint32_t command_revision{0};
+  std::uint64_t actor_generation{0};
+  std::uint64_t victim_generation{0};
+  std::uint32_t attack_id{0};
+  std::optional<std::uint32_t> attacker_id;
+  std::uint32_t control_epoch{0};
   std::uint8_t packet_type;
   std::uint32_t victim_id;
   std::int32_t damage;
   std::uint32_t damage_type{0};
   bool dont_kill{false};
+  bool finishing_move{false};
 };
 
 template <typename S>
 void serialize(S& s, PlayerHitReportPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.command_revision);
+  s.value8b(packet.actor_generation);
+  s.value8b(packet.victim_generation);
+  s.value4b(packet.attack_id);
+  s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
+  s.value4b(packet.control_epoch);
   s.value4b(packet.victim_id);
   s.value4b(packet.damage);
   s.value4b(packet.damage_type);
   s.value1b(packet.dont_kill);
+  s.value1b(packet.finishing_move);
 }
 
 struct PlayerUnconsciousPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type;
   std::uint32_t player_id{0};
   std::uint32_t state_sequence{0};
@@ -1384,12 +1645,16 @@ struct PlayerUnconsciousPacket {
 template <typename S>
 void serialize(S& s, PlayerUnconsciousPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
   s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
 }
 
 struct PlayerStandUpPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t command_revision{0};
   std::uint8_t packet_type;
   std::uint32_t player_id{0};
   std::uint32_t state_sequence{0};
@@ -1398,11 +1663,14 @@ struct PlayerStandUpPacket {
 template <typename S>
 void serialize(S& s, PlayerStandUpPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
 }
 
 struct PlayerDeathReportPacket {
+  std::uint64_t actor_generation{0};
   std::uint8_t packet_type;
   std::optional<std::uint32_t> killer_id;
 };
@@ -1410,6 +1678,7 @@ struct PlayerDeathReportPacket {
 template <typename S>
 void serialize(S& s, PlayerDeathReportPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
   s.ext4b(packet.killer_id, bitsery::ext::StdOptional{});
 }
 
@@ -1485,6 +1754,8 @@ inline std::ostream& operator<<(std::ostream& os, const ClientResourceInfoEntry&
 
 // Server informs the client about the map name and the ID assigned to the player
 struct InitialInfoPacket {
+  std::uint64_t actor_generation{0};
+  std::uint32_t protocol_version{kActorProtocolVersion};
   std::uint8_t packet_type;
   std::string map_name;
   std::uint32_t player_id;
@@ -1504,6 +1775,8 @@ struct InitialInfoPacket {
 template <typename S>
 void serialize(S& s, InitialInfoPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value8b(packet.actor_generation);
+  s.value4b(packet.protocol_version);
   s.text1b(packet.map_name, 64);
   s.value4b(packet.player_id);
   s.text1b(packet.server_name, 64);

@@ -172,25 +172,25 @@ TEST_F(NpcManagerTest, HostHandoverAndBaselineResetInvalidateEarlierReports) {
   ASSERT_TRUE(manager.SetHost(id, 2, start + 900ms));
   EXPECT_FALSE(manager.FinishAction(id, 1, first_epoch, action, start + 901ms));
   EXPECT_FALSE(manager.FinishAction(id, 2, first_epoch, action, start + 901ms));
-  EXPECT_EQ(manager.GetNpc(id)->get().actions.front().started_at, start + 900ms);
+  EXPECT_EQ(manager.GetNpc(id)->get().actions.front().started_at, start);
 
   ASSERT_TRUE(manager.SetHost(id, 2, start + 950ms));
   EXPECT_EQ(manager.GetNpc(id)->get().control_epoch, first_epoch + 1);
-  EXPECT_EQ(manager.GetNpc(id)->get().actions.front().started_at, start + 900ms);
+  EXPECT_EQ(manager.GetNpc(id)->get().actions.front().started_at, start);
   ASSERT_TRUE(manager.BumpControlEpoch(id, start + 1000ms));
   EXPECT_FALSE(manager.FinishAction(id, 2, first_epoch + 1, action, start + 1001ms));
-  EXPECT_TRUE(manager.FinishAction(id, 2, first_epoch + 2, action, start + 1001ms));
+  EXPECT_FALSE(manager.FinishAction(id, 2, first_epoch + 2, action, start + 1001ms));
+  EXPECT_EQ(manager.ExpireActions(id, start + 1001ms).size(), 1u);
 }
 
-TEST_F(NpcManagerTest, HostLossPausesActionTimeoutButNotQueueLifetime) {
+TEST_F(NpcManagerTest, HostLossPreservesActionPhaseAndDeadline) {
   ASSERT_TRUE(manager.SetHost(id, 1, start));
   const auto action = manager.QueueAnimation(id, "T_STAND_2_SIT", 1000, start);
   ASSERT_TRUE(manager.SetHost(id, 0, start + 500ms));
-  EXPECT_FALSE(manager.GetNpc(id)->get().actions.front().started_at);
-  EXPECT_TRUE(manager.ExpireActions(id, start + 10s).empty());
-  EXPECT_FALSE(manager.FinishAction(id, 0, manager.GetNpc(id)->get().control_epoch, action, start + 10s));
-  EXPECT_TRUE(manager.ExpireActions(id, start + 59999ms).empty());
-  const auto expired = manager.ExpireActions(id, start + 60s);
+  EXPECT_EQ(manager.GetNpc(id)->get().actions.front().started_at, start);
+  EXPECT_TRUE(manager.ExpireActions(id, start + 999ms).empty());
+  EXPECT_FALSE(manager.FinishAction(id, 0, manager.GetNpc(id)->get().control_epoch, action, start + 999ms));
+  const auto expired = manager.ExpireActions(id, start + 1000ms);
   ASSERT_EQ(expired.size(), 1u);
   EXPECT_EQ(expired.front().id, action);
   EXPECT_TRUE(manager.IsActionFinished(id, action));
@@ -238,9 +238,9 @@ TEST_F(NpcManagerTest, RepeatedHandoverCannotExtendTotalLifetime) {
   const auto action = manager.QueueAnimation(id, "S_RUN", 30000, start);
   ASSERT_TRUE(manager.SetHost(id, 1, start + 20s));
   ASSERT_TRUE(manager.SetHost(id, 2, start + 40s));
-  ASSERT_TRUE(manager.SetHost(id, 1, start + 59s));
-  EXPECT_TRUE(manager.ExpireActions(id, start + 59999ms).empty());
-  const auto expired = manager.ExpireActions(id, start + 60s);
+  ASSERT_TRUE(manager.SetHost(id, 1, start + 49s));
+  EXPECT_TRUE(manager.ExpireActions(id, start + 49999ms).empty());
+  const auto expired = manager.ExpireActions(id, start + 50s);
   ASSERT_EQ(expired.size(), 1u);
   EXPECT_EQ(expired.front().id, action);
 }
@@ -397,6 +397,47 @@ TEST(NpcPacketTest, TruncatedControlAndResultPacketsCannotBeAccepted) {
   bytes.push_back(0);
   const auto extra = bitsery::quickDeserialization<Adapter>({bytes.data(), bytes.size()}, decoded);
   EXPECT_FALSE(extra.second);
+}
+
+TEST_F(NpcManagerTest, HostChangeResetsReportedActionsAndProjectileApproval) {
+  ASSERT_TRUE(manager.SetHost(id, 1, start));
+  auto& npc = manager.GetNpc(id)->get();
+  npc.last_actor_action_id = 90;
+  npc.last_cast_action_id = 91;
+  npc.last_hit_action_id = 92;
+  npc.hit_victims.insert(5);
+  npc.approved_projectiles.push_back(Character::ApprovedAttack{});
+
+  ASSERT_TRUE(manager.SetHost(id, 1, start + 100ms));
+  EXPECT_FALSE(npc.approved_projectiles.empty());
+  EXPECT_EQ(npc.last_actor_action_id, 90u);
+  ASSERT_TRUE(manager.SetHost(id, 2, start + 200ms));
+  EXPECT_FALSE(npc.last_actor_action_id);
+  EXPECT_FALSE(npc.last_cast_action_id);
+  EXPECT_FALSE(npc.last_hit_action_id);
+  EXPECT_TRUE(npc.hit_victims.empty());
+
+  EXPECT_TRUE(npc.approved_projectiles.empty());
+}
+
+TEST(ActorPacketTest, PacketTypeRemainsFirstByteForNewCommandsAndAcknowledgements) {
+  const auto assert_type = [](const auto& packet, std::uint8_t type) {
+    const auto bytes = EncodeNpcPacket(packet);
+    ASSERT_FALSE(bytes.empty());
+    EXPECT_EQ(bytes.front(), type);
+  };
+  UnequipItemPacket unequip{};
+  unequip.packet_type = Net::PT_UNEQUIPITEM;
+  unequip.slot_id = Net::EQUIP_SLOT_RING_LEFT;
+  assert_type(unequip, Net::PT_UNEQUIPITEM);
+  PlayerRespawnInfoPacket respawn{};
+  respawn.packet_type = Net::PT_RESPAWN;
+  respawn.health = 50000;
+  respawn.mana = 60000;
+  assert_type(respawn, Net::PT_RESPAWN);
+  assert_type(ActorActionPacket{}, Net::PT_ACTOR_ACTION);
+  assert_type(ItemTransactionResultPacket{}, Net::PT_ITEM_TRANSACTION_RESULT);
+  assert_type(EquipmentResultPacket{}, Net::PT_EQUIPMENT_RESULT);
 }
 
 }  // namespace
