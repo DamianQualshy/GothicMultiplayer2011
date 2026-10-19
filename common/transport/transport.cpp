@@ -138,7 +138,9 @@ std::array<SteamNetworkingConfigValue_t, 2> ConnectionOptions() {
                     reinterpret_cast<void*>(&ConnectionStatusChanged));
   // Direct IP using GNS unsigned certificates, which carry our machine hash.
   // Encryption remains enabled; the machine claim is not authenticated by a CA.
-  options[1].SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 1);
+  // Value 1 still attempts CA authentication and fails without a CA outside
+  // localhost. Value 2 explicitly uses unsigned certificates on both endpoints.
+  options[1].SetInt32(k_ESteamNetworkingConfig_IP_AllowWithoutAuth, 2);
   return options;
 }
 

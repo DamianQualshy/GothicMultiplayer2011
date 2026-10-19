@@ -151,6 +151,26 @@ TEST_F(TransportTest, ConnectsAndReportsIpPingAndNativeDiagnostics) {
   EXPECT_FALSE(server.GetDiagnostics(LastAccepted()).empty());
 }
 
+TEST_F(TransportTest, ConnectsEncryptedWithoutLocalhostAuthenticationExemption) {
+  ScopedNetworkSettings settings;
+  // GNS normally permits unsigned certificates on localhost regardless of the
+  // regular IP policy. Disable that exemption to exercise the VPS auth path.
+  ASSERT_TRUE(settings.Int(k_ESteamNetworkingConfig_IPLocalHost_AllowWithoutAuth, 0));
+  server.Stop();
+  ASSERT_TRUE(StartTestListener(server));
+
+  auto& client = NewClient();
+  ASSERT_TRUE(Connect(client));
+  EXPECT_EQ(server.GetPlayerIdentity(LastAccepted()).size(), Net::kMachineIdentityBytes * 2);
+  for (const auto connection : {client.transport.GetConnection(), LastAccepted()}) {
+    SteamNetConnectionInfo_t info{};
+    ASSERT_TRUE(SteamNetworkingSockets()->GetConnectionInfo(connection, &info));
+    EXPECT_NE(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unauthenticated, 0);
+    EXPECT_EQ(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_Unencrypted, 0);
+    EXPECT_EQ(info.m_nFlags & k_nSteamNetworkConnectionInfoFlags_LoopbackBuffers, 0);
+  }
+}
+
 TEST(MachineIdentityTest, NormalizesOsIdentifiersAndPreservesThePublishedDerivation) {
   const auto identity = Net::DeriveMachineIdentity("00112233-4455-6677-8899-aabbccddeeff");
   ASSERT_TRUE(identity.has_value());
