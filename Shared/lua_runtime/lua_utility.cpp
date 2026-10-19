@@ -35,6 +35,7 @@ SOFTWARE.
 #include <string>
 
 #include <sodium.h>
+#include <xxhash.h>
 
 #include "shared/crypto_utils.h"
 
@@ -297,6 +298,80 @@ std::string Function_HashSha512(const std::string& input) {
   return gmp::crypto::BytesToHex(digest, crypto_hash_sha512_BYTES);
 }
 
+lua_Integer ReadXxHashSeed(const sol::optional<sol::stack_object>& seed) {
+  if (!seed) {
+    return 0;
+  }
+  if (lua_isinteger(seed->lua_state(), seed->stack_index()) == 0) {
+    throw sol::error("hash seed must be a Lua integer");
+  }
+  const lua_Integer seed_value = seed->as<lua_Integer>();
+  if (seed_value < 0 || seed_value > 4294967295LL) {
+    throw sol::error("hash seed must be between 0 and 4294967295");
+  }
+  return seed_value;
+}
+
+/* luagmp (func)
+*
+* Return the XXH32 hash of the input string as lowercase hexadecimal text.
+*
+* @version  0.3.0
+* @name     xxh32
+* @side     shared
+* @category Hash
+* @param    (string) input  Input bytes to hash.
+* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+* @return   (string)        Lowercase hexadecimal hash string (8 characters, including leading zeros).
+*
+*/
+std::string Function_HashXxh32(const std::string& input, sol::optional<sol::stack_object> seed) {
+  const lua_Integer seed_value = ReadXxHashSeed(seed);
+  XXH32_canonical_t digest;
+  XXH32_canonicalFromHash(&digest, XXH32(input.data(), input.size(), static_cast<XXH32_hash_t>(seed_value)));
+  return gmp::crypto::BytesToHex(digest.digest, sizeof(digest.digest));
+}
+
+/* luagmp (func)
+*
+* Return the XXH64 hash of the input string as lowercase hexadecimal text.
+*
+* @version  0.3.0
+* @name     xxh64
+* @side     shared
+* @category Hash
+* @param    (string) input  Input bytes to hash.
+* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+* @return   (string)        Lowercase hexadecimal hash string (16 characters, including leading zeros).
+*
+*/
+std::string Function_HashXxh64(const std::string& input, sol::optional<sol::stack_object> seed) {
+  const auto seed_value = static_cast<XXH64_hash_t>(ReadXxHashSeed(seed));
+  XXH64_canonical_t digest;
+  XXH64_canonicalFromHash(&digest, XXH64(input.data(), input.size(), seed_value));
+  return gmp::crypto::BytesToHex(digest.digest, sizeof(digest.digest));
+}
+
+/* luagmp (func)
+*
+* Return the XXH128 hash of the input string as lowercase hexadecimal text.
+*
+* @version  0.3.0
+* @name     xxh128
+* @side     shared
+* @category Hash
+* @param    (string) input  Input bytes to hash.
+* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+* @return   (string)        Lowercase hexadecimal hash string (32 characters, including leading zeros).
+*
+*/
+std::string Function_HashXxh128(const std::string& input, sol::optional<sol::stack_object> seed) {
+  const auto seed_value = static_cast<XXH64_hash_t>(ReadXxHashSeed(seed));
+  XXH128_canonical_t digest;
+  XXH128_canonicalFromHash(&digest, XXH3_128bits_withSeed(input.data(), input.size(), seed_value));
+  return gmp::crypto::BytesToHex(digest.digest, sizeof(digest.digest));
+}
+
 }  // namespace
 
 void BindUtilities(sol::state& lua) {
@@ -307,6 +382,9 @@ void BindUtilities(sol::state& lua) {
   lua["sscanf"] = Function_Sscanf;
   lua["sha256"] = Function_HashSha256;
   lua["sha512"] = Function_HashSha512;
+  lua["xxh32"] = Function_HashXxh32;
+  lua["xxh64"] = Function_HashXxh64;
+  lua["xxh128"] = Function_HashXxh128;
 }
 
 void BindTimers(sol::state& lua, TimerManager& timer_manager) {

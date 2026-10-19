@@ -70,6 +70,7 @@ add_requireconfs("gamenetworkingsockets.protobuf-cpp.abseil", {override = true, 
 add_requireconfs("gamenetworkingsockets.openssl", {override = true, version = "1.1.1-w"})
 
 add_requires("spdlog 1.15.1", {configs = {fmt_external = true}})
+add_requires("xxhash 0.8.3", {configs = {shared = false, cmake = false}})
 -- Pulling in gtest_main doesn't work, due to a runtime conflict MT (static) vs MD (dynamic), so we still have to define it ourselves
 add_requires("gtest 1.16.*", {configs = {main = true}})
 add_requires("sqlite3 3.53.0+400", {configs = {

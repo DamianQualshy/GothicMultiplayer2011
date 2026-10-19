@@ -38,6 +38,7 @@ target("LuaRuntime")
     -- Dependencies
     add_deps("SharedLib")
     add_packages("sol2", "spdlog", "fmt", "nlohmann_json", {public = true})
+    add_packages("xxhash", {public = true})
     
     -- Not built by default (only when needed by client/server)
     set_default(false)
