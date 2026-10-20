@@ -55,16 +55,17 @@ struct Response;
 #include "client_resource_packager.h"
 #include "common_structs.h"
 #include "config.h"
-#include "player_manager.h"
-#include "npc_manager.h"
-#include "item_registry.h"
+#include "gothic_clock.h"
+#include "gothic_weather.h"
 #include "item_ground_manager.h"
+#include "item_registry.h"
+#include "npc_manager.h"
+#include "player_manager.h"
 #include "resource_manager.h"
 #include "resource_server.h"
 #include "server_addon_context.h"
+#include "summon_registry.h"
 #include "transport/transport.h"
-#include "gothic_clock.h"
-#include "gothic_weather.h"
 
 #define DEFAULT_ADMIN_PORT 0x404
 
@@ -254,6 +255,9 @@ private:
   void HandlePlayerConnected(Net::ConnectionHandle connection);
   void DeleteFromPlayerList(PlayerId player_id);
   void HandleCastSpell(Packet p, bool target);
+  void HandleNativeTeleport(Packet p);
+  void HandleTransformationReturn(Packet p);
+  std::vector<PlayerId> PrepareSpellSummons(const Character& caster, std::uint32_t cast_id, const SummonRegistry::Definition& definition);
   void HandleActorAction(Packet p);
   bool CanReportActorAction(const Player& sender, const Character& actor, std::uint32_t control_epoch,
                             std::uint32_t command_revision) const;
@@ -284,6 +288,10 @@ private:
   void ProcessVoiceActivity(std::chrono::steady_clock::time_point now);
   void SomeoneJoinGame(Packet p);
   void HandlePlayerUpdate(Packet p);
+  void HandlePlayerInstanceReady(Packet p);
+  void CompletePlayerInstanceChange(Character& actor, const PlayerSpawnPacket& defaults,
+                                   std::unordered_map<std::string, std::int32_t> inventory, bool success);
+  void ProcessInstanceChanges();
   void HandlePlayerDisconnect(Net::ConnectionHandle connection, std::int32_t reason);
   void HandleRconCommand(Player& player, const std::string& params);
   void HandleDiagnosticsCommand(Player& player);
@@ -308,7 +316,7 @@ private:
   void BroadcastGameInfo();
   void BroadcastGameInfo(GothicClock::Time time);
   void BroadcastSkySettings();
-  void BroadcastPlayerPings();
+  void BroadcastPlayerPresence();
   void SendAdminAuthStatus(const Player& player);
   void UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times);
   void RefreshPlayerStreaming(bool send_state_updates = false);
@@ -362,6 +370,7 @@ private:
   std::unordered_set<std::string> unloading_npc_resources_;
   AnimationRegistry animation_registry_;
   ItemRegistry item_registry_;
+  SummonRegistry summon_registry_;
   ItemGroundManager item_ground_manager_;
   bool allow_modification = false;
   Config config_;
@@ -369,7 +378,7 @@ private:
   GothicWeather weather_;
   std::string server_world_;
   std::int64_t last_weather_update_minute_{-1};
-  std::chrono::time_point<std::chrono::steady_clock> last_ping_update_time_{};
+  std::chrono::time_point<std::chrono::steady_clock> last_player_presence_update_time_{};
   std::future<void> public_list_http_thread_future_;
   std::chrono::time_point<std::chrono::steady_clock> last_update_time_{};
   std::thread main_thread;

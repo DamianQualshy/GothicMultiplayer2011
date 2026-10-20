@@ -99,8 +99,8 @@ local function getPlayerLabel(playerId)
 end
 
 local function isPlayerDrawable(playerId)
-  local ok, streamed = pcall(isPlayerStreamed, playerId)
-  return ok and streamed == true
+  local world = getPlayerWorld(playerId)
+  return world ~= nil and normalizeWorldName(world) == normalizeWorldName(getWorld())
 end
 
 local function hideMarkers(fromIndex)

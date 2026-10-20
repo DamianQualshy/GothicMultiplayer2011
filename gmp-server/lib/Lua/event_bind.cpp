@@ -423,6 +423,43 @@ void RegisterProxies() {
 
 /* luagmp (event)
 *
+* This event is triggered when a player summons an NPC using a game's spell.
+*
+* @version  0.3.0
+* @name     onPlayerSummon
+* @side     server
+* @category Player
+* @param    (number) playerId       The id of the player who summoned the NPC.
+* @param    (number) spellId        The id of the spell used to summon the NPC.
+* @param    (string) summonInstance The instance name of the summoned NPC.
+* @param    (number) npcId          The id of the summoned NPC.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerSummonName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnPlayerSummonEvent>(args.event);
+    args.callback(event.player_id, event.spell_id, event.summon_instance, event.npc_id);
+  }};
+
+/* luagmp (event)
+*
+* This event is triggered when a player teleports using a game's spell or teleport trigger.
+*
+* @version  0.3.0
+* @name     onPlayerTeleport
+* @side     server
+* @category Player
+* @note     This event is triggered after the teleport is completed and cannot be cancelled. Calling `setPlayerPosition` does not trigger this event.
+* @param    (number) playerId The id of the player who teleported.
+* @param    (string) vobName  The name of the destination waypoint, freepoint or vob.
+*
+*/
+  kLuaEventProxies[kEventOnPlayerTeleportName] = {[](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnPlayerTeleportEvent>(args.event);
+    args.callback(event.player_id, event.destination);
+  }};
+
+/* luagmp (event)
+*
 * This event is triggered when player health changes.
 *
 * @version  0.3.0

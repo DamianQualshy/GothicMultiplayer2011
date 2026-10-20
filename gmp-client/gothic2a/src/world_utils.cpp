@@ -25,6 +25,51 @@ SOFTWARE.
 
 #include "world_utils.hpp"
 
+#include <vector>
+
+#include "CChat.h"
+#include "net_game.h"
+#include "renderer/d3d11/D3D11Renderer.h"
+#include "renderer/d3d9/D3D9Renderer.h"
+
+void ClearNpcFocusReferences(oCNpc* target) {
+  if (!ogame || !ogame->GetGameWorld())
+    return;
+  // Releasing a focus can release another NPC. Retain the complete traversal.
+  std::vector<oCNpc*> npcs;
+  for (auto* entry = ogame->GetGameWorld()->voblist_npcs; entry; entry = entry->next) {
+    if (auto* npc = entry->GetData()) {
+      npc->AddRef();
+      npcs.push_back(npc);
+    }
+  }
+  for (auto* npc : npcs) {
+    if (!target || npc == target || npc->GetFocusVob() == target)
+      npc->ClearFocusVob();
+  }
+  for (auto* npc : npcs) npc->Release();
+}
+
+void PrepareWorldChange() {
+  NetGame::Instance().ClearNativeTransformation();
+  CChat::GetInstance()->CloseInput(true);
+  ClearNpcFocusReferences();
+  ResetWorldRenderState();
+}
+
+void ResetWorldRenderState() {
+  if (!zrenderer)
+    return;
+  // Complete queued geometry before releasing the textures it borrows. Unbind
+  // every stage and use the public reset to clear the cached material pointer.
+  zrenderer->FlushPolys();
+  for (unsigned long stage = 0; stage < 4; ++stage) zrenderer->SetTexture(stage, nullptr);
+  if (auto* renderer = dynamic_cast<zCRnd_D3D_DX11*>(zrenderer))
+    renderer->RestoreOpaqueRenderState();
+  if (auto* renderer = dynamic_cast<zCRnd_D3D_DX9*>(zrenderer))
+    renderer->RestoreOpaqueRenderState();
+}
+
 namespace {
 void UnlockLockable(oCMobLockable& lockable) {
   lockable.SetLocked(false);

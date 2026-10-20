@@ -1,20 +1,59 @@
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <limits>
 
+#include "Lua/lua_item.h"
+#include "Script.h"
 #include "character.h"
+#include "game_server.h"
+#include "inventory_sync.h"
 #include "item_ground_manager.h"
 #include "item_registry.h"
-#include "inventory_sync.h"
+#include "native_event_packets.h"
 #include "packets.h"
-#include "game_server.h"
-#include "Script.h"
-#include "Lua/lua_item.h"
 #include "server_events.h"
 #include "shared/event.h"
+#include "summon_registry.h"
+#include "summon_spells.h"
+#include "transformation_spells.h"
+#include "weapon_skills.h"
+
+TEST(WeaponSkills, TrainingTiersUseGothicThresholds) {
+  for (const int percentage : {-1, 0, 29}) EXPECT_EQ(gmp::WeaponSkillTier(percentage), 0);
+  for (const int percentage : {30, 59}) EXPECT_EQ(gmp::WeaponSkillTier(percentage), 1);
+  for (const int percentage : {60, 100, 101}) EXPECT_EQ(gmp::WeaponSkillTier(percentage), 2);
+}
+
+TEST(WeaponSkills, ServerPersistsMatchingTiersAcrossUpgradesAndDowngrades) {
+  GameServer server;
+  const auto id = server.GetPlayerManager().AddPlayer(70001, "Training", 2);
+  ASSERT_NE(id, 0u);
+  auto& actor = server.GetCharacter(id)->get();
+  for (int skill = 1; skill <= 4; ++skill) {
+    for (const int percentage : {0, 29, 30, 59, 60, 100, 59, 29, -10, 150}) {
+      ASSERT_TRUE(server.SetPlayerSkillWeapon(id, skill, percentage));
+      const auto expected = std::clamp(percentage, 0, 100);
+      EXPECT_EQ(actor.weapon_skills.at(skill), expected);
+      EXPECT_EQ(actor.talents.at(skill), gmp::WeaponSkillTier(expected));
+    }
+  }
+  const auto skills = actor.weapon_skills;
+  const auto talents = actor.talents;
+  EXPECT_FALSE(server.SetPlayerSkillWeapon(id, 0, 60));
+  EXPECT_FALSE(server.SetPlayerSkillWeapon(id, 5, 60));
+  EXPECT_EQ(actor.weapon_skills, skills);
+  EXPECT_EQ(actor.talents, talents);
+  ASSERT_TRUE(server.SetPlayerTalent(id, 1, 0));
+  EXPECT_EQ(actor.talents.at(1), 0);
+  ASSERT_TRUE(server.SetPlayerSkillWeapon(id, 1, 60));
+  EXPECT_EQ(actor.talents.at(1), 2);
+  ASSERT_TRUE(server.SetPlayerTalent(id, 1, 99));
+  EXPECT_EQ(actor.talents.at(1), 2);
+}
 
 TEST(ActorInventory, InsufficientDropLeavesOwnershipUnchanged) {
   Character actor;
@@ -104,6 +143,18 @@ TEST_F(ItemCatalog, NativeInventoryDeclarationOnlyValidatesRegisteredPositiveUni
   EXPECT_FALSE(ValidateNativeInventoryDeclaration(std::vector<InventoryEntry>(kMaxInventoryEntries + 1, {99, 1}), registry));
 }
 
+TEST_F(ItemCatalog, LegacyRuneCatalogPreservesZeroSpellIdWithoutTreatingOrdinaryItemsAsSpells) {
+  Write(R"({"items":[{"instance":"ITRU_PALLIGHT","index":227,"mainflag":512,"flags":0},
+                     {"instance":"ITSC_PALLIGHT","index":228,"mainflag":512,"flags":2097152},
+                     {"instance":"ITPO_TEST","index":99,"mainflag":1,"flags":0}]})");
+  ASSERT_TRUE(registry.Load(path));
+  ASSERT_TRUE(registry.FindByIndex(227)->spell.has_value());
+  EXPECT_EQ(*registry.FindByIndex(227)->spell, 0);
+  ASSERT_TRUE(registry.FindByIndex(228)->spell.has_value());
+  EXPECT_EQ(*registry.FindByIndex(228)->spell, 0);
+  EXPECT_FALSE(registry.FindByIndex(99)->spell.has_value());
+}
+
 class ServerActorValidation : public ItemCatalog {
 protected:
   void SetUp() override {
@@ -113,7 +164,7 @@ protected:
                        "damage":{"total":25,"types":32},"range":3000},
                       {"instance":"ITMW_TEST","index":175,"mainflag":2,"flags":16384,
                        "damage":{"total":5,"types":4},"range":50},
-                      {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
+                      {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,"wear":1,
                        "protections":[{"type":2,"value":1000}]}]})");
     // Initialize trusted fixture data without starting network listeners or resources.
     ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
@@ -184,7 +235,899 @@ protected:
     hit.finishing_move = true;
     return hit;
   }
+  PlayerTeleportPacket Teleport(Character& actor, std::uint32_t identity = 1) {
+    PlayerTeleportPacket packet;
+    packet.player_id = actor.player_id;
+    packet.actor_generation = actor.actor_generation;
+    packet.command_revision = actor.command_revision;
+    if (auto npc = server.GetNpcManager().GetNpc(actor.player_id))
+      packet.control_epoch = npc->get().control_epoch;
+    packet.action_id = identity;
+    packet.position = {100.0f, 200.0f, 300.0f};
+    packet.normal = {1.0f, 0.0f, 0.0f};
+    packet.destination = "NW_TELEPORT_TEST";
+    return packet;
+  }
 };
+
+class ServerInstanceValidation : public ServerActorValidation {
+protected:
+  PlayerInstanceReadyPacket Defaults(std::uint32_t id) {
+    const auto& actor = server.GetCharacter(id)->get();
+    PlayerInstanceReadyPacket packet;
+    packet.request_revision = actor.instance_change->request_revision;
+    auto& out = packet.defaults;
+    out.packet_type = Net::PT_PLAYER_SPAWN;
+    out.player_id = id;
+    out.actor_generation = actor.actor_generation;
+    out.instance = actor.instance;
+    out.health = out.max_health = 750;
+    out.mana = out.max_mana = 250;
+    out.strength = 90;
+    out.dexterity = 80;
+    out.level = 30;
+    out.body_model = "HUM_BODY_NAKED0";
+    out.head_model = "HUM_HEAD_PONY";
+    out.body_texture = 4;
+    out.inventory = {{176, 1}, {99, 2}};
+    out.equipped_armor_instance = 176;
+    out.weapon_skills = {{1, 60}};
+    out.talents = {{1, 2}};
+    return packet;
+  }
+};
+
+TEST_F(ServerInstanceValidation, ConstructorReplacesOldStatsAppearanceInventoryAndEquipmentOnce) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.instance = "PC_HERO";
+  actor.body_model = "OLD_BODY";
+  actor.head_model = "OLD_HEAD";
+  ASSERT_TRUE(actor.AddInventory("ITRU_TEST", 3));
+  const auto position = actor.state.position;
+  ASSERT_TRUE(server.SetPlayerInstance(first, "PC_MAGE_OW"));
+  auto ready = Defaults(first);
+  ready.defaults.position = {9999.0f, 9999.0f, 9999.0f};
+  Send(70002, ready);
+  ASSERT_TRUE(actor.instance_change);
+  EXPECT_EQ(actor.max_health, 100);
+  Send(70001, ready);
+  EXPECT_FALSE(actor.instance_change);
+  EXPECT_EQ(actor.max_health, 750);
+  EXPECT_EQ(actor.health, 750);
+  EXPECT_EQ(actor.max_mana, 250);
+  EXPECT_EQ(actor.mana, 250);
+  EXPECT_EQ(actor.strength, 90);
+  EXPECT_EQ(actor.body_model, "HUM_BODY_NAKED0");
+  EXPECT_EQ(actor.head_model, "HUM_HEAD_PONY");
+  EXPECT_EQ(actor.InventoryCount("ITRU_TEST"), 0);
+  EXPECT_EQ(actor.InventoryCount("ITPO_TEST"), 2);
+  EXPECT_EQ(actor.state.equipped_armor_instance, 176);
+  EXPECT_EQ(actor.state.position, position);
+  const auto sequence = actor.state_sequence;
+  ready.defaults.health = ready.defaults.max_health = 50000;
+  Send(70001, ready);
+  EXPECT_EQ(actor.max_health, 750);
+  EXPECT_EQ(actor.state_sequence, sequence);
+}
+
+TEST_F(ServerInstanceValidation, ScriptedChangesAfterRequestOverrideConstructorDefaults) {
+  auto& actor = server.GetCharacter(first)->get();
+  ASSERT_TRUE(server.SetPlayerInstance(first, "CH"));
+  auto ready = Defaults(first);
+  ASSERT_TRUE(server.SetPlayerMaxHealth(first, 1200));
+  ASSERT_TRUE(server.SetPlayerHealth(first, 900));
+  ASSERT_TRUE(server.SetPlayerMaxMana(first, 0));
+  ASSERT_TRUE(server.SetPlayerSkillWeapon(first, 1, 30));
+  ASSERT_TRUE(server.SetPlayerInvulnerable(first, true));
+  ASSERT_TRUE(server.GiveItem(first, "ITPO_TEST", 1));
+  Send(70001, ready);
+  EXPECT_EQ(actor.max_health, 1200);
+  EXPECT_EQ(actor.health, 900);
+  EXPECT_EQ(actor.max_mana, 0);
+  EXPECT_EQ(actor.mana, 0);
+  EXPECT_EQ(actor.weapon_skills.at(1), 30);
+  EXPECT_EQ(actor.talents.at(1), 1);
+  EXPECT_TRUE(actor.invulnerable);
+  EXPECT_EQ(actor.InventoryCount("ITPO_TEST"), 3);
+}
+
+TEST_F(ServerInstanceValidation, SupersededCompletionCannotReplaceNewerRequestAndFailureRestoresPreviousInstance) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.instance = "PC_HERO";
+  ASSERT_TRUE(server.SetPlayerInstance(first, "WOLF"));
+  auto stale = Defaults(first);
+  ASSERT_TRUE(server.SetPlayerInstance(first, "SCAVENGER"));
+  const auto revision = actor.instance_change->request_revision;
+  Send(70001, stale);
+  ASSERT_TRUE(actor.instance_change);
+  EXPECT_EQ(actor.instance_change->request_revision, revision);
+  auto failed = Defaults(first);
+  failed.success = false;
+  Send(70001, failed);
+  EXPECT_FALSE(actor.instance_change);
+  EXPECT_EQ(actor.instance, "PC_HERO");
+  EXPECT_EQ(actor.max_health, 100);
+}
+
+TEST_F(ServerInstanceValidation, InvalidInventoryCannotGrantItemsOrLeaveInitializationStuck) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.instance = "PC_HERO";
+  ASSERT_TRUE(server.SetPlayerInstance(first, "CH"));
+  auto ready = Defaults(first);
+  ready.defaults.inventory.push_back({999999, 1});
+  Send(70001, ready);
+  EXPECT_FALSE(actor.instance_change);
+  EXPECT_EQ(actor.instance, "PC_HERO");
+  EXPECT_EQ(actor.max_health, 100);
+  EXPECT_TRUE(actor.inventory.empty());
+}
+
+TEST_F(ServerInstanceValidation, OnlyTheCurrentNpcHostCanCompleteTheIssuedConstructor) {
+  ASSERT_TRUE(server.SetPlayerInstance(npc_id, "CH"));
+  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
+  ASSERT_TRUE(npc.instance_change);
+  ASSERT_TRUE(server.SetNpcHostPlayer(npc_id, first));
+  auto ready = Defaults(npc_id);
+  ready.control_epoch = npc.control_epoch;
+  ASSERT_TRUE(server.SetNpcHostPlayer(npc_id, second));
+  Send(70001, ready);
+  ASSERT_TRUE(npc.instance_change);
+  EXPECT_EQ(npc.max_health, 100);
+  ready.control_epoch = npc.control_epoch;
+  Send(70002, ready);
+  EXPECT_FALSE(npc.instance_change);
+  EXPECT_EQ(npc.max_health, 750);
+}
+
+TEST_F(ServerActorValidation, NativeTeleportCommitsOnceAndBlocksEarlierMovementWithoutChangingResources) {
+  auto& actor = server.GetCharacter(first)->get();
+  const auto teleport = Teleport(actor);
+  const auto old_revision = actor.command_revision;
+  const auto inventory = actor.inventory;
+  Send(70001, teleport);
+  EXPECT_EQ(actor.state.position, teleport.position);
+  EXPECT_EQ(actor.state.nrot, teleport.normal);
+  EXPECT_NE(actor.command_revision, old_revision);
+  EXPECT_EQ(actor.health, 100);
+  EXPECT_EQ(actor.mana, 100);
+  EXPECT_EQ(actor.inventory, inventory);
+  const auto sequence = actor.state_sequence;
+  const auto revision = actor.command_revision;
+  Send(70001, teleport);
+  EXPECT_EQ(actor.command_revision, revision);
+  EXPECT_EQ(actor.state_sequence, sequence);
+
+  PlayerStateUpdatePacket old_movement{};
+  old_movement.packet_type = Net::PT_ACTUAL_STATISTICS;
+  old_movement.actor_generation = actor.actor_generation;
+  old_movement.command_revision = old_revision;
+  old_movement.state_sequence = 200;
+  old_movement.state = actor.state;
+  old_movement.state.position = glm::vec3(0.0f);
+  Send(70001, old_movement);
+  EXPECT_EQ(actor.state.position, teleport.position);
+}
+
+TEST_F(ServerActorValidation, DelayedNativeTeleportCannotReplaceANewerScriptedTransform) {
+  auto& actor = server.GetCharacter(first)->get();
+  const auto teleport = Teleport(actor);
+  const glm::vec3 scripted_position{500.0f, 200.0f, 300.0f};
+  ASSERT_TRUE(server.SetPlayerPosition(first, scripted_position));
+  Send(70001, teleport);
+  EXPECT_EQ(actor.state.position, scripted_position);
+  EXPECT_FALSE(actor.last_teleport_action_id);
+  auto current = Teleport(actor);
+  ASSERT_TRUE(server.SetPlayerAngle(first, 0.5f));
+  const auto heading = actor.state.nrot;
+  Send(70001, current);
+  EXPECT_EQ(actor.state.position, scripted_position);
+  EXPECT_EQ(actor.state.nrot, heading);
+  EXPECT_FALSE(actor.last_teleport_action_id);
+  current = Teleport(actor);
+  Send(70001, current);
+  EXPECT_EQ(actor.state.position, current.position);
+}
+
+TEST_F(ServerActorValidation, NativeTeleportSurvivesAnUnacknowledgedManaUpdate) {
+  auto& actor = server.GetCharacter(first)->get();
+  const auto teleport = Teleport(actor);
+  ASSERT_TRUE(server.SetPlayerMana(first, 80));
+  EXPECT_NE(actor.command_revision, teleport.command_revision);
+  Send(70001, teleport);
+  EXPECT_EQ(actor.state.position, teleport.position);
+  EXPECT_EQ(actor.mana, 80);
+}
+
+TEST_F(ServerActorValidation, NativeTeleportRejectsOtherPlayersStaleGenerationsAndInvalidDestinations) {
+  auto& actor = server.GetCharacter(first)->get();
+  const auto position = actor.state.position;
+  const auto revision = actor.command_revision;
+  Send(70002, Teleport(actor));
+  auto invalid = Teleport(actor);
+  invalid.actor_generation++;
+  Send(70001, invalid);
+  invalid = Teleport(actor);
+  invalid.position.x = std::numeric_limits<float>::quiet_NaN();
+  Send(70001, invalid);
+  invalid = Teleport(actor);
+  invalid.destination.clear();
+  Send(70001, invalid);
+  invalid = Teleport(actor);
+  invalid.normal = glm::vec3(0.0f);
+  Send(70001, invalid);
+  EXPECT_EQ(actor.state.position, position);
+  EXPECT_EQ(actor.command_revision, revision);
+  EXPECT_FALSE(actor.last_teleport_action_id);
+  Send(70001, Teleport(actor));
+  EXPECT_NE(actor.command_revision, revision);
+}
+
+TEST_F(ServerActorValidation, NativeNpcTeleportRequiresCurrentHostAndHostChangeResetsDuplicateTracking) {
+  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
+  const auto original = npc.state.position;
+  auto teleport = Teleport(npc, 100);
+  Send(70002, teleport);
+  EXPECT_EQ(npc.state.position, original);
+  Send(70001, teleport);
+  EXPECT_EQ(npc.state.position, teleport.position);
+  ASSERT_TRUE(server.SetNpcHostPlayer(npc_id, second));
+  const auto revision = npc.command_revision;
+  teleport.action_id = 101;
+  Send(70001, teleport);
+  Send(70002, teleport);  // Previous host's control epoch is invalid for either sender.
+  EXPECT_EQ(npc.command_revision, revision);
+  teleport = Teleport(npc, 1);
+  teleport.position.x += 50.0f;
+  Send(70002, teleport);
+  EXPECT_EQ(npc.state.position, teleport.position);
+  EXPECT_NE(npc.command_revision, revision);
+}
+
+TEST_F(ServerActorValidation, NativeTeleportTriggerCanMoveAnUnconsciousPlayerWithoutRecoveringThem) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.health = actor.state.health_points = 1;
+  actor.flags |= PlayerManager::PL_UNCONCIOUS;
+  actor.state.life_state = PLAYER_LIFE_UNCONSCIOUS;
+  const auto teleport = Teleport(actor);
+  Send(70001, teleport);
+  EXPECT_EQ(actor.state.position, teleport.position);
+  EXPECT_EQ(actor.health, 1);
+  EXPECT_EQ(actor.state.life_state, PLAYER_LIFE_UNCONSCIOUS);
+}
+
+class ServerTransformationValidation : public ServerActorValidation {
+protected:
+  void SetUp() override {
+    ServerActorValidation::SetUp();
+    nlohmann::json items = nlohmann::json::array();
+    for (int spell = 47; spell <= 58; ++spell)
+      items.push_back({{"instance", "ITRU_TRF" + std::to_string(spell)}, {"index", 300 + spell}, {"mainflag", 512}, {"flags", 0}, {"spell", spell}});
+    items.push_back({{"instance", "ITSC_TRF51"}, {"index", 399}, {"mainflag", 512}, {"flags", 2097152}, {"spell", 51}});
+    items.push_back({{"instance", "ITAR_TEST"}, {"index", 176}, {"mainflag", 16}, {"flags", 0}});
+    Write(nlohmann::json{{"items", items}}.dump());
+    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+    auto& actor = server.GetCharacter(first)->get();
+    actor.instance = "PC_HERO";
+    actor.health = actor.state.health_points = 625;
+    actor.max_health = 1000;
+    actor.mana = actor.state.mana_points = 200;
+    actor.max_mana = 300;
+    actor.strength = 77;
+    actor.dexterity = 66;
+    actor.level = 7;
+    actor.exp = 1234;
+    actor.learn_points = 12;
+    actor.state.nrot = {0.0f, 0.0f, 1.0f};
+    actor.state.equipped_armor_instance = 176;
+    ASSERT_TRUE(actor.AddInventory("ITAR_TEST", 1));
+    ASSERT_TRUE(actor.AddInventory("ITSC_TRF51", 2));
+    for (int spell = 47; spell <= 58; ++spell) ASSERT_TRUE(actor.AddInventory("ITRU_TRF" + std::to_string(spell), 1));
+  }
+  CastSpellPacket Transform(std::uint16_t spell = 51, std::uint32_t identity = 1, bool scroll = false) {
+    const auto& actor = server.GetCharacter(first)->get();
+    CastSpellPacket packet{};
+    packet.packet_type = Net::PT_CASTSPELL;
+    packet.caster_id = first;
+    packet.actor_generation = actor.actor_generation;
+    packet.command_revision = actor.command_revision;
+    packet.action_id = identity;
+    packet.item_instance = scroll ? 399 : 300 + spell;
+    packet.spell_id = spell;
+    packet.transformation_succeeded = true;
+    return packet;
+  }
+  PlayerTransformationPacket Return(std::uint32_t identity = 1) {
+    const auto& actor = server.GetCharacter(first)->get();
+    PlayerTransformationPacket packet;
+    packet.player_id = first;
+    packet.actor_generation = actor.actor_generation;
+    packet.command_revision = actor.command_revision;
+    packet.cast_id = identity;
+    return packet;
+  }
+};
+
+TEST_F(ServerTransformationValidation, AllNativeFormsRoundTripWithoutChangingHumanAttributesOrRoundingHealth) {
+  for (std::uint16_t spell = 47; spell <= 58; ++spell) {
+    const auto cast = Transform(spell, spell);
+    Send(70001, cast);
+    auto& actor = server.GetCharacter(first)->get();
+    ASSERT_TRUE(actor.transformation) << spell;
+    const auto* form = gmp::GetTransformationForm(spell);
+    EXPECT_EQ(actor.instance, form->instance);
+    EXPECT_EQ(actor.max_health, form->max_health);
+    EXPECT_EQ(actor.strength, form->strength);
+    EXPECT_EQ(actor.state.equipped_armor_instance, 0);
+    EXPECT_TRUE(actor.approved_projectiles.empty());
+    Send(70001, Return(spell));
+    EXPECT_FALSE(actor.transformation);
+    EXPECT_EQ(actor.instance, "PC_HERO");
+    EXPECT_EQ(actor.health, 625);
+    EXPECT_EQ(actor.max_health, 1000);
+    EXPECT_EQ(actor.max_mana, 300);
+    EXPECT_EQ(actor.strength, 77);
+    EXPECT_EQ(actor.dexterity, 66);
+    EXPECT_EQ(actor.state.equipped_armor_instance, 176);
+    EXPECT_EQ(actor.level, 7);
+    EXPECT_EQ(actor.exp, 1234);
+    EXPECT_EQ(actor.learn_points, 12);
+    EXPECT_EQ(actor.mana, 200 - (spell - 46) * 10);
+  }
+}
+
+TEST_F(ServerTransformationValidation, DamageInAnimalFormPersistsAndClientCannotChooseRestoredStats) {
+  Send(70001, Transform());
+  auto& actor = server.GetCharacter(first)->get();
+  actor.health = actor.state.health_points = 25;  // Wolf entered with 37/60 HP.
+  actor.exp = 1500;
+  actor.learn_points = 17;
+  auto back = Return();
+  back.max_health = 1000000;
+  back.strength = 1000000;
+  back.instance = "DRAGON";
+  back.state.health_points = 1000000;
+  Send(70001, back);
+  EXPECT_EQ(actor.health, 425);  // Twelve wolf HP are 200 human HP.
+  EXPECT_EQ(actor.max_health, 1000);
+  EXPECT_EQ(actor.strength, 77);
+  EXPECT_EQ(actor.mana, 190);
+  EXPECT_EQ(actor.exp, 1500);
+  EXPECT_EQ(actor.learn_points, 17);
+  const auto sequence = actor.state_sequence;
+  Send(70001, back);
+  EXPECT_EQ(actor.state_sequence, sequence);
+  EXPECT_EQ(actor.health, 425);
+}
+
+TEST_F(ServerTransformationValidation, LowHealthSmallFormCannotDieOrHealThroughIntegerConversion) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.health = actor.state.health_points = 1;
+  for (std::uint32_t identity = 1; identity <= 3; ++identity) {
+    Send(70001, Transform(47, identity));
+    ASSERT_TRUE(actor.transformation);
+    EXPECT_EQ(actor.health, 1);
+    Send(70001, Return(identity));
+    EXPECT_EQ(actor.health, 1);
+    EXPECT_EQ(actor.max_health, 1000);
+  }
+}
+
+TEST_F(ServerTransformationValidation, FailedPlacementCancelledCastAndMissingManaDoNotChangeFormOrConsumeScroll) {
+  auto failed = Transform(51, 1, true);
+  failed.transformation_succeeded = false;
+  Send(70001, failed);
+  auto& actor = server.GetCharacter(first)->get();
+  EXPECT_FALSE(actor.transformation);
+  EXPECT_EQ(actor.InventoryCount("ITSC_TRF51"), 2);
+  EXPECT_EQ(actor.mana, 200);
+  const auto handler = EventManager::Instance().SubscribeToEventWithPriority(
+      kEventOnPlayerCastSpellName, [](const std::any&) { EventManager::Instance().CancelCurrentEvent(); }, -100);
+  ASSERT_TRUE(handler);
+  Send(70001, Transform(51, 2, true));
+  EventManager::Instance().UnsubscribeFromEvent(kEventOnPlayerCastSpellName, *handler);
+  EXPECT_FALSE(actor.transformation);
+  EXPECT_EQ(actor.InventoryCount("ITSC_TRF51"), 2);
+  actor.mana = actor.state.mana_points = 4;
+  Send(70001, Transform(51, 3, true));
+  EXPECT_FALSE(actor.transformation);
+  EXPECT_EQ(actor.InventoryCount("ITSC_TRF51"), 2);
+}
+
+TEST_F(ServerTransformationValidation, DuplicateAndNestedCastsCannotChargeTwiceOrReplaceSavedHuman) {
+  const auto cast = Transform(51, 1, true);
+  Send(70001, cast);
+  Send(70001, cast);
+  Send(70001, Transform(51, 2, true));
+  auto& actor = server.GetCharacter(first)->get();
+  ASSERT_TRUE(actor.transformation);
+  EXPECT_EQ(actor.transformation->instance, "PC_HERO");
+  EXPECT_EQ(actor.transformation->mana, 195);
+  EXPECT_EQ(actor.InventoryCount("ITSC_TRF51"), 1);
+  Send(70001, Return());
+  EXPECT_EQ(actor.instance, "PC_HERO");
+  EXPECT_EQ(actor.mana, 195);
+}
+
+TEST_F(ServerTransformationValidation, ReturnRequiresOwnerGenerationAndMatchingCast) {
+  Send(70001, Transform());
+  Send(70002, Return());
+  auto stale = Return();
+  stale.actor_generation++;
+  Send(70001, stale);
+  Send(70001, Return(2));
+  ASSERT_TRUE(server.GetCharacter(first)->get().transformation);
+  Send(70001, Return());
+  EXPECT_FALSE(server.GetCharacter(first)->get().transformation);
+}
+
+TEST_F(ServerTransformationValidation, HostedNpcCannotTakeThePlayerTransformationPath) {
+  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
+  ASSERT_TRUE(npc.AddInventory("ITRU_TRF51", 1));
+  auto cast = Transform();
+  cast.caster_id = npc_id;
+  cast.actor_generation = npc.actor_generation;
+  cast.command_revision = npc.command_revision;
+  cast.control_epoch = npc.control_epoch;
+  Send(70001, cast);
+  EXPECT_FALSE(npc.transformation);
+  EXPECT_EQ(npc.instance, "PC_HERO");
+  EXPECT_EQ(npc.mana, 100);
+}
+
+TEST_F(ServerTransformationValidation, FireWaranNaturalAttackUsesFireDamage) {
+  Send(70001, Transform(55));
+  auto& attacker = server.GetCharacter(first)->get();
+  auto& victim = server.GetCharacter(second)->get();
+  victim.health = victim.max_health = victim.state.health_points = 1000;
+  auto hit = Hit(attacker, victim, 1, 1u << 2);
+  hit.damage = 100;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 1000);
+  hit.damage_type = 1u << 3;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 900);
+}
+
+TEST_F(ServerTransformationValidation, DeadAnimalReturnDoesNotRevivePlayerAndRespawnRestoresHuman) {
+  Send(70001, Transform());
+  auto& actor = server.GetCharacter(first)->get();
+  actor.health = actor.state.health_points = 0;
+  actor.state.life_state = PLAYER_LIFE_DEAD;
+  Send(70001, Return());
+  EXPECT_EQ(actor.health, 0);
+  EXPECT_EQ(actor.state.life_state, PLAYER_LIFE_DEAD);
+  EXPECT_EQ(actor.instance, "PC_HERO");
+  ASSERT_TRUE(server.UnspawnPlayer(first));
+  ASSERT_TRUE(server.SpawnPlayer(first));
+  EXPECT_EQ(actor.max_health, 1000);
+  EXPECT_EQ(actor.health, 1000);
+}
+
+TEST_F(ServerTransformationValidation, VirtualWorldTransferRestoresHumanBeforeNewGeneration) {
+  Send(70001, Transform());
+  const auto old = Return();
+  ASSERT_TRUE(server.SetPlayerVirtualWorld(first, 42));
+  auto& actor = server.GetCharacter(first)->get();
+  EXPECT_FALSE(actor.transformation);
+  EXPECT_EQ(actor.instance, "PC_HERO");
+  EXPECT_EQ(actor.health, 625);
+  EXPECT_EQ(actor.max_health, 1000);
+  Send(70001, old);
+  EXPECT_EQ(actor.mana, 190);
+}
+
+class ServerSummonValidation : public ServerActorValidation {
+protected:
+  void SetUp() override {
+    ServerActorValidation::SetUp();
+    Write(R"({"items":[{"instance":"ITRU_WOLF","index":210,"mainflag":512,"flags":0,"spell":25},
+                       {"instance":"ITSC_ARMY","index":211,"mainflag":512,"flags":2097152,"spell":45}]})");
+    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+    auto& caster = server.GetCharacter(first)->get();
+    caster.mana = caster.max_mana = caster.state.mana_points = 1000;
+    ASSERT_TRUE(caster.AddInventory("ITRU_WOLF", 1));
+    ASSERT_TRUE(caster.AddInventory("ITSC_ARMY", 3));
+  }
+  CastSpellPacket Cast(std::uint32_t action = 1, bool army = false) {
+    const auto& caster = server.GetCharacter(first)->get();
+    CastSpellPacket packet{};
+    packet.packet_type = Net::PT_CASTSPELL;
+    packet.caster_id = first;
+    packet.actor_generation = caster.actor_generation;
+    packet.command_revision = caster.command_revision;
+    packet.action_id = action;
+    packet.item_instance = army ? 211 : 210;
+    packet.spell_id = army ? 45 : 25;
+    packet.mana_delta = 1000000;  // A client cannot choose a summon's cost.
+    return packet;
+  }
+  std::vector<std::uint32_t> Summons() const {
+    std::vector<std::uint32_t> result;
+    for (const auto id : server.GetNpcManager().GetNpcIds())
+      if (server.GetNpcManager().GetNpc(id)->get().summon)
+        result.push_back(id);
+    return result;
+  }
+};
+
+TEST_F(ServerSummonValidation, CreatesOneServerNpcInCasterScopeWithTrustedHealthAndManaCost) {
+  auto& caster = server.GetCharacter(first)->get();
+  caster.virtual_world = 7;
+  caster.state.position = {100.0f, 200.0f, 300.0f};
+  caster.state.nrot = {0.0f, 0.0f, 1.0f};
+  Send(70001, Cast());
+  ASSERT_EQ(Summons().size(), 1u);
+  const auto& npc = server.GetNpcManager().GetNpc(Summons().front())->get();
+  EXPECT_EQ(npc.instance, "SUMMONED_WOLF");
+  EXPECT_EQ(npc.health, 100);
+  EXPECT_EQ(npc.max_health, 100);
+  EXPECT_EQ(npc.world, caster.world);
+  EXPECT_EQ(npc.virtual_world, 7);
+  EXPECT_EQ(npc.state.position, glm::vec3(100.0f, 200.0f, 500.0f));
+  EXPECT_TRUE(npc.is_ingame);
+  EXPECT_EQ(npc.summon->caster_id, first);
+  EXPECT_EQ(npc.summon->caster_generation, caster.actor_generation);
+  EXPECT_EQ(npc.summon->cast_id, 1u);
+  EXPECT_EQ(caster.mana, 960);
+  EXPECT_TRUE(caster.approved_projectiles.empty());
+}
+
+TEST_F(ServerSummonValidation, ArmyCreatesSixIdentitiesConsumesOneScrollAndDuplicateCannotRecast) {
+  auto cast = Cast(1, true);
+  Send(70001, cast);
+  auto& caster = server.GetCharacter(first)->get();
+  ASSERT_EQ(Summons().size(), 6u);
+  EXPECT_EQ(caster.InventoryCount("ITSC_ARMY"), 2);
+  EXPECT_EQ(caster.mana, 995);
+  EXPECT_TRUE(caster.approved_projectiles.empty());
+  cast.command_revision = caster.command_revision;
+  Send(70001, cast);
+  EXPECT_EQ(Summons().size(), 6u);
+  EXPECT_EQ(caster.InventoryCount("ITSC_ARMY"), 2);
+  EXPECT_EQ(caster.mana, 995);
+}
+
+TEST_F(ServerSummonValidation, CancelledSummonDoesNotCreateNpcsOrConsumeResources) {
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [](std::any) { EventManager::Instance().CancelCurrentEvent(); }));
+  Send(70001, Cast(1, true));
+  const auto& caster = server.GetCharacter(first)->get();
+  EXPECT_TRUE(Summons().empty());
+  EXPECT_EQ(caster.InventoryCount("ITSC_ARMY"), 3);
+  EXPECT_EQ(caster.mana, 1000);
+}
+
+TEST_F(ServerSummonValidation, InsufficientManaAndUnownedRuneCannotSummon) {
+  auto& caster = server.GetCharacter(first)->get();
+  caster.mana = 39;
+  Send(70001, Cast());
+  EXPECT_TRUE(Summons().empty());
+  EXPECT_EQ(caster.mana, 39);
+  caster.mana = 1000;
+  ASSERT_TRUE(caster.RemoveInventory("ITRU_WOLF", 1));
+  Send(70001, Cast(2));
+  EXPECT_TRUE(Summons().empty());
+  EXPECT_EQ(caster.mana, 1000);
+}
+
+TEST_F(ServerSummonValidation, LimitRejectsWholeArmyWithoutChargingAnotherScroll) {
+  Send(70001, Cast(1, true));
+  Send(70001, Cast(2, true));
+  ASSERT_EQ(Summons().size(), 12u);
+  Send(70001, Cast(3, true));
+  const auto& caster = server.GetCharacter(first)->get();
+  EXPECT_EQ(Summons().size(), 12u);
+  EXPECT_EQ(caster.InventoryCount("ITSC_ARMY"), 1);
+  EXPECT_EQ(caster.mana, 990);
+}
+
+TEST_F(ServerSummonValidation, FailedFormationCannotLeavePartialNpcsOrConsumeMana) {
+  server.GetCharacter(first)->get().state.position.z = 10000000.0f;
+  Send(70001, Cast(1, true));
+  EXPECT_TRUE(Summons().empty());
+  EXPECT_EQ(server.GetCharacter(first)->get().mana, 1000);
+  EXPECT_EQ(server.GetCharacter(first)->get().InventoryCount("ITSC_ARMY"), 3);
+}
+
+TEST_F(ServerSummonValidation, ChangingOwnerVirtualWorldRemovesItsSummons) {
+  Send(70001, Cast());
+  ASSERT_EQ(Summons().size(), 1u);
+  ASSERT_TRUE(server.SetPlayerVirtualWorld(first, 42));
+  EXPECT_TRUE(Summons().empty());
+}
+
+TEST_F(ServerSummonValidation, SummonEventLuaArgumentsIncludeControllableServerNpcId) {
+  Send(70001, Cast());
+  ASSERT_EQ(Summons().size(), 1u);
+  const auto summoned = Summons().front();
+  // Event subscriptions require a loaded resource and its execution scope.
+  struct ResourceDirectory {
+    std::filesystem::path previous{std::filesystem::current_path()};
+    std::filesystem::path root;
+    explicit ResourceDirectory(const std::filesystem::path& root) : root(root) {
+      std::filesystem::create_directories(root / "resources" / "summon_test" / "server");
+      std::filesystem::current_path(root);
+    }
+    ~ResourceDirectory() {
+      std::filesystem::current_path(previous);
+      std::error_code error;
+      std::filesystem::remove_all(root, error);
+    }
+  } directory(path.parent_path() / path.stem());
+  LuaScript script;
+  ResourceManager resources;
+  auto& lua = script.GetLuaState();
+  lua["test_caster"] = first;
+  lua["test_summon"] = summoned;
+  {
+    std::ofstream metadata(directory.root / "resources" / "summon_test" / "resource.toml");
+    metadata << "version = \"1.0.0\"\nscripts = [\"server/main.lua\"]\n";
+    std::ofstream source(directory.root / "resources" / "summon_test" / "server" / "main.lua");
+    source << R"(
+    summon_notifications = 0
+    teleport_notifications = 0
+    assert(addEventHandler('onPlayerTeleport', function(...)
+      assert(select('#', ...) == 2)
+      local playerId, vobName = ...
+      assert(playerId == test_caster and vobName == 'NW_TELEPORT_TEST')
+      teleport_notifications = teleport_notifications + 1
+    end))
+    assert(addEventHandler('onPlayerSummon', function(playerId, spellId, instance, npcId)
+      assert(playerId == test_caster and spellId == 25)
+      assert(instance == 'SUMMONED_WOLF' and npcId == test_summon)
+      assert(isNpc(npcId))
+      assert(destroyNpc(npcId))
+      summon_notifications = summon_notifications + 1
+    end))
+  )";
+  }
+  resources.DiscoverResources();
+  ASSERT_TRUE(resources.LoadResource("summon_test", script));
+  EventManager::Instance().TriggerEvent(kEventOnPlayerSummonName, OnPlayerSummonEvent{first, 25, "SUMMONED_WOLF", summoned});
+  EXPECT_EQ(resources.GetResource("summon_test")->get().GetEnvironment()["summon_notifications"].get<int>(), 1);
+  EXPECT_FALSE(server.GetNpcManager().GetNpc(summoned));
+  EventManager::Instance().TriggerEvent(kEventOnPlayerTeleportName, OnPlayerTeleportEvent{first, "NW_TELEPORT_TEST"});
+  EXPECT_EQ(resources.GetResource("summon_test")->get().GetEnvironment()["teleport_notifications"].get<int>(), 1);
+  resources.UnloadResource("summon_test", script);
+}
+
+TEST_F(ItemCatalog, SummonDefinitionsAreTrustedAndFailedReloadIsAtomic) {
+  SummonRegistry summons;
+  EXPECT_EQ(summons.Find(45)->count, 6);
+  EXPECT_FALSE(gmp::IsNpcSummonSpell(81));
+  EXPECT_EQ(summons.Find(81), nullptr);
+  Write(R"({"summons":[{"spell_id":25,"instance":"CUSTOM_WOLF","count":2,"mana_cost":17,"max_health":500}]})");
+  ASSERT_TRUE(summons.Load(path));
+  EXPECT_EQ(summons.Find(25)->instance, "CUSTOM_WOLF");
+  EXPECT_EQ(summons.Find(25)->max_health, 500);
+  Write(R"({"summons":[{"spell_id":25,"instance":"BAD","count":999}]})");
+  EXPECT_FALSE(summons.Load(path));
+  EXPECT_EQ(summons.Find(25)->instance, "CUSTOM_WOLF");
+  EXPECT_EQ(summons.Find(25)->count, 2);
+  Write(R"({"summons":[{"spell_id":19,"instance":"DEMON"}]})");
+  EXPECT_FALSE(summons.Load(path));
+  EXPECT_EQ(summons.Find(19), nullptr);
+  Write(R"({"summons":[{"spell_id":25,"count":1.5}]})");
+  EXPECT_FALSE(summons.Load(path));
+  Write(R"({"summons":[{"spell_id":25,"count":4294967297}]})");
+  EXPECT_FALSE(summons.Load(path));
+  EXPECT_EQ(summons.Find(25)->count, 2);
+}
+
+class ServerHealingValidation : public ServerActorValidation {
+protected:
+  void SetUp() override {
+    ServerActorValidation::SetUp();
+    Write(R"({"items":[{"instance":"HEAL_1","index":220,"mainflag":512,"flags":0,"spell":1},
+                       {"instance":"HEAL_3","index":221,"mainflag":512,"flags":0,"spell":3},
+                       {"instance":"HEAL_5","index":222,"mainflag":512,"flags":0,"spell":5},
+                       {"instance":"HEAL_21","index":223,"mainflag":512,"flags":0,"spell":21},
+                       {"instance":"HEAL_28","index":224,"mainflag":512,"flags":0,"spell":28},
+                       {"instance":"HEAL_41","index":225,"mainflag":512,"flags":0,"spell":41},
+                       {"instance":"HEAL_SCROLL","index":226,"mainflag":512,"flags":2097152,"spell":21},
+                       {"instance":"ITRU_PALLIGHT","index":227,"mainflag":512,"flags":0}]})");
+    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+    auto& caster = server.GetCharacter(first)->get();
+    caster.health = caster.state.health_points = 100;
+    caster.max_health = 2000;
+    caster.mana = caster.max_mana = caster.state.mana_points = 1000;
+    for (const auto& instance : {"HEAL_1", "HEAL_3", "HEAL_5", "HEAL_21", "HEAL_28", "HEAL_41", "HEAL_SCROLL", "ITRU_PALLIGHT"})
+      ASSERT_TRUE(caster.AddInventory(instance, 1));
+  }
+  CastSpellPacket Cast(std::uint16_t spell, std::int32_t item, std::uint32_t action = 1) {
+    const auto& caster = server.GetCharacter(first)->get();
+    CastSpellPacket packet{};
+    packet.packet_type = Net::PT_CASTSPELLONTARGET;
+    packet.caster_id = packet.target_id = first;
+    packet.actor_generation = packet.target_generation = caster.actor_generation;
+    packet.command_revision = caster.command_revision;
+    packet.action_id = action;
+    packet.spell_id = spell;
+    packet.item_instance = item;
+    packet.mana_delta = 1000000;
+    return packet;
+  }
+};
+
+TEST_F(ServerHealingValidation, AllSixHealsCommitTrustedHealthAndManaWithoutApprovingDamage) {
+  const std::uint16_t spells[] = {1, 3, 5, 21, 28, 41};
+  const int heals[] = {200, 400, 800, 200, 400, 800};
+  const int costs[] = {10, 25, 50, 10, 25, 50};
+  auto& caster = server.GetCharacter(first)->get();
+  for (int index = 0; index < 6; ++index) {
+    caster.health = caster.state.health_points = 100;
+    caster.mana = 1000;
+    Send(70001, Cast(spells[index], 220 + index, index + 1));
+    EXPECT_EQ(caster.health, 100 + heals[index]);
+    EXPECT_EQ(caster.state.health_points, caster.health);
+    EXPECT_EQ(caster.mana, 1000 - costs[index]);
+    EXPECT_TRUE(caster.approved_projectiles.empty());
+  }
+}
+
+TEST_F(ServerHealingValidation, HealScrollClampsToMaximumAndDuplicateCannotHealOrConsumeAgain) {
+  auto& caster = server.GetCharacter(first)->get();
+  caster.health = caster.state.health_points = 1950;
+  auto cast = Cast(21, 226);
+  Send(70001, cast);
+  EXPECT_EQ(caster.health, 2000);
+  EXPECT_EQ(caster.mana, 995);
+  EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 0);
+  caster.health = caster.state.health_points = 1800;
+  cast.command_revision = caster.command_revision;
+  Send(70001, cast);
+  EXPECT_EQ(caster.health, 1800);
+  EXPECT_EQ(caster.mana, 995);
+}
+
+TEST_F(ServerHealingValidation, CancelledOrUnaffordableHealingCannotChangeHealthOrConsumeScroll) {
+  auto& caster = server.GetCharacter(first)->get();
+  caster.mana = 4;
+  Send(70001, Cast(21, 226));
+  EXPECT_EQ(caster.health, 100);
+  EXPECT_EQ(caster.mana, 4);
+  EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
+  caster.mana = 1000;
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [](std::any) { EventManager::Instance().CancelCurrentEvent(); }));
+  Send(70001, Cast(21, 226, 2));
+  EXPECT_EQ(caster.health, 100);
+  EXPECT_EQ(caster.mana, 1000);
+  EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
+}
+
+TEST_F(ServerHealingValidation, ResourceHealthOverrideIsNotHealedTwice) {
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) { EXPECT_TRUE(server.SetPlayerHealth(first, 777)); }));
+  Send(70001, Cast(21, 223));
+  EXPECT_EQ(server.GetCharacter(first)->get().health, 777);
+  EXPECT_EQ(server.GetCharacter(first)->get().mana, 990);
+}
+
+TEST_F(ServerHealingValidation, HostedNpcCanHealButAnotherViewerCannotCastForIt) {
+  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
+  npc.health = npc.state.health_points = 10;
+  npc.max_health = 1000;
+  ASSERT_TRUE(npc.AddInventory("HEAL_21", 1));
+  auto cast = Cast(21, 223);
+  cast.caster_id = cast.target_id = npc_id;
+  cast.actor_generation = cast.target_generation = npc.actor_generation;
+  cast.command_revision = npc.command_revision;
+  cast.control_epoch = npc.control_epoch;
+  Send(70002, cast);
+  EXPECT_EQ(npc.health, 10);
+  EXPECT_EQ(npc.mana, 100);
+  Send(70001, cast);
+  EXPECT_EQ(npc.health, 210);
+  EXPECT_EQ(npc.mana, 90);
+  EXPECT_TRUE(npc.approved_projectiles.empty());
+}
+
+TEST_F(ServerHealingValidation, UnconsciousCasterCannotReviveItselfWithAHealPacket) {
+  auto& caster = server.GetCharacter(first)->get();
+  caster.health = caster.state.health_points = 1;
+  caster.state.life_state = PLAYER_LIFE_UNCONSCIOUS;
+  caster.flags |= PlayerManager::PL_UNCONCIOUS;
+  Send(70001, Cast(21, 226));
+  EXPECT_EQ(caster.health, 1);
+  EXPECT_EQ(caster.mana, 1000);
+  EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
+}
+
+TEST_F(ServerHealingValidation, ZeroIdPaladinLightFromLegacyCatalogIsAcceptedWithoutDamageApproval) {
+  auto cast = Cast(0, 227);
+  cast.mana_delta = -10;
+  Send(70001, cast);
+  const auto& caster = server.GetCharacter(first)->get();
+  EXPECT_EQ(caster.mana, 990);
+  EXPECT_EQ(caster.health, 100);
+  EXPECT_EQ(caster.InventoryCount("ITRU_PALLIGHT"), 1);
+  EXPECT_TRUE(caster.approved_projectiles.empty());
+}
+
+class ServerTorchValidation : public ServerActorValidation {
+protected:
+  void SetUp() override {
+    ServerActorValidation::SetUp();
+    Write(R"({"items":[{"instance":"ITLSTORCH","index":200,"mainflag":1,"flags":268435456},
+                      {"instance":"ITLSTORCHBURNING","index":201,"mainflag":1,"flags":268435456},
+                      {"instance":"OTHER_TORCH","index":202,"mainflag":1,"flags":268435456}]})");
+    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+  }
+  void Hold(std::int32_t left, std::int32_t right = 0) {
+    auto& actor = server.GetCharacter(first)->get();
+    PlayerStateUpdatePacket update{};
+    update.packet_type = Net::PT_ACTUAL_STATISTICS;
+    update.player_id = first;
+    update.actor_generation = actor.actor_generation;
+    update.command_revision = actor.command_revision;
+    update.state_sequence = ++sequence;
+    update.state = actor.state;
+    update.state.nrot = {0, 0, 1};
+    update.state.source_time_ms = 1000 + sequence;
+    update.state.left_hand_item_instance = left;
+    update.state.right_hand_item_instance = right;
+    Send(70001, update);
+  }
+  std::uint32_t sequence{0};
+};
+
+TEST_F(ServerTorchValidation, BurningPresentationReservesOwnedUnlitTorchWithoutGrantingItems) {
+  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
+  auto& actor = server.GetCharacter(first)->get();
+  Hold(201);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 1);
+  EXPECT_EQ(actor.InventoryCount("ITLSTORCHBURNING"), 0);
+  Hold(0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  Hold(201);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 1);
+}
+
+TEST_F(ServerTorchValidation, UnownedTorchAndUnrelatedTorchInstancesRemainRejected) {
+  auto& actor = server.GetCharacter(first)->get();
+  Hold(201);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
+  Hold(202);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.InventoryCount("OTHER_TORCH"), 0);
+}
+
+TEST_F(ServerTorchValidation, OneOwnedTorchCannotProduceTwoBurningHandObjects) {
+  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
+  Hold(201, 201);
+  const auto& actor = server.GetCharacter(first)->get();
+  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+  Hold(201, 200);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+  Hold(200, 201);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 200);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+}
+
+TEST_F(ServerTorchValidation, BurningAliasRequiresTorchMetadataOnItsBackingItem) {
+  Write(R"({"items":[{"instance":"ITLSTORCH","index":200,"mainflag":1,"flags":0},
+                    {"instance":"ITLSTORCHBURNING","index":201,"mainflag":1,"flags":268435456}]})");
+  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
+  Hold(201);
+  EXPECT_EQ(server.GetCharacter(first)->get().state.left_hand_item_instance, 0);
+}
+
+TEST_F(ServerTorchValidation, RemovingLastBackingTorchImmediatelyClearsItsBurningPresentation) {
+  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
+  Hold(201);
+  ASSERT_EQ(server.GetCharacter(first)->get().state.left_hand_item_instance, 201);
+  ASSERT_TRUE(server.RemoveItem(first, "ITLSTORCH", 1));
+  const auto& actor = server.GetCharacter(first)->get();
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 0);
+}
 
 TEST_F(ServerActorValidation, WorldEntryNeverImportsNativeInventoryAndPreservesServerGrants) {
   auto& player = server.GetPlayerManager().GetPlayer(first)->get();
@@ -249,6 +1192,132 @@ TEST_F(ServerActorValidation, PoseSnapshotsCannotAssignHealthOrManaIncreases) {
   EXPECT_EQ(player.state.health_points, 10);
   EXPECT_EQ(player.state.mana_points, 20);
   EXPECT_EQ(player.state.position.x, 123);
+}
+
+TEST_F(ServerActorValidation, NaturalAttackDamageTypesDoNotDependOnInstanceNamesOrWeaponDrawState) {
+  auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  for (const auto* instance : {"PC_HERO", "CH", "ZOMBIE01", "ZOMBIE02", "ZOMBIE03", "ZOMBIE04", "Zombie01", "ZOMBIE05", "WOLF", "FIREWARAN",
+                               "STONEGOLEM", "TROLL", "DRAGON_FIRE", "CUSTOM_ADDON_CREATURE"}) {
+    attacker.instance = instance;
+    for (const auto mode : {0, 1}) {
+      attacker.state.weapon_mode = mode;
+      for (const auto type : {1u, 2u, 4u, 8u, 16u, 32u, 64u, 128u, 6u, 24u, 255u}) {
+        SCOPED_TRACE(::testing::Message() << instance << " weapon mode " << mode << " damage type " << type);
+        attacker.last_hit_action_id.reset();
+        attacker.hit_victims.clear();
+        victim.health = victim.state.health_points = 100;
+        Send(70001, Hit(attacker, victim, 1, type));
+        EXPECT_EQ(victim.health, 90);
+        EXPECT_EQ(victim.state.life_state, PLAYER_LIFE_ALIVE);
+      }
+    }
+  }
+}
+
+TEST_F(ServerActorValidation, NaturalAttacksWorkBetweenPlayersAndHostedNpcs) {
+  const auto other_npc_id = server.GetNpcManager().Create("Other", "CUSTOM_ADDON_CREATURE", "NEWWORLD.ZEN", std::max(2u, server.GetMaxSlots()));
+  ASSERT_NE(other_npc_id, 0u);
+  auto& other_npc = server.GetNpcManager().GetNpc(other_npc_id)->get();
+  other_npc.is_ingame = 1;
+  other_npc.health = other_npc.max_health = other_npc.state.health_points = 100;
+  other_npc.strength = 10;
+  other_npc.state.life_state = PLAYER_LIFE_ALIVE;
+  other_npc.state.weapon_mode = 1;
+  other_npc.streamed_by_players = {first, second};
+  for (const auto id : {first, second}) server.GetPlayerManager().GetPlayer(id)->get().spawned_players.insert(other_npc_id);
+  ASSERT_TRUE(server.SetNpcHostPlayer(other_npc_id, second));
+  for (const auto attacker_id : {first, second, npc_id, other_npc_id}) {
+    auto& attacker = server.GetCharacter(attacker_id)->get();
+    const auto connection = attacker_id == second || attacker_id == other_npc_id ? 70002 : 70001;
+    for (const auto victim_id : {first, second, npc_id, other_npc_id}) {
+      if (victim_id == attacker_id)
+        continue;
+      auto& victim = server.GetCharacter(victim_id)->get();
+      for (const auto type : {2u, 4u, 8u, 16u, 24u}) {
+        SCOPED_TRACE(::testing::Message() << attacker_id << " -> " << victim_id << " damage type " << type);
+        attacker.last_hit_action_id.reset();
+        attacker.hit_victims.clear();
+        victim.health = victim.state.health_points = 100;
+        auto hit = Hit(attacker, victim, 1, type);
+        if (const auto npc = server.GetNpcManager().GetNpc(attacker_id))
+          hit.control_epoch = npc->get().control_epoch;
+        Send(connection, hit);
+        EXPECT_EQ(victim.health, 90);
+        EXPECT_EQ(victim.last_validated_attacker, attacker_id);
+      }
+    }
+  }
+}
+
+TEST_F(ServerActorValidation, NaturalAttacksKeepValidMaskReachStrengthAndReplayBounds) {
+  auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  attacker.instance = "CUSTOM_ADDON_CREATURE";
+  Send(70001, Hit(attacker, victim, 1, 0));
+  Send(70001, Hit(attacker, victim, 1, 256));
+  Send(70001, Hit(attacker, victim, 1, 260));
+  EXPECT_EQ(victim.health, 100);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  victim.state.position.x = 301.0f;
+  Send(70001, Hit(attacker, victim, 1, 4));
+  EXPECT_EQ(victim.health, 100);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  victim.state.position.x = 0.0f;
+  auto hit = Hit(attacker, victim, 1, 4);
+  hit.damage = 1000000;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 90);  // Server-owned strength still caps damage to 10.
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 90);
+  hit.attack_id = 2;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 90);  // A fresh action cannot bypass the cooldown.
+  attacker.last_attack_at -= std::chrono::seconds(1);
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 80);
+}
+
+TEST_F(ServerActorValidation, NaturalAttacksCannotBypassNpcHostAuthorityOrEquipmentProtection) {
+  auto& attacker = server.GetNpcManager().GetNpc(npc_id)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  attacker.instance = "CUSTOM_ADDON_CREATURE";
+  auto hit = Hit(attacker, victim, 1, 4);
+  hit.control_epoch = attacker.control_epoch;
+  Send(70002, hit);  // Only the controlling client may report this NPC's hit.
+  EXPECT_EQ(victim.health, 100);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  ++hit.control_epoch;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 100);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  hit.control_epoch = attacker.control_epoch;
+  ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
+  victim.state.equipped_armor_instance = 176;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 95);  // Retain the server's armor/minimum-damage bound.
+}
+
+TEST_F(ServerActorValidation, NaturalAttackMaskDoesNotReplaceDrawnWeaponOrPaidProjectileValidation) {
+  auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  attacker.instance = "CUSTOM_ADDON_CREATURE";
+  attacker.state.weapon_mode = 3;
+  Send(70001, Hit(attacker, victim, 1, 4));  // No owned melee weapon.
+  EXPECT_EQ(victim.health, 100);
+  ASSERT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
+  attacker.state.melee_weapon_instance = 175;
+  Send(70001, Hit(attacker, victim, 1, 8));  // Edge weapon cannot claim fire damage.
+  EXPECT_EQ(victim.health, 100);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  Send(70001, Hit(attacker, victim, 1, 4));
+  EXPECT_EQ(victim.health, 90);
+  attacker.last_hit_action_id.reset();
+  attacker.hit_victims.clear();
+  attacker.state.weapon_mode = 7;
+  Send(70001, Hit(attacker, victim, 2, 32));  // No server-approved spell cast.
+  EXPECT_EQ(victim.health, 90);
+  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
 }
 
 TEST_F(ServerActorValidation, PvpMeleeKnocksOutThenAllowsExecution) {
@@ -498,6 +1567,66 @@ TEST_F(ServerActorValidation, ConsecutivePaidProjectilesSurviveWeaponSwitchAndCa
   EXPECT_TRUE(attacker.approved_projectiles.back().victims.contains(npc_id));
 }
 
+TEST_F(ServerActorValidation, NativeSpellDamageWithoutRuneDamageMetadataDoesNotKillAHealthyArmoredPlayer) {
+  Write(R"({"items":[{"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19},
+                      {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
+                       "protections":[{"type":5,"value":50}]}]})");
+  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+  auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  victim.health = victim.max_health = victim.state.health_points = 1000;
+  ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
+  victim.state.equipped_armor_instance = 176;
+  CastSpellPacket cast{};
+  cast.packet_type = Net::PT_CASTSPELL;
+  cast.caster_id = npc_id;
+  cast.actor_generation = caster.actor_generation;
+  cast.control_epoch = caster.control_epoch;
+  cast.action_id = 1;
+  cast.item_instance = 150;
+  cast.spell_id = 19;
+  Send(70001, cast);
+  ASSERT_EQ(caster.approved_projectiles.size(), 1u);
+  auto hit = Hit(caster, victim, 2, 32);
+  hit.control_epoch = caster.control_epoch;
+  hit.damage = 30;  // Native spell damage 80 minus protection 50.
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 970);
+  EXPECT_EQ(victim.state.life_state, PLAYER_LIFE_ALIVE);
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 970);
+}
+
+TEST_F(ServerActorValidation, SpellDamageCapDoesNotSubtractArmorTwiceFromNativeDamage) {
+  Write(R"({"items":[{"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19,
+                      "damage":{"total":80,"types":32}},
+                     {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
+                      "protections":[{"type":5,"value":50}]}]})");
+  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+  auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
+  auto& victim = server.GetCharacter(second)->get();
+  victim.health = victim.max_health = victim.state.health_points = 1000;
+  ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
+  victim.state.equipped_armor_instance = 176;
+  CastSpellPacket cast{};
+  cast.packet_type = Net::PT_CASTSPELL;
+  cast.caster_id = npc_id;
+  cast.actor_generation = caster.actor_generation;
+  cast.control_epoch = caster.control_epoch;
+  cast.command_revision = caster.command_revision;
+  cast.action_id = 1;
+  cast.item_instance = 150;
+  cast.spell_id = 19;
+  Send(70001, cast);
+  auto hit = Hit(caster, victim, 2, 32);
+  hit.control_epoch = caster.control_epoch;
+  hit.damage = 30;
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 970);  // 80 - 50 once, not (80 - 50) - 50.
+  Send(70001, hit);
+  EXPECT_EQ(victim.health, 970);
+}
+
 TEST_F(ServerActorValidation, ExplicitNonlethalProjectileProtectsUnconsciousPlayers) {
   auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
@@ -586,6 +1715,28 @@ TEST_F(ServerActorValidation, NpcCastRechecksHostAfterResourceCallback) {
   Send(70002, cast);
   EXPECT_EQ(npc.mana, 95);
   EXPECT_FALSE(npc.approved_projectiles.empty());
+}
+
+TEST_F(ServerActorValidation, InvalidSpellLevelCannotApproveAnAttackOrConsumeMana) {
+  auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
+  CastSpellPacket cast{};
+  cast.packet_type = Net::PT_CASTSPELL;
+  cast.caster_id = npc_id;
+  cast.actor_generation = caster.actor_generation;
+  cast.control_epoch = caster.control_epoch;
+  cast.action_id = 1;
+  cast.item_instance = 150;
+  cast.spell_id = 19;
+  cast.spell_level = kMaxSpellInvestLevel + 1;
+  cast.mana_delta = -5;
+  Send(70001, cast);
+  EXPECT_EQ(caster.mana, 100);
+  EXPECT_TRUE(caster.approved_projectiles.empty());
+  cast.spell_level = kMaxSpellInvestLevel;
+  cast.command_revision = caster.command_revision;
+  Send(70001, cast);
+  EXPECT_EQ(caster.mana, 95);
+  EXPECT_EQ(caster.approved_projectiles.size(), 1u);
 }
 
 TEST_F(ServerActorValidation, RejectedScrollTargetsSendFreshInventoryAndManaCorrections) {

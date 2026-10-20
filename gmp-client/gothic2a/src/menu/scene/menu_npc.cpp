@@ -30,6 +30,8 @@ SOFTWARE.
 #include <cmath>
 #include <numbers>
 
+#include "world_utils.hpp"
+
 namespace menu {
 namespace {
 bool IsFinite(const zVEC3& position) {
@@ -232,6 +234,7 @@ MenuNpc::~MenuNpc() {
   StopMovement();
   StopAnimation();
   npc_->GetEM()->Clear();
+  ClearNpcFocusReferences(npc_);
   // Remove through the virtual world API, which also updates oCWorld's NPC
   // lists and removes event/world dependencies. Never delete a refcounted vob.
   // Remove even if physically disabled: oCWorld's logical lists can still own
@@ -279,15 +282,22 @@ bool MenuNpc::ApplyOverlay(const std::string& overlay) {
   auto* model = npc_ ? npc_->GetModel() : nullptr;
   zSTRING overlay_name(overlay.c_str());
   overlay_name.Upper();
-  // The model API reports missing/incompatible overlays without the NPC
-  // overlay cache's assertion on a missing prototype. The model owns the result.
-  if (!model || (!model->HasAppliedModelProtoOverlay(overlay_name) && !model->ApplyModelProtoOverlay(overlay_name))) {
+  if (npc_ && npc_->activeOverlays.IsInList(overlay_name))
+    return true;
+  // Validate before the native NPC API, which asserts for a missing prototype.
+  auto* prototype = model && model->modelProtoList.GetNumInList() > 0 ? zCModelPrototype::Load(overlay_name, model->modelProtoList[0]) : nullptr;
+  if (!prototype) {
     SPDLOG_WARN("Menu NPC overlay failed to load: {}", overlay);
     return false;
   }
-  if (!npc_->activeOverlays.IsInList(overlay_name)) {
-    npc_->activeOverlays.InsertEnd(overlay_name);
-  }
+  if (model->HasAppliedModelProtoOverlay(prototype))
+    model->RemoveModelProtoOverlay(prototype);
+  // The engine must allocate its own zCArray<zSTRING>: its delete[] ABI differs
+  // from the dependency's container helpers used by GMP.
+  const bool applied = npc_->ApplyOverlay(overlay_name) != 0;
+  prototype->Release();
+  if (!applied)
+    return false;
   if (npc_->human_ai) {
     npc_->human_ai->InitAnimations();
   }

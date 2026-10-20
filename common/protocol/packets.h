@@ -48,6 +48,35 @@ struct InventoryEntry {
 
 enum class ActorActionKind : std::uint8_t { AnimationStart, AnimationStop, Shot, ItemUse, MobState };
 
+// Server-accepted damage presentation is independent of the attacker's native
+// collision callbacks and the victim's client-generated animation sequence.
+struct ActorDamagePacket {
+  std::uint8_t packet_type{Net::PT_ACTOR_DAMAGE};
+  std::uint32_t victim_id{0};
+  std::uint64_t victim_generation{0};
+  std::uint32_t state_sequence{0};
+  std::uint32_t command_revision{0};
+  std::uint64_t source_time_ms{0};
+  std::optional<std::uint32_t> attacker_id;
+  std::uint64_t attacker_generation{0};
+  std::int32_t damage{0};
+  std::uint32_t damage_type{0};
+};
+
+template <typename S>
+void serialize(S& s, ActorDamagePacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.victim_id);
+  s.value8b(packet.victim_generation);
+  s.value4b(packet.state_sequence);
+  s.value4b(packet.command_revision);
+  s.value8b(packet.source_time_ms);
+  s.ext4b(packet.attacker_id, bitsery::ext::StdOptional{});
+  s.value8b(packet.attacker_generation);
+  s.value4b(packet.damage);
+  s.value4b(packet.damage_type);
+}
+
 struct ActorActionPacket {
   std::uint32_t command_revision{0};
   std::uint32_t control_epoch{0};
@@ -338,6 +367,7 @@ template <>
 struct fmt::formatter<PlayerNameUpdatePacket> : ostream_formatter {};
 
 struct PlayerInstanceUpdatePacket {
+  bool initialize_defaults{false};
   std::uint64_t actor_generation{0};
   std::uint32_t command_revision{0};
   std::uint8_t packet_type{0};
@@ -348,6 +378,7 @@ struct PlayerInstanceUpdatePacket {
 template <typename S>
 void serialize(S& s, PlayerInstanceUpdatePacket& packet) {
   s.value1b(packet.packet_type);
+  s.boolValue(packet.initialize_defaults);
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value4b(packet.player_id);
@@ -782,7 +813,6 @@ void serialize(S& s, ExistingPlayersPacket& packet) {
 
 struct JoinGamePacket {
   std::uint64_t actor_generation{0};
-  std::uint32_t protocol_version{kActorProtocolVersion};
   std::uint8_t packet_type{0};
   glm::vec3 position{0.0f};
   glm::vec3 normal{0.0f};
@@ -813,7 +843,6 @@ template <typename S>
 void serialize(S& s, JoinGamePacket& packet) {
   s.value1b(packet.packet_type);
   s.value8b(packet.actor_generation);
-  s.value4b(packet.protocol_version);
   s.object(packet.position);
   s.object(packet.normal);
   s.value4b(packet.left_hand_item_instance);
@@ -870,6 +899,9 @@ template <>
 struct fmt::formatter<JoinGamePacket> : ostream_formatter {};
 
 struct PlayerSpawnPacket {
+  std::uint32_t instance_change_revision{0};
+  std::uint16_t transformation_spell_id{0};
+  std::uint32_t transformation_cast_id{0};
   // Owner and NPC snapshots include the complete server-owned inventory.
   std::vector<InventoryEntry> inventory;
   bool invulnerable{false};
@@ -884,6 +916,8 @@ struct PlayerSpawnPacket {
   std::uint8_t weapon_mode{0};
   std::uint8_t active_spell_nr{0};
   std::int32_t active_spell_instance{0};
+  std::uint8_t active_spell_level{0};
+  bool spell_investing{false};
   std::uint8_t head_direction{0};
   std::int32_t melee_weapon_instance{0};
   std::int32_t ranged_weapon_instance{0};
@@ -963,6 +997,9 @@ void serialize(S& s, PlayerSpawnPacket::TalentEntry& entry) {
 template <typename S>
 void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value1b(packet.packet_type);
+  s.value4b(packet.instance_change_revision);
+  s.value2b(packet.transformation_spell_id);
+  s.value4b(packet.transformation_cast_id);
   s.container(packet.inventory, kMaxInventoryEntries);
   s.boolValue(packet.invulnerable);
   s.value4b(packet.body_state);
@@ -976,6 +1013,8 @@ void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
   s.value4b(packet.active_spell_instance);
+  s.value1b(packet.active_spell_level);
+  s.boolValue(packet.spell_investing);
   s.value1b(packet.head_direction);
   s.value4b(packet.melee_weapon_instance);
   s.value4b(packet.ranged_weapon_instance);
@@ -1065,6 +1104,25 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerSpawnPacket& packe
 template <>
 struct fmt::formatter<PlayerSpawnPacket> : ostream_formatter {};
 
+// The controlling runtime completes only a server-issued constructor request.
+// The accepted defaults are subsequently distributed as an ordinary snapshot.
+struct PlayerInstanceReadyPacket {
+  std::uint8_t packet_type{Net::PT_PLAYER_INSTANCE_READY};
+  std::uint32_t request_revision{0};
+  std::uint32_t control_epoch{0};
+  bool success{true};
+  PlayerSpawnPacket defaults;
+};
+
+template <typename S>
+void serialize(S& s, PlayerInstanceReadyPacket& packet) {
+  s.value1b(packet.packet_type);
+  s.value4b(packet.request_revision);
+  s.value4b(packet.control_epoch);
+  s.boolValue(packet.success);
+  s.object(packet.defaults);
+}
+
 struct MessagePacket {
   std::uint8_t packet_type;
   std::string message;
@@ -1078,7 +1136,7 @@ struct MessagePacket {
 template <typename S>
 void serialize(S& s, MessagePacket& packet) {
   s.value1b(packet.packet_type);
-  s.text1b(packet.message, 1024);
+  s.text1b(packet.message, kMaxChatMessageLength);
   s.value1b(packet.r);
   s.value1b(packet.g);
   s.value1b(packet.b);
@@ -1104,6 +1162,8 @@ template <>
 struct fmt::formatter<MessagePacket> : ostream_formatter {};
 
 struct CastSpellPacket {
+  bool transformation_succeeded{false};
+  std::uint8_t spell_level{1};
   std::int32_t mana_delta{0};
   std::uint64_t source_time_ms{0};
   std::uint32_t command_revision{0};
@@ -1121,6 +1181,8 @@ struct CastSpellPacket {
 template <typename S>
 void serialize(S& s, CastSpellPacket& packet) {
   s.value1b(packet.packet_type);
+  s.boolValue(packet.transformation_succeeded);
+  s.value1b(packet.spell_level);
   s.value4b(packet.mana_delta);
   s.value8b(packet.source_time_ms);
   s.value4b(packet.command_revision);
@@ -1755,7 +1817,6 @@ inline std::ostream& operator<<(std::ostream& os, const ClientResourceInfoEntry&
 // Server informs the client about the map name and the ID assigned to the player
 struct InitialInfoPacket {
   std::uint64_t actor_generation{0};
-  std::uint32_t protocol_version{kActorProtocolVersion};
   std::uint8_t packet_type;
   std::string map_name;
   std::uint32_t player_id;
@@ -1776,7 +1837,6 @@ template <typename S>
 void serialize(S& s, InitialInfoPacket& packet) {
   s.value1b(packet.packet_type);
   s.value8b(packet.actor_generation);
-  s.value4b(packet.protocol_version);
   s.text1b(packet.map_name, 64);
   s.value4b(packet.player_id);
   s.text1b(packet.server_name, 64);
@@ -1883,36 +1943,49 @@ inline std::ostream& operator<<(std::ostream& os, const SkySettingsPacket& packe
 template <>
 struct fmt::formatter<SkySettingsPacket> : ostream_formatter {};
 
-struct PlayerPingEntry {
+// UI metadata is replicated independently of native actor visibility.
+struct PlayerPresenceEntry {
   std::uint32_t player_id{0};
   std::int32_t ping{-1};
+  std::string name;
+  std::string world;
+  glm::vec3 position{0.0f};
+  std::uint8_t r{255}, g{255}, b{255};
 };
 
 template <typename S>
-void serialize(S& s, PlayerPingEntry& entry) {
+void serialize(S& s, PlayerPresenceEntry& entry) {
   s.value4b(entry.player_id);
   s.value4b(entry.ping);
+  s.text1b(entry.name, 255);
+  s.text1b(entry.world, 64);
+  s.value4b(entry.position.x);
+  s.value4b(entry.position.y);
+  s.value4b(entry.position.z);
+  s.value1b(entry.r);
+  s.value1b(entry.g);
+  s.value1b(entry.b);
 }
 
-struct PlayerPingUpdatePacket {
+struct PlayerPresencePacket {
   std::uint8_t packet_type{0};
-  std::vector<PlayerPingEntry> pings;
+  std::vector<PlayerPresenceEntry> players;
 };
 
 template <typename S>
-void serialize(S& s, PlayerPingUpdatePacket& packet) {
+void serialize(S& s, PlayerPresencePacket& packet) {
   s.value1b(packet.packet_type);
-  s.container(packet.pings, 400);
+  s.container(packet.players, 400);
 }
 
-inline std::ostream& operator<<(std::ostream& os, const PlayerPingUpdatePacket& packet) {
-  os << "PlayerPingUpdatePacket {"
-     << " packet_type: " << static_cast<int>(packet.packet_type) << ", pings: " << packet.pings.size() << " }";
+inline std::ostream& operator<<(std::ostream& os, const PlayerPresencePacket& packet) {
+  os << "PlayerPresencePacket {"
+     << " packet_type: " << static_cast<int>(packet.packet_type) << ", players: " << packet.players.size() << " }";
   return os;
 }
 
 template <>
-struct fmt::formatter<PlayerPingUpdatePacket> : ostream_formatter {};
+struct fmt::formatter<PlayerPresencePacket> : ostream_formatter {};
 
 struct AdminAuthPacket {
   std::uint8_t packet_type{0};

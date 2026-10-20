@@ -65,6 +65,8 @@ constexpr const char* kEventOnPlayerDestroyName = "onPlayerDestroy";
 constexpr const char* kEventOnPlayerMessageName = "onPlayerMessage";
 constexpr const char* kEventOnPlayerRespawnName = "onPlayerRespawn";
 constexpr const char* kEventOnPlayerSpawnName = "onPlayerSpawn";
+constexpr const char* kEventOnPlayerSummonName = "onPlayerSummon";
+constexpr const char* kEventOnPlayerTeleportName = "onPlayerTeleport";
 constexpr const char* kEventOnPlayerDeadName = "onPlayerDead";
 constexpr const char* kEventOnPlayerChangePingName = "onPlayerChangePing";
 constexpr const char* kEventOnVoiceChatStateChangeName = "onVoiceChatStateChange";
@@ -151,6 +153,18 @@ struct OnUseItemEvent {
 
 struct PlayerLifecycleEvent {
   std::uint64_t player_id;
+};
+
+struct OnPlayerSummonEvent {
+  std::uint32_t player_id;
+  std::uint16_t spell_id;
+  std::string summon_instance;
+  std::uint32_t npc_id;
+};
+
+struct OnPlayerTeleportEvent {
+  std::uint32_t player_id;
+  std::string destination;
 };
 
 struct OnPlayerPingEvent {

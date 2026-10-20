@@ -67,7 +67,7 @@ enum PacketID {
   PT_PLAYER_WORLD_UPDATE,
   PT_ACTUAL_STATISTICS,  // <- chyba tutaj będe musiał dodac optymalizacje gdyż nie potrzeba nam wszystkich informacji o
                          // graczu który jest od nas dalej niż 5000.0f
-  PT_EXISTING_PLAYERS,         // Packet contains information about all other players. Send to the new joining player.
+  PT_EXISTING_PLAYERS,   // Packet contains information about all other players. Send to the new joining player.
   PT_MAP_ONLY,
   PT_EXTENDED_4_SCRIPTS,  // jak juz kiedys wdrozymy skrypty
   PT_LUA_EVENT,
@@ -94,7 +94,7 @@ enum PacketID {
   PT_ITEM_GROUND_DESTROY,
   PT_ITEM_GROUND_CLEAR,
   PT_PLAYER_WORLD_ENTER,
-  PT_PLAYER_PING_UPDATE,
+  PT_PLAYER_PRESENCE,
   PT_ADMIN_AUTH,
   PT_VOICE_CONFIG,
   PT_VOICE_CHANNEL,
@@ -105,6 +105,11 @@ enum PacketID {
   PT_EQUIPMENT_RESULT,
   PT_ACTOR_ACTION,
   PT_NPC_ANIMATION,
+  PT_ACTOR_DAMAGE,
+  PT_PLAYER_SUMMON,
+  PT_PLAYER_TELEPORT,
+  PT_PLAYER_TRANSFORMATION,
+  PT_PLAYER_INSTANCE_READY,
 };
 
 inline const char* PacketIDToString(PacketID id) {
@@ -129,6 +134,8 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_PLAYER_NAME_UPDATE";
     case PT_PLAYER_INSTANCE_UPDATE:
       return "PT_PLAYER_INSTANCE_UPDATE";
+    case PT_PLAYER_INSTANCE_READY:
+      return "PT_PLAYER_INSTANCE_READY";
     case PT_PLAYER_COLOR_UPDATE:
       return "PT_PLAYER_COLOR_UPDATE";
     case PT_PLAYER_VISUAL_UPDATE:
@@ -215,8 +222,8 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_ITEM_GROUND_CLEAR";
     case PT_PLAYER_WORLD_ENTER:
       return "PT_PLAYER_WORLD_ENTER";
-    case PT_PLAYER_PING_UPDATE:
-      return "PT_PLAYER_PING_UPDATE";
+    case PT_PLAYER_PRESENCE:
+      return "PT_PLAYER_PRESENCE";
     case PT_ADMIN_AUTH:
       return "PT_ADMIN_AUTH";
     case PT_VOICE_CONFIG:
@@ -233,6 +240,14 @@ inline const char* PacketIDToString(PacketID id) {
       return "PT_NPC_ANIMATION";
     case PT_ACTOR_ACTION:
       return "PT_ACTOR_ACTION";
+    case PT_ACTOR_DAMAGE:
+      return "PT_ACTOR_DAMAGE";
+    case PT_PLAYER_SUMMON:
+      return "PT_PLAYER_SUMMON";
+    case PT_PLAYER_TELEPORT:
+      return "PT_PLAYER_TELEPORT";
+    case PT_PLAYER_TRANSFORMATION:
+      return "PT_PLAYER_TRANSFORMATION";
     case PT_ITEM_TRANSACTION_RESULT:
       return "PT_ITEM_TRANSACTION_RESULT";
     case PT_EQUIPMENT_RESULT:

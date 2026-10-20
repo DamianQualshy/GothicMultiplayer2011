@@ -71,8 +71,12 @@ void ReturnToBigMainMenuAfterDisconnect() {
 }
 
 void ExitToBigMainMenu() {
-  NetGame::Instance().Disconnect();
-  ReturnToBigMainMenuAfterDisconnect();
+  // Menu actions run during rendering; session teardown must wait until the
+  // engine no longer holds the current frame's game session.
+  GMPCore::Instance().DeferToNextFrame([]() {
+    NetGame::Instance().Disconnect();
+    ReturnToBigMainMenuAfterDisconnect();
+  });
 }
 
 void ExitToMainmenu() {

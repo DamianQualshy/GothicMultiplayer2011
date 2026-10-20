@@ -463,6 +463,11 @@ local commandHandlers = {
 addEventHandler('onPlayerCommand', function(playerId, command, params)
   local handler = commandHandlers[string.lower(command or '')]
   if handler then
+    if not isPlayerAdmin(playerId) then
+      sendMessageToPlayer(player_id, 255, 0, 0, "ACP: You are not an admin!")
+      return
+    end
+    
     handler(playerId, params or '')
   end
 end)

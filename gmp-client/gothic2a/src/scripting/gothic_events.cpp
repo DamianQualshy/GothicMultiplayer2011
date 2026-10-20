@@ -593,6 +593,44 @@ void RegisterGothicEventProxies() {
 
 /* luagmp (event)
 *
+* This event is triggered when a player summons an NPC using a game's spell.
+*
+* @version  0.3.0
+* @name     onPlayerSummon
+* @side     client
+* @category Player
+* @note     The summoned NPC exists when this event is triggered. This event is not triggered when an existing summon streams in.
+* @param    (number) playerId       The id of the player who summoned the NPC.
+* @param    (number) spellId        The id of the spell used to summon the NPC.
+* @param    (string) summonInstance The instance name of the summoned NPC.
+* @param    (number) npcId          The id of the summoned NPC.
+*
+*/
+  g_gothic_event_proxies[kEventOnPlayerSummonName] = [](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnPlayerSummonEvent>(args.event);
+    args.callback(event.player_id, event.spell_id, event.summon_instance, event.npc_id);
+  };
+
+/* luagmp (event)
+*
+* This event is triggered when a player teleports using a game's spell or teleport trigger.
+*
+* @version  0.3.0
+* @name     onPlayerTeleport
+* @side     client
+* @category Player
+* @note     This event is triggered after the server accepts the teleport. Calling `setPlayerPosition` does not trigger this event.
+* @param    (number) playerId The id of the player who teleported.
+* @param    (string) vobName  The name of the destination waypoint, freepoint or vob.
+*
+*/
+  g_gothic_event_proxies[kEventOnPlayerTeleportName] = [](LuaProxyArgs args) {
+    const auto event = std::any_cast<OnPlayerTeleportEvent>(args.event);
+    args.callback(event.player_id, event.destination);
+  };
+
+/* luagmp (event)
+*
 * This event is triggered when a player or NPC dies.
 *
 * @version  0.3.0
@@ -747,6 +785,8 @@ void RegisterGothicEventsInManager() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerMessageName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerRespawnName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerSummonName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerTeleportName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerDeadName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerChangePingName);
   EventManager::Instance().RegisterEvent(kEventOnVoiceChatStateChangeName);

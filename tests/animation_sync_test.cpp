@@ -50,6 +50,13 @@ TEST(AnimationSync, FiniteAttacksAndStandUpTransitionsRemainActions) {
   }
 }
 
+TEST(AnimationSync, DamageReactionsAreRecognizedWithoutClassifyingAttacksOrRecoveryAsHits) {
+  for (const auto* name : {"T_GOTHIT", "T_STUMBLE", "T_STUMBLEB", "T_1HSTUMBLEB", "T_WOLFSTUMBLE"})
+    EXPECT_TRUE(gmp::IsDamageReactionAnimation(name)) << name;
+  for (const auto* name : {"T_1HATTACKMOVE", "T_WOUNDED_2_STAND", "S_DEAD", "S_RUN", "T_STUMBLEB_2_STAND"})
+    EXPECT_FALSE(gmp::IsDamageReactionAnimation(name)) << name;
+}
+
 TEST(AnimationSync, TurningIsExcludedWithoutDiscardingNamesContainingReturn) {
   EXPECT_FALSE(gmp::IsSampledPlayerAnimation("T_1HRUNTURNL", true));
   EXPECT_FALSE(gmp::IsSampledPlayerAnimation("T_SWIMTURNR", true));
@@ -61,6 +68,23 @@ TEST(AnimationSync, LookAndHandOverlaysDoNotHideStrafing) {
       {17, "T_RUNSTRAFEL", 1, true},
       {23, "C_LOOK_1", 20, true, false, false},
       {26, "S_TORCH", 5, true},
+  }};
+  EXPECT_EQ(gmp::SelectPlayerPoseAnimation(animations), 17);
+}
+
+TEST(AnimationSync, CastingPhaseTakesPriorityOverUnderlyingMagicLocomotion) {
+  const std::array<gmp::PlayerAnimationSample, 3> animations{{
+      {17, "S_MAGRUN", 1, true},
+      {18, "S_FIBCAST", 1, true, false, true, true},
+      {19, "C_LOOK_1", 20, true, false, false},
+  }};
+  EXPECT_EQ(gmp::SelectPlayerPoseAnimation(animations), 18);
+}
+
+TEST(AnimationSync, FadingCastingPhaseDoesNotBlockMovementRecovery) {
+  const std::array<gmp::PlayerAnimationSample, 2> animations{{
+      {17, "S_MAGRUN", 1, true},
+      {18, "S_FIBSHOOT", 1, true, true, true, true},
   }};
   EXPECT_EQ(gmp::SelectPlayerPoseAnimation(animations), 17);
 }

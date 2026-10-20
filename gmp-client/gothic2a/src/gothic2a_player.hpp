@@ -95,8 +95,12 @@ public:
   void StopPositionInterpolation();
   bool MarkAnimationHandled(const std::string& animation_name);
   void ClearHandledAnimation();
+  void SetRemoteLightEffect(oCVisualFX* effect);
+  void ClearRemoteLightEffect();
+  void UpdateMagicPresentation();
   void SetNpc(oCNpc* npc);
   bool ReplaceNpcInstance(int instance_id);
+  std::uint32_t initialized_instance_revision{0};
   void SetNpcType(NpcType Type);
   void SetPosition(const zVEC3& pos);
   void SetPosition(float x, float y, float z);
@@ -112,4 +116,6 @@ private:
   zCOLOR name_color_{255, 255, 255, 255};
   std::string last_handled_animation_name_;
   gmp::ActorPresentationEpochs presentation_epochs_;
+  // Owns the transferred effect reference, independently of selected runes.
+  oCVisualFX* remote_light_effect_{nullptr};
 };

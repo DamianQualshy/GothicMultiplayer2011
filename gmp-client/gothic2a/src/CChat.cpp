@@ -41,24 +41,32 @@ SOFTWARE.
 #include <cstdint>
 #include <cctype>
 #include <cstdio>
+#include <cstring>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <utility>
 
 #include "keyboard.h"
-#include "language.h"
 #include "net_game.h"
 #include "patch.h"
+#include "protocol/common_structs.h"
 #include "scripting/gothic_events.h"
 #include "shared/event.h"
 
 using namespace Gothic_II_Addon;
 
 namespace {
-constexpr auto CHAT_INPUT_OPEN_DELAY = std::chrono::milliseconds(30);
-constexpr auto CHAT_CHARACTER_REPEAT = std::chrono::milliseconds(20);
-constexpr auto CHAT_BACKSPACE_REPEAT = std::chrono::milliseconds(150);
+UINT ChatInputCodePage(std::string_view font) {
+  constexpr std::pair<const char*, UINT> encodings[] = {{"CP1250_", 1250}, {"CP1251_", 1251}, {"CP1252_", 1252}, {"CP1254_", 1254}};
+  for (const auto& [prefix, code_page] : encodings)
+    if (font.size() >= 7 && _strnicmp(font.data(), prefix, 7) == 0)
+      return code_page;
+  // Script chat fonts use Gothic's native code page. The menu language can be
+  // English while the game and its unprefixed fonts still use Polish CP1250.
+  const auto native_code_page = GetACP();
+  return native_code_page == CP_UTF8 ? 1250 : native_code_page;
+}
 
 std::size_t ClampCaretPosition(int position, std::size_t text_size) {
   if (position <= 0) {
@@ -132,10 +140,7 @@ void DispatchSystemMessage(const zCOLOR& color, const std::string& text) {
 
 extern zCOLOR Normal;
 
-CChat::CChat() {
-  next_character_time_ = std::chrono::steady_clock::now();
-  next_backspace_time_ = std::chrono::steady_clock::now();
-}
+CChat::CChat() = default;
 
 CChat::~CChat() = default;
 
@@ -149,13 +154,14 @@ void CChat::OpenInput() {
   }
 
   if (zinput) {
-    zinput->ClearKeyBuffer();
+    // ClearKeyBuffer also erases held modifier states. Preserve Shift/Ctrl
+    // and discard only the default opening key when it is still queued.
+    discard_opening_t_ = zinput->KeyPressed(KEY_T) != 0;
+    zinput->ResetRepeatKey(TRUE);
   }
   input_active_ = true;
+  SetHandleEventTop();
   caret_position_ = std::min(caret_position_, current_text_.size());
-  const auto now = std::chrono::steady_clock::now();
-  next_character_time_ = now + CHAT_INPUT_OPEN_DELAY;
-  next_backspace_time_ = now;
   PrepareForInput();
 }
 
@@ -172,8 +178,13 @@ void CChat::CloseInput(bool clear_text) {
   }
 
   input_active_ = false;
+  pending_input_.clear();
+  SetEnableHandleEvent(false);
+  discard_opening_t_ = false;
   if (zinput) {
-    zinput->ClearKeyBuffer();
+    for (int count = 0; count < 256 && zinput->GetKey(FALSE, FALSE) != 0; ++count) {
+    }
+    zinput->ResetRepeatKey(TRUE);
   }
   ClearAfterInput();
 }
@@ -212,6 +223,18 @@ void CChat::SetInputFont(const std::string& font) {
   }
 }
 
+int CChat::GetInputMaxLength() const {
+  return input_max_length_;
+}
+
+void CChat::SetInputMaxLength(int length) {
+  input_max_length_ = std::clamp(length, 1, static_cast<int>(kMaxChatMessageLength));
+  if (current_text_.size() > static_cast<std::size_t>(input_max_length_)) {
+    current_text_.resize(static_cast<std::size_t>(input_max_length_));
+  }
+  caret_position_ = std::min(caret_position_, current_text_.size());
+}
+
 int CChat::GetInputX() const {
   return input_x_;
 }
@@ -230,7 +253,7 @@ const std::string& CChat::GetInputText() const {
 }
 
 void CChat::SetInputText(const std::string& text) {
-  current_text_ = text.substr(0, kMaxInputLength);
+  current_text_ = text.substr(0, static_cast<std::size_t>(input_max_length_));
   caret_position_ = current_text_.size();
 }
 
@@ -251,7 +274,7 @@ void CChat::SendCurrentMessage() {
 }
 
 void CChat::InsertInputCharacter(char ch) {
-  if (current_text_.size() >= kMaxInputLength) {
+  if (current_text_.size() >= static_cast<std::size_t>(input_max_length_)) {
     return;
   }
 
@@ -307,58 +330,94 @@ void CChat::KeepInputLocked() {
   }
 }
 
-void CChat::HandleInput(bool allow_open) {
-  (void)allow_open;
-
+void CChat::HandleInput() {
   if (!input_active_) {
     return;
   }
 
   KeepInputLocked();
 
-  if (zinput && zinput->KeyPressed(KEY_RETURN)) {
-    SubmitInput();
+  if (!zinput)
     return;
+
+  // Lua observes its editing/history keys before submission closes input.
+  // Modifiers were captured at native event delivery; apply before onRender.
+  auto pending = std::move(pending_input_);
+  pending_input_.clear();
+  for (const auto& input : pending) {
+    ApplyInputKey(input.key, input.character, input.control_pressed);
+    if (!input_active_)
+      break;
   }
 
-  if (zinput && zinput->KeyPressed(KEY_ESCAPE)) {
-    CloseInput(true);
-    return;
+  // The engine callback handles the first key and its repeat. Drain additional
+  // presses without advancing repeat twice.
+  for (int count = 0; input_active_ && count < 256; ++count) {
+    const auto key = zinput->GetKey(FALSE, TRUE);
+    if (key == 0)
+      break;
+    if (key & KEY_RELEASE)
+      continue;
+    ApplyInputKey(key, static_cast<unsigned char>(GInput::TranslateKeyFromKeyboard(key, false, ChatInputCodePage(input_font_))),
+                  GInput::IsControlShortcutPressed());
   }
+  discard_opening_t_ = false;
+}
 
-  const auto now = std::chrono::steady_clock::now();
-  if (now < next_character_time_) {
-    return;
+int CChat::HandleEvent(int key) {
+  if (!input_active_ || !zinput)
+    return false;
+  if (key & KEY_RELEASE)
+    return true;
+  if (pending_input_.size() < 256) {
+    pending_input_.push_back({key, static_cast<unsigned char>(GInput::TranslateKeyFromKeyboard(key, false, ChatInputCodePage(input_font_))),
+                              GInput::IsControlShortcutPressed()});
   }
+  return true;
+}
 
-  unsigned char key = static_cast<unsigned char>(GInput::GetCharacterFormKeyboard());
-  const bool ctrl_pressed = zinput && (zinput->KeyPressed(KEY_LCONTROL) || zinput->KeyPressed(KEY_RCONTROL));
-
-  if (key == 0) {
-    if (zinput && zinput->KeyPressed(KEY_BACKSPACE) && now >= next_backspace_time_) {
+void CChat::ApplyInputKey(int key, unsigned char character, bool control_pressed) {
+  if (discard_opening_t_) {
+    discard_opening_t_ = false;
+    if (key == KEY_T) {
+      zinput->ResetRepeatKey(TRUE);
+      return;
+    }
+  }
+  switch (key) {
+    case KEY_RETURN:
+    case KEY_NUMPADENTER:
+      SubmitInput();
+      return;
+    case KEY_ESCAPE:
+      CloseInput(true);
+      return;
+    case KEY_BACKSPACE:
       DeleteInputCharacterBeforeCaret();
-      next_backspace_time_ = now + CHAT_BACKSPACE_REPEAT;
-    }
-    if (zinput && zinput->KeyToggled(KEY_LEFTARROW) && caret_position_ > 0) {
-      --caret_position_;
-    }
-    if (zinput && zinput->KeyToggled(KEY_RIGHTARROW) && caret_position_ < current_text_.size()) {
-      ++caret_position_;
-    }
-    return;
+      return;
+    case KEY_LEFTARROW:
+      if (caret_position_ > 0)
+        --caret_position_;
+      return;
+    case KEY_RIGHTARROW:
+      if (caret_position_ < current_text_.size())
+        ++caret_position_;
+      return;
+    case KEY_DELETE:
+      if (caret_position_ < current_text_.size())
+        current_text_.erase(caret_position_, 1);
+      return;
+    case KEY_HOME:
+      caret_position_ = 0;
+      return;
+    case KEY_END:
+      caret_position_ = current_text_.size();
+      return;
+    default:
+      break;
   }
-
-  if (ctrl_pressed && key != 0x08) {
-    return;
-  }
-
-  if (key == 0x08) {
-    DeleteInputCharacterBeforeCaret();
-    next_backspace_time_ = now + CHAT_BACKSPACE_REPEAT;
-  } else if ((key >= 0x20) || ((key & 0x80) && (Language::Instance().GetEncoding() != localization::LanguageEncoding::kNone))) {
-    InsertInputCharacter(static_cast<char>(key));
-  }
-  next_character_time_ = now + CHAT_CHARACTER_REPEAT;
+  if (!control_pressed && character >= 0x20 && character != 0x7F)
+    InsertInputCharacter(static_cast<char>(character));
 }
 
 void CChat::WriteMessage(MsgType type, bool PrintTimed, const zCOLOR& rgb, const char* format, ...) {

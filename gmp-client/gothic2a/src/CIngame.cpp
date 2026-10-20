@@ -194,6 +194,10 @@ void CIngame::Loop() {
       if (global_ingame->Interpolation[i] && global_ingame->Interpolation[i]->IsInterpolating)
         global_ingame->Interpolation[i]->DoInterpolate();
     }
+    for (auto* actor : NetGame::Instance().players) {
+      if (actor)
+        actor->UpdateMagicPresentation();
+    }
     // INVENTORY RENDER
     if (global_ingame->Inventory)
       global_ingame->Inventory->RenderInventory();
@@ -231,7 +235,6 @@ bool CIngame::PlayerExists(const char* PlayerName) {
 
 void CIngame::HandleInput() {
   if (chat_interface->IsInputActive()) {
-    chat_interface->HandleInput(false);
     return;
   }
 
@@ -244,7 +247,6 @@ void CIngame::HandleInput() {
   }
   // DEBUG TOOLS
   debug::DevTools::Instance().HandleInput(chat_interface->IsInputActive());
-  chat_interface->HandleInput(true);
 }
 
 void CIngame::Draw() {

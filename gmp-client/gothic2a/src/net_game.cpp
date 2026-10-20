@@ -35,12 +35,14 @@ SOFTWARE.
 
 #include <algorithm>
 #include <array>
+#include <climits>
 #include <cmath>
 #include <ctime>
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <iomanip>
 #include <list>
+#include <map>
 #include <limits>
 #include <optional>
 #include <sstream>
@@ -57,6 +59,8 @@ SOFTWARE.
 #include "dev/dev_tools.h"
 #include "gmp_core.h"
 #include "main_menu.h"
+#include "magic_sync.h"
+#include "transformation_spells.h"
 #include "hooking/MemoryPatch.h"
 #include "language.h"
 #include "net_enums.h"
@@ -78,6 +82,10 @@ SOFTWARE.
 #include "script_instance_scope.h"
 #include "sol/sol.hpp"
 #include "version.h"
+#include "world_utils.hpp"
+#include "torch_utils.h"
+#include "npc_animation_utils.h"
+#include "weapon_skills.h"
 
 const char* LANG_DIR = ".\\Multiplayer\\Localization\\";
 
@@ -159,6 +167,7 @@ oCItem* RemoveHandItem(oCNpc* npc, bool right_hand) {
   if (!current_vob) {
     return nullptr;
   }
+  if (RemoveTorchFromHand(npc, right_hand)) return nullptr;
 
   zSTRING slot(right_hand ? NPC_NODE_RIGHTHAND : NPC_NODE_LEFTHAND);
   oCItem* removed_item = dynamic_cast<oCItem*>(npc->RemoveFromSlot(slot, 0, 1));
@@ -352,6 +361,17 @@ bool IsLoopingModelAnimation(zCModel* model, zCModelAni* animation) {
   return next && model->GetAniFromAniID(next->GetAniID()) == animation;
 }
 
+bool IsPlayingDamageReaction(zCModel* model) {
+  if (!model)
+    return false;
+  for (int index = 0; index < std::clamp(model->numActiveAnis, 0, zMDL_MAX_ANIS_PARALLEL); ++index) {
+    auto* active = model->aniChannels[index];
+    if (active && !active->isFadingOut && active->protoAni && gmp::IsDamageReactionAnimation(active->protoAni->GetAniName().ToChar()))
+      return true;
+  }
+  return false;
+}
+
 std::optional<int> FindParserIndex(const char* instance_name) {
   if (!instance_name || instance_name[0] == '\0') {
     return std::nullopt;
@@ -445,13 +465,13 @@ oCItem* GetCurrentMeleeWeapon(oCNpc* npc) {
     return nullptr;
   }
 
-  switch (npc->GetWeaponMode()) {
-    case NPC_WEAPON_1HS:
-    case NPC_WEAPON_2HS:
-      return dynamic_cast<oCItem*>(npc->GetRightHand());
-    default:
-      return npc->GetEquippedMeleeWeapon();
+  // Hand and mode updates can arrive separately. Observe the equipped object,
+  // not a mode that may still describe the preceding draw/sheath transition.
+  auto* held = dynamic_cast<oCItem*>(npc->GetRightHand());
+  if (IsMeleeWeaponItem(held) && held->HasFlag(ITM_FLAG_ACTIVE)) {
+    return held;
   }
+  return npc->GetEquippedMeleeWeapon();
 }
 
 oCItem* GetCurrentRangedWeapon(oCNpc* npc) {
@@ -459,14 +479,50 @@ oCItem* GetCurrentRangedWeapon(oCNpc* npc) {
     return nullptr;
   }
 
-  switch (npc->GetWeaponMode()) {
-    case NPC_WEAPON_BOW:
-      return dynamic_cast<oCItem*>(npc->GetLeftHand());
-    case NPC_WEAPON_CBOW:
-      return dynamic_cast<oCItem*>(npc->GetRightHand());
-    default:
-      return npc->GetEquippedRangedWeapon();
+  for (auto* held : {npc->GetLeftHand(), npc->GetRightHand()}) {
+    auto* item = dynamic_cast<oCItem*>(held);
+    if (IsRangedWeaponItem(item) && item->HasFlag(ITM_FLAG_ACTIVE)) {
+      return item;
+    }
   }
+  return npc->GetEquippedRangedWeapon();
+}
+
+const char* GetSheathedWeaponSlot(oCItem* item) {
+  if (!item)
+    return nullptr;
+  if (item->HasFlag(ITM_FLAG_2HD_SWD) || item->HasFlag(ITM_FLAG_2HD_AXE))
+    return NPC_NODE_LONGSWORD;
+  if (IsMeleeWeaponItem(item))
+    return NPC_NODE_SWORD;
+  if (item->HasFlag(ITM_FLAG_BOW))
+    return NPC_NODE_BOW;
+  if (item->HasFlag(ITM_FLAG_CROSSBOW))
+    return NPC_NODE_CROSSBOW;
+  return nullptr;
+}
+
+void MoveInventoryWeaponToSlot(oCNpc* npc, oCItem* item, const char* destination) {
+  auto* target = npc && destination ? npc->GetInvSlot(zSTRING(destination)) : nullptr;
+  if (!target || !item)
+    return;
+
+  // PutInSlot/SetRightHand only replace the destination node. They do not clear
+  // another node displaying the same inventory object's mesh. Detach all source
+  // weapon nodes first, including an existing duplicate from a previous update.
+  item->AddRef();
+  bool detached = false;
+  for (const char* name : {NPC_NODE_SWORD, NPC_NODE_LONGSWORD, NPC_NODE_BOW, NPC_NODE_CROSSBOW, NPC_NODE_LEFTHAND, NPC_NODE_RIGHTHAND}) {
+    auto* source = npc->GetInvSlot(zSTRING(name));
+    if (source && source != target && source->vob == item) {
+      npc->RemoveFromSlot(source, FALSE, FALSE);
+      detached = true;
+    }
+  }
+  if (target->vob != item || detached) {
+    npc->PutInSlot(target, item, npc->IsInInv(item, 1) != nullptr);
+  }
+  item->Release();
 }
 
 bool HasItemFlag(oCItem* item, int item_flag) {
@@ -531,16 +587,12 @@ std::array<std::int32_t, 2> GetEquippedRingInstances(oCNpc* npc, const std::arra
 }
 
 std::int32_t GetActiveSpellItemInstance(oCNpc* npc) {
-  if (!npc) {
-    return 0;
-  }
-
-  const int active_spell_nr = npc->GetActiveSpellNr();
-  if (active_spell_nr <= 0) {
-    return 0;
-  }
-
-  if (auto* item = npc->GetSpellItem(active_spell_nr)) {
+  auto* spell = GetSelectedMagicSpell(npc);
+  auto* book = npc ? npc->GetSpellBook() : nullptr;
+  if (spell && npc->GetWeaponMode() == NPC_WEAPON_MAG) {
+    auto* item = book->GetSpellItem(spell);
+    if (!item)
+      return 0;
     return item->GetInstance();
   }
 
@@ -562,6 +614,13 @@ int GetInventoryAmount(oCNpc* npc, int instance) {
 void ReconcileInventoryAmount(oCNpc* npc, int instance, int desired) {
   if (!npc || instance <= 0 || (desired > 0 && !IsNetworkItemInstance(instance))) return;
   desired = std::max(0, desired);
+  const int carried_torches = GetCarriedTorchAmount(npc, instance);
+  if (desired < carried_torches) {
+    ClearTorchHands(npc);
+    ReconcileInventoryAmount(npc, instance, desired);
+    return;
+  }
+  desired -= carried_torches;
   std::int64_t current = 0;
   std::vector<oCItem*> items;
   for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
@@ -569,6 +628,18 @@ void ReconcileInventoryAmount(oCNpc* npc, int instance, int desired) {
       current += std::max(0, item->amount);
       items.push_back(item);
     }
+  }
+  auto* interaction = npc->interactItem;
+  if (interaction && interaction->GetInstance() == instance && std::find(items.begin(), items.end(), interaction) == items.end()) {
+    // Native item interaction reserves an owned object outside inventory2.
+    // A server acknowledgement must not create another copy of that object.
+    if (desired < std::max(0, interaction->amount)) {
+      npc->ClearEM();
+      npc->SetInteractItem(nullptr);
+      ReconcileInventoryAmount(npc, instance, desired);
+      return;
+    }
+    desired = std::max(0, desired - std::max(0, interaction->amount));
   }
   if (current < desired) {
     if (auto* created = CreateNetworkItem(instance)) {
@@ -588,7 +659,7 @@ void ReconcileInventoryAmount(oCNpc* npc, int instance, int desired) {
     if (count == item->amount) {
       npc->UnequipItem(item);
       if ((item->mainflag & (ITM_CAT_RUNE | ITM_CAT_MAGIC)) != 0) {
-        if (auto* book = npc->GetSpellBook()) book->DeRegister(item);
+        UnregisterMagicItem(npc, item);
       }
       RemoveItemFromHandSlots(npc, item);
       npc->inventory2.Remove(item);
@@ -673,7 +744,16 @@ void SyncEquippedCombatItem(oCNpc* npc, std::int32_t instance, oCItem* current, 
   }
 
   if (auto* item = GetOrCreateValidInventoryItem(npc, instance, is_valid_item)) {
-    npc->Equip(item);
+    // Equip toggles an already active item off. Its body slot may be empty
+    // precisely because the same equipped object is currently held.
+    const char* sheathed_slot = GetSheathedWeaponSlot(item);
+    if (sheathed_slot && item->HasFlag(ITM_FLAG_ACTIVE)) {
+      if (npc->GetLeftHand() != item && npc->GetRightHand() != item) {
+        MoveInventoryWeaponToSlot(npc, item, sheathed_slot);
+      }
+    } else {
+      npc->Equip(item);
+    }
   }
 }
 
@@ -1017,6 +1097,7 @@ void __stdcall NetGame::ProcessTaskScheduler() {
   if (zinput) {
     gmp::gothic::ProcessInput(zinput);
   }
+  CChat::GetInstance()->HandleInput();
   gmp::gothic::LuaSound3d::UpdateActiveSounds();
   gmp::gothic::LuaDraw3d::RenderActiveDraws();
   instance.UpdateClientEventState();
@@ -1556,14 +1637,13 @@ void NetGame::PruneProxyPresentationItems(Gothic2APlayer& actor, const PlayerSta
       // Multiple registered runes can remain ACTIVE although selection moved.
       // Retire only the old presentation-owned entry, never the current spell.
       npc->UnequipItem(item);
-      if (auto* book = npc->GetSpellBook()) book->DeRegister(item);
     }
     if (held || (inventory.contains(item) && (desired.contains(item->GetInstance()) || item->HasFlag(ITM_FLAG_ACTIVE)))) {
       ++it;
       continue;
     }
     if ((item->mainflag & (ITM_CAT_RUNE | ITM_CAT_MAGIC)) != 0) {
-      if (auto* book = npc->GetSpellBook()) book->DeRegister(item);
+      UnregisterMagicItem(npc, item);
     }
     if (inventory.contains(item)) npc->inventory2.Remove(item);
     item->Release();
@@ -1721,7 +1801,10 @@ void NetGame::JoinGame() {
         player->head_visualName.ToChar(), player->head_TexVarNr, walk, player->teeth_TexVarNr, player->body_TexColorNr);
     IsReadyToJoin = false;
 
-    // Set up the local player now that we have the player ID from the server
+    // Deferred world loading may have replaced the session since menu exit.
+    if (ogame)
+      ogame->SetShowPlayerStatus(TRUE);
+    // Set up the local player now that we have the player ID from the server.
     CIngame* g = new CIngame();
     // LocalPlayer->id = game_client->player_manager().GetLocalPlayer().id();
     // LocalPlayer->enable = TRUE;
@@ -1873,6 +1956,132 @@ bool NetGame::CanReportActorDamage(oCNpc* attacker) {
   return actor && actor->is_npc() && actor->has_spawned() && actor->npc_host_player_id() == local.id();
 }
 
+void NetGame::OnNativeTransformation(oCNpc* previous, oCNpc* current, std::uint16_t spell, bool entering) {
+  const auto id = GetPlayerIdByNpc(previous);
+  auto* actor = id ? GetPlayerById(*id) : nullptr;
+  if (!actor || !actor->IsLocalPlayer() || !current || current != player)
+    return;
+  ResetWorldRenderState();
+  if (entering) {
+    native_transformation_spell_ = spell;
+    native_transformation_generation_ = actor->base_player().actor_generation();
+    const auto position = previous->GetPositionWorld();
+    native_transformation_origin_ = {position[VX], position[VY], position[VZ]};
+  }
+  actor->StopPositionInterpolation();
+  actor->ClearHandledAnimation();
+  actor->InvalidatePresentation(kSyncAll);
+  actor->SetNpc(current);
+  if (!actor->base_player().name().empty())
+    current->name[0] = actor->base_player().name().c_str();
+  if (entering) {
+    // Finish the native spell/book call before clearing the new body's event
+    // queue and rebuilding its standing pose. Keep any explicit input lock.
+    const bool movement_locked = previous->IsMovLock() != 0;
+    const auto generation = actor->base_player().actor_generation();
+    auto* world = current->GetHomeWorld();
+    GMPCore::Instance().DeferToNextFrame([id = *id, generation, world, current, movement_locked, spell] {
+      auto& game = NetGame::Instance();
+      auto* actor = game.GetPlayerById(id);
+      if (!actor || !actor->IsLocalPlayer() || actor->GetNpc() != current || current != player ||
+          actor->base_player().actor_generation() != generation || game.native_transformation_spell_ != spell ||
+          !ogame || ogame->GetGameWorld() != world || actor->base_player().life_state() != PLAYER_LIFE_ALIVE ||
+          current->IsDead() || current->IsUnconscious())
+        return;
+      ScopedNetworkObservationSuppression suppress_observation;
+      current->ClearEM();
+      current->state.ClearAIState();
+      auto position = current->GetPositionWorld();
+      // ResetPos repairs collision/root motion but also refills resources.
+      // A presentation repair must preserve the actual HP and paid mana.
+      const int health = current->GetAttribute(NPC_ATR_HITPOINTS);
+      const int mana = current->GetAttribute(NPC_ATR_MANA);
+      current->ResetPos(position);
+      current->attribute[NPC_ATR_HITPOINTS] = health;
+      current->attribute[NPC_ATR_MANA] = mana;
+      current->SetSleeping(FALSE);
+      current->SetMovLock(movement_locked);
+      if (auto* controller = current->GetAnictrl()) {
+        controller->InitAnimations();
+        controller->SetFightAnis(current->GetWeaponMode());
+        controller->SetWalkMode(ANI_WALKMODE_RUN);
+        controller->SearchStandAni(TRUE);
+      }
+    });
+  }
+  ResetLocalActionObservation();
+  if (!entering && game_client && native_transformation_generation_ == actor->base_player().actor_generation() && !ShouldSuppressLocalEquipEvents())
+    game_client->SendTransformationReturn(native_transformation_cast_);
+}
+
+bool NetGame::ClearNativeTransformation() {
+  if (!player)
+    return true;
+  oCSpell* active = nullptr;
+  for (auto* node = player->activeSpells.GetNextInList(); node; node = node->GetNextInList()) {
+    auto* spell = node->GetData();
+    if (spell && gmp::GetTransformationForm(static_cast<std::uint16_t>(spell->GetSpellID())) && spell->saveNpc) {
+      active = spell;
+      break;
+    }
+  }
+  if (!active)
+    return true;
+  auto* form = player;
+  auto* human = active->saveNpc;
+  form->AddRef();
+  active->AddRef();
+  {
+    ScopedNetworkObservationSuppression suppress_observation;
+    if (form->isInMovementMode != zCVob::zVOB_MOVE_MODE_NOTINBLOCK)
+      form->EndMovement(TRUE);
+    active->EndTimedEffect();
+    if (player != human) {
+      // The original body occupied this location before the native swap.
+      // Retry rollback there when the animal no longer fits a human body.
+      const auto position = native_transformation_spell_
+                                ? zVEC3(native_transformation_origin_.x, native_transformation_origin_.y, native_transformation_origin_.z)
+                                : human->GetPositionWorld();
+      form->SetPositionWorld(position);
+      active->EndTimedEffect();
+    }
+  }
+  const bool returned = player == human;
+  if (returned)
+    form->RemoveActiveSpell(active);
+  active->Release();
+  form->Release();
+  if (!returned)
+    SPDLOG_ERROR("Cannot restore native transformation: no room for the human body");
+  return returned;
+}
+
+bool NetGame::IsActorInstancePending(Gothic2APlayer& actor) const {
+  if (actor.base_player().instance_change_revision()) return true;
+  if (!actor.npc || (actor.IsLocalPlayer() && !native_transformation_spell_))
+    return false;
+  const auto expected = FindParserIndex(actor.base_player().instance().c_str());
+  // Remote instance replacement runs next frame. Its new stats and pose must
+  // not be applied to the old model while that replacement is pending.
+  return expected ? actor.npc->GetInstance() != *expected : actor.IsLocalPlayer();
+}
+
+void NetGame::SendNativeTeleport(oCNpc* npc, const std::string& destination) {
+  if (!CanReportActorDamage(npc) || destination.empty() || destination.size() > 255)
+    return;
+  const auto id = GetPlayerIdByNpc(npc);
+  if (!id)
+    return;
+  const auto position = npc->GetPositionWorld();
+  const auto normal = npc->GetAtVectorWorld();
+  PlayerTeleportPacket packet;
+  packet.player_id = static_cast<std::uint32_t>(*id);
+  packet.position = {position[VX], position[VY], position[VZ]};
+  packet.normal = {normal[VX], normal[VY], normal[VZ]};
+  packet.destination = destination;
+  game_client->SendNativeTeleport(std::move(packet));
+}
+
 void NetGame::SendActorHit(oCNpc* attacker, std::uint32_t victim, std::int32_t damage, std::uint32_t type, bool dont_kill,
                            bool finishing_move) {
   if (!game_client || !attacker) return;
@@ -1971,6 +2180,7 @@ void NetGame::UpdatePlayerStats(short anim) {
   }
   if (game_client->player_manager().HasLocalPlayer()) {
     if (auto* local = GetPlayerById(game_client->player_manager().GetLocalPlayer().id())) {
+      if (IsActorInstancePending(*local)) return;
       ApplyServerInventory(*local);
       ApplyServerStats(*local);
     }
@@ -2025,8 +2235,17 @@ void NetGame::UpdatePlayerStats(short anim) {
     state.focus_target_id = static_cast<std::uint32_t>(*focus);
   }
   state.weapon_mode = static_cast<uint8_t>(player->GetWeaponMode());
-  state.active_spell_nr = player->GetActiveSpellNr() > 0 ? static_cast<uint8_t>(player->GetActiveSpellNr()) : 0;
   state.active_spell_instance = GetActiveSpellItemInstance(player);
+  if (state.active_spell_instance) {
+    auto* book = player->GetSpellBook();
+    auto* spell = GetSelectedMagicSpell(player);
+    // The wire field is the 1-based hotkey, never the spell ID (Light = 18).
+    const int hotkey = book->GetKeyByItem(book->GetSpellItem(spell));
+    state.active_spell_nr = hotkey >= 1 && hotkey <= 8 ? static_cast<std::uint8_t>(hotkey) : 0;
+    state.spell_investing = spell->manaInvested > 0;
+    state.active_spell_level =
+        static_cast<std::uint8_t>(std::clamp(spell->effect ? spell->effect->GetLevel() : 0, 0, static_cast<int>(kMaxSpellInvestLevel)));
+  }
   state.head_direction = GetHeadDirectionByte(player);
   oCItem* melee_weapon = GetCurrentMeleeWeapon(player);
   oCItem* ranged_weapon = GetCurrentRangedWeapon(player);
@@ -2043,6 +2262,10 @@ void NetGame::SyncGameTime() {
 }
 
 void NetGame::Disconnect() {
+  ClearNativeTransformation();
+  native_transformation_spell_ = 0;
+  native_transformation_cast_ = 0;
+  ClearNativeLightSpells(player);
   CancelAllNpcActions();
   CMainMenu::StopMenuScenes();
   ++content_activation_generation_;
@@ -2186,6 +2409,12 @@ void NetGame::OnConnectionFailed(const std::string& error) {
 }
 
 void NetGame::OnDisconnected() {
+  ClearNativeTransformation();
+  native_transformation_spell_ = 0;
+  native_transformation_cast_ = 0;
+  // Actor metadata may already be gone, but the native hero survives in the
+  // menu session. Its timed lights must not leak into the next connection.
+  ClearNativeLightSpells(player);
   // GameClient has already removed its actor metadata by this callback.
   npc_actions_.clear();
   SPDLOG_INFO("Disconnected from server");
@@ -2684,6 +2913,10 @@ void NetGame::OnNpcControl(const NpcControlPacket& control) {
     FinishNpcAction(action, false);
     return;
   }
+  if (actor->base_player().instance_change_revision()) {
+    ChangePlayerInstance(control.npc_id, actor->base_player().instance(), true);
+    return;
+  }
   actor->ClearHandledAnimation();
   auto* npc = actor->GetNpc();
   if (actor->base_player().life_state() == PLAYER_LIFE_ALIVE) {
@@ -2825,12 +3058,13 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
   newhero->SetNpc(npc);
   // Enable chooses the initial stand/dead pose from native HP. Supply the
   // server values before that decision rather than the script constructor's.
-  npc->SetAttribute(NPC_ATR_HITPOINTSMAX, new_player.max_health());
-  SetNpcHealth(npc, new_player.health());
-  npc->SetAttribute(NPC_ATR_MANAMAX, new_player.max_mana());
-  npc->SetAttribute(NPC_ATR_MANA, new_player.mana());
+  if (!new_player.instance_change_revision()) {
+    npc->SetAttribute(NPC_ATR_HITPOINTSMAX, new_player.max_health());
+    SetNpcHealth(npc, new_player.health());
+    npc->SetAttribute(NPC_ATR_MANAMAX, new_player.max_mana());
+    npc->SetAttribute(NPC_ATR_MANA, new_player.mana());
+  }
   newhero->npc->startAIState = 0;
-  newhero->npc->SetGuild(9);
   if (new_player.is_npc()) {
     SuppressServerNpcAI(npc);
   }
@@ -2903,7 +3137,78 @@ void NetGame::OnPlayerNameUpdate(std::uint64_t player_id, const std::string& nam
   cplayer->SetName(new_name);
 }
 
+PlayerSpawnPacket NetGame::CaptureInstanceDefaults(Gothic2APlayer& actor) {
+  auto* npc = actor.GetNpc();
+  const auto& base = actor.base_player();
+  PlayerSpawnPacket packet;
+  packet.packet_type = PT_PLAYER_SPAWN;
+  packet.player_id = static_cast<std::uint32_t>(base.id());
+  packet.actor_generation = base.actor_generation();
+  packet.command_revision = base.command_revision();
+  packet.state_sequence = base.state_sequence();
+  packet.instance_change_revision = base.instance_change_revision();
+  packet.source_time_ms = ActorClockMilliseconds();
+  packet.instance = base.instance();
+  packet.player_name = base.name();
+  packet.name_color_r = base.name_color_r();
+  packet.name_color_g = base.name_color_g();
+  packet.name_color_b = base.name_color_b();
+  packet.position = Vec3ToGlmVec3(npc->GetPositionWorld());
+  packet.normal = Vec3ToGlmVec3(npc->GetAtVectorWorld());
+  packet.body_model = npc->body_visualName.ToChar();
+  packet.head_model = npc->head_visualName.ToChar();
+  packet.body_texture = std::max(0, npc->body_TexVarNr);
+  packet.head_texture = std::max(0, npc->head_TexVarNr);
+  packet.teeth_texture = std::max(0, npc->teeth_TexVarNr);
+  packet.skin_color = std::max(0, npc->body_TexColorNr);
+  packet.fatness = npc->model_fatness;
+  packet.scale = Vec3ToGlmVec3(npc->model_scale);
+  packet.health = std::max(0, npc->GetAttribute(NPC_ATR_HITPOINTS));
+  packet.max_health = std::max(0, npc->GetAttribute(NPC_ATR_HITPOINTSMAX));
+  packet.mana = std::max(0, npc->GetAttribute(NPC_ATR_MANA));
+  packet.max_mana = std::max(0, npc->GetAttribute(NPC_ATR_MANAMAX));
+  packet.strength = std::max(0, npc->GetAttribute(NPC_ATR_STRENGTH));
+  packet.dexterity = std::max(0, npc->GetAttribute(NPC_ATR_DEXTERITY));
+  packet.level = std::max(0, npc->level);
+  packet.exp = static_cast<std::int32_t>(std::min<unsigned long>(npc->experience_points, INT_MAX));
+  packet.next_level_exp = static_cast<std::int32_t>(std::min<unsigned long>(npc->experience_points_next_level, INT_MAX));
+  packet.learn_points = static_cast<std::int32_t>(std::min<unsigned long>(npc->learn_points, INT_MAX));
+  packet.life_state = packet.health ? PLAYER_LIFE_ALIVE : PLAYER_LIFE_DEAD;
+  packet.invulnerable = (npc->variousFlags & NPC_FLAG_IMMORTAL) != 0;
+  packet.weapon_mode = static_cast<std::uint8_t>(npc->GetWeaponMode());
+  packet.body_state = static_cast<std::uint32_t>(npc->GetBodyState());
+  if (auto* controller = npc->GetAnictrl())
+    packet.walk_mode = static_cast<std::uint8_t>(std::clamp(controller->walkmode, 0, 2));
+  packet.equipped_armor_instance = npc->GetEquippedArmor() ? npc->GetEquippedArmor()->GetInstance() : 0;
+  packet.equipped_helmet_instance = GetSlotItemInstance(npc, NPC_NODE_HELMET);
+  packet.equipped_shield_instance = GetSlotItemInstance(npc, NPC_NODE_SHIELD);
+  packet.equipped_amulet_instance = GetEquippedInventoryItemInstance(npc, ITM_FLAG_AMULET);
+  packet.equipped_belt_instance = GetEquippedInventoryItemInstance(npc, ITM_FLAG_BELT);
+  const auto rings = GetEquippedRingInstances(npc, {0, 0});
+  packet.equipped_ring_left_instance = rings[0];
+  packet.equipped_ring_right_instance = rings[1];
+  packet.melee_weapon_instance = GetCurrentMeleeWeapon(npc) ? GetCurrentMeleeWeapon(npc)->GetInstance() : 0;
+  packet.ranged_weapon_instance = GetCurrentRangedWeapon(npc) ? GetCurrentRangedWeapon(npc)->GetInstance() : 0;
+  std::map<int, std::int64_t> inventory;
+  for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
+    if (auto* item = entry->GetData())
+      inventory[item->GetInstance()] += std::max(0, item->amount);
+  }
+  for (const auto& [instance, count] : inventory)
+    if (count > 0)
+      packet.inventory.push_back({instance, static_cast<int>(std::min<std::int64_t>(count, INT_MAX))});
+  for (int skill = 1; skill < NPC_HITCHANCE_MAX; ++skill) packet.weapon_skills.push_back({skill, npc->GetHitChance(skill)});
+  for (int talent = 1; talent < oCNpcTalent::NPC_TAL_MAX; ++talent) packet.talents.push_back({talent, npc->GetTalentSkill(talent)});
+  for (int i = 0; i < npc->activeOverlays.GetNumInList(); ++i) packet.overlays.emplace_back(npc->activeOverlays[i].ToChar());
+  return packet;
+}
+
 void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string& instance) {
+  auto* actor = GetPlayerById(player_id);
+  ChangePlayerInstance(player_id, instance, actor && actor->base_player().instance_change_revision() != 0);
+}
+
+void NetGame::ChangePlayerInstance(std::uint64_t player_id, const std::string& instance, bool reset_defaults) {
   if (instance.empty()) {
     return;
   }
@@ -2912,40 +3217,84 @@ void NetGame::OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string&
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
+  if (cplayer->IsLocalPlayer() && native_transformation_spell_ && !cplayer->base_player().transformation_spell_id()) {
+    if (!ClearNativeTransformation())
+      return;
+    native_transformation_spell_ = 0;
+    native_transformation_cast_ = 0;
+    cplayer = GetPlayerById(player_id);
+    if (!cplayer || !cplayer->GetNpc())
+      return;
+  }
 
   const auto instance_id = FindParserIndex(instance.c_str());
   if (!instance_id.has_value() || *instance_id <= 0) {
     SPDLOG_WARN("Unknown NPC instance '{}' for player {}", instance, player_id);
+    if (cplayer->base_player().instance_change_revision())
+      game_client->SendInstanceReady(CaptureInstanceDefaults(*cplayer), false);
     return;
   }
 
-  if (cplayer->GetNpc()->GetInstance() == *instance_id) {
+  if (!IsNpcInstance(zCParser::GetParser(), *instance_id)) {
+    SPDLOG_WARN("Cannot replace server NPC {}: instance is not C_NPC", player_id);
+    if (cplayer->base_player().instance_change_revision())
+      game_client->SendInstanceReady(CaptureInstanceDefaults(*cplayer), false);
     return;
   }
-  InterruptNpcAction(player_id);
-
-  std::optional<ScriptInstanceScope> npc_instance_scope;
-  {
-    auto* parser = zCParser::GetParser();
-    if (!IsNpcInstance(parser, *instance_id)) {
-      SPDLOG_WARN("Cannot replace server NPC {}: instance is not C_NPC", player_id);
-      return;
-    }
-    npc_instance_scope.emplace(*parser, *instance_id);
-  }
-
-  StopNpcPersistentAnimation(player_id);
-  if (!cplayer->ReplaceNpcInstance(*instance_id)) {
-    SPDLOG_WARN("Failed to replace NPC instance '{}' for player {}", instance, player_id);
-    return;
-  }
-
   cplayer->base_player().set_instance(instance);
-  ApplyActorState(*cplayer, cplayer->base_player().state(), true);
-  ApplyServerStats(*cplayer);
-  if (cplayer->base_player().is_npc()) {
-    SuppressServerNpcAI(cplayer->GetNpc());
+  const auto request = cplayer->base_player().instance_change_revision();
+  if (reset_defaults && request && cplayer->initialized_instance_revision == request) {
+    game_client->SendInstanceReady(CaptureInstanceDefaults(*cplayer));
+    return;
   }
+  if (!reset_defaults && cplayer->GetNpc()->GetInstance() == *instance_id)
+    return;
+  const auto generation = cplayer->base_player().actor_generation();
+  auto* world = ogame ? ogame->GetGameWorld() : nullptr;
+  GMPCore::Instance().DeferToNextFrame(
+      [player_id, generation, world, instance, reset_defaults, request, expected_npc = cplayer->GetNpc(), index = *instance_id] {
+        auto& game = NetGame::Instance();
+        auto* actor = game.GetPlayerById(player_id);
+        if (!game.IsConnected() || !ogame || ogame->GetGameWorld() != world || !actor || actor->GetNpc() != expected_npc ||
+            actor->base_player().actor_generation() != generation || actor->base_player().instance() != instance ||
+            (request && actor->base_player().instance_change_revision() != request))
+          return;
+        if (!reset_defaults && actor->GetNpc()->GetInstance() == index)
+          return;
+        game.InterruptNpcAction(player_id);
+        game.StopNpcPersistentAnimation(player_id);
+        // ReplaceNpcInstance scopes construction only. A scope spanning old-NPC
+        // destruction would restore SELF/the instance symbol to the retired actor.
+        if (!actor->ReplaceNpcInstance(index)) {
+          SPDLOG_WARN("Failed to replace NPC instance '{}' for player {}", instance, player_id);
+          if (request)
+            game.game_client->SendInstanceReady(game.CaptureInstanceDefaults(*actor), false);
+          return;
+        }
+        if (reset_defaults) {
+          auto defaults = game.CaptureInstanceDefaults(*actor);
+          game.game_client->ApplyNativeInstanceDefaults(defaults);
+          actor->initialized_instance_revision = request;
+          if (request)
+            game.game_client->SendInstanceReady(defaults);
+        } else {
+          const auto& base = actor->base_player();
+          if (!base.transformation_spell_id() && actor->GetNpc()->IsHuman()) {
+            // Transformation returns restore the server's human appearance;
+            // constructor defaults belong only to an explicit instance change.
+            game.OnPlayerVisualUpdate(player_id, base.body_model(), base.body_texture(), base.head_model(), base.head_texture(), base.teeth_texture(),
+                                      base.skin_color());
+            game.OnPlayerFatnessUpdate(player_id, base.fatness());
+            game.OnPlayerScaleUpdate(player_id, base.scale());
+            for (const auto& overlay : base.overlays()) game.OnPlayerOverlayUpdate(player_id, overlay, true);
+          }
+          game.ApplyServerStats(*actor);
+          game.ApplyServerInventory(*actor, true);
+          game.ApplyActorState(*actor, actor->base_player().state(), true);
+        }
+        if (actor->base_player().is_npc())
+          SuppressServerNpcAI(actor->GetNpc());
+      });
 }
 
 void NetGame::OnPlayerColorUpdate(std::uint64_t player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
@@ -2963,9 +3312,12 @@ void NetGame::OnPlayerSkillWeaponUpdate(std::uint64_t player_id, std::int32_t sk
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
+  if (!gmp::IsWeaponSkill(skill_id)) return;
+  cplayer->base_player().set_weapon_skill(skill_id, std::clamp(percentage, 0, 100));
+  cplayer->base_player().set_talent(skill_id, gmp::WeaponSkillTier(percentage));
+  if (cplayer->base_player().transformation_spell_id() || IsActorInstancePending(*cplayer)) return;
 
-  cplayer->GetNpc()->SetHitChance(skill_id, percentage);
-  cplayer->base_player().set_weapon_skill(skill_id, percentage);
+  ApplyNpcWeaponSkill(cplayer->GetNpc(), skill_id, percentage);
 }
 
 void NetGame::OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_id, std::int32_t talent_value) {
@@ -2973,9 +3325,10 @@ void NetGame::OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
-
-  cplayer->GetNpc()->SetTalentSkill(talent_id, talent_value);
   cplayer->base_player().set_talent(talent_id, talent_value);
+  if (cplayer->base_player().transformation_spell_id() || IsActorInstancePending(*cplayer)) return;
+
+  ApplyNpcTalent(cplayer->GetNpc(), talent_id, talent_value);
 }
 
 void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
@@ -2984,6 +3337,7 @@ void NetGame::OnPlayerVisualUpdate(std::uint64_t player_id, const std::string& b
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
+  if (!cplayer->GetNpc()->IsHuman()) return;
 
   InterruptNpcAction(player_id);
   StopNpcPersistentAnimation(player_id);
@@ -3023,20 +3377,21 @@ void NetGame::OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& 
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
+  if (apply)
+    cplayer->base_player().add_overlay(overlay);
+  else
+    cplayer->base_player().remove_overlay(overlay);
+  if (cplayer->base_player().transformation_spell_id() || IsActorInstancePending(*cplayer)) return;
 
   InterruptNpcAction(player_id);
   StopNpcPersistentAnimation(player_id);
   zSTRING overlay_name(overlay.c_str());
   if (apply) {
     cplayer->GetNpc()->ApplyOverlay(overlay_name);
-    cplayer->base_player().add_overlay(overlay);
     return;
   }
 
-  if (cplayer->GetNpc()->GetOverlay(overlay_name) != 0) {
-    cplayer->GetNpc()->RemoveOverlay(overlay_name);
-  }
-  cplayer->base_player().remove_overlay(overlay);
+  cplayer->GetNpc()->RemoveOverlay(overlay_name);
 }
 
 void NetGame::OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) {
@@ -3106,6 +3461,7 @@ void NetGame::OnPlayerAttributeUpdate(std::uint64_t player_id, PlayerAttributeId
   if (!cplayer || !cplayer->GetNpc()) {
     return;
   }
+  if (IsActorInstancePending(*cplayer)) return;
 
   oCNpc* npc = cplayer->GetNpc();
   const bool is_local = cplayer->IsLocalPlayer();
@@ -3235,8 +3591,10 @@ void NetGame::OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& wo
 
     zSTRING z_world(world_name.c_str());
     zSTRING z_start_point(start_point.c_str());
+    PrepareWorldChange();
     Patch::ChangeLevelEnabled(true);
     ogame->ChangeLevel(z_world, z_start_point);
+    ResetWorldRenderState();
     Patch::ChangeLevelEnabled(false);
     // ChangeLevel is synchronous here. Rebind the loaded hero before deferred
     // corrections, item commands and new-world sampling touch engine state.
@@ -3246,11 +3604,22 @@ void NetGame::OnPlayerWorldUpdate(std::uint64_t player_id, const std::string& wo
 }
 
 void NetGame::ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing) {
+  if (actor.base_player().instance_change_revision()) return;
+  // The native spell retains the human's real inventory in saveNpc. Copying it
+  // into the animal would duplicate it and run equipment scripts twice.
+  if (actor.IsLocalPlayer() && native_transformation_spell_ && actor.GetNpc() == player &&
+      (actor.base_player().transformation_spell_id() || IsActorInstancePending(actor))) return;
   auto* npc = actor.GetNpc();
   if (!npc || (!actor.IsLocalPlayer() && !actor.base_player().is_npc())) return;
   std::unordered_map<std::int32_t, std::int64_t> native_counts;
   for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
     if (auto* item = entry->GetData()) native_counts[item->GetInstance()] += std::max(0, item->amount);
+  }
+  if (auto* parser = zCParser::GetParser()) {
+    for (const auto* name : {"ITLSTORCH", "ITLSTORCHBURNING"}) {
+      const int instance = parser->GetIndex(name);
+      if (GetCarriedTorchAmount(npc, instance) > 0) native_counts.try_emplace(instance, 0);
+    }
   }
   auto allowed = actor.base_player().inventory();
   if (actor.IsLocalPlayer()) {
@@ -3271,11 +3640,13 @@ void NetGame::ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing) 
   for (const auto& [instance, count] : native_counts) {
     const auto found = allowed.find(instance);
     const auto desired = found == allowed.end() ? 0 : found->second;
-    if (count > desired || (restore_missing && count < desired)) ReconcileInventoryAmount(npc, instance, desired);
+    const auto owned_count = count + GetCarriedTorchAmount(npc, instance);
+    if (owned_count > desired || (restore_missing && owned_count < desired)) ReconcileInventoryAmount(npc, instance, desired);
   }
 }
 
 void NetGame::ApplyServerStats(Gothic2APlayer& actor) {
+  if (IsActorInstancePending(actor)) return;
   auto* npc = actor.GetNpc();
   if (!npc) return;
   const auto& state = actor.base_player();
@@ -3288,6 +3659,10 @@ void NetGame::ApplyServerStats(Gothic2APlayer& actor) {
   npc->experience_points = state.exp();
   npc->experience_points_next_level = state.next_level_exp();
   npc->learn_points = state.learn_points();
+  // Native transformation retains human talents on the saved human body.
+  // SetTalentSkill can load human overlays (notably acrobatics); applying it
+  // to the creature changes its animation controller and can stop movement.
+  if (state.transformation_spell_id()) return;
   for (int skill = 0; skill < NPC_HITCHANCE_MAX; ++skill) {
     const auto found = state.weapon_skills().find(skill);
     const auto value = found == state.weapon_skills().end() ? 0 : std::clamp(found->second, 0, 100);
@@ -3296,11 +3671,12 @@ void NetGame::ApplyServerStats(Gothic2APlayer& actor) {
   for (int talent = 1; talent < oCNpcTalent::NPC_TAL_MAX; ++talent) {
     const auto found = state.talents().find(talent);
     const auto value = found == state.talents().end() ? 0 : found->second;
-    if (npc->GetTalentSkill(talent) != value) npc->SetTalentSkill(talent, value);
+    ApplyNpcTalent(npc, talent, value);
   }
 }
 
 void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due) {
+  if (IsActorInstancePending(actor)) return;
   auto* npc = actor.GetNpc();
   if (!npc) {
     return;
@@ -3385,9 +3761,11 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
     if (state.invulnerable) npc->variousFlags |= NPC_FLAG_IMMORTAL;
     else npc->variousFlags &= ~NPC_FLAG_IMMORTAL;
     ApplyPlayerLifeState(id, life, std::nullopt, false);
+    if (terminal)
+      actor.ClearRemoteLightEffect();
   }
   if ((mask & (kSyncCombat | kSyncEquipment)) != 0 && (snapshot || !local)) {
-    if (terminal || state.active_spell_instance == 0) {
+    if (terminal || state.active_spell_instance == 0 || state.weapon_mode != NPC_WEAPON_MAG) {
       CloseSpellBook(npc);
     } else if (IsNetworkItemInstance(state.active_spell_instance)) {
       auto* spell_item = npc->inventory2.IsIn(state.active_spell_instance, 1);
@@ -3411,6 +3789,9 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
             }
           }
           if (index < 0) {
+            // Equip toggles ACTIVE runes off. Registration is the source of
+            // truth when a proxy's inventory was reconciled independently.
+            spell_item->ClearFlag(ITM_FLAG_ACTIVE);
             npc->Equip(spell_item);
             for (int i = 0; i < book->GetNoOfSpells(); ++i) {
               if (book->GetSpellItem(i) == spell_item) {
@@ -3420,9 +3801,27 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
             }
           }
           if (index >= 0) {
-            book->SetFrontSpell(index);
-            if (state.weapon_mode == NPC_WEAPON_MAG) {
+            SelectMagicSpellForPresentation(npc, index);
+            // Open(0) stops/recreates the hand effect even when already shown.
+            // Reopening it for every pose drops PFX, audio and charge state.
+            if (!book->show_handsymbol)
               book->Open(0);
+            auto* spell = GetSelectedMagicSpell(npc);
+            if (spell) {
+              if (spell->effect && ((!state.spell_investing && spell->effect->fxState == zVFXSTATE_INVESTNEXT) ||
+                                    state.active_spell_level < spell->effect->GetLevel()))
+                book->StopSelectedSpell();
+              spell = GetSelectedMagicSpell(npc);
+            }
+            if (spell) {
+              auto* focus = state.focus_target_id ? GetPlayerById(*state.focus_target_id) : nullptr;
+              spell->Setup(npc, focus ? focus->GetNpc() : nullptr, 0);
+              if (spell->effect) {
+                spell->effect->SetDamage(0.0f);
+                spell->effect->SetDamageType(0);
+                if (state.spell_investing && state.active_spell_level > spell->effect->GetLevel())
+                  spell->effect->SetLevel(state.active_spell_level, 0);
+              }
             }
           }
         }
@@ -3435,18 +3834,74 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
     if (npc->GetWeaponMode() != mode) {
       npc->SetWeaponMode(mode);
     }
+    if (mode == NPC_WEAPON_MAG && (snapshot || !local)) {
+      if (auto* spell = GetSelectedMagicSpell(npc))
+        ConfigureMagicAnimations(npc, spell->GetSpellID());
+    }
   }
   if ((mask & kSyncEquipment) != 0 && (snapshot || !local)) {
+    ScopedTorchUseSuppression suppress_torch_use;
     auto sync_hand = [&](std::int32_t instance, bool right) {
       auto* current = dynamic_cast<oCItem*>(right ? npc->GetRightHand() : npc->GetLeftHand());
       if (current && current->GetInstance() == instance && !terminal) {
+        if (GetSheathedWeaponSlot(current)) {
+          MoveInventoryWeaponToSlot(npc, current, right ? NPC_NODE_RIGHTHAND : NPC_NODE_LEFTHAND);
+        }
         return;
       }
-      RemoveHandItem(npc, right);
+      const char* sheathed_slot = GetSheathedWeaponSlot(current);
+      const bool remains_equipped = current && current->HasFlag(ITM_FLAG_ACTIVE) &&
+                                    ((IsMeleeWeaponItem(current) && current->GetInstance() == state.melee_weapon_instance) ||
+                                     (IsRangedWeaponItem(current) && current->GetInstance() == state.ranged_weapon_instance));
+      if (!terminal && sheathed_slot && remains_equipped) {
+        // Sheathing moves the existing equipped object back; it must not toggle
+        // equipment, rerun equip scripts, or leave the weapon unattached.
+        MoveInventoryWeaponToSlot(npc, current, sheathed_slot);
+      } else {
+        RemoveHandItem(npc, right);
+      }
       if (terminal || instance == 0 || !IsNetworkItemInstance(instance)) {
         return;
       }
-      auto* item = npc->inventory2.IsIn(instance, 1);
+      auto* parser = zCParser::GetParser();
+      if (parser && instance == parser->GetIndex("ITLSTORCHBURNING")) {
+        // A torch's ZEN contains the flame/light subtree. Inventory attachment
+        // substitutes only a mesh, so keep the burning item out of inventory2.
+        auto* torch = CreateNetworkItem(instance);
+        if (!torch)
+          return;
+        if (!IsBurningTorch(torch)) {
+          torch->Release();
+          return;
+        }
+        torch->dontWriteIntoArchive = true;
+        if (right)
+          npc->SetRightHand(torch);
+        else
+          npc->SetLeftHand(torch);
+        if ((right ? npc->GetRightHand() : npc->GetLeftHand()) == torch && torch->GetHomeWorld()) {
+          // Viewers need the prefab's light/particles, not torch gameplay AI
+          // that could independently extinguish it and spawn burned items.
+          if (local) {
+            if (auto* ai = torch->GetAIVobMove()) {
+              auto position = torch->GetPositionWorld();
+              ai->Init(torch, npc, position, 0.0f, 0.0f, nullptr);
+            }
+          }
+          TrackProxyPresentationItem(npc, torch);
+          // Match native UseItem: release factory references to every child,
+          // including the dynamic light, once the world owns the subtree.
+          torch->ReleaseVobSubtree(nullptr);
+        } else {
+          torch->Release();
+        }
+        return;
+      }
+      oCItem* item = GetCurrentMeleeWeapon(npc);
+      if (!item || item->GetInstance() != instance)
+        item = GetCurrentRangedWeapon(npc);
+      if (!item || item->GetInstance() != instance)
+        item = npc->inventory2.IsIn(instance, 1);
       if (item && ((!right && npc->GetRightHand() == item) || (right && npc->GetLeftHand() == item))) {
         item = nullptr;
       }
@@ -3454,7 +3909,9 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
         item = InsertOwnedItem(npc, CreateNetworkItem(instance), true);
       }
       if (item) {
-        if (right) {
+        if (GetSheathedWeaponSlot(item)) {
+          MoveInventoryWeaponToSlot(npc, item, right ? NPC_NODE_RIGHTHAND : NPC_NODE_LEFTHAND);
+        } else if (right) {
           npc->SetRightHand(item);
         } else {
           npc->SetLeftHand(item);
@@ -3465,12 +3922,18 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
     sync_hand(state.right_hand_item_instance, true);
   }
 
+  // Pose-only updates must also repair a torch overlay displaced by a later
+  // walking style, including a walk/run toggle while standing still.
+  if ((mask & (kSyncEquipment | kSyncPose)) != 0 && (snapshot || !local))
+    UpdateTorchAnimation(npc);
+
   if ((mask & kSyncPose) != 0 && !terminal && (snapshot || !local)) {
+    const bool reacting = IsPlayingDamageReaction(npc->GetModel());
     if (auto* controller = npc->GetAnictrl()) {
       controller->SetWalkMode(state.walk_mode);
       controller->SetLookAtTarget(std::clamp(state.look_yaw, 0.0f, 1.0f), std::clamp(state.look_pitch, 0.0f, 1.0f));
     }
-    if (state.body_state < BS_MAX && state.body_state != BS_DEAD && state.body_state != BS_UNCONSCIOUS) {
+    if (!reacting && state.body_state < BS_MAX && state.body_state != BS_DEAD && state.body_state != BS_UNCONSCIOUS) {
       npc->SetBodyState(static_cast<int>(state.body_state));
     }
     auto* focus = state.focus_target_id ? GetPlayerById(*state.focus_target_id) : nullptr;
@@ -3481,7 +3944,8 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
       zSTRING animation(state.animation_name.c_str());
       auto* prototype = model ? model->GetAniFromAniID(model->GetAniIDFromAniName(animation)) : nullptr;
       const bool recovering = model && (model->IsAnimationActive("T_WOUNDED_2_STAND") || model->IsAnimationActive("T_WOUNDEDB_2_STAND"));
-      if (prototype && !recovering && (prototype->GetAniType() == zMDL_ANI_TYPE_NORMAL || prototype->GetAniType() == zMDL_ANI_TYPE_ALIAS) &&
+      if (prototype && !recovering && !reacting && (!IsPlayingMagicAction(npc) || IsMagicActionAnimation(npc, prototype->GetAniID())) &&
+          (prototype->GetAniType() == zMDL_ANI_TYPE_NORMAL || prototype->GetAniType() == zMDL_ANI_TYPE_ALIAS) &&
           gmp::IsSampledPlayerAnimation(state.animation_name, IsLoopingModelAnimation(model, prototype))) {
         auto* active = model->GetActiveAni(prototype);
         if (!active || active->isFadingOut) model->StartAni(prototype, zCModel::zMDL_STARTANI_FORCE);
@@ -3534,6 +3998,82 @@ void NetGame::OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, 
     cplayer->StopPositionInterpolation();
     cplayer->SetPosition(x, y, z);
   }
+}
+
+void NetGame::OnPlayerSummon(const PlayerSummonPacket& packet) {
+  auto* caster = GetPlayerById(packet.caster_id);
+  auto* npc = GetPlayerById(packet.npc_id);
+  if (!caster || !caster->GetNpc() || caster->base_player().actor_generation() != packet.caster_generation || !npc || !npc->GetNpc() ||
+      npc->base_player().actor_generation() != packet.npc_generation)
+    return;
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerSummonName,
+                                        gmp::gothic::OnPlayerSummonEvent{packet.caster_id, packet.spell_id, packet.summon_instance, packet.npc_id});
+}
+
+void NetGame::OnPlayerTeleport(const PlayerTeleportPacket& packet, std::uint16_t correction_mask) {
+  auto* actor = GetPlayerById(packet.player_id);
+  if (!actor || !actor->GetNpc() || actor->base_player().actor_generation() != packet.actor_generation)
+    return;
+  {
+    ScopedNetworkObservationSuppression suppress_observation;
+    actor->InvalidatePresentation(correction_mask);
+    if (correction_mask & kSyncPosition)
+      OnPlayerPositionUpdate(packet.player_id, packet.position.x, packet.position.y, packet.position.z);
+    if (correction_mask & kSyncOrientation) {
+      actor->GetNpc()->SetHeadingAtWorld(zVEC3(packet.normal.x, packet.normal.y, packet.normal.z));
+      if (auto action = npc_actions_.find(packet.player_id); action != npc_actions_.end())
+        action->second.control.normal = packet.normal;
+    }
+  }
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerTeleportName,
+                                        gmp::gothic::OnPlayerTeleportEvent{packet.player_id, packet.destination});
+}
+
+void NetGame::OnPlayerTransformation(const PlayerTransformationPacket& packet, std::uint16_t correction_mask) {
+  auto* actor = GetPlayerById(packet.player_id);
+  if (!actor || !actor->GetNpc() || actor->base_player().actor_generation() != packet.actor_generation)
+    return;
+  if (actor->IsLocalPlayer()) {
+    if (packet.spell_id == 0) {
+      if (!ClearNativeTransformation())
+        return;
+      native_transformation_spell_ = 0;
+      native_transformation_cast_ = 0;
+      actor = GetPlayerById(packet.player_id);
+      if (!actor || !actor->GetNpc() || actor->base_player().actor_generation() != packet.actor_generation)
+        return;
+    } else if (IsActorInstancePending(*actor)) {
+      // Native return can complete before the accepted entry reaches us.
+      // Keep the real human until the ordered return acknowledgement arrives.
+      return;
+    }
+  }
+  actor->InvalidatePresentation(kSyncAll);
+  ChangePlayerInstance(packet.player_id, packet.instance, false);
+  if (IsActorInstancePending(*actor)) return;
+  ApplyServerStats(*actor);
+  ApplyActorState(*actor, actor->base_player().state(), true);
+  if (actor->IsLocalPlayer() && !packet.spell_id)
+    ApplyServerInventory(*actor, true);
+}
+
+void NetGame::OnActorDamage(const ActorDamagePacket& damage) {
+  auto* victim = GetPlayerById(damage.victim_id);
+  if (!victim || !victim->GetNpc())
+    return;
+  auto apply = [this, damage, expected_npc = victim->GetNpc()] {
+    auto* current = GetPlayerById(damage.victim_id);
+    if (!current || current->GetNpc() != expected_npc || current->base_player().actor_generation() != damage.victim_generation ||
+        current->base_player().life_state() != PLAYER_LIFE_ALIVE || !current->base_player().accepts_life_action_revision(damage.command_revision))
+      return;
+    auto* attacker = damage.attacker_id ? GetPlayerById(*damage.attacker_id) : nullptr;
+    auto* attacker_npc = attacker && attacker->base_player().actor_generation() == damage.attacker_generation ? attacker->GetNpc() : nullptr;
+    PlayNetworkDamageAnimation(current->GetNpc(), attacker_npc, damage.damage, damage.damage_type);
+  };
+  if (victim->IsLocalPlayer() || CanReportActorDamage(victim->GetNpc()))
+    apply();
+  else
+    victim->QueuePresentation(damage.source_time_ms, std::move(apply));
 }
 
 void NetGame::OnActorAction(const ActorActionPacket& action) {
@@ -3826,7 +4366,8 @@ void NetGame::OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance,
       cplayer->base_player().inventory_count(item_instance), true, std::nullopt);
 }
 namespace {
-void PlaySpellPresentation(oCNpc* caster, oCNpc* target, std::uint16_t spell_id) {
+void PlaySpellPresentation(Gothic2APlayer& actor, oCNpc* target, std::uint16_t spell_id, std::uint8_t level) {
+  auto* caster = actor.GetNpc();
   if (!caster || spell_id >= 100) return;
   auto* parser = zCParser::GetParser();
   std::optional<ScriptInstanceScope> scope;
@@ -3835,20 +4376,48 @@ void PlaySpellPresentation(oCNpc* caster, oCNpc* target, std::uint16_t spell_id)
     parser->SetInstance("SELF", caster);
     parser->SetInstance("OTHER", target);
   }
-  auto* spell = new oCSpell();
-  spell->InitValues(spell_id);
-  spell->Setup(caster, target, 0);
-  auto* effect = spell->effect ? spell->effect : spell->CreateEffect();
+  auto* selected = GetSelectedMagicSpell(caster);
+  if (selected && selected->GetSpellID() == spell_id && selected->effect && selected->effect->GetLevel() > level) {
+    caster->GetSpellBook()->StopSelectedSpell();
+    selected = GetSelectedMagicSpell(caster);
+  }
+  const bool use_selected = selected && selected->GetSpellID() == spell_id;
+  // Construct once: InitValues also creates an effect. Calling it again on a
+  // default-constructed spell leaks the original effect (and its light vob).
+  auto* spell = use_selected ? selected : new oCSpell(spell_id);
+  if (!spell)
+    return;
+  spell->Setup(caster, target, 1);
+  auto* effect = spell->effect;
+  // Transfer the one owning reference before releasing/reusing the spell.
+  // Its destructor calls Kill on any attached effect, including Light's vob.
+  spell->effect = nullptr;
   if (effect) {
-    effect->AddRef();
     effect->SetDamage(0.0f);
     effect->SetDamageType(0);
-    effect->Init(caster, target, nullptr);
+    if (level > effect->GetLevel())
+      effect->SetLevel(level, 0);
     effect->Cast(1);
-    // The effect retains its native world lifetime; this temporary spell does
-    // not own gameplay/status logic and must not be leaked per received cast.
-    spell->Release();
-    effect->Release();
+    if (spell_id == SPL_LIGHT || spell_id == SPL_PALLIGHT) {
+      actor.SetRemoteLightEffect(effect);
+    } else {
+      // Init/Cast inserted it into the world, which now owns its lifetime.
+      effect->Release();
+    }
+  }
+  if (use_selected) {
+    spell->manaTimer = 0.0f;
+    spell->manaInvested = 0;
+    spell->spellLevel = 1;
+    spell->spellStatus = SPL_STATUS_CANINVEST;
+    spell->spellInitDone = 0;
+    spell->CreateEffect();
+    if (spell->effect) {
+      spell->effect->SetDamage(0.0f);
+      spell->effect->SetDamageType(0);
+    }
+    if (auto* book = caster->GetSpellBook(); book && book->show_handsymbol)
+      spell->Setup(caster, nullptr, 0);
   } else {
     spell->Release();
   }
@@ -3863,17 +4432,15 @@ void NetGame::OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {
 
 void NetGame::OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
                           std::uint64_t actor_generation, std::uint32_t control_epoch) {
-  auto* caster = GetPlayerById(caster_id);
-  if (!caster || !caster->GetNpc() || caster->IsLocalPlayer() || caster->base_player().actor_generation() != actor_generation) return;
-  caster->QueuePresentation(source_time_ms, [this, caster_id, spell_id, actor_generation, control_epoch] {
-    auto* current = GetPlayerById(caster_id);
-    if (!current || !current->GetNpc() || !current->base_player().has_spawned() || current->IsLocalPlayer() ||
-        current->base_player().actor_generation() != actor_generation ||
-        (current->base_player().is_npc() && current->base_player().npc_control_epoch() != control_epoch) ||
-        current->GetNpc()->IsDead() || current->GetNpc()->IsUnconscious()) return;
-    ScopedNetworkObservationSuppression suppress_observation;
-    PlaySpellPresentation(current->GetNpc(), nullptr, spell_id);
-  });
+  CastSpellPacket packet{};
+  packet.caster_id = static_cast<std::uint32_t>(caster_id);
+  packet.spell_id = spell_id;
+  packet.source_time_ms = source_time_ms;
+  packet.actor_generation = actor_generation;
+  packet.control_epoch = control_epoch;
+  if (auto* caster = GetPlayerById(caster_id))
+    packet.command_revision = caster->base_player().command_revision();
+  OnSpellCast(packet);
 }
 
 void NetGame::OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) {
@@ -3887,21 +4454,52 @@ void NetGame::OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_
 void NetGame::OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id,
                                   std::uint64_t source_time_ms, std::uint64_t actor_generation,
                                   std::uint64_t target_generation, std::uint32_t control_epoch) {
-  auto* caster = GetPlayerById(caster_id);
-  auto* target = GetPlayerById(target_id);
-  if (!caster || !target || !caster->GetNpc() || !target->GetNpc() || caster->IsLocalPlayer() ||
-      caster->base_player().actor_generation() != actor_generation || target->base_player().actor_generation() != target_generation) return;
-  caster->QueuePresentation(source_time_ms, [this, caster_id, target_id, spell_id, actor_generation, target_generation, control_epoch] {
-    auto* current = GetPlayerById(caster_id);
-    auto* current_target = GetPlayerById(target_id);
-    if (!current || !current_target || !current->GetNpc() || !current_target->GetNpc() || current->IsLocalPlayer() ||
-        !current->base_player().has_spawned() || !current_target->base_player().has_spawned() ||
-        current->base_player().actor_generation() != actor_generation || current_target->base_player().actor_generation() != target_generation ||
-        (current->base_player().is_npc() && current->base_player().npc_control_epoch() != control_epoch) ||
-        current->GetNpc()->IsDead() || current->GetNpc()->IsUnconscious()) return;
-    ScopedNetworkObservationSuppression suppress_observation;
-    PlaySpellPresentation(current->GetNpc(), current_target->GetNpc(), spell_id);
-  });
+  CastSpellPacket packet{};
+  packet.caster_id = static_cast<std::uint32_t>(caster_id);
+  packet.target_id = static_cast<std::uint32_t>(target_id);
+  packet.spell_id = spell_id;
+  packet.source_time_ms = source_time_ms;
+  packet.actor_generation = actor_generation;
+  packet.target_generation = target_generation;
+  packet.control_epoch = control_epoch;
+  if (auto* caster = GetPlayerById(caster_id))
+    packet.command_revision = caster->base_player().command_revision();
+  OnSpellCast(packet);
+}
+
+void NetGame::OnSpellCast(const CastSpellPacket& packet) {
+  if (!packet.caster_id || packet.spell_id >= SPL_MAX_SPELL || packet.spell_level > kMaxSpellInvestLevel)
+    return;
+  auto* caster = GetPlayerById(*packet.caster_id);
+  if (!caster || !caster->GetNpc() || caster->IsLocalPlayer())
+    return;
+  auto enqueue = [this, packet] {
+    auto* caster = GetPlayerById(*packet.caster_id);
+    if (!caster || !caster->GetNpc() || caster->base_player().actor_generation() != packet.actor_generation)
+      return;
+    caster->QueuePresentation(packet.source_time_ms, [this, packet] {
+      auto* current = GetPlayerById(*packet.caster_id);
+      auto* target = packet.target_id ? GetPlayerById(*packet.target_id) : nullptr;
+      if (!current || !current->GetNpc() || current->IsLocalPlayer() || !current->base_player().has_spawned() ||
+          current->base_player().actor_generation() != packet.actor_generation ||
+          !current->base_player().accepts_life_action_revision(packet.command_revision) ||
+          (current->base_player().is_npc() && current->base_player().npc_control_epoch() != packet.control_epoch) || current->GetNpc()->IsDead() ||
+          current->GetNpc()->IsUnconscious())
+        return;
+      if (packet.target_id && (!target || !target->GetNpc() || !target->base_player().has_spawned() ||
+                               target->base_player().actor_generation() != packet.target_generation))
+        return;
+      ScopedNetworkObservationSuppression suppress_observation;
+      PlaySpellPresentation(*current, target ? target->GetNpc() : nullptr, packet.spell_id, packet.spell_level);
+    });
+  };
+  if (gmp::GetTransformationForm(packet.spell_id)) {
+    // Instance replacement is already queued. Enqueue its FX afterwards so
+    // retiring the previous model cannot discard the accepted cast effect.
+    GMPCore::Instance().DeferToNextFrame(std::move(enqueue));
+  } else {
+    enqueue();
+  }
 }
 void NetGame::OnPlayerMessage(std::optional<std::uint64_t> sender_id, std::uint8_t r, std::uint8_t g, std::uint8_t b, const std::string& message) {
   if (sender_id) {

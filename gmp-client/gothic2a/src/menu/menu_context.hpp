@@ -79,8 +79,6 @@ struct MenuContext {
   zVEC3 savedPlayerPosition;
   zVEC3 savedPlayerAngle;
   zVEC3 savedPlayerNormal;
-  int savedHealthBarX = 0;
-  int savedHealthBarY = 0;
 
   // ===== Constructor =====
   MenuContext(Config& cfg, Language& lang, CServerList& servers)
@@ -94,31 +92,6 @@ struct MenuContext {
   }
 
   // ===== Helper Methods =====
-
-  /**
-   * @brief Enable the health bar with previously saved dimensions
-   */
-  void EnableHealthBar() {
-    if (game && game->hpBar) {
-      game->hpBar->SetSize(savedHealthBarX, savedHealthBarY);
-    }
-  }
-
-  /**
-   * @brief Disable the health bar (save dimensions first)
-   */
-  void DisableHealthBar() {
-    if (game && game->hpBar) {
-      int currentX = 0;
-      int currentY = 0;
-      game->hpBar->GetSize(currentX, currentY);
-      if (currentX != 0 || currentY != 0) {
-        savedHealthBarX = currentX;
-        savedHealthBarY = currentY;
-      }
-      game->hpBar->SetSize(0, 0);
-    }
-  }
 
   /**
    * @brief Insert the title weapon into the world if it is available

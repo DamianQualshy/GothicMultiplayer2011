@@ -564,6 +564,7 @@ void ServerListState::ScheduleGameSetup() {
         GMPCore::Instance().DeferToNextFrame([]() { ReturnToBigMainMenuAfterDisconnect(); });
       };
 
+      PrepareWorldChange();
       auto* content = NetGame::Instance().content_transition_manager.get();
       const bool recreate_session = content && content->HasActiveAddonArchives();
       if (recreate_session) {
@@ -589,6 +590,7 @@ void ServerListState::ScheduleGameSetup() {
         return;
       }
 
+      ResetWorldRenderState();
       // Clean up NPCs and world objects
       DeleteAllNpcsAndDisableSpawning();
       // ChangeLevel replaces the Gothic hero object. Never retain or touch the

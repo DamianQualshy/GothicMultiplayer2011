@@ -80,6 +80,11 @@ public:
                                std::int32_t health_delta, std::int32_t mana_delta, std::uint32_t actor_id = 0);
   void SendMobState(const std::string& name, const glm::vec3& position, std::int32_t target_state);
   bool CanReportActorDamage(oCNpc* attacker);
+  void SendNativeTeleport(oCNpc* npc, const std::string& destination);
+  void OnNativeTransformation(oCNpc* previous, oCNpc* current, std::uint16_t spell, bool entering);
+  void SetNativeTransformationCast(std::uint32_t cast_id) { native_transformation_cast_ = cast_id; }
+  bool HasNativeTransformation() const { return native_transformation_spell_ != 0; }
+  bool ClearNativeTransformation();
   void SendActorHit(oCNpc* attacker, std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill,
                     bool finishing_move = false);
   bool ReportFinishingMove(oCNpc* attacker, oCNpc* victim, bool send_report = true);
@@ -181,6 +186,8 @@ public:
   void OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) override;
   void OnPlayerNameUpdate(std::uint64_t player_id, const std::string& name) override;
   void OnPlayerInstanceUpdate(std::uint64_t player_id, const std::string& instance) override;
+  void ChangePlayerInstance(std::uint64_t player_id, const std::string& instance, bool reset_defaults);
+  PlayerSpawnPacket CaptureInstanceDefaults(Gothic2APlayer& actor);
   void OnPlayerColorUpdate(std::uint64_t player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) override;
   void OnPlayerSkillWeaponUpdate(std::uint64_t player_id, std::int32_t skill_id, std::int32_t percentage) override;
   void OnPlayerTalentUpdate(std::uint64_t player_id, std::int32_t talent_id, std::int32_t talent_value) override;
@@ -207,6 +214,10 @@ public:
   void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
   void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
   void OnActorAction(const ActorActionPacket& action) override;
+  void OnActorDamage(const ActorDamagePacket& damage) override;
+  void OnPlayerSummon(const PlayerSummonPacket& packet) override;
+  void OnPlayerTeleport(const PlayerTeleportPacket& packet, std::uint16_t correction_mask) override;
+  void OnPlayerTransformation(const PlayerTransformationPacket& packet, std::uint16_t correction_mask) override;
   void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t item_instance, std::int32_t resulting_amount,
                                 bool accepted, std::optional<std::uint32_t> item_ground_id) override;
   void OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector<InventoryEntry>& inventory) override;
@@ -224,6 +235,7 @@ public:
                          std::uint32_t revision, bool apply_state) override;
   void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
+  void OnSpellCast(const CastSpellPacket& packet) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
                     std::uint64_t actor_generation, std::uint32_t control_epoch) override;
   void OnSpellCastOnTarget(std::uint64_t caster_id, std::uint64_t target_id, std::uint16_t spell_id) override;
@@ -296,6 +308,11 @@ private:
   void SpawnRemotePlayer(gmp::client::Player& new_player);
   void ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due = false);
   void ApplyServerStats(Gothic2APlayer& actor);
+  bool IsActorInstancePending(Gothic2APlayer& actor) const;
+  std::uint16_t native_transformation_spell_{0};
+  std::uint32_t native_transformation_cast_{0};
+  std::uint64_t native_transformation_generation_{0};
+  glm::vec3 native_transformation_origin_{0.0f};
   void ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing = false);
   void ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_state, std::optional<std::uint64_t> actor_id, bool trigger_event);
   void ApplyPendingLocalSpawnPosition();

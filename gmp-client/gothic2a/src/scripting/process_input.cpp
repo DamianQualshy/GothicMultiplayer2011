@@ -4,10 +4,12 @@
 
 #include <array>
 #include <cstring>
+#include <spdlog/spdlog.h>
 #include <string>
 
 #include "CChat.h"
 #include "gothic_events.h"
+#include "hooking/MemoryPatch.h"
 #include "shared/event.h"
 
 #include "lua_cursor.h"
@@ -20,6 +22,37 @@ bool s_toggledThisFrame[kMaxTrackedCode + 1] = {};
 std::array<bool, kMaxTrackedCode + 1> s_disabledKeys = {};
 
 namespace {
+constexpr DWORD kNativeInputGetStateAddress = 0x004D4D30;
+constexpr DWORD kNativeInputGetToggledAddress = 0x004D5020;
+constexpr DWORD kNativeGameHandleEventAddress = 0x006FC170;
+
+using InputGetStateFn = float(__thiscall*)(zCInput_Win32*, unsigned short);
+using InputGetToggledFn = int(__thiscall*)(zCInput_Win32*, unsigned short);
+using GameHandleEventFn = int(__thiscall*)(oCGame*, int);
+
+InputGetStateFn s_originalInputGetState = nullptr;
+InputGetToggledFn s_originalInputGetToggled = nullptr;
+GameHandleEventFn s_originalGameHandleEvent = nullptr;
+
+float __fastcall ChatInputGetState(zCInput_Win32* input, void*, unsigned short logical_key) {
+  if (CChat::GetInstance()->IsInputActive())
+    return 0.0f;
+  return s_originalInputGetState ? s_originalInputGetState(input, logical_key) : 0.0f;
+}
+
+int __fastcall ChatInputGetToggled(zCInput_Win32* input, void*, unsigned short logical_key) {
+  if (CChat::GetInstance()->IsInputActive())
+    return FALSE;
+  return s_originalInputGetToggled ? s_originalInputGetToggled(input, logical_key) : FALSE;
+}
+
+int __fastcall ChatGameHandleEvent(oCGame* game, void*, int key) {
+  // Native screen shortcuts are dispatched separately from logical polling.
+  if (CChat::GetInstance()->IsInputActive())
+    return TRUE;
+  return s_originalGameHandleEvent ? s_originalGameHandleEvent(game, key) : FALSE;
+}
+
 constexpr int kMaxLogicalInputCode = GAME_LAME_HEAL;
 constexpr std::array<int, 8> kMouseButtonCodes = {
     MOUSE_BUTTONLEFT, MOUSE_BUTTONRIGHT, MOUSE_BUTTONMID, MOUSE_XBUTTON1,
@@ -119,6 +152,28 @@ void NormalizeCursorDelta(zCInput* zinput, float& dx, float& dy) {
   }
 }
 }  // namespace
+
+void InstallChatInputHooks() {
+  // Keep KeyPressed/GetKey unchanged: chat still needs text and modifiers.
+  if (!s_originalInputGetState) {
+    if (auto original = CreateHook(kNativeInputGetStateAddress, reinterpret_cast<DWORD>(&ChatInputGetState)))
+      s_originalInputGetState = reinterpret_cast<InputGetStateFn>(*original);
+    else
+      SPDLOG_ERROR("Failed to install chat guard for native logical input state");
+  }
+  if (!s_originalInputGetToggled) {
+    if (auto original = CreateHook(kNativeInputGetToggledAddress, reinterpret_cast<DWORD>(&ChatInputGetToggled)))
+      s_originalInputGetToggled = reinterpret_cast<InputGetToggledFn>(*original);
+    else
+      SPDLOG_ERROR("Failed to install chat guard for native logical input toggles");
+  }
+  if (!s_originalGameHandleEvent) {
+    if (auto original = CreateHook(kNativeGameHandleEventAddress, reinterpret_cast<DWORD>(&ChatGameHandleEvent)))
+      s_originalGameHandleEvent = reinterpret_cast<GameHandleEventFn>(*original);
+    else
+      SPDLOG_ERROR("Failed to install chat guard for native game key events");
+  }
+}
 
 std::optional<int> FindKeyboardKeyCode(std::string_view name) {
   for (const auto& key : kKeyboardKeys) {

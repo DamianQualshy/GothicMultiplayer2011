@@ -64,6 +64,10 @@ SOFTWARE.
 #include "lua_interface.h"
 #include "lua_voice.h"
 #include "Shared/lua_runtime/bind_helpers.h"
+#include "world_utils.hpp"
+#include "script_instance_scope.h"
+#include "npc_animation_utils.h"
+#include "weapon_skills.h"
 
 using namespace Gothic_II_Addon;
 
@@ -73,6 +77,7 @@ struct ClientNpc {
   oCNpc* npc{nullptr};
   std::string name;
   bool spawned{false};
+  std::uint64_t instance_change_request{0};
 };
 
 std::unordered_map<int, ClientNpc> g_client_npcs;
@@ -138,6 +143,11 @@ oCNpc* GetNpcById(std::int64_t id) {
   }
 
   return nullptr;
+}
+
+const PlayerPresenceEntry* GetOnlinePlayerById(std::int64_t id) {
+  auto& net = NetGame::Instance();
+  return id >= 0 && net.game_client && net.IsConnected() ? net.game_client->GetOnlinePlayer(static_cast<std::uint64_t>(id)) : nullptr;
 }
 
 enum class EquipmentSlot {
@@ -492,10 +502,24 @@ bool ReplaceStandaloneNpcInstance(ClientNpc& entry, int instance_id) {
     return false;
   }
 
-  oCNpc* new_npc = zfactory->CreateNpc(instance_id);
+  oCNpc* new_npc = nullptr;
+  {
+    auto* parser = zCParser::GetParser();
+    if (!IsNpcInstance(parser, instance_id))
+      return false;
+    ScriptInstanceScope scope(*parser, instance_id);
+    new_npc = zfactory->CreateNpc(instance_id);
+  }
   if (!new_npc) {
     return false;
   }
+  new_npc->startAIState = 0;
+  new_npc->state.ClearAIState();
+
+  ResetWorldRenderState();
+  old_npc->ClearEM();
+  old_npc->SetInteractItem(nullptr);
+  ClearNpcFocusReferences(old_npc);
 
   zSTRING name = old_npc->GetName();
   new_npc->name[0] = name;
@@ -509,11 +533,12 @@ bool ReplaceStandaloneNpcInstance(ClientNpc& entry, int instance_id) {
     new_npc->SetPositionWorld(position);
     ogame->GetGameWorld()->RemoveVob(old_npc);
   } else {
-    old_npc->Release();
     entry.npc = new_npc;
   }
+  old_npc->Release();  // Release the ClientNpc entry's factory reference.
 
   entry.spawned = new_npc->GetHomeWorld() != nullptr;
+  ResetWorldRenderState();
   return true;
 }
 
@@ -541,30 +566,29 @@ oCMenu_Status* GetStatusMenu() {
 */
 
 /* luagmp (func)
-*
-* This function will change the player/npc in-game instance.
-*
-* @version  0.3.0
-* @name     setPlayerInstance
-* @side     client
-* @category Player
-* @param    (number) player_id      Target player id.
-* @param    (string) instance       Instance name.
-* @return   (boolean)               True on success, false otherwise.
-*
-*/
+ *
+ * This function will change the player/npc in-game instance.
+ *
+ * @version  0.3.0
+ * @name     setPlayerInstance
+ * @side     client
+ * @category Player
+ * @param    (number) player_id      Target player id.
+ * @param    (string) instance       Instance name.
+ * @return   (boolean)               True if the change was queued for the next frame, false otherwise.
+ *
+ */
 bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
   const auto instance_id = ResolveScriptInstance(instance);
-  if (!instance_id.has_value()) {
+  if (!instance_id.has_value() || !IsNpcInstance(zCParser::GetParser(), *instance_id)) {
     return false;
   }
 
   if (auto* player = GetPlayerByIdSigned(id)) {
-    if (player->ReplaceNpcInstance(*instance_id)) {
-      player->base_player().set_instance(instance);
-      return true;
-    }
-    return false;
+    if (!player->GetNpc())
+      return false;
+    NetGame::Instance().ChangePlayerInstance(player->base_player().id(), instance, true);
+    return true;
   }
 
   if (id < 0) {
@@ -572,7 +596,16 @@ bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
     if (it == g_client_npcs.end()) {
       return false;
     }
-    return ReplaceStandaloneNpcInstance(it->second, *instance_id);
+    auto* previous = it->second.npc;
+    const auto request = ++it->second.instance_change_request;
+    auto* world = ogame ? ogame->GetGameWorld() : nullptr;
+    GMPCore::Instance().DeferToNextFrame([id, previous, request, world, index = *instance_id] {
+      const auto current = g_client_npcs.find(static_cast<int>(id));
+      if (current != g_client_npcs.end() && current->second.npc == previous && current->second.instance_change_request == request && ogame &&
+          ogame->GetGameWorld() == world)
+        ReplaceStandaloneNpcInstance(current->second, index);
+    });
+    return true;
   }
 
   return false;
@@ -661,6 +694,9 @@ sol::object Function_GetPlayerName(std::int64_t id, sol::this_state ts) {
     return sol::make_object(lua, std::move(name));
   }
 
+  if (const auto* online = GetOnlinePlayerById(id))
+    return sol::make_object(lua, online->name);
+
   return sol::nil;
 }
 
@@ -712,6 +748,11 @@ sol::object Function_GetPlayerColor(std::int64_t id, sol::this_state ts) {
     tbl["b"] = static_cast<int>(color.b);
 
     return sol::make_object(lua, tbl);
+  }
+
+  if (const auto* online = GetOnlinePlayerById(id)) {
+    return sol::make_object(
+        lua, lua.create_table_with("r", static_cast<int>(online->r), "g", static_cast<int>(online->g), "b", static_cast<int>(online->b)));
   }
 
   return sol::nil;
@@ -1031,14 +1072,19 @@ sol::object Function_GetPlayerDexterity(std::int64_t id, sol::this_state ts) {
 *
 */
 bool Function_SetPlayerSkillWeapon(std::int64_t id, int skill_id, int percentage) {
-    percentage = std::clamp(percentage, 0, 100);
+  percentage = std::clamp(percentage, 0, 100);
 
-    if (auto* npc = GetNpcById(id)) {
-      npc->SetHitChance(skill_id, percentage);
-      return true;
+  if (auto* npc = GetNpcById(id)) {
+    if (!ApplyNpcWeaponSkill(npc, skill_id, percentage))
+      return false;
+    if (auto* actor = GetPlayerByIdSigned(id)) {
+      actor->base_player().set_weapon_skill(skill_id, percentage);
+      actor->base_player().set_talent(skill_id, gmp::WeaponSkillTier(percentage));
     }
-    return false;
+    return true;
   }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -1078,12 +1124,17 @@ sol::object Function_GetPlayerSkillWeapon(std::int64_t id, int skill_id, sol::th
 *
 */
 bool Function_SetPlayerTalent(std::int64_t id, int talent_id, int talent_value) {
-    if (auto* npc = GetNpcById(id)) {
-      npc->SetTalentSkill(talent_id, talent_value);
-      return true;
-    }
+  if (talent_id < 1 || talent_id >= oCNpcTalent::NPC_TAL_MAX)
     return false;
+  talent_value = gmp::IsWeaponSkill(talent_id) ? std::clamp(talent_value, 0, 2) : std::max(0, talent_value);
+  if (auto* npc = GetNpcById(id)) {
+    ApplyNpcTalent(npc, talent_id, talent_value);
+    if (auto* actor = GetPlayerByIdSigned(id))
+      actor->base_player().set_talent(talent_id, talent_value);
+    return true;
   }
+  return false;
+}
 
 /* luagmp (func)
 *
@@ -1711,7 +1762,8 @@ sol::object Function_GetPlayerOverlays(std::int64_t id, sol::this_state ts) {
 bool Function_RemovePlayerOverlay(std::int64_t id, const std::string& overlay) {
     if (auto* npc = GetNpcById(id); npc) {
       zSTRING overlay_name(overlay.c_str());
-      const bool has_overlay = npc->GetOverlay(overlay_name) != 0;
+      overlay_name.Upper();
+      const bool has_overlay = npc->activeOverlays.IsInList(overlay_name) != 0;
       if (has_overlay) {
         npc->RemoveOverlay(overlay_name);
       }
@@ -1846,7 +1898,7 @@ bool Function_PlayGesticulation(std::int64_t id) {
       return false;
     }
 
-    npc->StartDialogAni();
+		npc->StartDialogAni();
     next_allowed = now + std::chrono::milliseconds(3500);
     return true;
   }
@@ -1905,6 +1957,27 @@ sol::object Function_GetPlayerPosition(std::int64_t id, sol::this_state ts) {
         lua, ::lua::bind_helpers::MakeVec3Table(lua, position[VX], position[VY], position[VZ]));
   }
 
+  if (const auto* online = GetOnlinePlayerById(id)) {
+    const auto& p = online->position;
+    return sol::make_object(lua, ::lua::bind_helpers::MakeVec3Table(lua, p.x, p.y, p.z));
+  }
+
+  return sol::nil;
+}
+
+/* luagmp (func)
+ * Returns the online player's world, independently of native streaming.
+ * @version  0.3.0
+ * @name     getPlayerWorld
+ * @side     client
+ * @category Player
+ * @param    (number) player_id Target player id.
+ * @return   (string|nil) World filename or nil.
+ */
+sol::object Function_GetPlayerWorld(std::int64_t id, sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (const auto* online = GetOnlinePlayerById(id))
+    return sol::make_object(lua, online->world);
   return sol::nil;
 }
 
@@ -2591,11 +2664,18 @@ void Function_ChangeWorld(const std::string& world, sol::optional<std::string> s
     return;
   }
 
-  zSTRING z_world(world.c_str());
-  zSTRING z_start_point = start_point ? zSTRING(start_point->c_str()) : zSTRING("");
-  Patch::ChangeLevelEnabled(true);
-  ogame->ChangeLevel(z_world, z_start_point);
-  Patch::ChangeLevelEnabled(false);
+  const std::string point = start_point.value_or("");
+  GMPCore::Instance().DeferToNextFrame([world, point]() {
+    if (!ogame)
+      return;
+    PrepareWorldChange();
+    zSTRING z_world(world.c_str());
+    zSTRING z_start_point(point.c_str());
+    Patch::ChangeLevelEnabled(true);
+    ogame->ChangeLevel(z_world, z_start_point);
+    Patch::ChangeLevelEnabled(false);
+    ResetWorldRenderState();
+  });
 }
 
 /* luagmp (func)
@@ -3638,6 +3718,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["playGesticulation"] = Function_PlayGesticulation;
   lua["setPlayerPosition"] = Function_SetPlayerPosition;
   lua["getPlayerPosition"] = Function_GetPlayerPosition;
+  lua["getPlayerWorld"] = Function_GetPlayerWorld;
   lua["setPlayerAngle"] = Function_SetPlayerAngle;
   lua["getPlayerAngle"] = Function_GetPlayerAngle;
 
@@ -3757,6 +3838,7 @@ void BindGothicSpecific(sol::state& lua) {
   lua["LANG_DA"] = languageManager.GetLanguageIndex("DA");
   lua["LANG_ES"] = languageManager.GetLanguageIndex("ES");
   lua["LANG_SZL"] = languageManager.GetLanguageIndex("SZL");
+  lua["LANG_TR"] = languageManager.GetLanguageIndex("TR");
 }
 
 void CleanupGothicViews() {

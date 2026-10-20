@@ -89,7 +89,10 @@ bool ValidateArchiveStructure(const std::filesystem::path& archive, std::string&
 
   const auto entry_count = ReadUint32(header.data() + 272);
   const auto declared_file_count = ReadUint32(header.data() + 276);
-  const auto catalog_offset = ReadUint32(header.data() + 288);
+  const auto declared_catalog_offset = ReadUint32(header.data() + 288);
+  // Legacy VDFS tools use zero for a catalog immediately after the header.
+  // Match ZenKit's fallback before checking the catalog bounds.
+  const auto catalog_offset = declared_catalog_offset == 0 ? static_cast<std::uint32_t>(kVdfHeaderSize) : declared_catalog_offset;
   const auto volume_flags = ReadUint32(header.data() + 292);
   if (entry_count == 0 || entry_count > kMaximumCatalogEntries) {
     error = "VDF catalog entry count is outside the supported range";

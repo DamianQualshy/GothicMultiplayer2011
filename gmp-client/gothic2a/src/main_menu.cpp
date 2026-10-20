@@ -66,8 +66,6 @@ zCOLOR Red = zCOLOR(0xFF, 0, 0);
 CMainMenu::CMainMenu() {
   player->SetMovLock(1);
   Patch::PlayerInterfaceEnabled(false);
-  hbX = 0;
-  hbY = 0;
   RECT wymiary;
   GetWindowRect(Patch::GetHWND(), &wymiary);
   fWRatio = 1280.0f / (float)wymiary.right;  // zalozenie jest takie ze szerokosc jest dopasowywana weddug szerokosci 1280
@@ -114,8 +112,6 @@ void CMainMenu::InitializeStateMachine() {
   menuContext_->savedPlayerPosition = HeroPos;
   menuContext_->savedPlayerAngle = Angle;
   menuContext_->savedPlayerNormal = NAngle;
-  menuContext_->savedHealthBarX = hbX;
-  menuContext_->savedHealthBarY = hbY;
 
   // Create extended server list
   menuContext_->extendedServerList = new ExtendedServerList(server_list_);
@@ -154,13 +150,9 @@ CMainMenu::~CMainMenu() {
 void CMainMenu::PrepareForMenuEntry() {
   PreparePlayerForMenuReentry();
 
-  // Disable health bar
-  if (menuContext_) {
-    menuContext_->DisableHealthBar();
-  } else if (ogame && ogame->hpBar) {
-    ogame->hpBar->GetSize(hbX, hbY);
-    ogame->hpBar->SetSize(0, 0);
-  }
+  // Use the native HUD gate; hiding a bar must not destroy its dimensions.
+  if (ogame)
+    ogame->SetShowPlayerStatus(FALSE);
 }
 
 void __stdcall CMainMenu::ReLaunchMenuCallback() {
@@ -182,6 +174,7 @@ void __stdcall CMainMenu::ReLaunchMenuCallback() {
 void CMainMenu::ReLaunchMainMenu() {
   StopMenuScenes();
   zinput->ClearKeyBuffer();
+  PrepareWorldChange();
   const bool reload_base_world = NetGame::Instance().ConsumeBaseWorldReloadRequest();
   if (reload_base_world) {
     SPDLOG_INFO("Recreating the base Gothic game session after addon disconnect");
@@ -212,6 +205,7 @@ void CMainMenu::ReLaunchMainMenu() {
     SPDLOG_ERROR("Cannot relaunch the GMP menu because the base world or hero is unavailable");
     return;
   }
+  ResetWorldRenderState();
   HeroPos = player->GetPositionWorld();
   Angle = player->trafoObjToWorld.GetAtVector();
   NAngle = player->trafoObjToWorld.GetRightVector();

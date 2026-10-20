@@ -52,7 +52,6 @@ public:
   zVEC3 HeroPos;
   zVEC3 Angle;
   zVEC3 NAngle;
-  int hbX, hbY;  // Health bar dimensions
 
 public:
   CMainMenu();

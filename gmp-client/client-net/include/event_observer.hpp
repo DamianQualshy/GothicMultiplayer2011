@@ -31,10 +31,13 @@ SOFTWARE.
 #include <vector>
 
 #include "common_structs.h"
+#include "native_event_packets.h"
+#include "packets.h"
 
 struct NpcControlPacket;
 struct NpcAnimationPacket;
 struct ActorActionPacket;
+struct ActorDamagePacket;
 struct InventoryEntry;
 
 namespace gmp::client {
@@ -151,8 +154,23 @@ public:
     OnItemTransactionResult(request_id, instance, resulting_amount, accepted, ground_id);
   }
   virtual void OnActorAction(const ActorActionPacket& action) {}
-  
+  virtual void OnActorDamage(const ActorDamagePacket& damage) {
+  }
+  virtual void OnPlayerSummon(const PlayerSummonPacket& summon) {}
+  virtual void OnPlayerTeleport(const PlayerTeleportPacket& teleport, std::uint16_t correction_mask) {}
+  virtual void OnPlayerTransformation(const PlayerTransformationPacket& transformation, std::uint16_t correction_mask) {}
+
   // Spell/combat events
+  virtual void OnSpellCast(const CastSpellPacket& packet) {
+    if (!packet.caster_id)
+      return;
+    if (packet.target_id) {
+      OnSpellCastOnTarget(*packet.caster_id, *packet.target_id, packet.spell_id, packet.source_time_ms, packet.actor_generation,
+                          packet.target_generation, packet.control_epoch);
+    } else {
+      OnSpellCast(*packet.caster_id, packet.spell_id, packet.source_time_ms, packet.actor_generation, packet.control_epoch);
+    }
+  }
   virtual void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) {}
   virtual void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
                            std::uint64_t actor_generation, std::uint32_t control_epoch) {

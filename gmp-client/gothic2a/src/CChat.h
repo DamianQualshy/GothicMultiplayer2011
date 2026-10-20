@@ -35,20 +35,22 @@ SOFTWARE.
 
 #pragma once
 
-#include <chrono>
 #include <cstddef>
 #include <string>
-#include "singleton.h"
+#include <vector>
+
 #include "ZenGin/zGothicAPI.h"
+#include "singleton.h"
 
 enum MsgType { NORMAL };
 
-class CChat : public TSingleton<CChat> {
+class CChat : public TSingleton<CChat>, public Gothic_II_Addon::zCInputCallback {
 public:
   CChat();
   ~CChat();
   bool IsInputActive() const;
-  void HandleInput(bool allow_open);
+  void HandleInput();
+  int HandleEvent(int key) override;
   void OpenInput();
   void CloseInput(bool clear_text = false);
   void ClearInput();
@@ -57,6 +59,8 @@ public:
   void SetInputCaretPosition(int position);
   const std::string& GetInputFont() const;
   void SetInputFont(const std::string& font);
+  int GetInputMaxLength() const;
+  void SetInputMaxLength(int length);
   int GetInputX() const;
   int GetInputY() const;
   void SetInputPosition(int x, int y);
@@ -68,8 +72,6 @@ public:
   void WriteMessage(MsgType type, bool PrintTimed, const char* format, ...);
   void PrintChat();
 
-  static constexpr size_t kMaxInputLength = 84;
-
 private:
   void SendCurrentMessage();
   void InsertInputCharacter(char ch);
@@ -77,14 +79,22 @@ private:
   void PrepareForInput();
   void ClearAfterInput();
   void KeepInputLocked();
+  void ApplyInputKey(int key, unsigned char character, bool control_pressed);
+
+  struct PendingInput {
+    int key;
+    unsigned char character;
+    bool control_pressed;
+  };
+  std::vector<PendingInput> pending_input_;
 
   bool input_active_ = false;
+  bool discard_opening_t_ = false;
   bool camera_mode_change_enabled_ = true;
   std::string current_text_;
   std::string input_font_ = "FONT_DEFAULT.TGA";
   int input_x_ = 0;
   int input_y_ = 0;
+  int input_max_length_ = 84;
   std::size_t caret_position_ = 0;
-  std::chrono::steady_clock::time_point next_character_time_;
-  std::chrono::steady_clock::time_point next_backspace_time_;
 };

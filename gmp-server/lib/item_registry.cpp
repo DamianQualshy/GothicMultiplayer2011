@@ -193,6 +193,10 @@ ItemRegistry::Item ReadItem(const Json& object, std::size_t ordinal) {
   item.damage = ReadDamage(object, context);
   item.munition = ReadOptionalString(object, "munition", context);
   item.spell = ReadOptionalInt32(object, "spell", context);
+  // Older exports omitted zero-valued fields. A rune/scroll's native default
+  // spell is zero (paladin light), not "no spell". New exports keep it explicit.
+  if (!item.spell && (item.mainflag & (1 << 9)) != 0)
+    item.spell = 0;
   item.scemename = ReadOptionalString(object, "scemename", context).value_or(std::string{});
   item.mag_circle = ReadOptionalInt32(object, "mag_circle", context);
   item.protections = ReadProtections(object, context);

@@ -45,7 +45,7 @@ enum ActorSyncComponent : std::uint16_t {
   kSyncAll = 255,
 };
 
-constexpr std::uint32_t kActorProtocolVersion = 4;
+constexpr std::uint8_t kMaxSpellInvestLevel = 20;
 constexpr std::size_t kMaxInventoryEntries = 4096;
 
 inline std::uint64_t ActorClockMilliseconds() {

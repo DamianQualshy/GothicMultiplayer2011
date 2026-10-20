@@ -31,10 +31,13 @@ SOFTWARE.
 #include <zenkit/Vfs.hh>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -136,6 +139,52 @@ TEST_F(AddonSupportTest, OpenFileRetainsArchiveAfterVfsDestruction) {
   char bytes[6]{};
   EXPECT_EQ(file->Read(bytes, 5), 5u);
   EXPECT_EQ(std::string(bytes, 5), "alive");
+}
+
+TEST_F(AddonSupportTest, MountsVdfsToolArchiveWithImplicitCatalogOffset) {
+  const auto archive = CreateVdf(
+      "legacy-tool.vdf", {{"_WORK/DATA/WORLDS/COLONY.ZEN", "world data"}, {"_WORK/DATA/TEXTURES/_COMPILED/LOADING_COLONY-C.TEX", "loading texture"}});
+  {
+    std::fstream output(archive, std::ios::binary | std::ios::in | std::ios::out);
+    ASSERT_TRUE(output.is_open());
+    constexpr char signature[] = "PSVDSC_V2.00\x1A\x1A\x1A\x1A";
+    output.seekp(256);
+    output.write(signature, 16);
+    // VDFS tool archives can leave both the size and catalog offset at zero.
+    constexpr std::array<char, 8> legacy_sizes{};
+    output.seekp(284);
+    output.write(legacy_sizes.data(), static_cast<std::streamsize>(legacy_sizes.size()));
+    ASSERT_TRUE(output.good());
+  }
+
+  std::string error;
+  ASSERT_TRUE(gmp::addon::AddonVfs::ValidateArchive(archive, error)) << error;
+  gmp::addon::AddonVfs vfs;
+  ASSERT_NO_THROW(vfs.MountArchive(archive));
+  const auto world = vfs.ReadFile("_WORK/DATA/WORLDS/COLONY.ZEN", 1024);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(world.data()), world.size()), "world data");
+  const auto texture = vfs.ReadFile("_WORK/DATA/TEXTURES/_COMPILED/LOADING_COLONY-C.TEX", 1024);
+  EXPECT_EQ(std::string(reinterpret_cast<const char*>(texture.data()), texture.size()), "loading texture");
+}
+
+TEST_F(AddonSupportTest, RejectsOutOfBoundsCatalogOffsets) {
+  const auto archive = CreateVdf("invalid-catalog.vdf", {{"VALUE.TXT", "payload"}});
+  const auto archive_size = static_cast<std::uint32_t>(std::filesystem::file_size(archive));
+  for (const auto offset : {1U, 295U, archive_size - 1U, archive_size, std::numeric_limits<std::uint32_t>::max()}) {
+    SCOPED_TRACE(offset);
+    {
+      std::fstream output(archive, std::ios::binary | std::ios::in | std::ios::out);
+      ASSERT_TRUE(output.is_open());
+      const std::array<char, 4> bytes{static_cast<char>(offset & 0xFFU), static_cast<char>((offset >> 8) & 0xFFU),
+                                      static_cast<char>((offset >> 16) & 0xFFU), static_cast<char>((offset >> 24) & 0xFFU)};
+      output.seekp(288);
+      output.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+      ASSERT_TRUE(output.good());
+    }
+    std::string error;
+    EXPECT_FALSE(gmp::addon::AddonVfs::ValidateArchive(archive, error));
+    EXPECT_NE(error.find("VDF catalog lies outside the archive"), std::string::npos) << error;
+  }
 }
 
 TEST_F(AddonSupportTest, MountsAndReadsUnionCompressedVdf) {

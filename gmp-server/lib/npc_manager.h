@@ -56,6 +56,13 @@ public:
   };
 
   struct Npc : Character {
+    struct Summon {
+      std::uint32_t caster_id;
+      std::uint64_t caster_generation;
+      std::uint32_t cast_id;
+      TimePoint expires_at;
+    };
+    std::optional<Summon> summon;
     std::string owner_resource;
     std::uint32_t host_player_id{0};
     // Changes on host reassignment, baseline resets and queue head changes.

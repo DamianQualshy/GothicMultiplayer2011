@@ -33,6 +33,7 @@ SOFTWARE.
 
 #include "ZenGin/zGothicAPI.h"
 #include "animation_sync.h"
+#include "magic_sync.h"
 
 CActiveAniID* pActiveAniID = nullptr;
 
@@ -76,18 +77,22 @@ void CActiveAniID::Observe() {
     if (!animation || active->isFadingOut) continue;
     if (animation->GetAniType() != zMDL_ANI_TYPE_NORMAL && animation->GetAniType() != zMDL_ANI_TYPE_ALIAS) continue;
     const std::string name = animation->GetAniName().ToChar();
-    if (name.empty() || gmp::IsPlayerTurningAnimation(name) || gmp::IsPlayerLifecycleAnimation(name)) continue;
+    if (name.empty() || gmp::IsPlayerTurningAnimation(name) || gmp::IsPlayerLifecycleAnimation(name) || gmp::IsDamageReactionAnimation(name))
+      continue;
     const auto* next_animation = active->nextAniOverride ? active->nextAniOverride : active->nextAni;
     const bool looping = next_animation == animation;
-    const bool finite = !gmp::IsSampledPlayerAnimation(name, looping);
     const int id = animation->GetAniID();
+    const bool casting = IsMagicActionAnimation(player, id);
+    // Even S_* magic phases can begin/end between pose packets. Observe their
+    // edges reliably, while retaining the current phase for pose recovery.
+    const bool finite = casting || !gmp::IsSampledPlayerAnimation(name, looping);
     ObservedAnimation observed{name, active->actFrame, active->advanceDir, finite};
     current[id] = observed;
-    pose_animations[pose_animation_count++] = {id, current[id].name, animation->layer, looping};
+    pose_animations[pose_animation_count++] = {id, current[id].name, animation->layer, looping, false, true, casting};
     const auto previous = observed_animations.find(id);
-    const bool restarted = previous != observed_animations.end() && finite &&
-        ((active->advanceDir >= 0 && active->actFrame + 0.25f < previous->second.frame) ||
-         (active->advanceDir < 0 && active->actFrame - 0.25f > previous->second.frame));
+    const bool restarted = previous != observed_animations.end() && finite && !looping &&
+                           ((active->advanceDir >= 0 && active->actFrame + 0.25f < previous->second.frame) ||
+                            (active->advanceDir < 0 && active->actFrame - 0.25f > previous->second.frame));
     if (finite && (previous == observed_animations.end() || restarted)) {
       if (restarted) transitions.push_back({name, false, now_ms});
       transitions.push_back({name, true, now_ms});

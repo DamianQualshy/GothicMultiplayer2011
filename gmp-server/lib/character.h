@@ -49,6 +49,9 @@ struct Character {
   // Allocated independently of reusable player slots; never reset on reconnect.
   std::uint64_t actor_generation{AllocateGeneration()};
   std::uint32_t command_revision{0};
+  // Native jumps may follow unacknowledged mana updates, but must not replace
+  // a newer scripted position or heading command.
+  std::optional<std::uint32_t> native_teleport_barrier_revision;
   std::string name;
   std::string instance;
   std::uint8_t name_color_r{255};
@@ -116,6 +119,27 @@ struct Character {
   std::optional<std::chrono::steady_clock::time_point> death_started_at;
   std::optional<std::int32_t> respawn_time_ms;
   PlayerState state{};
+  struct InstanceChange {
+    std::uint32_t request_revision{0};
+    std::chrono::steady_clock::time_point deadline{std::chrono::steady_clock::now() + std::chrono::seconds(30)};
+    std::string previous_instance;
+    std::unordered_map<int, int> attributes;
+    std::unordered_map<int, int> weapon_skills, talents;
+    std::unordered_map<std::string, bool> overlays;
+    std::unordered_map<std::string, std::int64_t> inventory_deltas;
+    PlayerState previous_state;
+    bool visual_changed{false}, fatness_changed{false}, scale_changed{false}, invulnerable_changed{false}, weapon_mode_changed{false};
+  };
+  std::optional<InstanceChange> instance_change;
+  struct Transformation {
+    std::uint16_t spell_id{0};
+    std::uint32_t cast_id{0};
+    std::string instance;
+    std::int32_t max_health{0}, max_mana{0}, mana{0}, strength{0}, dexterity{0};
+    std::int32_t health{0}, form_health{0}, form_max_health{0};
+    PlayerState equipment;
+  };
+  std::optional<Transformation> transformation;
   std::uint32_t state_sequence{0};
   std::optional<std::int32_t> pending_equipped_armor_instance;
   std::optional<std::int32_t> pending_equipped_helmet_instance;
@@ -136,6 +160,7 @@ struct Character {
   std::unordered_map<std::int16_t, std::uint32_t> equipment_command_revisions;
   std::optional<std::uint32_t> last_actor_action_id;
   std::optional<std::uint32_t> last_cast_action_id;
+  std::optional<std::uint32_t> last_teleport_action_id;
   std::optional<std::uint32_t> last_hit_action_id;
   std::unordered_set<CharacterId> hit_victims;
   std::chrono::steady_clock::time_point last_attack_at{};
@@ -170,6 +195,9 @@ struct Character {
 
   void RenewGeneration() {
     actor_generation = AllocateGeneration();
+    instance_change.reset();
+    last_teleport_action_id.reset();
+    native_teleport_barrier_revision.reset();
     approved_projectiles.clear();
     combat_barrier_revision = 0;
     last_validated_attacker.reset();

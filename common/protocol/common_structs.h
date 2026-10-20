@@ -41,6 +41,7 @@ SOFTWARE.
 using PlayerID = std::uint32_t;
 
 constexpr std::size_t kMaxPlayerAnimationNameLength = 128;
+constexpr std::size_t kMaxChatMessageLength = 1024;
 
 enum PlayerAttributeId : std::uint8_t {
   ATTR_STRENGTH = 0,
@@ -84,8 +85,11 @@ struct PlayerState {
   std::uint8_t life_state{PLAYER_LIFE_ALIVE};
   bool invulnerable{false};
   std::uint8_t weapon_mode{0};
+  // 1-based spellbook hotkey (0 means none), not oCNpc::GetActiveSpellNr().
   std::uint8_t active_spell_nr{0};
   std::int32_t active_spell_instance{0};
+  std::uint8_t active_spell_level{0};
+  bool spell_investing{false};
   std::uint8_t head_direction{0};
   std::int32_t melee_weapon_instance{0};
   std::int32_t ranged_weapon_instance{0};
@@ -120,6 +124,8 @@ void serialize(S& s, PlayerState& packet) {
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
   s.value4b(packet.active_spell_instance);
+  s.value1b(packet.active_spell_level);
+  s.boolValue(packet.spell_investing);
   s.value1b(packet.head_direction);
   s.value4b(packet.melee_weapon_instance);
   s.value4b(packet.ranged_weapon_instance);
@@ -151,6 +157,8 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_stat
      << " weapon_mode: " << static_cast<int>(player_state.weapon_mode) << ","
      << " active_spell_nr: " << static_cast<int>(player_state.active_spell_nr) << ","
      << " active_spell_instance: " << player_state.active_spell_instance << ","
+     << " active_spell_level: " << static_cast<int>(player_state.active_spell_level) << ","
+     << " spell_investing: " << player_state.spell_investing << ","
      << " head_direction: " << static_cast<int>(player_state.head_direction) << ","
      << " melee_weapon_instance: " << player_state.melee_weapon_instance << ","
      << " ranged_weapon_instance: " << player_state.ranged_weapon_instance << " }";

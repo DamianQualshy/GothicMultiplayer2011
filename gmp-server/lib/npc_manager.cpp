@@ -110,6 +110,7 @@ bool NpcManager::SetHost(NpcId npc_id, std::uint32_t host_player_id, TimePoint n
   // Incoming IDs belong to the reporting host's session, not to the NPC ID.
   npc.last_actor_action_id.reset();
   npc.last_cast_action_id.reset();
+  npc.last_teleport_action_id.reset();
   npc.last_hit_action_id.reset();
   npc.hit_victims.clear();
   npc.approved_projectiles.clear();

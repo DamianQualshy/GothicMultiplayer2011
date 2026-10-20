@@ -61,10 +61,16 @@ public:
   void set_actor_generation(std::uint64_t generation) {
     if (actor_generation_ == generation) return;
     actor_generation_ = generation;
+    instance_change_revision_ = 0;
     component_sequences_.Reset();
     has_state_sequence_ = false;
     has_lifecycle_sequence_ = false;
     last_action_sequence_ = 0;
+    last_damage_sequence_.reset();
+    summon_notified_ = false;
+    transformation_spell_id_ = 0;
+    transformation_cast_id_ = 0;
+    transformation_sequence_.reset();
     command_revision_ = 0;
     has_command_revision_ = false;
     source_time_ms_ = 0;
@@ -77,6 +83,24 @@ public:
   }
   bool matches_generation(std::uint64_t generation) const {
     return generation != 0 && actor_generation_ == generation;
+  }
+  std::uint32_t instance_change_revision() const { return instance_change_revision_; }
+  void set_instance_change_revision(std::uint32_t revision) { instance_change_revision_ = revision; }
+  bool accept_summon_notification() {
+    if (summon_notified_) return false;
+    summon_notified_ = true;
+    return true;
+  }
+  std::uint16_t transformation_spell_id() const { return transformation_spell_id_; }
+  std::uint32_t transformation_cast_id() const { return transformation_cast_id_; }
+  void set_transformation(std::uint16_t spell, std::uint32_t cast) {
+    transformation_spell_id_ = spell;
+    transformation_cast_id_ = cast;
+  }
+  bool accept_transformation_sequence(std::uint32_t sequence) {
+    if (transformation_sequence_ && !IsNewActorSequence(sequence, *transformation_sequence_)) return false;
+    transformation_sequence_ = sequence;
+    return true;
   }
   const ActorComponentSequences& component_sequences() const { return component_sequences_; }
   bool accept_inventory_sequence(std::int32_t instance, std::uint32_t sequence) {
@@ -108,6 +132,12 @@ public:
     inventory_snapshot_sequence_ = latest_inventory_sequence_ = sequence;
     return true;
   }
+  void reset_inventory_snapshot() {
+    inventory_.clear();
+    inventory_sequences_.clear();
+    inventory_snapshot_sequence_.reset();
+    latest_inventory_sequence_.reset();
+  }
   std::uint32_t command_revision() const { return command_revision_; }
   void set_command_revision(std::uint32_t revision) {
     if (!has_command_revision_ || revision == command_revision_ || IsNewActorSequence(revision, command_revision_)) {
@@ -125,6 +155,12 @@ public:
   bool accept_action_sequence(std::uint32_t sequence) {
     if (sequence == 0 || (last_action_sequence_ && !IsNewActorSequence(sequence, last_action_sequence_))) return false;
     last_action_sequence_ = sequence;
+    return true;
+  }
+  bool accept_damage_sequence(std::uint32_t sequence) {
+    if (last_damage_sequence_ && !IsNewActorSequence(sequence, *last_damage_sequence_))
+      return false;
+    last_damage_sequence_ = sequence;
     return true;
   }
   bool accept_attribute_sequence(PlayerAttributeId attribute, std::uint32_t sequence) {
@@ -164,6 +200,8 @@ public:
     value.weapon_mode = weapon_mode_;
     value.active_spell_nr = active_spell_nr_;
     value.active_spell_instance = active_spell_instance_;
+    value.active_spell_level = active_spell_level_;
+    value.spell_investing = spell_investing_;
     value.head_direction = head_direction_;
     value.body_state = body_state_;
     value.walk_mode = walk_mode_;
@@ -540,6 +578,11 @@ public:
     active_spell_instance_ = instance;
   }
 
+  void set_spell_investment(std::uint8_t level, bool investing) {
+    active_spell_level_ = level;
+    spell_investing_ = investing;
+  }
+
   std::uint8_t head_direction() const {
     return head_direction_;
   }
@@ -610,6 +653,7 @@ protected:
   // Core identity
   std::uint64_t id_{0};
   std::uint64_t actor_generation_{0};
+  std::uint32_t instance_change_revision_{0};
   std::uint64_t source_time_ms_{0};
   std::uint32_t command_revision_{0};
   bool has_command_revision_{false};
@@ -617,6 +661,11 @@ protected:
   std::uint32_t lifecycle_sequence_{0};
   bool has_lifecycle_sequence_{false};
   std::uint32_t last_action_sequence_{0};
+  bool summon_notified_{false};
+  std::uint16_t transformation_spell_id_{0};
+  std::uint32_t transformation_cast_id_{0};
+  std::optional<std::uint32_t> transformation_sequence_;
+  std::optional<std::uint32_t> last_damage_sequence_;
   std::array<std::uint32_t, 10> attribute_sequences_{};
   std::array<bool, 10> attribute_initialized_{};
   std::unordered_map<std::int32_t, std::uint32_t> inventory_sequences_;
@@ -687,6 +736,8 @@ protected:
   std::uint8_t weapon_mode_{0};
   std::uint8_t active_spell_nr_{0};
   std::int32_t active_spell_instance_{0};
+  std::uint8_t active_spell_level_{0};
+  bool spell_investing_{false};
   std::uint8_t head_direction_{0};
   std::uint32_t body_state_{0};
   std::uint8_t walk_mode_{0};

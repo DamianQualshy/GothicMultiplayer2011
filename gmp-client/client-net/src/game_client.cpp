@@ -167,6 +167,10 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_UNEQUIPITEM] = [this](Packet p) { OnUnequipItem(p); };
   packet_handlers_[PT_REMOVEITEM] = [this](Packet p) { OnRemoveItem(p); };
   packet_handlers_[PT_ACTOR_ACTION] = [this](Packet p) { OnActorAction(p); };
+  packet_handlers_[PT_PLAYER_SUMMON] = [this](Packet p) { OnPlayerSummon(p); };
+  packet_handlers_[PT_PLAYER_TELEPORT] = [this](Packet p) { OnPlayerTeleport(p); };
+  packet_handlers_[PT_PLAYER_TRANSFORMATION] = [this](Packet p) { OnPlayerTransformation(p); };
+  packet_handlers_[PT_ACTOR_DAMAGE] = [this](Packet p) { OnActorDamage(p); };
   packet_handlers_[PT_ITEM_TRANSACTION_RESULT] = [this](Packet p) { OnItemTransactionResult(p); };
   packet_handlers_[PT_MSG] = [this](Packet p) { OnMessage(p); };
   packet_handlers_[PT_PLAYER_SPAWN] = [this](Packet p) { OnPlayerSpawn(p); };
@@ -195,7 +199,7 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_PLAYER_STANDUP] = [this](Packet p) { OnPlayerStandUp(p); };
   packet_handlers_[PT_GAME_INFO] = [this](Packet p) { OnGameInfo(p); };
   packet_handlers_[PT_SKY_SETTINGS] = [this](Packet p) { OnSkySettings(p); };
-  packet_handlers_[PT_PLAYER_PING_UPDATE] = [this](Packet p) { OnPlayerPingUpdate(p); };
+  packet_handlers_[PT_PLAYER_PRESENCE] = [this](Packet p) { OnPlayerPresence(p); };
   packet_handlers_[PT_ADMIN_AUTH] = [this](Packet p) { OnAdminAuth(p); };
   packet_handlers_[PT_VOICE_CONFIG] = [this](Packet p) { OnVoiceConfiguration(p); };
   packet_handlers_[PT_VOICE] = [this](Packet p) { OnVoice(p); };
@@ -248,6 +252,7 @@ void GameClient::ConnectAsync(std::string_view full_address) {
     event_observer_.OnPlayersClearing();
   }
   player_manager_.Clear();
+  online_players_.clear();
   pending_hit_batches_.clear();
   pending_local_correction_mask_ = 0;
   pending_equipment_verifications_.clear();
@@ -302,6 +307,7 @@ void GameClient::Disconnect() {
     event_observer_.OnPlayersClearing();
   }
   player_manager_.Clear();
+  online_players_.clear();
   pending_hit_batches_.clear();
   pending_local_correction_mask_ = 0;
   pending_equipment_verifications_.clear();
@@ -340,6 +346,8 @@ int GameClient::GetPing() {
 }
 
 std::int32_t GameClient::GetPlayerPing(std::uint64_t player_id) {
+  if (const auto* online = GetOnlinePlayer(player_id))
+    return online->ping;
   if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == player_id) {
     const auto ping = player_manager_.GetLocalPlayer().ping();
     return ping >= 0 ? ping : GetPing();
@@ -442,6 +450,7 @@ void GameClient::UpdatePlayerState(Player* player, const PlayerState& state, std
     player->set_weapon_mode(state.weapon_mode);
     player->set_active_spell(state.active_spell_nr);
     player->set_active_spell_instance(state.active_spell_instance);
+    player->set_spell_investment(state.active_spell_level, state.spell_investing);
   }
 }
 
@@ -517,16 +526,19 @@ void GameClient::SendChatMessage(const std::string& msg) {
   SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
-void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance, std::uint32_t caster_id, std::int32_t mana_after) {
-  if (!player_manager_.HasLocalPlayer()) return;
+std::uint32_t GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance, std::uint32_t caster_id,
+                                        std::int32_t mana_after, std::uint8_t spell_level, bool transformation_succeeded) {
+  if (!player_manager_.HasLocalPlayer())
+    return 0;
   auto& local = player_manager_.GetLocalPlayer();
   auto* caster = caster_id ? FindActor(caster_id) : &local;
-  if (!caster || (caster != &local && (!caster->is_npc() || caster->npc_host_player_id() != local.id()))) return;
+  if (!caster || (caster != &local && (!caster->is_npc() || caster->npc_host_player_id() != local.id())))
+    return 0;
   CastSpellPacket packet;
+  packet.transformation_succeeded = transformation_succeeded;
   const auto observed_mana = mana_after >= 0 ? mana_after : caster->mana();
   packet.mana_delta = static_cast<std::int32_t>(std::clamp<std::int64_t>(
-      static_cast<std::int64_t>(observed_mana) - caster->mana(),
-      std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()));
+      static_cast<std::int64_t>(observed_mana) - caster->mana(), std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()));
   packet.source_time_ms = ActorClockMilliseconds();
   packet.caster_id = static_cast<std::uint32_t>(caster->id());
   packet.command_revision = caster->command_revision();
@@ -534,14 +546,32 @@ void GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, 
   packet.actor_generation = caster->actor_generation();
   packet.item_instance = item_instance ? item_instance : caster->active_spell_instance();
   packet.action_id = ++outgoing_action_sequence_;
-  if (packet.action_id == 0) packet.action_id = ++outgoing_action_sequence_;
-  if (auto* target = FindActor(target_id)) packet.target_generation = target->actor_generation();
+  if (packet.action_id == 0)
+    packet.action_id = ++outgoing_action_sequence_;
+  if (auto* target = FindActor(target_id))
+    packet.target_generation = target->actor_generation();
   packet.spell_id = spell_id;
+  packet.spell_level = std::min(spell_level, kMaxSpellInvestLevel);
   packet.packet_type = target_id ? PT_CASTSPELLONTARGET : PT_CASTSPELL;
   if (target_id) {
     packet.target_id = target_id;
   }
-  if (SerializeAndSend(transport_, packet, TrafficClass::Control)) caster->set_mana(observed_mana);
+  if (!SerializeAndSend(transport_, packet, TrafficClass::Control))
+    return 0;
+  caster->set_mana(observed_mana);
+  return packet.action_id;
+}
+
+void GameClient::SendTransformationReturn(std::uint32_t cast_id) {
+  if (!is_in_game_ || !player_manager_.HasLocalPlayer() || !cast_id)
+    return;
+  const auto& local = player_manager_.GetLocalPlayer();
+  PlayerTransformationPacket packet;
+  packet.player_id = static_cast<std::uint32_t>(local.id());
+  packet.actor_generation = local.actor_generation();
+  packet.command_revision = local.command_revision();
+  packet.cast_id = cast_id;
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
 std::uint32_t GameClient::SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
@@ -750,6 +780,22 @@ void GameClient::UpdatePlayerStats(const PlayerState& state) {
   SerializeAndSend(transport_, packet, TrafficClass::State);
 }
 
+void GameClient::SendNativeTeleport(PlayerTeleportPacket packet) {
+  if (!is_in_game_ || !player_manager_.HasLocalPlayer())
+    return;
+  const auto& local = player_manager_.GetLocalPlayer();
+  auto* actor = FindActor(packet.player_id);
+  if (!actor || !actor->has_spawned() || (actor != &local && (!actor->is_npc() || actor->npc_host_player_id() != local.id())))
+    return;
+  packet.actor_generation = actor->actor_generation();
+  packet.command_revision = actor->command_revision();
+  packet.control_epoch = actor->is_npc() ? actor->npc_control_epoch() : 0;
+  packet.action_id = ++outgoing_action_sequence_;
+  if (!packet.action_id)
+    packet.action_id = ++outgoing_action_sequence_;
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
+}
+
 void GameClient::SendActorAction(ActorActionPacket packet) {
   if (!is_in_game_ || !player_manager_.HasLocalPlayer()) return;
   const auto& local = player_manager_.GetLocalPlayer();
@@ -833,9 +879,9 @@ void GameClient::OnInitialInfo(Packet p) {
     SPDLOG_ERROR("Failed to deserialize InitialInfoPacket, error code: {}", static_cast<int>(state.first));
     return;
   }
-  if (packet.protocol_version != kActorProtocolVersion || packet.actor_generation == 0) {
+  if (packet.actor_generation == 0) {
     Disconnect();
-    const std::string reason = "Incompatible actor synchronization protocol";
+    const std::string reason = "Invalid actor generation";
     {
       std::lock_guard<std::mutex> lock(connection_mutex_);
       connection_state_ = ConnectionState::Failed;
@@ -1004,8 +1050,8 @@ void GameClient::OnCastSpell(Packet p) {
     return;
   }
 
-  if (!packet.caster_id) {
-    SPDLOG_ERROR("CastSpellPacket Caster ID is null");
+  if (!packet.caster_id || packet.spell_id >= 100 || packet.spell_level > kMaxSpellInvestLevel) {
+    SPDLOG_ERROR("Invalid CastSpellPacket caster, spell ID or effect level");
     return;
   }
 
@@ -1013,8 +1059,7 @@ void GameClient::OnCastSpell(Packet p) {
   if (!actor || !actor->has_spawned() || !actor->accepts_life_action_revision(packet.command_revision) ||
       (actor->is_npc() && actor->npc_control_epoch() != packet.control_epoch) ||
       !actor->accept_action_sequence(packet.action_id)) return;
-  event_observer_.OnSpellCast(*packet.caster_id, packet.spell_id, packet.source_time_ms,
-                              packet.actor_generation, packet.control_epoch);
+  event_observer_.OnSpellCast(packet);
 }
 
 void GameClient::OnCastSpellOnTarget(Packet p) {
@@ -1026,17 +1071,17 @@ void GameClient::OnCastSpellOnTarget(Packet p) {
     return;
   }
 
-  if (!packet.caster_id || !packet.target_id) {
-    SPDLOG_ERROR("Invalid CastSpellOnTarget packet. No caster or target id.");
+  if (!packet.caster_id || !packet.target_id || packet.spell_id >= 100 || packet.spell_level > kMaxSpellInvestLevel) {
+    SPDLOG_ERROR("Invalid CastSpellOnTarget packet caster, target, spell ID or effect level");
     return;
   }
 
   auto* actor = FindActor(*packet.caster_id, packet.actor_generation);
-  if (!actor || !actor->has_spawned() || !FindActor(*packet.target_id, packet.target_generation) ||
-      (actor->is_npc() && actor->npc_control_epoch() != packet.control_epoch) ||
-      !actor->accept_action_sequence(packet.action_id)) return;
-  event_observer_.OnSpellCastOnTarget(*packet.caster_id, *packet.target_id, packet.spell_id, packet.source_time_ms,
-                                      packet.actor_generation, packet.target_generation, packet.control_epoch);
+  if (!actor || !actor->has_spawned() || !actor->accepts_life_action_revision(packet.command_revision) ||
+      !FindActor(*packet.target_id, packet.target_generation) || (actor->is_npc() && actor->npc_control_epoch() != packet.control_epoch) ||
+      !actor->accept_action_sequence(packet.action_id))
+    return;
+  event_observer_.OnSpellCast(packet);
 }
 
 void GameClient::OnDropItem(Packet p) {
@@ -1189,6 +1234,85 @@ void GameClient::OnRemoveItem(Packet p) {
   actor->set_command_revision(packet.command_revision);
 }
 
+void GameClient::OnActorDamage(Packet p) {
+  ActorDamagePacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto decoded = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || packet.damage <= 0)
+    return;
+  auto* victim = FindActor(packet.victim_id, packet.victim_generation);
+  if (!victim || !victim->has_spawned() || victim->life_state() != PLAYER_LIFE_ALIVE ||
+      !victim->accepts_life_action_revision(packet.command_revision) || !victim->accept_damage_sequence(packet.state_sequence))
+    return;
+  if (packet.attacker_id && !FindActor(*packet.attacker_id, packet.attacker_generation))
+    packet.attacker_id.reset();
+  event_observer_.OnActorDamage(packet);
+}
+
+void GameClient::OnPlayerSummon(Packet p) {
+  PlayerSummonPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto decoded = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || packet.spell_id >= 100 || packet.summon_instance.empty())
+    return;
+  auto* caster = FindActor(packet.caster_id, packet.caster_generation);
+  auto* npc = FindActor(packet.npc_id, packet.npc_generation);
+  if (!caster || !caster->has_spawned() || !npc || !npc->has_spawned() || !npc->is_npc() || npc->instance() != packet.summon_instance ||
+      !npc->accept_summon_notification())
+    return;
+  event_observer_.OnPlayerSummon(packet);
+}
+
+void GameClient::OnPlayerTeleport(Packet p) {
+  PlayerTeleportPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto decoded = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || !IsFiniteActorVector(packet.position) ||
+      !IsFiniteActorVector(packet.normal) || glm::dot(packet.normal, packet.normal) < 0.0001f || glm::dot(packet.normal, packet.normal) > 4.0f ||
+      packet.destination.empty())
+    return;
+  auto* actor = FindActor(packet.player_id, packet.actor_generation);
+  if (!actor || !actor->has_spawned() || !actor->accepts_life_action_revision(packet.command_revision) ||
+      (actor->is_npc() && actor->npc_control_epoch() != packet.control_epoch) || !actor->accept_action_sequence(packet.action_id))
+    return;
+  const auto mask = actor->accept_components(kSyncPosition | kSyncOrientation, packet.state_sequence);
+  if (mask & kSyncPosition)
+    actor->set_position(packet.position.x, packet.position.y, packet.position.z);
+  if (mask & kSyncOrientation)
+    actor->set_rotation(packet.normal);
+  if (mask)
+    actor->set_source_time_ms(packet.source_time_ms);
+  actor->set_command_revision(packet.command_revision);
+  event_observer_.OnPlayerTeleport(packet, mask);
+}
+
+void GameClient::OnPlayerTransformation(Packet p) {
+  PlayerTransformationPacket packet;
+  using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto decoded = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || packet.instance.empty() ||
+      (packet.spell_id != 0 && (packet.spell_id < 47 || packet.spell_id > 58)) || packet.max_health < 1 || packet.max_mana < 0 ||
+      packet.strength < 0 || packet.dexterity < 0 || !IsFiniteActorVector(packet.state.position) || !IsFiniteActorVector(packet.state.nrot))
+    return;
+  auto* actor = FindActor(packet.player_id, packet.actor_generation);
+  if (!actor || !actor->has_spawned() || !actor->accepts_life_action_revision(packet.command_revision) ||
+      !actor->accept_transformation_sequence(packet.state_sequence))
+    return;
+  actor->set_instance(packet.instance);
+  actor->set_transformation(packet.spell_id, packet.spell_id ? packet.cast_id : 0);
+  actor->set_life_command_revision(packet.command_revision);
+  const std::pair<PlayerAttributeId, std::int32_t> attributes[] = {
+      {ATTR_MAX_HEALTH, packet.max_health}, {ATTR_MAX_MANA, packet.max_mana}, {ATTR_STRENGTH, packet.strength}, {ATTR_DEXTERITY, packet.dexterity}};
+  for (const auto& [attribute, value] : attributes) {
+    if (actor->accept_attribute_sequence(attribute, packet.state_sequence))
+      ApplyAttribute(*actor, attribute, value);
+  }
+  packet.state.correction_mask = actor->accept_components(kSyncAll, packet.state_sequence);
+  UpdatePlayerState(actor, packet.state, packet.command_revision);
+  actor->set_command_revision(packet.command_revision);
+  event_observer_.OnPlayerTransformation(packet, packet.state.correction_mask);
+}
+
 void GameClient::OnActorAction(Packet p) {
   ActorActionPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
@@ -1283,7 +1407,30 @@ void GameClient::OnPlayerSpawn(Packet p) {
   ApplyPlayerSpawn(packet);
 }
 
-void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) {
+void GameClient::ApplyNativeInstanceDefaults(const PlayerSpawnPacket& defaults) {
+  auto* actor = FindActor(defaults.player_id, defaults.actor_generation);
+  if (actor) {
+    actor->reset_inventory_snapshot();
+    ApplyPlayerSpawn(defaults, actor->is_npc(), true);
+  }
+}
+
+void GameClient::SendInstanceReady(const PlayerSpawnPacket& defaults, bool success) {
+  auto* actor = FindActor(defaults.player_id, defaults.actor_generation);
+  if (!IsConnected() || !player_manager_.HasLocalPlayer() || !actor || !actor->instance_change_revision())
+    return;
+  const auto local_id = player_manager_.GetLocalPlayer().id();
+  if (actor->id() != local_id && (!actor->is_npc() || actor->npc_host_player_id() != local_id))
+    return;
+  PlayerInstanceReadyPacket packet;
+  packet.request_revision = actor->instance_change_revision();
+  packet.control_epoch = actor->is_npc() ? actor->npc_control_epoch() : 0;
+  packet.success = success;
+  packet.defaults = defaults;
+  SerializeAndSend(transport_, packet, TrafficClass::Control);
+}
+
+void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc, bool native_defaults) {
   if (packet.actor_generation == 0 || !IsFiniteActorVector(packet.position) || !IsFiniteActorVector(packet.normal)) return;
   std::unordered_set<std::int32_t> inventory_instances;
   for (const auto& entry : packet.inventory) {
@@ -1300,6 +1447,8 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
     event_observer_.OnPlayerLeft(player->id(), player->name());
   }
   player->set_actor_generation(packet.actor_generation);
+  player->set_instance_change_revision(packet.instance_change_revision);
+  player->set_command_revision(packet.command_revision);
   if (local && changed_generation) {
     pending_hit_batches_.clear();
     pending_local_correction_mask_ = 0;
@@ -1315,6 +1464,7 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
   }
   player->set_name(packet.player_name);
   player->set_instance(packet.instance);
+  player->set_transformation(packet.transformation_spell_id, packet.transformation_cast_id);
   player->set_body_model(packet.body_model);
   player->set_body_texture(packet.body_texture);
   player->set_head_model(packet.head_model);
@@ -1344,6 +1494,8 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
   actor_state.weapon_mode = packet.weapon_mode;
   actor_state.active_spell_nr = packet.active_spell_nr;
   actor_state.active_spell_instance = packet.active_spell_instance;
+  actor_state.active_spell_level = packet.active_spell_level;
+  actor_state.spell_investing = packet.spell_investing;
   actor_state.head_direction = packet.head_direction;
   actor_state.body_state = packet.body_state;
   actor_state.walk_mode = packet.walk_mode;
@@ -1356,7 +1508,7 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
   actor_state.mana_points = packet.mana;
   actor_state.life_state = packet.life_state;
   actor_state.invulnerable = packet.invulnerable;
-  actor_state.correction_mask = player->accept_components(kSyncAll, packet.state_sequence, !was_spawned);
+  actor_state.correction_mask = native_defaults ? kSyncAll : player->accept_components(kSyncAll, packet.state_sequence, !was_spawned);
   UpdatePlayerState(player, actor_state, packet.command_revision);
 
   const std::pair<PlayerAttributeId, std::int32_t> attributes[] = {
@@ -1365,7 +1517,7 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
       {ATTR_MAX_HEALTH, packet.max_health}, {ATTR_MAX_MANA, packet.max_mana}, {ATTR_HEALTH, player->health()}, {ATTR_MANA, player->mana()}};
   std::vector<std::pair<PlayerAttributeId, std::int32_t>> accepted_attributes;
   for (const auto& entry : attributes) {
-    if (player->accept_attribute_sequence(entry.first, packet.state_sequence)) {
+    if (native_defaults || player->accept_attribute_sequence(entry.first, packet.state_sequence)) {
       ApplyAttribute(*player, entry.first, entry.second);
       accepted_attributes.push_back(entry);
     }
@@ -1376,6 +1528,8 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
   for (const auto& entry : packet.talents) player->set_talent(entry.talent_id, entry.value);
   for (const auto& overlay : packet.overlays) player->add_overlay(overlay);
   player->set_has_spawned(true);
+  if (native_defaults)
+    return;
   if (local) {
     is_in_game_ = true;
     if (!was_spawned) event_observer_.OnLocalPlayerSpawned(*player);
@@ -1383,6 +1537,8 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc) 
     event_observer_.OnPlayerSpawned(*player);
   }
   if (!packet.instance.empty()) event_observer_.OnPlayerInstanceUpdate(packet.player_id, packet.instance);
+  if (player->instance_change_revision())
+    return;
   event_observer_.OnPlayerColorUpdate(packet.player_id, packet.name_color_r, packet.name_color_g, packet.name_color_b);
   if (!packet.body_model.empty() || !packet.head_model.empty()) {
     event_observer_.OnPlayerVisualUpdate(packet.player_id, packet.body_model, packet.body_texture, packet.head_model,
@@ -1579,17 +1735,20 @@ void GameClient::OnPlayerInstanceUpdate(Packet p) {
   PlayerInstanceUpdatePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (!state.second) {
+  if (state.first != bitsery::ReaderError::NoError || !state.second || packet.instance.empty()) {
     SPDLOG_ERROR("Failed to deserialize PlayerInstanceUpdatePacket");
     return;
   }
 
   SPDLOG_DEBUG("PlayerInstanceUpdatePacket: {}", packet);
   Player* player = FindActor(packet.player_id, packet.actor_generation);
-  if (!player) return;
+  if (!player || (packet.command_revision != player->command_revision() && !IsNewActorSequence(packet.command_revision, player->command_revision())))
+    return;
   player->set_instance(packet.instance);
-  event_observer_.OnPlayerInstanceUpdate(packet.player_id, packet.instance);
   player->set_command_revision(packet.command_revision);
+  if (packet.initialize_defaults)
+    player->set_instance_change_revision(packet.command_revision);
+  event_observer_.OnPlayerInstanceUpdate(packet.player_id, packet.instance);
 }
 
 void GameClient::OnPlayerColorUpdate(Packet p) {
@@ -2004,16 +2163,24 @@ void GameClient::OnSkySettings(Packet p) {
                                         packet.rain_weight, packet.render_lightning != 0);
 }
 
-void GameClient::OnPlayerPingUpdate(Packet p) {
-  PlayerPingUpdatePacket packet;
+void GameClient::OnPlayerPresence(Packet p) {
+  PlayerPresencePacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
   if (!state.second) {
-    SPDLOG_ERROR("Failed to deserialize PlayerPingUpdatePacket");
+    SPDLOG_ERROR("Failed to deserialize PlayerPresencePacket");
     return;
   }
 
-  for (const auto& entry : packet.pings) {
+  std::map<std::uint32_t, PlayerPresenceEntry> online;
+  for (const auto& entry : packet.players) {
+    if (entry.player_id == 0 || !std::isfinite(entry.position.x) || !std::isfinite(entry.position.y) || !std::isfinite(entry.position.z) ||
+        !online.emplace(entry.player_id, entry).second)
+      return;
+  }
+  online_players_ = std::move(online);
+
+  for (const auto& entry : packet.players) {
     Player* player = nullptr;
     if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == entry.player_id) {
       player = &player_manager_.GetLocalPlayer();
@@ -2041,6 +2208,8 @@ void GameClient::OnLeftGame(Packet p) {
     return;
   }
 
+  // PT_LEFT_GAME also means stream-out. Only the global presence snapshot
+  // removes an online user; actor visibility cannot remove a roster entry.
   if (player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.disconnected_id) {
     auto& local_player = player_manager_.GetLocalPlayer();
     local_player.set_has_spawned(false);
@@ -2163,6 +2332,7 @@ void GameClient::OnTransportEvent(const Net::ConnectionEvent& event) {
     event_observer_.OnPlayersClearing();
   }
   player_manager_.Clear();
+  online_players_.clear();
   ResetMobStateReplay();
   worlds_.clear();
   event_observer_.OnAdminAuthChanged(false);

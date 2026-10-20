@@ -23,6 +23,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
+#include <algorithm>
 #include <optional>
 
 #include "hooking/MemoryPatch.h"
@@ -116,18 +117,7 @@ std::optional<bool> GetHudEnabled(std::int32_t hud_type) {
     return std::nullopt;
   }
 
-  if (*mode == kHudModeHidden) {
-    return false;
-  }
-
-  if (hud_type == kHudAll && *mode == kHudModeDefault) {
-    if (!Gothic_II_Addon::ogame) {
-      return std::nullopt;
-    }
-    return Gothic_II_Addon::ogame->GetShowPlayerStatus() != 0;
-  }
-
-  return true;
+  return *mode != kHudModeHidden;
 }
 
 bool IsHudTypeEnabled(std::int32_t hud_type) {
@@ -145,10 +135,6 @@ bool SetHudMode(std::int32_t hud_type, std::int32_t mode) {
   }
 
   *storage = mode;
-  if (hud_type == kHudAll && Gothic_II_Addon::ogame) {
-    Gothic_II_Addon::ogame->SetShowPlayerStatus(mode == kHudModeHidden ? 0 : 1);
-  }
-
   return true;
 }
 
@@ -162,6 +148,11 @@ std::optional<std::int32_t> GetHudMode(std::int32_t hud_type) {
 }
 
 bool IsHudVisible(std::int32_t hud_type, bool default_visible) {
+  // The engine's global gate belongs to menus/dialogs. Script preferences do
+  // not change it, and an always-visible bar must still respect that gate.
+  if (!Gothic_II_Addon::ogame || !Gothic_II_Addon::ogame->GetShowPlayerStatus()) {
+    return false;
+  }
   auto all_mode = GetHudMode(kHudAll);
   if (!all_mode.has_value() || *all_mode == kHudModeHidden) {
     return false;
@@ -174,12 +165,6 @@ bool IsHudVisible(std::int32_t hud_type, bool default_visible) {
 
   if (*mode == kHudModeAlwaysVisible || *all_mode == kHudModeAlwaysVisible) {
     return true;
-  }
-
-  if (*all_mode == kHudModeDefault) {
-    if (!Gothic_II_Addon::ogame || Gothic_II_Addon::ogame->GetShowPlayerStatus() == 0) {
-      return false;
-    }
   }
 
   return default_visible;
@@ -242,6 +227,20 @@ constexpr float FOCUS_HEIGHT_LIMIT_OFFSET = 100.0f;
 constexpr int MAX_SCREEN_WIDTH = 8192;
 constexpr int MAX_SCREEN_HEIGHT = 8191;
 constexpr float DIVE_TIME_INVALID = -1000000.0f;
+
+void UpdateStatusBar(oCViewStatusBar* bar, int maximum, int current) {
+  if (!bar)
+    return;
+  // Empty stats affect the fill, never the frame or the visibility policy.
+  // Native status bars require a nonzero range even when the stat has no max.
+  const int range = std::max(1, maximum);
+  const int value = std::clamp(current, 0, std::max(0, maximum));
+  screen->InsertItem(bar);
+  bar->SetMaxRange(0, range);
+  bar->SetRange(0, range);
+  bar->SetPreview(value);
+  bar->SetValue(value);
+}
 
 struct FocusInfo {
   zSTRING name;
@@ -351,29 +350,30 @@ void RenderFocusName(const zVEC3& world_pos, const zSTRING& name) {
 /// and focus display for multiplayer functionality.
 /// @note This doesn't fully mimic the original functionality.
 void oCGame::UpdatePlayerStatus() {
-  if (!player) {
+  if (!screen) {
     return;
   }
-  screen->RemoveItem(hpBar);
-  screen->RemoveItem(swimBar);
-  screen->RemoveItem(manaBar);
-  screen->RemoveItem(focusBar);
-  if (!gmp::gothic::IsHudVisible(gmp::gothic::kHudAll, showPlayerStatus != 0)) {
+  if (hpBar)
+    screen->RemoveItem(hpBar);
+  if (swimBar)
+    screen->RemoveItem(swimBar);
+  if (manaBar)
+    screen->RemoveItem(manaBar);
+  if (focusBar)
+    screen->RemoveItem(focusBar);
+  if (!player || !GetShowPlayerStatus() ||
+      gmp::gothic::GetHudMode(gmp::gothic::kHudAll) == gmp::gothic::kHudModeHidden) {
     return;
   }
 
   zCWorld* world = GetWorld();
   // Skip if a global cutscene is running
-  if (world != nullptr && world->csPlayer->GetPlayingGlobalCutscene()) {
+  if (world && world->csPlayer && world->csPlayer->GetPlayingGlobalCutscene()) {
     return;
   }
 
   if (gmp::gothic::IsHudVisible(gmp::gothic::kHudHealthBar, true)) {
-    screen->InsertItem(hpBar);
-    hpBar->SetMaxRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
-    hpBar->SetRange(0, player->GetAttribute(NPC_ATR_HITPOINTSMAX));
-    hpBar->SetPreview(player->GetAttribute(NPC_ATR_HITPOINTS));
-    hpBar->SetValue(player->GetAttribute(NPC_ATR_HITPOINTS));
+    UpdateStatusBar(hpBar, player->GetAttribute(NPC_ATR_HITPOINTSMAX), player->GetAttribute(NPC_ATR_HITPOINTS));
   }
 
   if (player->GetAnictrl() != nullptr) {
@@ -400,12 +400,8 @@ void oCGame::UpdatePlayerStatus() {
   const int mana_max = player->GetAttribute(NPC_ATR_MANAMAX);
   const bool mana_default_visible =
       mana_max > 0 && (player->inventory2.IsOpen() || player->GetWeaponMode() == NPC_WEAPON_MAG);
-  if (mana_max > 0 && gmp::gothic::IsHudVisible(gmp::gothic::kHudManaBar, mana_default_visible)) {
-    screen->InsertItem(manaBar);
-    manaBar->SetMaxRange(0, mana_max);
-    manaBar->SetRange(0, mana_max);
-    manaBar->SetPreview(player->GetAttribute(NPC_ATR_MANA));
-    manaBar->SetValue(player->GetAttribute(NPC_ATR_MANA));
+  if (gmp::gothic::IsHudVisible(gmp::gothic::kHudManaBar, mana_default_visible)) {
+    UpdateStatusBar(manaBar, mana_max, player->GetAttribute(NPC_ATR_MANA));
   }
 
   if (gStatusReadGameOptions) {
@@ -431,10 +427,7 @@ void oCGame::UpdatePlayerStatus() {
 
   if (focus_info->current_health > 0 &&
       gmp::gothic::IsHudVisible(gmp::gothic::kHudFocusBar, focus_info->default_bar_visible)) {
-    screen->InsertItem(focusBar);
-    focusBar->SetMaxRange(0, focus_info->health_max);
-    focusBar->SetRange(0, focus_info->health_max);
-    focusBar->SetValue(focus_info->current_health);
+    UpdateStatusBar(focusBar, focus_info->health_max, focus_info->current_health);
   }
 
   if (focus_vob->GetVisual() &&

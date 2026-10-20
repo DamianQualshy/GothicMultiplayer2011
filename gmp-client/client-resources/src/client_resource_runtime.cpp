@@ -161,42 +161,10 @@ void ClientResourceRuntime::SetServerInfoProvider(gmp::client::GameClient& game_
       [&game_client]() { return static_cast<int>(game_client.GetMaxSlots()); },
       [&game_client]() {
         std::vector<int> player_ids;
-        auto& manager = game_client.player_manager();
-        const bool has_local = manager.HasLocalPlayer();
-        const auto& players = manager.GetAllPlayers();
-
-        player_ids.reserve(players.size() + (has_local ? 1 : 0));
-
-        if (has_local) {
-          const auto& local = manager.GetLocalPlayer();
-          if (local.has_spawned()) {
-            player_ids.push_back(static_cast<int>(local.id()));
-          }
-        }
-
-        for (const auto& [id, player_ptr] : players) {
-          if (player_ptr && !player_ptr->is_npc() && player_ptr->has_spawned()) {
-            player_ids.push_back(static_cast<int>(id));
-          }
-        }
-
+        for (const auto& [id, _] : game_client.GetOnlinePlayers()) player_ids.push_back(static_cast<int>(id));
         return player_ids;
       },
-      [&game_client]() {
-        int count = 0;
-        auto& manager = game_client.player_manager();
-        if (manager.HasLocalPlayer() && manager.GetLocalPlayer().has_spawned()) {
-          ++count;
-        }
-
-        for (const auto& [_, player_ptr] : manager.GetAllPlayers()) {
-          if (player_ptr && !player_ptr->is_npc() && player_ptr->has_spawned()) {
-            ++count;
-          }
-        }
-
-        return count;
-      },
+      [&game_client]() { return static_cast<int>(game_client.GetOnlinePlayers().size()); },
   });
 }
 

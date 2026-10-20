@@ -280,6 +280,9 @@ bool ContentTransitionManager::RecreateGameSession(bool deactivate_overlay, std:
   }
   zCCacheBase::S_ClearCaches();
 
+  // Native parser Reset() frees the symbol table but leaves the shared instance
+  // context intact. INITPERCEPTIONS must not restore a symbol from the old session.
+  zCPar_Symbol::SetUseInstance(nullptr);
   gameMan->GameSessionInit();
   if (!gameMan->gameSession || !ogame) {
     error = "Gothic failed to initialize a fresh game session";

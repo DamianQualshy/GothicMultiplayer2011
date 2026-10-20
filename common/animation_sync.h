@@ -74,6 +74,10 @@ inline bool IsPlayerLifecycleAnimation(std::string_view name) {
          name == "T_WOUNDED_2_STAND" || name == "T_WOUNDEDB_2_STAND";
 }
 
+inline bool IsDamageReactionAnimation(std::string_view name) {
+  return name == "T_GOTHIT" || (name.starts_with("T_") && (name.ends_with("STUMBLE") || name.ends_with("STUMBLEB")));
+}
+
 inline bool IsPlayerGetUpAnimation(std::string_view name) {
   return name == "T_WOUNDED_2_STAND" || name == "T_WOUNDEDB_2_STAND" ||
          name == "T_FALLEN_2_STAND" || name == "T_FALLENB_2_STAND" || name == "T_FALLDN_2_STAND";
@@ -99,23 +103,27 @@ struct PlayerAnimationSample {
   bool looping = false;
   bool fading_out = false;
   bool skeletal = true;
+  bool casting = false;
 };
 
 inline int SelectPlayerPoseAnimation(std::span<const PlayerAnimationSample> animations) {
   int selected_id = -1;
   int selected_layer = -1;
   bool selected_locomotion = false;
+  bool selected_casting = false;
   for (const auto& animation : animations) {
     if (animation.id < 0 || animation.fading_out || !animation.skeletal ||
         !IsSampledPlayerAnimation(animation.name, animation.looping)) {
       continue;
     }
     const bool locomotion = IsPlayerLocomotionAnimation(animation.name);
-    if (selected_id < 0 || (locomotion && !selected_locomotion) ||
-        (locomotion == selected_locomotion && animation.layer >= selected_layer)) {
+    if (selected_id < 0 || (animation.casting && !selected_casting) ||
+        (animation.casting == selected_casting &&
+         ((locomotion && !selected_locomotion) || (locomotion == selected_locomotion && animation.layer >= selected_layer)))) {
       selected_id = animation.id;
       selected_layer = animation.layer;
       selected_locomotion = locomotion;
+      selected_casting = animation.casting;
     }
   }
   return selected_id;

@@ -90,8 +90,9 @@ void GMPCore::Shutdown() {
 
 void GMPCore::OnFrameStart() {
   // Execute all deferred actions at the start of the frame.
-  // This runs on the main thread, BEFORE Gothic's rendering.
-  // Safe for operations like ChangeLevel that invalidate world state.
+  // The main-loop input call site invokes this before Gothic selects its
+  // session for Render/RenderBlit. Calling it from oCGame::Render would let
+  // session recreation destroy the object still cached by Gothic's caller.
   const auto actions_to_run = deferredActions_.size();
   for (std::size_t index = 0; index < actions_to_run; ++index) {
     auto action = std::move(deferredActions_.front());

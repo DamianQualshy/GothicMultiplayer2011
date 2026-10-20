@@ -36,10 +36,14 @@ SOFTWARE.
 #include "shared/event.h"
 
 CInventory::CInventory(oCNpcInventory* HeroInventory) {
-  Inv = HeroInventory;
+  BindInventory(HeroInventory);
+};
+
+void CInventory::BindInventory(oCNpcInventory* inventory) {
+  Inv = inventory;
   was_open_ = Inv ? Inv->IsOpen() : false;
   last_selected_slot_ = Inv ? Inv->selectedItem : -1;
-};
+}
 
 CInventory::~CInventory() {
   Inv = NULL;

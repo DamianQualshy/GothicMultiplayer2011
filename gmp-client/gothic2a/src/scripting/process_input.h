@@ -35,6 +35,8 @@ namespace gmp::gothic {
 
 constexpr int kMaxTrackedCode = MAX_MOUSE_BTNS_AND_CODES;
 
+void InstallChatInputHooks();
+
 // Input state arrays
 extern bool s_prevPressed[kMaxTrackedCode + 1];
 extern bool s_pressedThisFrame[kMaxTrackedCode + 1];

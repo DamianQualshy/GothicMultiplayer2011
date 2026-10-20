@@ -68,8 +68,9 @@ void ExitMenuState::CleanUpMenuResources() {
     context_.player->SetMovLock(0);
   }
 
-  // Enable health bar
-  context_.EnableHealthBar();
+  // Restore the engine gate without changing script visibility or bar sizes.
+  if (ogame)
+    ogame->SetShowPlayerStatus(TRUE);
 
   // Remove logo
   if (context_.logoView) {

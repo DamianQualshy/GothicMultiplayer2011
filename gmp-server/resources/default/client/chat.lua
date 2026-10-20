@@ -1,12 +1,22 @@
+local language = getLanguageIndex()
+local fontPrefix = 'CP1252_'
+if language == LANG_PL or language == LANG_CZ or language == LANG_SK or language == LANG_ISV or language == LANG_HU or language == LANG_SZL then
+  fontPrefix = 'CP1250_'
+elseif language == LANG_RU or language == LANG_UA then
+  fontPrefix = 'CP1251_'
+elseif language == LANG_TR then
+  fontPrefix = 'CP1254_'
+end
+
 local Chat = {
   x = 0,
   y = 0,
   maxLines = 15,
   historySize = 50,
   lineHeight = 200,
-  inputTextOffset = 200,
-  inputLimit = 84,
-  font = 'FONT_DEFAULT.TGA',
+  inputTextOffset = 100,
+  inputLimit = 128,
+  font = fontPrefix .. 'FONT_DEFAULT.TGA',
   visible = true,
   fadeMs = 400,
   location = 0,
@@ -18,17 +28,16 @@ local Chat = {
 
 local inputPrompt = Draw.new(Chat.x, Chat.y + Chat.maxLines * Chat.lineHeight, '->')
 local inputText = Draw.new(Chat.x + Chat.inputTextOffset, Chat.y + Chat.maxLines * Chat.lineHeight, '')
-local lastInputOpen = false
 local lastInputText = ''
-local lastInputCaret = 0
 
 inputPrompt:setFont(Chat.font)
 inputText:setFont(Chat.font)
-inputPrompt:setColor(255, 255, 255)
+inputPrompt:setColor(190, 100, 0, 255)
 inputText:setColor(255, 255, 255)
 inputPrompt:setVisible(false)
 inputText:setVisible(false)
 chatInputSetFont(Chat.font)
+chatInputSetMaxLength(Chat.inputLimit)
 
 local function clampByte(value)
   value = tonumber(value) or 255
@@ -309,6 +318,12 @@ function Chat:updateInput()
   local caret = chatInputGetCaretPosition()
   local shownText = text
 
+  -- Ordinary typing is consumed natively and does not emit onKeyDown.
+  if open and text ~= lastInputText and heroId ~= nil then
+    playGesticulation(heroId)
+  end
+  lastInputText = text
+
   if open and math.floor(getTickCount() / 750) % 2 == 0 then
     shownText = string.sub(text, 1, caret) .. '_' .. string.sub(text, caret + 1)
   end
@@ -337,30 +352,8 @@ local function insertPasteText(text)
   local caret = chatInputGetCaretPosition()
   local nextText = string.sub(current, 1, caret) .. text .. string.sub(current, caret + 1)
 
-  if #nextText > Chat.inputLimit then
-    nextText = string.sub(nextText, 1, Chat.inputLimit)
-  end
-
   chatInputSetText(nextText)
   chatInputSetCaretPosition(math.min(caret + #text, #nextText))
-end
-
-local function playChatGesture()
-  if heroId == nil then
-    return
-  end
-
-  playGesticulation(heroId)
-end
-
-local function updateChatGesture(open, text, caret)
-  if open and lastInputOpen and (text ~= lastInputText or caret ~= lastInputCaret) then
-    playChatGesture()
-  end
-
-  lastInputOpen = open
-  lastInputText = open and text or ''
-  lastInputCaret = open and caret or 0
 end
 
 local function commandText(command, params)
@@ -375,15 +368,14 @@ end
 addEventHandler('onRender', function()
   Chat:updateLines()
   Chat:updateInput()
-  updateChatGesture(chatInputIsOpen(), chatInputGetText(), chatInputGetCaretPosition())
 end)
 
 addEventHandler('onPlayerMessage', function(playerId, r, g, b, message)
-  if playerId ~= nil then
-    Chat:printPlayer(playerId, r, g, b, message)
-  else
-    Chat:print(message, r, g, b)
-  end
+    if playerId ~= nil then
+        Chat:printPlayer(playerId, r, g, b, message)
+    else
+        Chat:print(message, r, g, b)
+    end
 end)
 
 addEventHandler('onPaste', function(text)
@@ -447,7 +439,6 @@ addEventHandler('onKeyDown', function(key)
       chatInputSetCaretPosition(#chatInputGetText())
       cancelEvent()
     end
-
     return
   end
 

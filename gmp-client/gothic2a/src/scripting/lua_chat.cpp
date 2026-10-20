@@ -99,6 +99,21 @@ std::string Function_ChatInputGetFont() {
 
 /* luagmp (func)
 *
+* This function returns the maximum chat input length in bytes.
+*
+* @version  0.3.0
+* @name     chatInputGetMaxLength
+* @side     client
+* @category Chat
+* @return   (number) Maximum input length.
+*
+*/
+int Function_ChatInputGetMaxLength() {
+  return Chat().GetInputMaxLength();
+}
+
+/* luagmp (func)
+*
 * This function returns the chat input position in virtual screen units.
 *
 * @version  0.3.0
@@ -202,6 +217,24 @@ void Function_ChatInputSetFont(const std::string& font) {
 
 /* luagmp (func)
 *
+* This function changes the maximum chat input length in bytes.
+* The native default is 84 bytes.
+* The length is clamped to 1-1024, matching the message packet limit.
+* Existing text is truncated and the caret is clamped when necessary.
+*
+* @version  0.3.0
+* @name     chatInputSetMaxLength
+* @side     client
+* @category Chat
+* @param    (number) length Maximum input length.
+*
+*/
+void Function_ChatInputSetMaxLength(int length) {
+  Chat().SetInputMaxLength(length);
+}
+
+/* luagmp (func)
+*
 * This function changes the chat input position in virtual screen units.
 *
 * @version  0.3.0
@@ -236,6 +269,7 @@ void BindChat(sol::state& lua) {
   lua["chatInputClose"] = Function_ChatInputClose;
   lua["chatInputGetCaretPosition"] = Function_ChatInputGetCaretPosition;
   lua["chatInputGetFont"] = Function_ChatInputGetFont;
+  lua["chatInputGetMaxLength"] = Function_ChatInputGetMaxLength;
   lua["chatInputGetPosition"] = Function_ChatInputGetPosition;
   lua["chatInputGetText"] = Function_ChatInputGetText;
   lua["chatInputIsOpen"] = Function_ChatInputIsOpen;
@@ -243,6 +277,7 @@ void BindChat(sol::state& lua) {
   lua["chatInputSend"] = Function_ChatInputSend;
   lua["chatInputSetCaretPosition"] = Function_ChatInputSetCaretPosition;
   lua["chatInputSetFont"] = Function_ChatInputSetFont;
+  lua["chatInputSetMaxLength"] = Function_ChatInputSetMaxLength;
   lua["chatInputSetPosition"] = Function_ChatInputSetPosition;
   lua["chatInputSetText"] = Function_ChatInputSetText;
 }

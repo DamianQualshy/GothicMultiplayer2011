@@ -72,6 +72,13 @@ public:
   int GetPing();
   std::int32_t GetPlayerPing(std::uint64_t player_id);
   Net::NetworkStats GetNetworkStats() const;
+  const std::map<std::uint32_t, PlayerPresenceEntry>& GetOnlinePlayers() const {
+    return online_players_;
+  }
+  const PlayerPresenceEntry* GetOnlinePlayer(std::uint64_t id) const {
+    const auto it = online_players_.find(static_cast<std::uint32_t>(id));
+    return it != online_players_.end() && it->second.player_id == id ? &it->second : nullptr;
+  }
 
   // To be called after connecting to the server and receiving the initial info packet,
   // downloading all the required files, and loading the world.
@@ -81,7 +88,12 @@ public:
 
   // Send methods
   void SendChatMessage(const std::string& msg);
-  void SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance = 0, std::uint32_t caster_id = 0, std::int32_t mana_after = -1);
+  void SendNativeTeleport(PlayerTeleportPacket packet);
+  std::uint32_t SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance = 0, std::uint32_t caster_id = 0,
+                     std::int32_t mana_after = -1, std::uint8_t spell_level = 1, bool transformation_succeeded = false);
+  void SendTransformationReturn(std::uint32_t cast_id);
+  void ApplyNativeInstanceDefaults(const PlayerSpawnPacket& defaults);
+  void SendInstanceReady(const PlayerSpawnPacket& defaults, bool success = true);
   std::uint32_t SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
                     const glm::vec3& rotation, bool physics_enabled);
   std::uint32_t SendTakeItem(std::int32_t instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id);
@@ -163,6 +175,10 @@ private:
   void OnUnequipItem(Packet packet);
   void OnRemoveItem(Packet packet);
   void OnActorAction(Packet packet);
+  void OnActorDamage(Packet packet);
+  void OnPlayerSummon(Packet packet);
+  void OnPlayerTeleport(Packet packet);
+  void OnPlayerTransformation(Packet packet);
   void DrainMobStateReplay();
   void ResetMobStateReplay() {
     world_objects_ready_ = false;
@@ -173,7 +189,7 @@ private:
   Player* FindActor(std::uint64_t id, std::uint64_t generation);
   void OnMessage(Packet packet);
   void OnPlayerSpawn(Packet packet);
-  void ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc = false);
+  void ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc = false, bool native_defaults = false);
   void OnNpcSpawn(Packet packet);
   void OnNpcControl(Packet packet);
   void ApplyNpcControl(const NpcControlPacket& control);
@@ -201,7 +217,7 @@ private:
   void OnPlayerStandUp(Packet packet);
   void OnGameInfo(Packet packet);
   void OnSkySettings(Packet packet);
-  void OnPlayerPingUpdate(Packet packet);
+  void OnPlayerPresence(Packet packet);
   void OnAdminAuth(Packet packet);
   void OnVoiceConfiguration(Packet packet);
   void OnVoice(Packet packet);
@@ -212,6 +228,8 @@ private:
   EventObserver& event_observer_;
   ResourceDownloader resource_downloader_;
   PlayerManager player_manager_;
+  // Global UI metadata, independent of the actors streamed into the world.
+  std::map<std::uint32_t, PlayerPresenceEntry> online_players_;
 
   using PacketHandlerFunc = std::function<void(Packet)>;
   std::map<int, PacketHandlerFunc> packet_handlers_;

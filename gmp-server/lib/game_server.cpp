@@ -23,53 +23,59 @@ SOFTWARE.
 */
 
 #include "game_server.h"
-#include "Lua/lua_item.h"
-#include "npc_packets.h"
 
 #include <bitsery/ext/value_range.h>
 #include <bitsery/traits/vector.h>
 #include <httplib.h>
+#include <opus/opus.h>
 #include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
 #include <version.h>
 
 #include <algorithm>
+#include <climits>
 #include <array>
-#include <chrono>
 #include <cctype>
+#include <chrono>
+#include <cmath>
 #include <cstring>
 #include <ctime>
-#include <cmath>
-#include <limits>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <iomanip>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <nlohmann/json.hpp>
-#include <opus/opus.h>
 #include <optional>
 #include <sstream>
 #include <stack>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
-#include "diagnostics_manager.h"
-#include "inventory_sync.h"
-#include "gothic_clock.h"
 #include "Lua/event_bind.h"
+#include "Lua/lua_item.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
+#include "diagnostics_manager.h"
+#include "gothic_clock.h"
+#include "healing_spells.h"
+#include "inventory_sync.h"
+#include "weapon_skills.h"
 #include "master_server_endpoint.h"
 #include "net_enums.h"
+#include "npc_packets.h"
+#include "native_event_packets.h"
+#include "transformation_spells.h"
 #include "packets.h"
 #include "platform_depend.h"
-#include "server_events.h"
 #include "server_constants.h"
+#include "server_events.h"
 #include "shared/event.h"
-#include "Shared/lua_runtime/lua_value_codec.h"
 #include "shared/math.h"
 #include "sol/sol.hpp"
 #include "transport/transport.h"
@@ -96,7 +102,7 @@ constexpr const char* kPublicDataPath = "data/public";
 // Hard upper bound for one server's advertised client content transfer.
 constexpr std::uint64_t kMaximumAdvertisedDownloadSize = 4ULL * 1024ULL * 1024ULL * 1024ULL;
 constexpr std::string_view kFrame = "-========================================-";
-constexpr auto kPlayerPingUpdateInterval = std::chrono::milliseconds(2500);
+constexpr auto kPlayerPresenceUpdateInterval = std::chrono::milliseconds(1000);
 constexpr std::uint8_t kFullSkySettingsFlags = SKY_SETTING_WEATHER | SKY_SETTING_RAIN_START | SKY_SETTING_RAIN_STOP |
                                                 SKY_SETTING_WIND_SCALE | SKY_SETTING_DONT_RAIN | SKY_SETTING_RAIN_WEIGHT |
                                                 SKY_SETTING_LIGHTNING;
@@ -146,8 +152,16 @@ struct CombatBounds {
 };
 
 CombatBounds GetCombatBounds(const Character& actor, const ItemRegistry& registry) {
+  if (actor.transformation) {
+    const auto* form = gmp::GetTransformationForm(actor.transformation->spell_id);
+    return {std::clamp(actor.strength, 5, 1000000), form ? form->damage_type : 0u, 300, 250};
+  }
   if (actor.state.weapon_mode <= 1) {
-    return {std::clamp(actor.strength, 5, 1000000), 1u << 1, 300, 250}; // Gothic blunt damage.
+    // No drawn weapon does not imply blunt damage. ZenGin calculates natural
+    // attacks with any combination of its eight damage channels. The controlling
+    // runtime reports that native result; retain the server's strength/reach caps
+    // without guessing its damage type from an instance name.
+    return {std::clamp(actor.strength, 5, 1000000), 255u, 300, 250};
   }
   const bool ranged = actor.state.weapon_mode == 5 || actor.state.weapon_mode == 6;
   const auto* weapon = registry.FindByIndex(ranged ? actor.state.ranged_weapon_instance : actor.state.melee_weapon_instance);
@@ -163,6 +177,7 @@ CombatBounds GetCombatBounds(const Character& actor, const ItemRegistry& registr
 }
 
 bool CanFinishCharacter(const Character& attacker, const Character& victim, const ItemRegistry& registry) {
+  if (attacker.transformation) return false;
   if (attacker.state.weapon_mode < 2 || attacker.state.weapon_mode > 4 || victim.health <= 0 ||
       victim.state.life_state != PLAYER_LIFE_UNCONSCIOUS || (victim.flags & PlayerManager::PL_UNCONCIOUS) == 0) return false;
   const auto* weapon = registry.FindByIndex(attacker.state.melee_weapon_instance);
@@ -178,6 +193,9 @@ std::int32_t BoundDamageByEquipment(const Character& victim, const ItemRegistry&
   for (std::int32_t type = 0; type < 8; ++type) {
     if ((damage_types & (1u << type)) == 0) continue;
     std::int64_t protection = 0;
+    if (victim.transformation) {
+      if (const auto* form = gmp::GetTransformationForm(victim.transformation->spell_id)) protection = form->protection[type];
+    }
     for (const auto index : {victim.state.equipped_armor_instance, victim.state.equipped_helmet_instance,
                             victim.state.equipped_shield_instance, victim.state.equipped_amulet_instance,
                             victim.state.equipped_belt_instance, victim.state.equipped_ring_left_instance,
@@ -238,25 +256,23 @@ SkySettingsPacket MakeSkySettingsPacket(std::uint8_t flags, std::int32_t weather
   return packet;
 }
 
-std::string FormatConnectionDetails(ConnectionHandle id) {
-  const auto id_string = std::to_string(id);
-  if (!g_transport) {
-    return "id " + id_string;
+std::string FormatConnectionDetails(std::string address, const std::string& identity) {
+  if (!address.empty()) {
+    address.append(", ");
   }
-
-  std::string address = g_transport->GetPlayerIp(id);
-  if (address.empty()) {
-    return "id " + id_string;
-  }
-
-  address.append(", id ").append(id_string);
+  address.append(identity.empty() ? "<identity unavailable>" : identity);
   return address;
 }
 
+std::string FormatConnectionDetails(ConnectionHandle connection) {
+  if (!g_transport) {
+    return FormatConnectionDetails({}, {});
+  }
+  return FormatConnectionDetails(g_transport->GetPlayerIp(connection), g_transport->GetPlayerIdentity(connection));
+}
+
 std::string FormatPlayerLabel(const PlayerManager::Player& player) {
-  const auto connection_details = player.ip_address.empty()
-                                      ? FormatConnectionDetails(player.connection)
-                                      : player.ip_address + ", id " + std::to_string(player.connection);
+  const auto connection_details = FormatConnectionDetails(player.ip_address, player.identity);
   if (player.name.empty()) {
     return connection_details;
   }
@@ -329,6 +345,8 @@ void ClearTransientCombatState(Character& player) {
   player.state.weapon_mode = 0;
   player.state.active_spell_nr = 0;
   player.state.active_spell_instance = 0;
+  player.state.active_spell_level = 0;
+  player.state.spell_investing = false;
 }
 
 void ClearRecoveredPose(Character& player) {
@@ -391,6 +409,93 @@ std::uint32_t AdvanceActorCommand(Character& actor) {
   return actor.command_revision;
 }
 
+void RestoreTransformation(Character& actor) {
+  if (!actor.transformation)
+    return;
+  const auto human = std::move(*actor.transformation);
+  actor.transformation.reset();
+  // Preserve the fractional HP lost by integer conversion into a small form.
+  // Repeated sheep/rat transforms must neither heal nor erode the human's HP.
+  const auto form_health = gmp::ScaleTransformationHealth(actor.health, actor.max_health, human.form_max_health);
+  const auto delta = static_cast<std::int64_t>(form_health - human.form_health) * human.max_health;
+  const auto scaled_delta = delta < 0 ? -((-delta + human.form_max_health - 1) / human.form_max_health) : delta / human.form_max_health;
+  actor.health =
+      actor.health <= 0
+          ? 0
+          : static_cast<std::int32_t>(std::clamp<std::int64_t>(static_cast<std::int64_t>(human.health) + scaled_delta, 1, human.max_health));
+  actor.max_health = human.max_health;
+  if (actor.state.life_state == PLAYER_LIFE_DEAD)
+    actor.health = 0;
+  else if (actor.state.life_state == PLAYER_LIFE_UNCONSCIOUS)
+    actor.health = 1;
+  actor.max_mana = human.max_mana;
+  actor.mana = std::clamp(human.mana, 0, actor.max_mana);
+  actor.strength = human.strength;
+  actor.dexterity = human.dexterity;
+  actor.instance = human.instance;
+  const auto current = actor.state;
+  actor.state = human.equipment;
+  actor.state.position = current.position;
+  actor.state.nrot = current.nrot;
+  actor.state.source_time_ms = current.source_time_ms;
+  actor.state.life_state = current.life_state;
+  actor.state.invulnerable = current.invulnerable;
+  actor.state.health_points = actor.health;
+  actor.state.mana_points = actor.mana;
+  actor.state.animation = -1;
+  actor.state.animation_name.clear();
+  actor.state.body_state = 0;
+  actor.state.active_spell_nr = actor.state.active_spell_level = 0;
+  actor.state.active_spell_instance = 0;
+  actor.state.spell_investing = false;
+  actor.state.weapon_mode = 0;
+  actor.approved_projectiles.clear();
+}
+
+void EnterTransformation(Character& actor, std::uint16_t spell, std::uint32_t cast_id) {
+  const auto* form = gmp::GetTransformationForm(spell);
+  actor.transformation = Character::Transformation{spell,          cast_id,    actor.instance,   actor.max_health,
+                                                   actor.max_mana, actor.mana, actor.strength,   actor.dexterity,
+                                                   actor.health,   0,          form->max_health, actor.state};
+  actor.health = gmp::ScaleTransformationHealth(actor.health, actor.max_health, form->max_health);
+  actor.transformation->form_health = actor.health;
+  actor.max_health = form->max_health;
+  actor.max_mana = actor.mana = 0;
+  actor.strength = form->strength;
+  actor.dexterity = form->dexterity;
+  actor.instance = form->instance;
+  const auto old = actor.state;
+  actor.state = PlayerState{};
+  actor.state.position = old.position;
+  actor.state.nrot = old.nrot;
+  actor.state.source_time_ms = ActorClockMilliseconds();
+  actor.state.health_points = actor.health;
+  actor.state.life_state = old.life_state;
+  actor.state.invulnerable = old.invulnerable;
+  actor.approved_projectiles.clear();
+}
+
+PlayerTransformationPacket MakeTransformationPacket(const Character& actor, std::uint32_t cast_id) {
+  PlayerTransformationPacket packet;
+  packet.player_id = actor.player_id;
+  packet.actor_generation = actor.actor_generation;
+  packet.command_revision = actor.command_revision;
+  packet.state_sequence = actor.state_sequence;
+  packet.cast_id = cast_id;
+  packet.spell_id = actor.transformation ? actor.transformation->spell_id : 0;
+  packet.instance = actor.instance;
+  packet.max_health = actor.max_health;
+  packet.max_mana = actor.max_mana;
+  packet.strength = actor.strength;
+  packet.dexterity = actor.dexterity;
+  packet.state = actor.state;
+  packet.state.health_points = actor.health;
+  packet.state.mana_points = actor.mana;
+  packet.state.invulnerable = actor.invulnerable;
+  packet.state.correction_mask = kSyncAll;
+  return packet;
+}
+
 PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const Character& player) {
   PlayerStateUpdatePacket packet{};
   packet.packet_type = PT_ACTUAL_STATISTICS;
@@ -409,6 +514,11 @@ PlayerStateUpdatePacket MakePlayerStateUpdatePacket(const Character& player) {
 
 PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player, const ItemRegistry* inventory_registry = nullptr) {
   PlayerSpawnPacket packet{};
+  packet.instance_change_revision = player.instance_change ? player.instance_change->request_revision : 0;
+  if (player.transformation) {
+    packet.transformation_spell_id = player.transformation->spell_id;
+    packet.transformation_cast_id = player.transformation->cast_id;
+  }
   packet.packet_type = PT_PLAYER_SPAWN;
   packet.player_id = player.player_id;
   packet.state_sequence = player.state_sequence;
@@ -419,6 +529,8 @@ PlayerSpawnPacket MakePlayerSpawnPacket(const Character& player, const ItemRegis
   packet.weapon_mode = player.state.weapon_mode;
   packet.active_spell_nr = player.state.active_spell_nr;
   packet.active_spell_instance = player.state.active_spell_instance;
+  packet.active_spell_level = player.state.active_spell_level;
+  packet.spell_investing = player.state.spell_investing;
   packet.head_direction = player.state.head_direction;
   packet.melee_weapon_instance = player.state.melee_weapon_instance;
   packet.ranged_weapon_instance = player.state.ranged_weapon_instance;
@@ -619,8 +731,21 @@ bool SerializeAndSend(const Packet& packet, Net::TrafficClass traffic, Net::Conn
       !g_transport->Send(buffer.data(), static_cast<std::uint32_t>(written_size), traffic, connection)) {
     DiagnosticsManager::Instance().RecordSendFailure(packet.packet_type);
     if (traffic == TrafficClass::Control) {
-      SPDLOG_WARN("Failed to enqueue reliable gameplay packet {} for connection {}", static_cast<int>(packet.packet_type), connection);
+      SPDLOG_WARN("Failed to enqueue reliable gameplay packet {} ({}) for connection {} ({} bytes)", static_cast<int>(packet.packet_type),
+                  PacketIDToString(static_cast<PacketID>(packet.packet_type)), connection, written_size);
+      if constexpr (std::is_same_v<Packet, LuaEventPacket>) {
+        SPDLOG_WARN("Failed Lua event '{}': source {}, payload {} bytes", packet.event_name, packet.source_element, packet.payload.size());
+      }
       if (g_transport) {
+        const auto stats = g_transport->GetNetworkStats(connection);
+        if (stats.available) {
+          SPDLOG_WARN("Connection {} send queue: reliable {} bytes, unreliable {} bytes, unacknowledged {} bytes, control delay {} us", connection,
+                      stats.pending_reliable_bytes, stats.pending_unreliable_bytes, stats.unacknowledged_reliable_bytes, stats.control_queue_time_usec);
+        }
+        const auto diagnostics = g_transport->GetDiagnostics(connection);
+        if (!diagnostics.empty()) {
+          SPDLOG_WARN("Connection {} transport diagnostics: {}", connection, diagnostics);
+        }
         // A missing reliable update leaves the client inconsistent. Close events
         // are deferred until Pulse so callers may safely finish player iteration.
         g_transport->CloseConnection(connection, CloseReason::Failure, "Unable to enqueue reliable gameplay data");
@@ -759,6 +884,8 @@ std::int32_t MergePendingEquipmentState(std::optional<std::int32_t>& pending, st
 
 void SendPlayerAttributeUpdate(PlayerManager& player_manager, Character& subject, PlayerAttributeId attribute_id,
                                std::int32_t value) {
+  if (subject.instance_change)
+    subject.instance_change->attributes[attribute_id] = value;
   PlayerAttributeUpdatePacket packet{};
   packet.packet_type = PT_PLAYER_ATTRIBUTE_UPDATE;
   packet.player_id = subject.player_id;
@@ -995,6 +1122,8 @@ GameServer::GameServer() {
   EventManager::Instance().RegisterEvent(kEventOnPlayerEquipShieldName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerEquipSpellSlotName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerCastSpellName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerSummonName);
+  EventManager::Instance().RegisterEvent(kEventOnPlayerTeleportName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerRespawnName);
   EventManager::Instance().RegisterEvent(kEventOnPlayerSpawnForName);
@@ -1051,6 +1180,10 @@ bool GameServer::Init() {
   auto port = config_.Get<std::int32_t>("port");
 
   if (!item_registry_.Load(kItemRegistryPath)) {
+    return false;
+  }
+  if (!summon_registry_.Load("data/instances/summons.json")) {
+    SPDLOG_ERROR("Invalid server summon definitions in data/instances/summons.json");
     return false;
   }
 
@@ -1169,7 +1302,7 @@ bool GameServer::Init() {
   }
 
   last_update_time_ = std::chrono::steady_clock::now();
-  last_ping_update_time_ = last_update_time_;
+  last_player_presence_update_time_ = last_update_time_;
 
   main_thread_running.store(true, std::memory_order_release);
   main_thread = std::thread([this]() {
@@ -1197,13 +1330,14 @@ void GameServer::Run() {
   }
 
   auto now = std::chrono::steady_clock::now();
-  if (now - last_ping_update_time_ > kPlayerPingUpdateInterval) {
-    last_ping_update_time_ = now;
-    BroadcastPlayerPings();
+  if (now - last_player_presence_update_time_ > kPlayerPresenceUpdateInterval) {
+    last_player_presence_update_time_ = now;
+    BroadcastPlayerPresence();
   }
 
   DispatchPendingActorEvents();
   ProcessRespawns();
+  ProcessInstanceChanges();
   ProcessEquipmentCommands();
   ProcessActorEffects();
   ProcessVoiceActivity(now);
@@ -1327,8 +1461,17 @@ bool GameServer::HandlePacket(Net::ConnectionHandle connectionHandle, unsigned c
     case PT_ACTUAL_STATISTICS:  // dostarcza nam informacji o sobie
       HandlePlayerUpdate(p);
       break;
+    case PT_PLAYER_INSTANCE_READY:
+      HandlePlayerInstanceReady(p);
+      break;
     case PT_NPC_ACTION_RESULT:
       HandleNpcActionResult(p);
+      break;
+    case PT_PLAYER_TELEPORT:
+      HandleNativeTeleport(p);
+      break;
+    case PT_PLAYER_TRANSFORMATION:
+      HandleTransformationReturn(p);
       break;
     case PT_EQUIPMENT_RESULT:
       HandleEquipmentResult(p);
@@ -1469,7 +1612,7 @@ void GameServer::HandlePlayerConnected(Net::ConnectionHandle connection) {
   }
   packet.addon_bundle = addon_context_->TransportBundle().descriptor;
   SerializeAndSend(packet, TrafficClass::Control, connection);
-  SPDLOG_INFO("Incoming connection from {}. Now connected users: {}.", FormatConnectionDetails(connection), player_manager_.GetPlayerCount());
+  SPDLOG_INFO("Incoming connection from {}.", FormatConnectionDetails(connection));
 }
 
 void GameServer::DeleteFromPlayerList(PlayerId player_id) {
@@ -1696,6 +1839,7 @@ bool GameServer::ApplyPlayerDamage(Player& victim, std::optional<PlayerId> attac
 
 bool GameServer::ApplyCharacterDamage(Character& victim, std::optional<PlayerId> attacker_id, std::int32_t damage,
                                      std::uint32_t damage_type, bool dont_kill, bool melee_attack, bool finishing_move) {
+  if (victim.instance_change) return false;
   if (!victim.is_ingame || victim.tod != 0 || victim.invulnerable || damage <= 0) {
     return false;
   }
@@ -1773,6 +1917,23 @@ bool GameServer::ApplyCharacterDamage(Character& victim, std::optional<PlayerId>
   if (old_health != current.health) {
     const auto new_hp = current.health;
     SendPlayerAttributeUpdate(player_manager_, current, ATTR_HEALTH, new_hp);
+    if (attacker_id) {
+      ActorDamagePacket reaction;
+      reaction.victim_id = victim_id;
+      reaction.victim_generation = victim_generation;
+      reaction.state_sequence = current.state_sequence;
+      reaction.command_revision = current.command_revision;
+      reaction.source_time_ms = ActorClockMilliseconds();
+      reaction.attacker_id = attacker_id;
+      reaction.attacker_generation = attacker_generation.value_or(0);
+      reaction.damage = old_health - new_hp;
+      reaction.damage_type = damage_type;
+      player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+        if (viewer.npc_world_ready && SameCharacterScope(current, viewer) &&
+            (viewer.player_id == victim_id || current.streamed_by_players.contains(viewer.player_id)))
+          SerializeAndSend(reaction, TrafficClass::Control, viewer.connection);
+      });
+    }
     pending_npc_events_.push_back([this, victim_id, victim_generation, old_health, new_hp] {
       const auto actor = GetCharacter(victim_id);
       if (!actor || actor->get().actor_generation != victim_generation) return;
@@ -1892,8 +2053,8 @@ void GameServer::SomeoneJoinGame(Packet p) {
     return;
   }
   SPDLOG_TRACE("{} from {}", packet, p.id);
-  if (packet.protocol_version != kActorProtocolVersion || packet.actor_generation != player.actor_generation) {
-    transport_.CloseConnection(p.id, CloseReason::Failure, "Actor protocol version mismatch");
+  if (packet.actor_generation != player.actor_generation) {
+    transport_.CloseConnection(p.id, CloseReason::Failure, "Invalid actor generation");
     return;
   }
   if (!IsValidActorPosition(packet.position) || !IsFinitePosition(packet.normal) ||
@@ -1931,6 +2092,222 @@ void GameServer::SomeoneJoinGame(Packet p) {
 
   // join
   EventManager::Instance().TriggerEvent(kEventOnPlayerConnectName, player.player_id);
+  BroadcastPlayerPresence();
+}
+
+void GameServer::HandlePlayerInstanceReady(Packet p) {
+  PlayerInstanceReadyPacket packet;
+  if (!DeserializeClientPacket(p, packet, GetPacketIdentifier(p), "PlayerInstanceReadyPacket"))
+    return;
+  const auto sender = GetIngamePlayerByConnection(p.id);
+  auto actor = GetCharacter(packet.defaults.player_id);
+  if (!sender || !actor)
+    return;
+  auto& character = actor->get();
+  const auto npc = npc_manager_.GetNpc(character.player_id);
+  const bool controls = npc ? npc->get().host_player_id == sender->get().player_id && npc->get().control_epoch == packet.control_epoch &&
+                                  IsEligibleNpcHost(npc->get(), sender->get().player_id)
+                            : character.player_id == sender->get().player_id;
+  if (!controls || !character.instance_change || packet.request_revision != character.instance_change->request_revision ||
+      packet.defaults.actor_generation != character.actor_generation || packet.defaults.instance != character.instance)
+    return;
+
+  const auto& defaults = packet.defaults;
+  std::unordered_map<std::string, std::int32_t> inventory;
+  if (packet.success) {
+    const bool valid = [&] {
+      if (defaults.packet_type != PT_PLAYER_SPAWN)
+        return false;
+      const auto nonnegative = [](int value) { return value >= 0; };
+      const std::array stats{defaults.health,    defaults.max_health, defaults.mana, defaults.max_mana,       defaults.strength,
+                             defaults.dexterity, defaults.level,      defaults.exp,  defaults.next_level_exp, defaults.learn_points};
+      if (!std::all_of(stats.begin(), stats.end(), nonnegative) || defaults.health > defaults.max_health || defaults.mana > defaults.max_mana ||
+          !std::isfinite(defaults.fatness) || !IsFinitePosition(defaults.scale) || defaults.scale.x <= 0 || defaults.scale.y <= 0 ||
+          defaults.scale.z <= 0 || defaults.weapon_mode > 7 || defaults.body_state >= 64 || defaults.walk_mode > 10 ||
+          defaults.body_texture > 32767 || defaults.head_texture > 32767 || defaults.skin_color > 32767 || defaults.teeth_texture > 32767 ||
+          defaults.inventory.size() > kMaxInventoryEntries || defaults.overlays.size() > 64)
+        return false;
+      std::unordered_set<int> skills, talents;
+      for (const auto& entry : defaults.weapon_skills)
+        if (!gmp::IsWeaponSkill(entry.skill_id) || entry.percentage < 0 || entry.percentage > 100 || !skills.insert(entry.skill_id).second)
+          return false;
+      for (const auto& entry : defaults.talents)
+        if (entry.talent_id < 1 || entry.talent_id >= 128 || entry.value < 0 || !talents.insert(entry.talent_id).second)
+          return false;
+      for (const auto& entry : defaults.inventory) {
+        const auto* item = item_registry_.FindByIndex(entry.item_instance);
+        if (!item || entry.amount <= 0 || !inventory.emplace(item->instance, entry.amount).second)
+          return false;
+      }
+      for (const auto& overlay : defaults.overlays)
+        if (overlay.empty() || overlay != SanitizeServerText(overlay))
+          return false;
+      if (defaults.body_model != SanitizeServerText(defaults.body_model) || defaults.head_model != SanitizeServerText(defaults.head_model))
+        return false;
+      return true;
+    }();
+    if (!valid) {
+      SPDLOG_WARN("Rejected constructor defaults for actor {} instance '{}'", character.player_id, character.instance);
+      packet.success = false;
+    }
+  }
+
+  CompletePlayerInstanceChange(character, defaults, std::move(inventory), packet.success);
+}
+
+void GameServer::CompletePlayerInstanceChange(Character& character, const PlayerSpawnPacket& defaults,
+                                              std::unordered_map<std::string, std::int32_t> inventory, bool success) {
+  const auto npc = npc_manager_.GetNpc(character.player_id);
+  auto pending = std::move(*character.instance_change);
+  character.instance_change.reset();
+  if (!success) {
+    character.instance = pending.previous_instance;
+  } else {
+    // Constructors run in Gothic, once for this issued request. Never accept
+    // an unsolicited state replacement or another player's completion report.
+    character.health = defaults.health;
+    character.max_health = defaults.max_health;
+    character.mana = defaults.mana;
+    character.max_mana = defaults.max_mana;
+    character.strength = defaults.strength;
+    character.dexterity = defaults.dexterity;
+    character.level = defaults.level;
+    character.exp = defaults.exp;
+    character.next_level_exp = defaults.next_level_exp;
+    character.learn_points = defaults.learn_points;
+    const std::pair<PlayerAttributeId, std::int32_t Character::*> attributes[] = {{ATTR_HEALTH, &Character::health},
+                                                                                  {ATTR_MAX_HEALTH, &Character::max_health},
+                                                                                  {ATTR_MANA, &Character::mana},
+                                                                                  {ATTR_MAX_MANA, &Character::max_mana},
+                                                                                  {ATTR_STRENGTH, &Character::strength},
+                                                                                  {ATTR_DEXTERITY, &Character::dexterity},
+                                                                                  {ATTR_LEVEL, &Character::level},
+                                                                                  {ATTR_EXP, &Character::exp},
+                                                                                  {ATTR_NEXT_LEVEL_EXP, &Character::next_level_exp},
+                                                                                  {ATTR_LEARN_POINTS, &Character::learn_points}};
+    for (const auto& [id, member] : attributes) {
+      const auto override = pending.attributes.find(id);
+      if (override != pending.attributes.end())
+        character.*member = override->second;
+    }
+    character.health = std::clamp(character.health, 0, character.max_health);
+    character.mana = std::clamp(character.mana, 0, character.max_mana);
+    for (const auto& [instance, delta] : pending.inventory_deltas) {
+      const auto count = std::clamp<std::int64_t>(static_cast<std::int64_t>(inventory[instance]) + delta, 0, INT_MAX);
+      if (count)
+        inventory[instance] = static_cast<std::int32_t>(count);
+      else
+        inventory.erase(instance);
+    }
+    character.inventory = std::move(inventory);
+    character.weapon_skills.clear();
+    character.talents.clear();
+    for (const auto& entry : defaults.weapon_skills) character.weapon_skills[entry.skill_id] = entry.percentage;
+    for (const auto& entry : defaults.talents) character.talents[entry.talent_id] = entry.value;
+    for (const auto& [id, value] : pending.weapon_skills) character.weapon_skills[id] = value;
+    for (const auto& [id, value] : pending.talents) character.talents[id] = value;
+    if (!pending.visual_changed) {
+      character.body_model = defaults.body_model;
+      character.body_texture = static_cast<std::int16_t>(defaults.body_texture);
+      character.head_model = defaults.head_model;
+      character.head_texture = static_cast<std::int16_t>(defaults.head_texture);
+      character.teeth_texture = static_cast<std::int16_t>(defaults.teeth_texture);
+      character.skin_color = static_cast<std::int16_t>(defaults.skin_color);
+    }
+    if (!pending.fatness_changed)
+      character.fatness = defaults.fatness;
+    if (!pending.scale_changed)
+      character.scale = defaults.scale;
+    if (!pending.invulnerable_changed)
+      character.invulnerable = defaults.invulnerable;
+    character.overlays = defaults.overlays;
+    for (const auto& [overlay, apply] : pending.overlays) {
+      auto found = std::find(character.overlays.begin(), character.overlays.end(), overlay);
+      if (apply && found == character.overlays.end())
+        character.overlays.push_back(overlay);
+      else if (!apply && found != character.overlays.end())
+        character.overlays.erase(found);
+    }
+    PlayerState state = character.state;
+    const std::pair<std::int32_t PlayerState::*, std::int32_t> equipment[] = {
+        {&PlayerState::equipped_armor_instance, defaults.equipped_armor_instance},
+        {&PlayerState::equipped_helmet_instance, defaults.equipped_helmet_instance},
+        {&PlayerState::equipped_shield_instance, defaults.equipped_shield_instance},
+        {&PlayerState::equipped_amulet_instance, defaults.equipped_amulet_instance},
+        {&PlayerState::equipped_belt_instance, defaults.equipped_belt_instance},
+        {&PlayerState::equipped_ring_left_instance, defaults.equipped_ring_left_instance},
+        {&PlayerState::equipped_ring_right_instance, defaults.equipped_ring_right_instance},
+        {&PlayerState::melee_weapon_instance, defaults.melee_weapon_instance},
+        {&PlayerState::ranged_weapon_instance, defaults.ranged_weapon_instance}};
+    for (const auto& [member, value] : equipment)
+      if (character.state.*member == pending.previous_state.*member)
+        state.*member = value;
+    for (const auto& [slot_id, command] : character.pending_equipment_commands)
+      if (const auto slot = PacketEquipmentSlot(slot_id); slot && IsNewActorSequence(command.command_revision, pending.request_revision))
+        EquipmentStateField(state, *slot) = command.expected_instance;
+    for (const auto slot :
+         {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon, EquipmentSlot::RangedWeapon,
+          EquipmentSlot::Amulet, EquipmentSlot::Belt, EquipmentSlot::RingLeft, EquipmentSlot::RingRight})
+      PendingEquipmentStateField(character, slot).reset();
+    state.left_hand_item_instance = state.right_hand_item_instance = 0;
+    state.weapon_mode = pending.weapon_mode_changed ? character.state.weapon_mode : defaults.weapon_mode;
+    state.active_spell_instance = state.active_spell_nr = state.active_spell_level = 0;
+    state.spell_investing = false;
+    state.animation = -1;
+    state.animation_name.clear();
+    state.body_state = 0;  // Start with the new controller's standing pose.
+    state.walk_mode = defaults.walk_mode;
+    state.focus_target_id.reset();
+    character.pending_equipment_commands.clear();
+    ValidatePlayerEquipment(character, state);
+    character.state = state;
+    character.flags &= ~PlayerManager::PL_UNCONCIOUS;
+    character.tod = character.health ? 0 : std::time(nullptr);
+    character.death_started_at.reset();
+  }
+  character.state.health_points = character.health;
+  character.state.mana_points = character.mana;
+  character.state.life_state = GetPlayerLifeState(character);
+  character.state.invulnerable = character.invulnerable;
+  character.state.source_time_ms = ActorClockMilliseconds();
+  character.approved_projectiles.clear();
+  character.last_hit_action_id.reset();
+  character.combat_barrier_revision = AdvanceActorCommand(character);
+  AdvancePlayerStateSequence(character);
+  if (npc) {
+    UnstreamNpc(npc->get());
+    SetNpcHostPlayer(character.player_id, 0);
+    character.RenewGeneration();
+    RefreshNpcStreaming(character.player_id);
+  } else {
+    if (const auto connection = player_manager_.GetConnectionHandle(character.player_id))
+      SerializeAndSend(MakePlayerSpawnPacket(character, &item_registry_), TrafficClass::Control, *connection);
+    const auto snapshot = MakePlayerSpawnPacket(character);
+    for (const auto viewer : character.streamed_by_players)
+      if (const auto connection = player_manager_.GetConnectionHandle(viewer))
+        SerializeAndSend(snapshot, TrafficClass::Control, *connection);
+  }
+}
+
+void GameServer::ProcessInstanceChanges() {
+  const auto now = std::chrono::steady_clock::now();
+  const auto process = [&](Character& actor, bool ready) {
+    if (!actor.instance_change)
+      return;
+    // World loading and NPCs without a host cannot execute constructors yet.
+    if (!ready) {
+      actor.instance_change->deadline = now + std::chrono::seconds(30);
+      return;
+    }
+    if (now < actor.instance_change->deadline)
+      return;
+    SPDLOG_WARN("Instance change timed out for actor {} instance '{}'", actor.player_id, actor.instance);
+    CompletePlayerInstanceChange(actor, PlayerSpawnPacket{}, {}, false);
+  };
+  player_manager_.ForEachPlayer([&](Player& player) { process(player, player.is_ingame && player.npc_world_ready); });
+  for (const auto id : npc_manager_.GetNpcIds())
+    if (auto npc = npc_manager_.GetNpc(id))
+      process(npc->get(), npc->get().is_ingame && npc->get().host_player_id != 0);
 }
 
 void GameServer::HandlePlayerUpdate(Packet p) {
@@ -1939,7 +2316,7 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     return;
   }
   auto& updated_player = player_opt.value().get();
-  if (!updated_player.npc_world_ready) {
+  if (!updated_player.npc_world_ready || updated_player.instance_change) {
     return;
   }
 
@@ -1962,14 +2339,11 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 
   auto client_state = packet.state;
   if (!IsValidActorPosition(client_state.position) || !IsFinitePosition(client_state.nrot) ||
-      glm::dot(client_state.nrot, client_state.nrot) < 0.0001f ||
-      glm::dot(client_state.nrot, client_state.nrot) > 4.0f || client_state.weapon_mode > 7 ||
-      client_state.active_spell_nr > 8 || client_state.head_direction > 4 || client_state.walk_mode > 2 ||
-      client_state.body_state >= 31 ||
-      !std::isfinite(client_state.look_yaw) || !std::isfinite(client_state.look_pitch) ||
-      client_state.look_yaw < 0.0f || client_state.look_yaw > 1.0f ||
-      client_state.look_pitch < 0.0f || client_state.look_pitch > 1.0f ||
-      client_state.health_points < 0 || client_state.mana_points < 0 || client_state.source_time_ms == 0) {
+      glm::dot(client_state.nrot, client_state.nrot) < 0.0001f || glm::dot(client_state.nrot, client_state.nrot) > 4.0f ||
+      client_state.weapon_mode > 7 || client_state.active_spell_nr > 8 || client_state.active_spell_level > kMaxSpellInvestLevel ||
+      client_state.head_direction > 4 || client_state.walk_mode > 2 || client_state.body_state >= 31 || !std::isfinite(client_state.look_yaw) ||
+      !std::isfinite(client_state.look_pitch) || client_state.look_yaw < 0.0f || client_state.look_yaw > 1.0f || client_state.look_pitch < 0.0f ||
+      client_state.look_pitch > 1.0f || client_state.health_points < 0 || client_state.mana_points < 0 || client_state.source_time_ms == 0) {
     DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
     return;
   }
@@ -2024,6 +2398,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
   updated_player.state.weapon_mode = client_state.weapon_mode;
   updated_player.state.active_spell_nr = client_state.active_spell_nr;
   updated_player.state.active_spell_instance = client_state.active_spell_instance;
+  updated_player.state.active_spell_level = client_state.active_spell_level;
+  updated_player.state.spell_investing = client_state.spell_investing;
   updated_player.state.head_direction = client_state.head_direction;
   updated_player.state.melee_weapon_instance =
       MergePendingEquipmentState(updated_player.pending_melee_weapon_instance, updated_player.state.melee_weapon_instance,
@@ -2056,11 +2432,11 @@ void GameServer::HandlePlayerUpdate(Packet p) {
         OnPlayerWeaponModeChangeEvent{updated_player.player_id, old_state.weapon_mode, updated_player.state.weapon_mode});
   }
 
-  const auto correct_held_equipment = [&](Character& actor) {
+  const auto correct_held_equipment = [&](Character& actor, std::uint16_t components = kSyncEquipment) {
     AdvanceActorCommand(actor);
     AdvancePlayerStateSequence(actor);
     auto correction = MakePlayerStateUpdatePacket(actor);
-    correction.state.correction_mask = kSyncEquipment;
+    correction.state.correction_mask = components;
     BroadcastToRelevant(player_manager_, actor, correction, TrafficClass::Control);
   };
   for (const auto hand : {0, 1}) {
@@ -2123,8 +2499,11 @@ void GameServer::HandlePlayerUpdate(Packet p) {
                                    item_index_or_nil(old_state.active_spell_instance)});
     const auto actor = GetCharacter(updated_actor_id);
     if (!actor || actor->get().actor_generation != packet.actor_generation) return;
-    if (result.cancelled) correct_held_equipment(actor->get());
-    else {
+    if (result.cancelled) {
+      actor->get().state.active_spell_level = old_state.active_spell_level;
+      actor->get().state.spell_investing = old_state.spell_investing;
+      correct_held_equipment(actor->get(), kSyncEquipment | kSyncCombat);
+    } else {
       actor->get().state.active_spell_nr = observed_slot;
       actor->get().state.active_spell_instance = observed_item;
     }
@@ -2443,10 +2822,67 @@ bool GameServer::CanReportActorAction(const Player& sender, const Character& act
 
 bool GameServer::CanControlActor(const Player& sender, const Character& actor, std::uint32_t control_epoch) const {
   if (!sender.npc_world_ready || !SameCharacterScope(sender, actor)) return false;
+  if (actor.instance_change) return false;
   if (sender.player_id == actor.player_id) return true;
   const auto npc = npc_manager_.GetNpc(actor.player_id);
   return npc && npc->get().host_player_id == sender.player_id && npc->get().control_epoch == control_epoch &&
          IsEligibleNpcHost(npc->get(), sender.player_id);
+}
+
+void GameServer::HandleNativeTeleport(Packet p) {
+  PlayerTeleportPacket packet;
+  if (!DeserializeClientPacket(p, packet, PT_PLAYER_TELEPORT, "PlayerTeleportPacket"))
+    return;
+  const auto sender = GetIngamePlayerByConnection(p.id);
+  auto actor = GetCharacter(packet.player_id);
+  if (!sender || !actor || packet.actor_generation != actor->get().actor_generation || !actor->get().is_ingame ||
+      !CanControlActor(sender->get(), actor->get(), packet.control_epoch) || !actor->get().CombatRevisionIsCurrent(packet.command_revision) ||
+      (actor->get().native_teleport_barrier_revision && packet.command_revision != *actor->get().native_teleport_barrier_revision &&
+       !IsNewActorSequence(packet.command_revision, *actor->get().native_teleport_barrier_revision)) ||
+      !IsValidActorPosition(packet.position) || !IsFinitePosition(packet.normal) || glm::dot(packet.normal, packet.normal) < 0.0001f ||
+      glm::dot(packet.normal, packet.normal) > 4.0f || packet.destination.empty() || SanitizeServerText(packet.destination) != packet.destination ||
+      !AcceptActionId(actor->get().last_teleport_action_id, packet.action_id))
+    return;
+
+  auto& character = actor->get();
+  character.state.position = packet.position;
+  character.state.nrot = glm::normalize(packet.normal);
+  character.state.source_time_ms = ActorClockMilliseconds();
+  packet.normal = character.state.nrot;
+  packet.source_time_ms = character.state.source_time_ms;
+  packet.command_revision = AdvanceActorCommand(character);
+  packet.state_sequence = AdvancePlayerStateSequence(character);
+  // Notify current observers before refreshing visibility: the native jump
+  // can move the actor out of their stream. New observers get the final spawn.
+  BroadcastToRelevant(player_manager_, character, packet, TrafficClass::Control);
+  if (npc_manager_.GetNpc(packet.player_id))
+    RefreshNpcStreaming(packet.player_id);
+  else
+    RefreshPlayerStreaming();
+  pending_npc_events_.emplace_back([this, packet] {
+    const auto current = GetCharacter(packet.player_id);
+    if (current && current->get().actor_generation == packet.actor_generation)
+      EventManager::Instance().TriggerEvent(kEventOnPlayerTeleportName, OnPlayerTeleportEvent{packet.player_id, packet.destination});
+  });
+}
+
+void GameServer::HandleTransformationReturn(Packet p) {
+  PlayerTransformationPacket packet;
+  if (!DeserializeClientPacket(p, packet, PT_PLAYER_TRANSFORMATION, "PlayerTransformationPacket"))
+    return;
+  auto sender = GetIngamePlayerByConnection(p.id);
+  if (!sender || !sender->get().npc_world_ready || packet.player_id != sender->get().player_id ||
+      packet.actor_generation != sender->get().actor_generation)
+    return;
+  auto& actor = sender->get();
+  if (!actor.transformation || actor.transformation->cast_id != packet.cast_id)
+    return;
+  RestoreTransformation(actor);
+  actor.state.source_time_ms = ActorClockMilliseconds();
+  AdvanceActorCommand(actor);
+  AdvancePlayerStateSequence(actor);
+  actor.combat_barrier_revision = actor.command_revision;
+  BroadcastToRelevant(player_manager_, actor, MakeTransformationPacket(actor, packet.cast_id), TrafficClass::Control);
 }
 
 void GameServer::HandleCastSpell(Packet p, bool target) {
@@ -2471,6 +2907,8 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
     AdvancePlayerStateSequence(current->get());
     SendPlayerAttributeUpdate(player_manager_, current->get(), ATTR_MANA, current->get().mana);
     if (observed_item_index > 0) SendItemTransactionResult(current->get(), 0, observed_item_index, false);
+    if (gmp::GetTransformationForm(packet.spell_id))
+      SerializeAndSend(MakeTransformationPacket(current->get(), packet.action_id), TrafficClass::Control, p.id);
   };
   const auto now = std::chrono::steady_clock::now();
   // Casts share the same source timeline as poses and other actor actions.
@@ -2491,7 +2929,7 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
     reject_cast();
     return;
   }
-  if (packet.spell_id >= 100 || !AcceptActionId(caster.last_cast_action_id, packet.action_id)) {
+  if (packet.spell_id >= 100 || packet.spell_level > kMaxSpellInvestLevel || !AcceptActionId(caster.last_cast_action_id, packet.action_id)) {
     reject_cast();
     return;
   }
@@ -2508,6 +2946,21 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
   const auto item_instance = item->instance;
   const auto item_index = item->index;
   const bool scroll = (item->flags & (1 << 21)) != 0;
+  const auto* summon = summon_registry_.Find(packet.spell_id);
+  const auto healing = GetHealingSpell(packet.spell_id);
+  const auto* transformation = gmp::GetTransformationForm(packet.spell_id);
+  const auto transformation_cost = scroll ? 5 : 10;
+  if (transformation && (caster_id != sender->get().player_id || caster.transformation || !packet.transformation_succeeded ||
+      !IsLiveCharacter(caster) || caster.mana < transformation_cost)) {
+    reject_cast();
+    return;
+  }
+  const auto summon_mana_cost = summon ? (scroll ? summon->scroll_mana_cost : summon->mana_cost) : 0;
+  const auto healing_mana_cost = healing ? (scroll ? 5 : healing->mana) : 0;
+  if ((summon || healing) && (!IsLiveCharacter(caster) || caster.mana < (summon ? summon_mana_cost : healing_mana_cost))) {
+    reject_cast();
+    return;
+  }
   const auto mage_talent = caster.talents.find(7);
   if (!scroll && item->mag_circle.value_or(0) > (mage_talent == caster.talents.end() ? 0 : mage_talent->second)) {
     reject_cast();
@@ -2528,6 +2981,7 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
     }
   }
   const auto mana_before_callbacks = caster.mana;
+  const auto health_before_callbacks = caster.health;
   const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerCastSpellName,
       OnPlayerCastSpellEvent{caster_id, packet.spell_id, packet.target_id});
   actor = GetCharacter(caster_id);
@@ -2554,6 +3008,10 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
     }
   }
   auto& current = actor->get();
+  if (transformation && (current.transformation || !IsLiveCharacter(current) || current.mana < transformation_cost)) {
+    reject_cast();
+    return;
+  }
   if (packet.target_id) {
     const auto victim = GetCharacter(*packet.target_id);
     if (!victim || victim->get().actor_generation != packet.target_generation || !IsLiveCharacter(victim->get()) ||
@@ -2563,23 +3021,62 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
       return;
     }
   }
-  if (scroll && !RemoveInventoryItem(current, item_instance, 1)) {
+  std::vector<PlayerId> summons;
+  if (healing && (!IsLiveCharacter(current) || current.mana < healing_mana_cost)) {
     reject_cast();
     return;
   }
+  if (summon) {
+    if (!IsLiveCharacter(current) || current.mana < summon_mana_cost || (summons = PrepareSpellSummons(current, packet.action_id, *summon)).empty()) {
+      reject_cast();
+      return;
+    }
+  }
+  if (scroll && !RemoveInventoryItem(current, item_instance, 1)) {
+    for (const auto id : summons) npc_manager_.Remove(id);
+    reject_cast();
+    return;
+  }
+  for (const auto id : summons) {
+    if (!SpawnNpc(id, std::nullopt)) {
+      // Preparation/spawning execute without script callbacks. Roll back the
+      // whole group and reserved scroll before committing mana or cast effects.
+      for (const auto prepared_id : summons) {
+        if (auto npc = npc_manager_.GetNpc(prepared_id)) {
+          UnstreamNpc(npc->get());
+          npc_manager_.Remove(prepared_id);
+        }
+      }
+      if (scroll)
+        current.AddInventory(item_instance, 1);
+      reject_cast();
+      return;
+    }
+  }
   current.last_cast_at = now;
   const auto old_mana = current.mana;
-  if (current.mana == mana_before_callbacks)
+  if (summon)
+    current.mana -= summon_mana_cost;
+  else if (healing)
+    current.mana -= healing_mana_cost;
+  else if (transformation)
+    current.mana -= transformation_cost;
+  else if (current.mana == mana_before_callbacks)
     current.mana = static_cast<std::int32_t>(std::clamp<std::int64_t>(
         static_cast<std::int64_t>(current.mana) + packet.mana_delta, 0, current.max_mana));
   current.state.mana_points = current.mana;
   current.state.active_spell_instance = scroll && current.InventoryCount(item_instance) == 0 ? 0 : item_index;
+  current.state.active_spell_level = 0;
+  current.state.spell_investing = false;
   current.state.weapon_mode = 7;
-  auto approval = Character::ApprovedAttack{packet.action_id, spell_damage, spell_types,
-                                                         spell_range, now + std::chrono::seconds(5), {}, packet.target_id ? 1u : 32u};
-  approval.origin = current.state.position;
-  while (current.approved_projectiles.size() >= 64) current.approved_projectiles.pop_front();
-  current.approved_projectiles.push_back(std::move(approval));
+  // Utility spells do not authorize projectile damage reports.
+  if (!summon && !healing && !transformation && packet.spell_id != 0 && packet.spell_id != 18) {
+    auto approval = Character::ApprovedAttack{packet.action_id,           spell_damage, spell_types, spell_range, now + std::chrono::seconds(5), {},
+                                              packet.target_id ? 1u : 32u};
+    approval.origin = current.state.position;
+    while (current.approved_projectiles.size() >= 64) current.approved_projectiles.pop_front();
+    current.approved_projectiles.push_back(std::move(approval));
+  }
   AdvancePlayerStateSequence(current);
   SendPlayerAttributeUpdate(player_manager_, current, ATTR_MANA, current.mana);
   if (scroll) SendItemTransactionResult(current, 0, item_index, true);
@@ -2589,12 +3086,113 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
     if (caster && caster->get().actor_generation == actor_generation)
       EventManager::Instance().TriggerEvent(kEventOnPlayerChangeManaName, OnPlayerChangeManaEvent{caster_id, old_mana, new_mana});
   });
+  if (transformation) {
+    EnterTransformation(current, packet.spell_id, packet.action_id);
+    AdvanceActorCommand(current);
+    AdvancePlayerStateSequence(current);
+    current.combat_barrier_revision = current.command_revision;
+    BroadcastToRelevant(player_manager_, current, MakeTransformationPacket(current, packet.action_id), TrafficClass::Control);
+    packet.command_revision = current.command_revision;
+  }
+  if (healing && current.health == health_before_callbacks) {
+    const auto old_health = current.health;
+    const auto health = static_cast<std::int32_t>(std::min<std::int64_t>(
+        static_cast<std::int64_t>(current.health) + healing->health, current.max_health));
+    current.health = current.state.health_points = health;
+    SendPlayerAttributeUpdate(player_manager_, current, ATTR_HEALTH, health);
+    if (health != old_health) pending_npc_events_.emplace_back([this, caster_id, actor_generation, old_health, health] {
+      const auto caster = GetCharacter(caster_id);
+      if (caster && caster->get().actor_generation == actor_generation)
+        EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{caster_id, old_health, health});
+    });
+  }
   packet.caster_id = caster_id;
   packet.item_instance = item_index;
   player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
     if (viewer.connection != p.id && viewer.npc_world_ready && current.streamed_by_players.contains(viewer.player_id) &&
         SameCharacterScope(current, viewer)) SerializeAndSend(packet, TrafficClass::Control, viewer.connection);
   });
+  for (const auto id : summons) {
+    // Normal NPC streaming keeps every viewer's replica passive and includes
+    // new/late observers automatically. Notify scripts only after full commit.
+    if (animation_registry_.ContainsName("T_SPAWN"))
+      QueueNpcAnimation(id, "T_SPAWN");
+    const auto generation = npc_manager_.GetNpc(id)->get().actor_generation;
+    const auto spell_id = packet.spell_id;
+    const auto instance = summon->instance;
+    PlayerSummonPacket notification;
+    notification.caster_id = caster_id;
+    notification.caster_generation = actor_generation;
+    notification.npc_id = id;
+    notification.npc_generation = generation;
+    notification.spell_id = spell_id;
+    notification.summon_instance = instance;
+    const auto& summoned = npc_manager_.GetNpc(id)->get();
+    player_manager_.ForEachIngamePlayer([&](const Player& viewer) {
+      if (viewer.npc_world_ready && summoned.streamed_by_players.contains(viewer.player_id) &&
+          (viewer.player_id == caster_id || current.streamed_by_players.contains(viewer.player_id)))
+        SerializeAndSend(notification, TrafficClass::Control, viewer.connection);
+    });
+    pending_npc_events_.emplace_back([this, id, generation, caster_id, actor_generation, spell_id, instance] {
+      auto npc = npc_manager_.GetNpc(id);
+      auto caster = GetCharacter(caster_id);
+      if (!npc || npc->get().actor_generation != generation || !caster || caster->get().actor_generation != actor_generation)
+        return;
+      EventManager::Instance().TriggerEvent(kEventOnNpcCreatedName, OnNpcCreatedEvent{id});
+      npc = npc_manager_.GetNpc(id);
+      caster = GetCharacter(caster_id);
+      if (npc && npc->get().actor_generation == generation && caster && caster->get().actor_generation == actor_generation)
+        EventManager::Instance().TriggerEvent(kEventOnPlayerSummonName, OnPlayerSummonEvent{caster_id, spell_id, instance, id});
+    });
+  }
+}
+
+std::vector<GameServer::PlayerId> GameServer::PrepareSpellSummons(const Character& caster, std::uint32_t cast_id,
+                                                                  const SummonRegistry::Definition& definition) {
+  std::size_t owned = 0;
+  for (const auto id : npc_manager_.GetNpcIds()) {
+    const auto& npc = npc_manager_.GetNpc(id)->get();
+    if (npc.summon && npc.summon->caster_id == caster.player_id && npc.summon->caster_generation == caster.actor_generation)
+      ++owned;
+  }
+  if (owned + definition.count > 12 || npc_manager_.GetNpcCount() + definition.count > 4096)
+    return {};
+
+  std::vector<PlayerId> prepared;
+  const auto rollback = [&] {
+    for (const auto id : prepared) npc_manager_.Remove(id);
+  };
+  glm::vec3 forward(caster.state.nrot.x, 0.0f, caster.state.nrot.z);
+  if (!IsFinitePosition(forward) || glm::length(forward) < 0.01f)
+    forward = {0.0f, 0.0f, 1.0f};
+  else
+    forward = glm::normalize(forward);
+  const glm::vec3 right(forward.z, 0.0f, -forward.x);
+  for (int index = 0; index < definition.count; ++index) {
+    // A bounded formation in front of the caster. Placement uses the normal
+    // server NPC path; clients do not create separate native summon entities.
+    const auto position =
+        caster.state.position + forward * (200.0f + 150.0f * (index / 3)) + right * (150.0f * (index % 3 - (definition.count == 1 ? 0 : 1)));
+    if (!IsValidActorPosition(position)) {
+      rollback();
+      return {};
+    }
+    const auto id = npc_manager_.Create(definition.instance, definition.instance, caster.world, GetMaxSlots());
+    if (!id) {
+      rollback();
+      return {};
+    }
+    prepared.push_back(id);
+    auto& npc = npc_manager_.GetNpc(id)->get();
+    npc.virtual_world = caster.virtual_world;
+    npc.max_health = definition.max_health;
+    npc.max_mana = 0;
+    npc.state.position = position;
+    npc.state.nrot = forward;
+    npc.summon = NpcManager::Npc::Summon{caster.player_id, caster.actor_generation, cast_id,
+                                         NpcManager::Clock::now() + std::chrono::milliseconds(definition.lifetime_ms)};
+  }
+  return prepared;
 }
 
 void GameServer::HandleActorAction(Packet p) {
@@ -3302,22 +3900,29 @@ void GameServer::BroadcastSkySettings() {
   player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, TrafficClass::Control, player.connection); });
 }
 
-void GameServer::BroadcastPlayerPings() {
-  PlayerPingUpdatePacket packet;
-  packet.packet_type = PT_PLAYER_PING_UPDATE;
-  packet.pings.reserve(player_manager_.GetPlayerCount());
+void GameServer::BroadcastPlayerPresence() {
+  PlayerPresencePacket packet;
+  packet.packet_type = PT_PLAYER_PRESENCE;
+  packet.players.reserve(player_manager_.GetPlayerCount());
 
   player_manager_.ForEachIngamePlayer([&](const Player& player) {
-    packet.pings.push_back(PlayerPingEntry{player.player_id, GetPlayerPing(player.player_id)});
+    PlayerPresenceEntry entry;
+    entry.player_id = player.player_id;
+    entry.ping = GetPlayerPing(player.player_id);
+    entry.name = player.name;
+    entry.world = player.world;
+    entry.position = player.state.position;
+    entry.r = player.name_color_r;
+    entry.g = player.name_color_g;
+    entry.b = player.name_color_b;
+    packet.players.push_back(std::move(entry));
   });
 
-  if (packet.pings.empty()) {
+  if (packet.players.empty()) {
     return;
   }
 
-  player_manager_.ForEachIngamePlayer([&](const Player& player) {
-    SerializeAndSend(packet, TrafficClass::State, player.connection);
-  });
+  player_manager_.ForEachIngamePlayer([&](const Player& player) { SerializeAndSend(packet, TrafficClass::Control, player.connection); });
 }
 
 void GameServer::UpdateAuthoritativeWorldState(const std::vector<GothicClock::Time>& advanced_times) {
@@ -3638,6 +4243,11 @@ bool GameServer::DestroyNpc(PlayerId npc_id) {
   if (!npc) {
     return false;
   }
+  for (const auto child_id : npc_manager_.GetNpcIds()) {
+    const auto child = npc_manager_.GetNpc(child_id);
+    if (child && child->get().summon && child->get().summon->caster_id == npc_id)
+      DestroyNpc(child_id);
+  }
   // Detach before callbacks. Destruction must also work with exhausted counters.
   UnstreamNpc(npc->get());
   const auto old_host = npc->get().host_player_id;
@@ -3840,6 +4450,10 @@ void GameServer::ReleaseNpcsForPlayer(PlayerId player_id) {
     if (!npc) {
       continue;
     }
+    if (npc->get().summon && npc->get().summon->caster_id == player_id) {
+      DestroyNpc(npc_id);
+      continue;
+    }
     if (viewer) {
       StreamOutSubjectFromViewer(npc->get(), viewer->get());
     } else {
@@ -3859,6 +4473,15 @@ void GameServer::ProcessNpcs() {
     const auto npc = npc_manager_.GetNpc(id);
     if (!npc) {
       continue;
+    }
+    if (npc->get().summon) {
+      const auto& summon = *npc->get().summon;
+      const auto caster = GetCharacter(summon.caster_id);
+      if (now >= summon.expires_at || npc->get().tod != 0 || !caster || caster->get().actor_generation != summon.caster_generation ||
+          !IsLiveCharacter(caster->get()) || !SameCharacterScope(caster->get(), npc->get())) {
+        DestroyNpc(id);
+        continue;
+      }
     }
     if (npc->get().control_epoch == std::numeric_limits<std::uint32_t>::max()) {
       DestroyNpc(id);
@@ -3957,6 +4580,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   }
 
   const bool was_dead = player.tod != 0;
+  RestoreTransformation(player);
 
   player.flags = 0;
   player.tod = 0;
@@ -4008,6 +4632,7 @@ bool GameServer::UnspawnPlayer(PlayerId player_id) {
 
   ReleaseNpcsForPlayer(player_id);
   UnstreamGroundItemsFromPlayer(player, true);
+  RestoreTransformation(player);
   StreamOutAllKnownPlayers(player_manager_, player);
 
   DisconnectionInfoPacket subject_left_packet;
@@ -4061,6 +4686,7 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
   player.state.position = position;
   player.state.source_time_ms = ActorClockMilliseconds();
   AdvanceActorCommand(player);
+  player.native_teleport_barrier_revision = player.command_revision;
   const auto state_sequence = AdvancePlayerStateSequence(player);
 
   PlayerPositionUpdatePacket packet{};
@@ -4102,6 +4728,7 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
   player.state.nrot = glm::vec3{std::sin(angle_radians), 0.0f, std::cos(angle_radians)};
   player.state.source_time_ms = ActorClockMilliseconds();
   AdvanceActorCommand(player);
+  player.native_teleport_barrier_revision = player.command_revision;
   AdvancePlayerStateSequence(player);
 
   auto packet = MakePlayerStateUpdatePacket(player);
@@ -4157,6 +4784,13 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
 
   player.world = sanitized_world;
   if (world_changed) {
+    const bool was_transformed = player.transformation.has_value();
+    RestoreTransformation(player);
+    if (was_transformed) {
+      AdvanceActorCommand(player);
+      AdvancePlayerStateSequence(player);
+      SerializeAndSend(MakeTransformationPacket(player, 0), TrafficClass::Control, player.connection);
+    }
     player.RenewGeneration();
     AdvanceActorCommand(player);
     player.client_clock_origin.reset();
@@ -4215,6 +4849,7 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
 
   player.virtual_world = clamped_virtual_world;
   if (virtual_world_changed) {
+    RestoreTransformation(player);
     player.RenewGeneration();
     AdvanceActorCommand(player);
     player.state.source_time_ms = ActorClockMilliseconds();
@@ -4391,6 +5026,7 @@ bool GameServer::SetPlayerInvulnerable(PlayerId player_id, bool enabled) {
   const auto actor = GetCharacter(player_id);
   if (!actor) return false;
   auto& subject = actor->get();
+  if (subject.instance_change) subject.instance_change->invulnerable_changed = true;
   subject.invulnerable = enabled;
   subject.state.invulnerable = enabled;
   AdvanceActorCommand(subject);
@@ -4456,6 +5092,7 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
     return false;
   }
   auto& player = player_opt->get();
+  if (player.instance_change) player.instance_change->visual_changed = true;
   player.body_model = SanitizeServerText(body_model);
   player.head_model = SanitizeServerText(head_model);
   if (player.body_model.size() > 64) {
@@ -4484,37 +5121,39 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
 }
 
 bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instance) {
-  if (auto npc = npc_manager_.GetNpc(player_id)) {
-    const auto instance_name = SanitizeServerText(instance);
-    if (instance_name.empty() || instance_name.size() > 255 || !ClearNpcActions(player_id)) {
-      return false;
-    }
-    // Recreate from a complete snapshot: native constructors replace health,
-    // attributes and equipment as well as the model. Incremental appearance
-    // updates alone cannot preserve the server's character state here.
+  auto actor = GetCharacter(player_id);
+  const auto instance_name = SanitizeServerText(instance);
+  if (!actor || instance_name.empty() || instance_name.size() > 255)
+    return false;
+  auto npc = npc_manager_.GetNpc(player_id);
+  if (npc && !ClearNpcActions(player_id))
+    return false;
+  auto& character = actor->get();
+  RestoreTransformation(character);
+  const auto previous_instance = character.instance_change ? character.instance_change->previous_instance : character.instance;
+  if (npc) {
     UnstreamNpc(npc->get());
     SetNpcHostPlayer(player_id, 0);
-    npc->get().instance = instance_name;
-    npc->get().RenewGeneration();
-    AdvanceActorCommand(npc->get());
+    character.RenewGeneration();
+  }
+  character.instance = instance_name;
+  const auto revision = AdvanceActorCommand(character);
+  character.instance_change.emplace();
+  character.instance_change->request_revision = revision;
+  character.instance_change->previous_instance = previous_instance;
+  character.instance_change->previous_state = character.state;
+  if (npc) {
     RefreshNpcStreaming(player_id);
-    return true;
+  } else if (const auto connection = player_manager_.GetConnectionHandle(player_id)) {
+    PlayerInstanceUpdatePacket packet;
+    packet.packet_type = PT_PLAYER_INSTANCE_UPDATE;
+    packet.player_id = player_id;
+    packet.actor_generation = character.actor_generation;
+    packet.command_revision = revision;
+    packet.instance = instance_name;
+    packet.initialize_defaults = true;
+    SerializeAndSend(packet, TrafficClass::Control, *connection);
   }
-  auto player_opt = GetCharacter(player_id);
-  if (!player_opt.has_value()) {
-    SPDLOG_WARN("setPlayerInstance called for unknown player id {}", player_id);
-    return false;
-  }
-
-  auto& player = player_opt->get();
-  player.instance = SanitizeServerText(instance);
-  if (player.instance.size() > 255) {
-    player.instance.resize(255);
-  }
-  if (player.instance.empty()) return false;
-  AdvanceActorCommand(player);
-
-  BroadcastPlayerInstanceUpdate(player_manager_, player);
   return true;
 }
 
@@ -4535,6 +5174,8 @@ bool GameServer::SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t
 }
 
 bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage) {
+  if (!gmp::IsWeaponSkill(skill_id))
+    return false;
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerSkillWeapon called for unknown player id {}", player_id);
@@ -4544,7 +5185,14 @@ bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id,
   auto& player = player_opt->get();
   const auto clamped = std::clamp<std::int32_t>(percentage, 0, 100);
   player.weapon_skills[skill_id] = clamped;
+  const int tier = gmp::WeaponSkillTier(clamped);
+  player.talents[skill_id] = tier;
+  if (player.instance_change) {
+    player.instance_change->weapon_skills[skill_id] = clamped;
+    player.instance_change->talents[skill_id] = tier;
+  }
   BroadcastPlayerSkillWeaponUpdate(player_manager_, player, skill_id, clamped);
+  BroadcastPlayerTalentUpdate(player_manager_, player, skill_id, tier);
   return true;
 }
 
@@ -4556,8 +5204,9 @@ bool GameServer::SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std
   }
 
   auto& player = player_opt->get();
-  const auto clamped = std::max<std::int32_t>(0, talent_value);
+  const auto clamped = gmp::IsWeaponSkill(talent_id) ? std::clamp<std::int32_t>(talent_value, 0, 2) : std::max<std::int32_t>(0, talent_value);
   player.talents[talent_id] = clamped;
+  if (player.instance_change) player.instance_change->talents[talent_id] = clamped;
   BroadcastPlayerTalentUpdate(player_manager_, player, talent_id, clamped);
   return true;
 }
@@ -4573,6 +5222,7 @@ bool GameServer::SetPlayerFatness(PlayerId player_id, float fatness) {
   }
 
   auto& player = player_opt->get();
+  if (player.instance_change) player.instance_change->fatness_changed = true;
   player.fatness = fatness;
   BroadcastPlayerFatnessUpdate(player_manager_, player);
   return true;
@@ -4589,6 +5239,7 @@ bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
   }
 
   auto& player = player_opt->get();
+  if (player.instance_change) player.instance_change->scale_changed = true;
   player.scale = scale;
   BroadcastPlayerScaleUpdate(player_manager_, player);
   return true;
@@ -4603,6 +5254,7 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
   }
 
   auto& player = player_opt->get();
+  if (player.instance_change) player.instance_change->weapon_mode_changed = true;
   const auto old_mode = player.state.weapon_mode;
   const auto clamped_mode = static_cast<std::uint8_t>(weapon_mode);
   player.state.weapon_mode = clamped_mode;
@@ -4638,6 +5290,7 @@ bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overl
     return false;
   }
 
+  if (player.instance_change) player.instance_change->overlays[overlay_name] = true;
   if (std::find(player.overlays.begin(), player.overlays.end(), overlay_name) == player.overlays.end()) {
     if (npc_manager_.GetNpc(player_id) && !ClearNpcActions(player_id)) {
       return false;
@@ -4674,6 +5327,7 @@ bool GameServer::RemovePlayerOverlay(PlayerId player_id, const std::string& over
     return false;
   }
   player.overlays.erase(it);
+  if (player.instance_change) player.instance_change->overlays[overlay_name] = false;
   BroadcastPlayerOverlayUpdate(player_manager_, player, overlay_name, false);
   return true;
 }
@@ -4800,7 +5454,7 @@ bool GameServer::StopFaceAnimation(PlayerId player_id, const std::string& animat
 }
 
 bool GameServer::PlayGesticulation(PlayerId player_id) {
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("playGesticulation called for unknown player id {}", player_id);
     return false;
@@ -4838,6 +5492,7 @@ bool GameServer::GiveItem(PlayerId player_id, const std::string& instance, std::
 
   auto& player = player_opt->get();
   if (!AddInventoryItem(player, *item_instance, amount)) return false;
+  if (player.instance_change) player.instance_change->inventory_deltas[*item_instance] += amount;
   if (++player.command_revision == 0) ++player.command_revision;
   AdvancePlayerStateSequence(player);
 
@@ -5181,6 +5836,17 @@ std::int32_t GameServer::HasItem(PlayerId player_id, const std::string& instance
 }
 
 void GameServer::ValidatePlayerEquipment(Character& character, PlayerState& incoming) const {
+  if (character.transformation) {
+    incoming.left_hand_item_instance = incoming.right_hand_item_instance = 0;
+    incoming.equipped_armor_instance = incoming.equipped_helmet_instance = incoming.equipped_shield_instance = 0;
+    incoming.equipped_amulet_instance = incoming.equipped_belt_instance = 0;
+    incoming.equipped_ring_left_instance = incoming.equipped_ring_right_instance = 0;
+    incoming.melee_weapon_instance = incoming.ranged_weapon_instance = 0;
+    incoming.active_spell_instance = incoming.active_spell_nr = incoming.active_spell_level = 0;
+    incoming.weapon_mode = 0;
+    incoming.spell_investing = false;
+    return;
+  }
   for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
                          EquipmentSlot::RangedWeapon, EquipmentSlot::Amulet, EquipmentSlot::Belt,
                          EquipmentSlot::RingLeft, EquipmentSlot::RingRight}) {
@@ -5199,16 +5865,46 @@ void GameServer::ValidatePlayerEquipment(Character& character, PlayerState& inco
     const auto* item = item_registry_.FindByIndex(incoming.equipped_ring_left_instance);
     if (!item || character.InventoryCount(item->instance) < 2) incoming.equipped_ring_right_instance = 0;
   }
+  const auto* unlit_torch = item_registry_.Find("ITLSTORCH");
+  const auto* burning_torch = item_registry_.Find("ITLSTORCHBURNING");
+  int unlit_torches = unlit_torch && (unlit_torch->flags & (1 << 28)) != 0 ? character.InventoryCount(unlit_torch->instance) : 0;
+  int burning_torches = burning_torch && (burning_torch->flags & (1 << 28)) != 0 ? character.InventoryCount(burning_torch->instance) : 0;
+  bool burning_torch_held = false;
   for (auto* field : {&incoming.left_hand_item_instance, &incoming.right_hand_item_instance}) {
     const auto* item = item_registry_.FindByIndex(*field);
-    if (*field && (!item || character.InventoryCount(item->instance) == 0)) *field = 0;
+    if (item && item->instance == "ITLSTORCHBURNING" && (item->flags & (1 << 28)) != 0) {
+      // Gothic replaces one owned unlit item with a burning world vob. This
+      // presentation still reserves the original torch; it is not a new grant.
+      const bool owned = burning_torches > 0 || unlit_torches > 0;
+      if (!owned || burning_torch_held)
+        *field = 0;
+      else {
+        burning_torch_held = true;
+        if (burning_torches > 0)
+        --burning_torches;
+        else
+        --unlit_torches;
+      }
+    } else if (item && item == unlit_torch && (item->flags & (1 << 28)) != 0) {
+      if (unlit_torches > 0)
+        --unlit_torches;
+      else
+        *field = 0;
+    } else if (*field && (!item || character.InventoryCount(item->instance) == 0))
+      *field = 0;
   }
   const auto* spell = item_registry_.FindByIndex(incoming.active_spell_instance);
-    if (incoming.active_spell_instance && (!spell || (spell->mainflag & (1 << 9)) == 0 || !spell->spell || *spell->spell < 0 || *spell->spell >= 100 ||
-      character.InventoryCount(spell->instance) == 0)) {
+  if (incoming.active_spell_instance && (!spell || (spell->mainflag & (1 << 9)) == 0 || !spell->spell || *spell->spell < 0 || *spell->spell >= 100 ||
+                                         character.InventoryCount(spell->instance) == 0)) {
     incoming.active_spell_instance = 0;
     incoming.active_spell_nr = 0;
   }
+  if (!incoming.active_spell_instance || incoming.weapon_mode != 7) {
+    incoming.active_spell_level = 0;
+    incoming.spell_investing = false;
+  }
+  if (!incoming.active_spell_instance)
+    incoming.active_spell_nr = 0;
 }
 
 std::optional<GameServer::EquipmentSlot> GameServer::PacketEquipmentSlot(std::int16_t slot_id) const {
@@ -5324,7 +6020,7 @@ void GameServer::ProcessEquipmentCommands() {
   std::vector<std::pair<PlayerId, EquipmentSlot>> expired;
   for (const auto& [id, player] : player_manager_.GetAllPlayers()) {
     for (const auto& [slot_id, command] : player.pending_equipment_commands) {
-      if (command.deadline > now) continue;
+      if (player.instance_change || command.deadline > now) continue;
       if (const auto slot = PacketEquipmentSlot(slot_id)) expired.emplace_back(id, *slot);
     }
   }
@@ -5332,7 +6028,7 @@ void GameServer::ProcessEquipmentCommands() {
     auto npc = npc_manager_.GetNpc(id);
     if (!npc) continue;
     for (const auto& [slot_id, command] : npc->get().pending_equipment_commands) {
-      if (command.deadline > now) continue;
+      if (npc->get().instance_change || command.deadline > now) continue;
       if (const auto slot = PacketEquipmentSlot(slot_id)) expired.emplace_back(id, *slot);
     }
   }
@@ -5340,6 +6036,21 @@ void GameServer::ProcessEquipmentCommands() {
 }
 
 void GameServer::ClearRemovedEquipment(Character& character, std::int32_t item_index, std::int32_t remaining_amount) {
+  const auto* removed = item_registry_.FindByIndex(item_index);
+  if (removed && (removed->instance == "ITLSTORCH" || removed->instance == "ITLSTORCHBURNING")) {
+    auto validated = character.state;
+    ValidatePlayerEquipment(character, validated);
+    if (validated.left_hand_item_instance != character.state.left_hand_item_instance ||
+        validated.right_hand_item_instance != character.state.right_hand_item_instance) {
+      character.state.left_hand_item_instance = validated.left_hand_item_instance;
+      character.state.right_hand_item_instance = validated.right_hand_item_instance;
+      AdvanceActorCommand(character);
+      AdvancePlayerStateSequence(character);
+      auto correction = MakePlayerStateUpdatePacket(character);
+      correction.state.correction_mask = kSyncEquipment;
+      BroadcastToRelevant(player_manager_, character, correction, TrafficClass::Control);
+    }
+  }
   // Removing the last owned copy also clears its presentation and pending command.
   std::int32_t kept_rings = 0;
   for (const auto slot : {EquipmentSlot::Armor, EquipmentSlot::Helmet, EquipmentSlot::Shield, EquipmentSlot::MeleeWeapon,
@@ -5398,6 +6109,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   const auto actor_generation = player.actor_generation;
   const auto removed_amount = std::min(amount, player.InventoryCount(*item_instance));
   if (!RemoveInventoryItem(player, *item_instance, removed_amount)) return false;
+  if (player.instance_change) player.instance_change->inventory_deltas[*item_instance] -= removed_amount;
   ClearRemovedEquipment(player, item_definition->index, player.InventoryCount(*item_instance));
   // Unequip callbacks may remove or replace this character.
   player_opt = GetCharacter(player_id);

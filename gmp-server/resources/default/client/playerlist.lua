@@ -1,3 +1,13 @@
+local language = getLanguageIndex()
+local fontPrefix = 'CP1252_'
+if language == LANG_PL or language == LANG_CZ or language == LANG_SK or language == LANG_ISV or language == LANG_HU or language == LANG_SZL then
+  fontPrefix = 'CP1250_'
+elseif language == LANG_RU or language == LANG_UA then
+  fontPrefix = 'CP1251_'
+elseif language == LANG_TR then
+  fontPrefix = 'CP1254_'
+end
+
 local PlayerList = {
   x = 2700,
   y = 800,
@@ -7,7 +17,7 @@ local PlayerList = {
   backgroundHeight = 6000,
   lineHeight = 200,
   maxVisibleRows = 30,
-  font = 'Font_Old_10_White_Hi.TGA',
+  font = fontPrefix .. 'Font_Old_10_White_Hi.TGA',
   visible = false,
   beginIndex = 0,
   rows = {}
@@ -74,7 +84,7 @@ end
 local function getName(playerId)
   local name = getPlayerName(playerId)
   if name == nil or name == '' then
-    return nil
+    return tostring(playerId)
   end
   return string.sub(name, 1, 20)
 end

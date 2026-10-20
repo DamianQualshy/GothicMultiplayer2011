@@ -81,10 +81,10 @@ public:
   static void ExitGame(int exitCode = 0);
 
   /**
-   * @brief Called at the start of each frame, before Gothic rendering.
+   * @brief Called after main-loop input, before Gothic selects the frame's game session.
    *
-   * This is the safe point to execute deferred actions like level changes
-   * that would crash if done during rendering.
+   * This is the safe point to execute deferred level changes and session
+   * recreation. It must run before the caller caches the session for rendering.
    */
   void OnFrameStart();
 

@@ -1533,7 +1533,7 @@ bool Function_StopFaceAni(std::uint32_t player_id, sol::optional<std::string> an
 *
 */
 bool Function_PlayGesticulation(std::uint32_t player_id) {
-  if (!GetPlayerOrWarn(player_id, "playGesticulation")) {
+  if (!GetCharacterOrWarn(player_id, "playGesticulation")) {
     return false;
   }
 

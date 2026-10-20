@@ -42,6 +42,7 @@ SOFTWARE.
 namespace {
 
 constexpr DWORD kRenderHookAddress = 0x006C86A0;
+constexpr DWORD kFrameInputCallAddress = 0x00425E3A;  // CGameManager::Run -> zCInputCallback::GetInput
 constexpr DWORD kAiMovingHookAddress = 0x0050E750;
 constexpr DWORD kVidIsResolutionValidAddress = 0x0042C140;  // VidIsResolutionValid
 constexpr DWORD kSetFOV2Address = 0x0054A960;               // zCCamera::SetFOV(float, float)
@@ -51,6 +52,13 @@ using AiMovingOriginalFn = void(__thiscall*)(zCAIPlayer*, zCVob*);
 
 RenderOriginalFn g_renderOriginal = nullptr;
 AiMovingOriginalFn g_aiMovingOriginal = nullptr;
+
+void __cdecl OnGameFrameInput() {
+  zCInputCallback::GetInput();
+  // Run deferred session changes after input callbacks have returned and
+  // before CGameManager::Run reads the session used by Render/RenderBlit.
+  GMPCore::Instance().OnFrameStart();
+}
 
 // Original VidIsResolutionValid function pointer
 using VidIsResolutionValidFn = int(__cdecl*)(int x, int y, int bpp);
@@ -340,6 +348,10 @@ void HooksManager::InitAllPatches() {
     gmp::renderer::d3d9::InitializeD3D9Patches();
   }
 
+  // Patch only the main loop's call site. Loading screens also call GetInput
+  // and must not execute deferred world/session changes from inside a load.
+  CallPatch(kFrameInputCallAddress, reinterpret_cast<DWORD>(&OnGameFrameInput), 0);
+
   if (auto original = CreateHook(kRenderHookAddress, (DWORD)&HooksManager::OnRender)) {
     g_renderOriginal = reinterpret_cast<RenderOriginalFn>(*original);
   } else {
@@ -356,9 +368,7 @@ void HooksManager::InitAllPatches() {
 void __fastcall HooksManager::OnRender(oCGame* gameInstance) {
   HooksManager* hm = HooksManager::GetInstance();
 
-  // Process deferred actions at frame start, BEFORE Gothic rendering.
-  // This is the safe point for operations like ChangeLevel that invalidate world state.
-  GMPCore::Instance().OnFrameStart();
+  // Deferred session changes already ran before the caller selected gameInstance.
   CMainMenu::UpdateMenuScene();
   gmp::gothic::LuaCamera::ApplyMovementLock();
   gmp::gothic::LuaDraw::EnsureViewsAttached();

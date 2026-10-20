@@ -46,6 +46,8 @@ inline const std::string kEventOnPlayerDropItemName = "onPlayerDropItem";
 inline const std::string kEventOnPlayerTakeItemName = "onPlayerTakeItem";
 inline const std::string kEventOnPlayerUseItemName = "onPlayerUseItem";
 inline const std::string kEventOnPlayerCastSpellName = "onPlayerCastSpell";
+inline const std::string kEventOnPlayerSummonName = "onPlayerSummon";
+inline const std::string kEventOnPlayerTeleportName = "onPlayerTeleport";
 inline const std::string kEventOnPlayerChangeHealthName = "onPlayerChangeHealth";
 inline const std::string kEventOnPlayerChangeManaName = "onPlayerChangeMana";
 inline const std::string kEventOnPlayerWorldChangeName = "onPlayerWorldChange";
@@ -161,6 +163,18 @@ struct OnPlayerCastSpellEvent {
   std::uint64_t caster_id;
   std::uint16_t spell_id;
   std::optional<std::uint64_t> target_id;
+};
+
+struct OnPlayerSummonEvent {
+  std::uint32_t player_id;
+  std::uint16_t spell_id;
+  std::string summon_instance;
+  std::uint32_t npc_id;
+};
+
+struct OnPlayerTeleportEvent {
+  std::uint32_t player_id;
+  std::string destination;
 };
 
 struct OnPlayerChangeHealthEvent {

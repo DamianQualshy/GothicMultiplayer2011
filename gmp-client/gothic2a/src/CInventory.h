@@ -46,6 +46,7 @@ private:
 public:
   CInventory(oCNpcInventory* HeroInventory);
   ~CInventory();
+  void BindInventory(oCNpcInventory* inventory);
   bool IsOpened();
   void RenderInventory();
 };

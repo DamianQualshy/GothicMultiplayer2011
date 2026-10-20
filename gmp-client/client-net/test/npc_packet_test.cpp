@@ -26,6 +26,7 @@ SOFTWARE.
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -66,6 +67,8 @@ struct RecordingObserver final : EventObserver {
   Player* spawned_player{nullptr};
   bool disturb_snapshot_health{false};
   bool expected_new_spawn{true};
+  int expected_max_health{2000};
+  int expected_health{1800};
   std::vector<std::string> order;
   std::vector<NpcControlPacket> controls;
   std::vector<NpcAnimationPacket> animations;
@@ -79,6 +82,10 @@ struct RecordingObserver final : EventObserver {
   std::vector<PlayerState> states;
   std::vector<bool> state_corrections;
   std::vector<ActorActionPacket> actions;
+  std::vector<ActorDamagePacket> damage_reactions;
+  std::vector<PlayerSummonPacket> summons;
+  std::vector<std::pair<PlayerTeleportPacket, std::uint16_t>> teleports;
+  std::vector<PlayerTransformationPacket> transformations;
   struct CastRecord {
     std::uint64_t caster;
     std::optional<std::uint64_t> target;
@@ -89,6 +96,7 @@ struct RecordingObserver final : EventObserver {
     std::uint32_t epoch;
   };
   std::vector<CastRecord> casts;
+  std::vector<CastSpellPacket> cast_packets;
   std::vector<std::pair<std::uint32_t, std::int32_t>> inventory_results;
   std::vector<std::vector<InventoryEntry>> inventory_snapshots;
   std::vector<bool> equipment_applied;
@@ -133,8 +141,8 @@ struct RecordingObserver final : EventObserver {
     order.push_back("snapshot_applied");
     EXPECT_EQ(new_spawn, expected_new_spawn);
     EXPECT_TRUE(player.has_spawned());
-    EXPECT_EQ(player.max_health(), 2000);
-    EXPECT_EQ(player.health(), 1800);
+    EXPECT_EQ(player.max_health(), expected_max_health);
+    EXPECT_EQ(player.health(), expected_health);
     EXPECT_EQ(player.life_state(), PLAYER_LIFE_ALIVE);
   }
   void OnNpcControl(const NpcControlPacket& packet) override { controls.push_back(packet); }
@@ -149,9 +157,36 @@ struct RecordingObserver final : EventObserver {
   void OnPlayerStandUp(std::uint64_t, bool apply) override { ++stand_ups; if (apply) ++applied_stand_ups; }
   void OnPlayerRespawned(std::uint64_t, bool) override { ++respawns; }
   void OnActorAction(const ActorActionPacket& action) override { actions.push_back(action); }
+  void OnActorDamage(const ActorDamagePacket& damage) override {
+    damage_reactions.push_back(damage);
+  }
+  void OnPlayerSummon(const PlayerSummonPacket& packet) override {
+    EXPECT_TRUE(client->player_manager().GetPlayer(packet.caster_id)->has_spawned());
+    EXPECT_TRUE(client->player_manager().GetPlayer(packet.npc_id)->has_spawned());
+    summons.push_back(packet);
+  }
+  void OnPlayerTeleport(const PlayerTeleportPacket& packet, std::uint16_t mask) override {
+    const auto* actor = client->player_manager().GetPlayer(packet.player_id);
+    if (mask & kSyncPosition)
+      EXPECT_EQ(actor->position(), packet.position);
+    if (mask & kSyncOrientation)
+      EXPECT_EQ(actor->rotation(), packet.normal);
+    teleports.emplace_back(packet, mask);
+  }
+  void OnPlayerTransformation(const PlayerTransformationPacket& packet, std::uint16_t) override {
+    const auto* actor = client->player_manager().GetPlayer(packet.player_id);
+    EXPECT_EQ(actor->instance(), packet.instance);
+    EXPECT_EQ(actor->max_health(), packet.max_health);
+    EXPECT_EQ(actor->strength(), packet.strength);
+    transformations.push_back(packet);
+  }
   void OnSpellCast(std::uint64_t caster, std::uint16_t spell, std::uint64_t source,
                     std::uint64_t generation, std::uint32_t epoch) override {
     casts.push_back({caster, std::nullopt, spell, source, generation, 0, epoch});
+  }
+  void OnSpellCast(const CastSpellPacket& packet) override {
+    cast_packets.push_back(packet);
+    EventObserver::OnSpellCast(packet);
   }
   void OnSpellCastOnTarget(std::uint64_t caster, std::uint64_t target, std::uint16_t spell, std::uint64_t source,
                             std::uint64_t generation, std::uint64_t target_generation, std::uint32_t epoch) override {
@@ -248,6 +283,420 @@ protected:
     ASSERT_TRUE(gmp::client::GameClientTestPeer::HandlePacket(client, bytes.data(), static_cast<std::uint32_t>(size)));
   }
 };
+
+TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAndPoseWithoutReplayingOldCallbacks) {
+  const auto spawn = MakeSpawn();
+  Deliver(0, spawn);
+  auto* actor = first->player_manager().GetPlayer(spawn.actor.player_id);
+  ASSERT_NE(actor, nullptr);
+  actor->set_inventory_count(999, 5);
+  const auto callbacks = first_observer.order.size();
+  auto defaults = spawn.actor;
+  defaults.instance_change_revision = 7;
+  defaults.instance = "SCAVENGER";
+  defaults.max_health = defaults.health = 80;
+  defaults.max_mana = defaults.mana = 0;
+  defaults.weapon_mode = 1;
+  defaults.body_model = "SCA_BODY";
+  defaults.inventory = {{101, 2}};
+  first->ApplyNativeInstanceDefaults(defaults);
+  EXPECT_EQ(actor->instance_change_revision(), 7u);
+  EXPECT_EQ(actor->max_health(), 80);
+  EXPECT_EQ(actor->health(), 80);
+  EXPECT_EQ(actor->max_mana(), 0);
+  EXPECT_EQ(actor->mana(), 0);
+  EXPECT_EQ(actor->weapon_mode(), 1);
+  EXPECT_EQ(actor->body_model(), "SCA_BODY");
+  EXPECT_EQ(actor->inventory_count(999), 0);
+  EXPECT_EQ(actor->inventory_count(101), 2);
+  EXPECT_EQ(first_observer.order.size(), callbacks);
+  first_observer.expected_new_spawn = false;
+  first_observer.expected_max_health = first_observer.expected_health = 80;
+  auto acknowledged = spawn;
+  acknowledged.actor = defaults;
+  acknowledged.actor.instance_change_revision = 0;
+  acknowledged.actor.state_sequence++;
+  Deliver(0, acknowledged);
+  EXPECT_EQ(actor->instance_change_revision(), 0u);
+  EXPECT_EQ(actor->inventory_count(101), 2);
+}
+
+TEST_F(ClientNpcPacketTest, StaleInstanceRequestCannotReplaceTheCurrentConstructor) {
+  auto spawn = MakeSpawn();
+  spawn.actor.command_revision = 8;
+  Deliver(0, spawn);
+  auto* actor = first->player_manager().GetPlayer(spawn.actor.player_id);
+  ASSERT_NE(actor, nullptr);
+  const auto callbacks = first_observer.order.size();
+  PlayerInstanceUpdatePacket stale;
+  stale.packet_type = Net::PT_PLAYER_INSTANCE_UPDATE;
+  stale.player_id = actor->id();
+  stale.actor_generation = actor->actor_generation();
+  stale.command_revision = 7;
+  stale.initialize_defaults = true;
+  stale.instance = "MEATBUG";
+  Deliver(0, stale);
+  EXPECT_EQ(actor->instance(), "TROLL_BLACK");
+  EXPECT_EQ(actor->instance_change_revision(), 0u);
+  EXPECT_EQ(first_observer.order.size(), callbacks);
+}
+
+TEST(InstancePackets, ConstructorCompletionRoundTripsTheRequestAndCompleteDefaults) {
+  PlayerInstanceReadyPacket packet;
+  packet.request_revision = 90;
+  packet.control_epoch = 12;
+  packet.defaults = MakeSpawn().actor;
+  packet.defaults.inventory = {{123, 4}, {456, 1}};
+  std::vector<unsigned char> bytes;
+  using Output = bitsery::OutputBufferAdapter<std::vector<unsigned char>>;
+  bytes.resize(bitsery::quickSerialization<Output>(bytes, packet));
+  PlayerInstanceReadyPacket decoded;
+  using Input = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto result = bitsery::quickDeserialization<Input>({bytes.data(), bytes.size()}, decoded);
+  ASSERT_EQ(result.first, bitsery::ReaderError::NoError);
+  ASSERT_TRUE(result.second);
+  EXPECT_EQ(decoded.packet_type, Net::PT_PLAYER_INSTANCE_READY);
+  EXPECT_EQ(decoded.request_revision, 90u);
+  EXPECT_EQ(decoded.control_epoch, 12u);
+  EXPECT_EQ(decoded.defaults.actor_generation, packet.defaults.actor_generation);
+  EXPECT_EQ(decoded.defaults.max_health, packet.defaults.max_health);
+  ASSERT_EQ(decoded.defaults.inventory.size(), 2u);
+  EXPECT_EQ(decoded.defaults.inventory[0].amount, 4);
+}
+
+TEST_F(ClientNpcPacketTest, SummonNotificationRequiresBothSpawnedIdentitiesAndRunsOncePerCreature) {
+  PlayerSummonPacket summoned;
+  summoned.caster_id = 22;
+  summoned.caster_generation = 122;
+  summoned.spell_id = 25;
+  summoned.npc_id = 21;
+  summoned.npc_generation = 121;
+  summoned.summon_instance = "TROLL_BLACK";
+  auto caster = MakeSpawn();
+  caster.actor.player_id = caster.control.npc_id = caster.animation.npc_id = 22;
+  caster.actor.actor_generation = caster.control.actor_generation = caster.animation.actor_generation = 122;
+  for (std::size_t viewer = 0; viewer < 2; ++viewer) {
+    auto& observer = viewer == 0 ? first_observer : second_observer;
+    Deliver(viewer, summoned);
+    Deliver(viewer, MakeSpawn());
+    Deliver(viewer, summoned);
+    EXPECT_TRUE(observer.summons.empty());
+    Deliver(viewer, caster);
+    auto stale = summoned;
+    stale.caster_generation++;
+    Deliver(viewer, stale);
+    stale = summoned;
+    stale.npc_generation++;
+    Deliver(viewer, stale);
+    stale = summoned;
+    stale.summon_instance = "WRONG_INSTANCE";
+    Deliver(viewer, stale);
+    EXPECT_TRUE(observer.summons.empty());
+    Deliver(viewer, summoned);
+    Deliver(viewer, summoned);
+    ASSERT_EQ(observer.summons.size(), 1u);
+    EXPECT_EQ(observer.summons.front().npc_id, 21u);
+    EXPECT_EQ(observer.summons.front().summon_instance, "TROLL_BLACK");
+  }
+}
+
+PlayerTeleportPacket MakeTeleport() {
+  PlayerTeleportPacket packet;
+  packet.player_id = 21;
+  packet.actor_generation = 121;
+  packet.control_epoch = 4;
+  packet.command_revision = 1;
+  packet.action_id = 1;
+  packet.state_sequence = 11;
+  packet.source_time_ms = 12345;
+  packet.position = {1000.0f, 200.0f, 1500.0f};
+  packet.normal = {1.0f, 0.0f, 0.0f};
+  packet.destination = "NW_TELEPORT_TEST";
+  return packet;
+}
+
+TEST_F(ClientNpcPacketTest, NativeTeleportAppliesBeforeNotificationAndDuplicateDoesNotRepeat) {
+  const auto teleport = MakeTeleport();
+  for (std::size_t viewer = 0; viewer < 2; ++viewer) {
+    auto& observer = viewer == 0 ? first_observer : second_observer;
+    Deliver(viewer, teleport);
+    EXPECT_TRUE(observer.teleports.empty());
+    Deliver(viewer, MakeSpawn());
+    Deliver(viewer, teleport);
+    Deliver(viewer, teleport);
+    ASSERT_EQ(observer.teleports.size(), 1u);
+    EXPECT_EQ(observer.teleports.front().second, kSyncPosition | kSyncOrientation);
+    EXPECT_EQ(observer.teleports.front().first.destination, "NW_TELEPORT_TEST");
+  }
+}
+
+TEST_F(ClientNpcPacketTest, NativeTeleportRejectsStaleIdentityControlAndLifeRevision) {
+  Deliver(0, MakeSpawn());
+  const auto original = first->player_manager().GetPlayer(21)->position();
+  auto stale = MakeTeleport();
+  stale.actor_generation++;
+  Deliver(0, stale);
+  stale = MakeTeleport();
+  stale.control_epoch++;
+  Deliver(0, stale);
+  stale = MakeTeleport();
+  stale.normal = glm::vec3(0.0f);
+  Deliver(0, stale);
+  auto* actor = first->player_manager().GetPlayer(21);
+  actor->set_life_command_revision(2);
+  Deliver(0, MakeTeleport());
+  EXPECT_TRUE(first_observer.teleports.empty());
+  EXPECT_EQ(actor->position(), original);
+}
+
+TEST_F(ClientNpcPacketTest, NativeTeleportNotificationDoesNotRewindNewerMovement) {
+  Deliver(0, MakeSpawn());
+  const auto movement = MakeMovement(12);
+  Deliver(0, movement);
+  Deliver(0, MakeTeleport());
+  ASSERT_EQ(first_observer.teleports.size(), 1u);
+  EXPECT_EQ(first_observer.teleports.front().second, 0);
+  EXPECT_EQ(first->player_manager().GetPlayer(21)->position(), movement.state.position);
+  EXPECT_EQ(first->player_manager().GetPlayer(21)->rotation(), movement.state.nrot);
+}
+
+TEST_F(ClientNpcPacketTest, ServerPositionCorrectionDoesNotTriggerNativeTeleportEvent) {
+  Deliver(0, MakeSpawn());
+  PlayerPositionUpdatePacket correction;
+  correction.packet_type = Net::PT_MAP_ONLY;
+  correction.player_id = 21;
+  correction.actor_generation = 121;
+  correction.state_sequence = 11;
+  correction.teleport = true;
+  correction.position = {1000.0f, 200.0f, 1500.0f};
+  Deliver(0, correction);
+  EXPECT_EQ(first_observer.position_updates, 1);
+  EXPECT_TRUE(first_observer.teleports.empty());
+}
+
+PlayerTransformationPacket MakeTransformation() {
+  PlayerTransformationPacket packet;
+  packet.player_id = 21;
+  packet.actor_generation = 121;
+  packet.state_sequence = 11;
+  packet.command_revision = 1;
+  packet.cast_id = 77;
+  packet.spell_id = 51;
+  packet.instance = "WOLF";
+  packet.max_health = 60;
+  packet.strength = packet.dexterity = 30;
+  packet.state.position = {100.0f, 200.0f, 300.0f};
+  packet.state.nrot = {0.0f, 0.0f, 1.0f};
+  packet.state.health_points = 54;
+  return packet;
+}
+
+TEST_F(ClientNpcPacketTest, TransformationCommitsInstanceAndStatsTogetherAndReturnsOnBothViewers) {
+  for (std::size_t viewer = 0; viewer < 2; ++viewer) {
+    Deliver(viewer, MakeSpawn());
+    auto form = MakeTransformation();
+    Deliver(viewer, form);
+    Deliver(viewer, form);
+    auto& observer = viewer == 0 ? first_observer : second_observer;
+    ASSERT_EQ(observer.transformations.size(), 1u);
+    auto* actor = (viewer == 0 ? first : second)->player_manager().GetPlayer(21);
+    EXPECT_EQ(actor->transformation_spell_id(), 51);
+    EXPECT_EQ(actor->transformation_cast_id(), 77u);
+    EXPECT_EQ(actor->health(), 54);
+    form.state_sequence = 12;
+    form.command_revision = 2;
+    form.spell_id = 0;
+    form.instance = "TROLL_BLACK";
+    form.max_health = 2000;
+    form.max_mana = 300;
+    form.strength = 77;
+    form.dexterity = 66;
+    form.state.health_points = 1400;
+    form.state.mana_points = 190;
+    Deliver(viewer, form);
+    Deliver(viewer, MakeTransformation());
+    ASSERT_EQ(observer.transformations.size(), 2u);
+    EXPECT_EQ(actor->transformation_spell_id(), 0);
+    EXPECT_EQ(actor->health(), 1400);
+    EXPECT_EQ(actor->mana(), 190);
+    EXPECT_EQ(actor->strength(), 77);
+    EXPECT_EQ(actor->instance(), "TROLL_BLACK");
+  }
+}
+
+TEST_F(ClientNpcPacketTest, LateViewerSpawnIncludesCurrentTransformationWithoutRecasting) {
+  auto spawn = MakeSpawn();
+  spawn.actor.instance = "WOLF";
+  spawn.actor.max_health = 60;
+  spawn.actor.health = 54;
+  spawn.actor.transformation_spell_id = 51;
+  spawn.actor.transformation_cast_id = 77;
+  first_observer.expected_max_health = 60;
+  first_observer.expected_health = 54;
+  Deliver(0, spawn);
+  const auto* actor = first->player_manager().GetPlayer(21);
+  EXPECT_EQ(actor->instance(), "WOLF");
+  EXPECT_EQ(actor->transformation_spell_id(), 51);
+  EXPECT_EQ(actor->transformation_cast_id(), 77u);
+  EXPECT_TRUE(first_observer.casts.empty());
+}
+
+TEST_F(ClientNpcPacketTest, TransformationRejectsRetiredActorsAndDoesNotRewindNewerPoses) {
+  auto form = MakeTransformation();
+  Deliver(0, form);
+  EXPECT_TRUE(first_observer.transformations.empty());
+  Deliver(0, MakeSpawn());
+  form.actor_generation++;
+  Deliver(0, form);
+  EXPECT_TRUE(first_observer.transformations.empty());
+  auto movement = MakeMovement(12);
+  movement.state.health_points = 45;
+  Deliver(0, movement);
+  Deliver(0, MakeTransformation());
+  ASSERT_EQ(first_observer.transformations.size(), 1u);
+  const auto* actor = first->player_manager().GetPlayer(21);
+  EXPECT_EQ(actor->instance(), "WOLF");
+  EXPECT_EQ(actor->max_health(), 60);
+  EXPECT_EQ(actor->health(), 45);
+  EXPECT_EQ(actor->position(), movement.state.position);
+}
+
+TEST_F(ClientNpcPacketTest, AcceptedDamagePresentsOnceWithoutChangingResourcesOrActionSequence) {
+  Deliver(0, MakeSpawn());
+  auto* actor = first->player_manager().GetPlayer(21);
+  ASSERT_TRUE(actor->accept_action_sequence(1000));
+  ActorDamagePacket hit;
+  hit.victim_id = 21;
+  hit.victim_generation = 121;
+  hit.state_sequence = 11;
+  hit.source_time_ms = 12345;
+  hit.damage = 10;
+  hit.damage_type = 4;
+  hit.attacker_id = 999;  // Missing attacker must not discard a valid victim hit.
+  hit.attacker_generation = 100;
+  Deliver(0, hit);
+  Deliver(0, hit);
+  ASSERT_EQ(first_observer.damage_reactions.size(), 1u);
+  EXPECT_EQ(first_observer.damage_reactions.front().source_time_ms, 12345u);
+  EXPECT_FALSE(first_observer.damage_reactions.front().attacker_id);
+  EXPECT_EQ(actor->health(), 1800);
+  EXPECT_TRUE(actor->accept_action_sequence(1001));
+  hit.state_sequence = 12;
+  Deliver(0, hit);
+  EXPECT_EQ(first_observer.damage_reactions.size(), 2u);
+}
+
+TEST_F(ClientNpcPacketTest, DamageRejectsRetiredGenerationsAndPreRecoveryRevisions) {
+  Deliver(0, MakeSpawn());
+  ActorDamagePacket hit;
+  hit.victim_id = 21;
+  hit.victim_generation = 120;
+  hit.state_sequence = 11;
+  hit.damage = 10;
+  Deliver(0, hit);
+  EXPECT_TRUE(first_observer.damage_reactions.empty());
+  PlayerStandUpPacket recovered{};
+  recovered.packet_type = Net::PT_PLAYER_STANDUP;
+  recovered.player_id = 21;
+  recovered.actor_generation = 121;
+  recovered.state_sequence = 12;
+  recovered.command_revision = 6;
+  Deliver(0, recovered);
+  hit.victim_generation = 121;
+  hit.command_revision = 5;
+  Deliver(0, hit);
+  EXPECT_TRUE(first_observer.damage_reactions.empty());
+  hit.command_revision = 6;
+  hit.state_sequence = 13;
+  Deliver(0, hit);
+  ASSERT_EQ(first_observer.damage_reactions.size(), 1u);
+  auto* actor = first->player_manager().GetPlayer(21);
+  actor->set_actor_generation(122);
+  hit.victim_generation = 122;
+  hit.command_revision = 0;
+  hit.state_sequence = 1;
+  Deliver(0, hit);
+  EXPECT_EQ(first_observer.damage_reactions.size(), 2u);
+}
+
+TEST_F(ClientNpcPacketTest, AcceptedDamageAlsoReachesLocalVictim) {
+  auto* local = first->player_manager().CreateLocalPlayer(1);
+  local->set_actor_generation(101);
+  local->set_has_spawned(true);
+  local->set_life_state(PLAYER_LIFE_ALIVE);
+  ActorDamagePacket hit;
+  hit.victim_id = 1;
+  hit.victim_generation = 101;
+  hit.state_sequence = 1;
+  hit.damage = 10;
+  Deliver(0, hit);
+  ASSERT_EQ(first_observer.damage_reactions.size(), 1u);
+  EXPECT_EQ(first_observer.damage_reactions.front().victim_id, 1u);
+  hit.state_sequence = 2;
+  hit.damage = 0;
+  Deliver(0, hit);
+  EXPECT_EQ(first_observer.damage_reactions.size(), 1u);
+}
+
+TEST_F(ClientNpcPacketTest, PresenceIncludesUnstreamedPlayersWithoutCreatingActors) {
+  PlayerPresencePacket packet;
+  packet.packet_type = Net::PT_PLAYER_PRESENCE;
+  PlayerPresenceEntry entry;
+  entry.player_id = 42;
+  entry.name = "Distant player";
+  entry.world = "OLDWORLD/OLDWORLD.ZEN";
+  entry.position = {90000.0f, 120.0f, -80000.0f};
+  entry.ping = 63;
+  entry.r = 100;
+  packet.players.push_back(entry);
+  Deliver(0, packet);
+
+  ASSERT_EQ(first->GetOnlinePlayers().size(), 1u);
+  const auto* online = first->GetOnlinePlayer(42);
+  ASSERT_NE(online, nullptr);
+  EXPECT_EQ(online->name, entry.name);
+  EXPECT_EQ(online->world, entry.world);
+  EXPECT_EQ(online->position, entry.position);
+  EXPECT_EQ(online->r, 100);
+  EXPECT_EQ(first->GetPlayerPing(42), 63);
+  EXPECT_EQ(first->player_manager().GetPlayer(42), nullptr);
+  EXPECT_EQ(first->GetOnlinePlayer((1ull << 32) + 42), nullptr);
+
+  DisconnectionInfoPacket stream_out;
+  stream_out.packet_type = Net::PT_LEFT_GAME;
+  stream_out.disconnected_id = 42;
+  Deliver(0, stream_out);
+  EXPECT_NE(first->GetOnlinePlayer(42), nullptr);
+
+  packet.players.clear();
+  Deliver(0, packet);
+  EXPECT_TRUE(first->GetOnlinePlayers().empty());
+  EXPECT_EQ(first->GetPlayerPing(42), -1);
+}
+
+TEST_F(ClientNpcPacketTest, InvalidPresenceDoesNotPartiallyReplaceRoster) {
+  PlayerPresencePacket packet;
+  packet.packet_type = Net::PT_PLAYER_PRESENCE;
+  PlayerPresenceEntry entry;
+  entry.player_id = 42;
+  entry.name = "Original";
+  packet.players.push_back(entry);
+  Deliver(0, packet);
+
+  packet.players[0].name = "Changed";
+  packet.players.push_back(entry);  // Duplicate IDs invalidate the entire snapshot.
+  Deliver(0, packet);
+  ASSERT_NE(first->GetOnlinePlayer(42), nullptr);
+  EXPECT_EQ(first->GetOnlinePlayer(42)->name, "Original");
+
+  packet.players.resize(1);
+  packet.players[0].position.x = std::numeric_limits<float>::infinity();
+  Deliver(0, packet);
+  EXPECT_EQ(first->GetOnlinePlayer(42)->name, "Original");
+
+  first->Disconnect();
+  EXPECT_TRUE(first->GetOnlinePlayers().empty());
+}
 
 TEST_F(ClientNpcPacketTest, SpawnFinalizesLifeStateAfterVisualAndAttributeCallbacks) {
   first_observer.disturb_snapshot_health = true;
@@ -446,6 +895,8 @@ TEST_F(ClientNpcPacketTest, SpawnCachesCompleteCombatAndPoseAndReplacesCollectio
   packet.actor.weapon_mode = 6;
   packet.actor.active_spell_nr = 8;
   packet.actor.active_spell_instance = 123;
+  packet.actor.active_spell_level = 3;
+  packet.actor.spell_investing = true;
   packet.actor.melee_weapon_instance = 321;
   packet.actor.ranged_weapon_instance = 322;
   packet.actor.body_state = 4;
@@ -462,6 +913,8 @@ TEST_F(ClientNpcPacketTest, SpawnCachesCompleteCombatAndPoseAndReplacesCollectio
   EXPECT_EQ(state.source_time_ms, packet.actor.source_time_ms);
   EXPECT_EQ(state.weapon_mode, packet.actor.weapon_mode);
   EXPECT_EQ(state.active_spell_instance, packet.actor.active_spell_instance);
+  EXPECT_EQ(state.active_spell_level, 3);
+  EXPECT_TRUE(state.spell_investing);
   EXPECT_EQ(state.melee_weapon_instance, packet.actor.melee_weapon_instance);
   EXPECT_EQ(state.ranged_weapon_instance, packet.actor.ranged_weapon_instance);
   EXPECT_EQ(state.body_state, packet.actor.body_state);
@@ -747,6 +1200,7 @@ TEST_F(ClientNpcPacketTest, CastSourceTimelineAndAssignmentReachObserverOnce) {
   cast.control_epoch = 4;
   cast.action_id = 1;
   cast.spell_id = 1;
+  cast.spell_level = 4;
   cast.source_time_ms = (std::uint64_t{1} << 33) + 123;
   Deliver(0, cast);
   Deliver(0, cast);
@@ -755,6 +1209,8 @@ TEST_F(ClientNpcPacketTest, CastSourceTimelineAndAssignmentReachObserverOnce) {
   EXPECT_EQ(first_observer.casts.front().source_time, cast.source_time_ms);
   EXPECT_EQ(first_observer.casts.front().generation, 121u);
   EXPECT_EQ(first_observer.casts.front().epoch, 4u);
+  ASSERT_EQ(first_observer.cast_packets.size(), 1u);
+  EXPECT_EQ(first_observer.cast_packets.front().spell_level, 4);
   cast.action_id = 2;
   cast.control_epoch = 3;
   Deliver(0, cast);
@@ -790,6 +1246,46 @@ TEST_F(ClientNpcPacketTest, TargetedCastKeepsSourceTimeAndBothIncarnations) {
   EXPECT_EQ(first_observer.casts.front().source_time, cast.source_time_ms);
   EXPECT_EQ(first_observer.casts.front().generation, 121u);
   EXPECT_EQ(first_observer.casts.front().target_generation, 122u);
+}
+
+TEST_F(ClientNpcPacketTest, ChargeStateCanBeCancelledWithoutChangingTheSelectedRune) {
+  Deliver(0, MakeSpawn());
+  auto pose = MakeMovement(11);
+  pose.state.weapon_mode = 7;
+  pose.state.active_spell_nr = 2;
+  pose.state.active_spell_instance = 123;
+  pose.state.active_spell_level = 3;
+  pose.state.spell_investing = true;
+  Deliver(0, pose);
+  auto* actor = first->player_manager().GetPlayer(21);
+  ASSERT_NE(actor, nullptr);
+  EXPECT_EQ(actor->state().active_spell_level, 3);
+  EXPECT_TRUE(actor->state().spell_investing);
+  ++pose.state_sequence;
+  pose.state.active_spell_level = 0;
+  pose.state.spell_investing = false;
+  Deliver(0, pose);
+  EXPECT_EQ(actor->active_spell_instance(), 123);
+  EXPECT_EQ(actor->state().active_spell_level, 0);
+  EXPECT_FALSE(actor->state().spell_investing);
+}
+
+TEST_F(ClientNpcPacketTest, InvalidCastLevelDoesNotConsumeAValidActionIdentity) {
+  Deliver(0, MakeSpawn());
+  CastSpellPacket cast{};
+  cast.packet_type = Net::PT_CASTSPELL;
+  cast.caster_id = 21;
+  cast.actor_generation = 121;
+  cast.control_epoch = 4;
+  cast.action_id = 1;
+  cast.spell_id = 18;
+  cast.spell_level = kMaxSpellInvestLevel + 1;
+  Deliver(0, cast);
+  EXPECT_TRUE(first_observer.casts.empty());
+  cast.spell_level = 0;
+  Deliver(0, cast);
+  ASSERT_EQ(first_observer.cast_packets.size(), 1u);
+  EXPECT_EQ(first_observer.cast_packets.front().spell_level, 0);
 }
 
 TEST_F(ClientNpcPacketTest, SynchronousHitsFollowApprovalAndFailedCastsDiscardHits) {
@@ -1093,16 +1589,15 @@ TEST_F(ClientNpcPacketTest, DuplicateJoinCannotOverwriteSpawnedActor) {
   EXPECT_EQ(actor->position(), spawn.position);
 }
 
-TEST_F(ClientNpcPacketTest, IncompatibleActorProtocolIsRejectedBeforeLocalMetadataCreation) {
+TEST_F(ClientNpcPacketTest, ZeroActorGenerationIsRejectedBeforeLocalMetadataCreation) {
   InitialInfoPacket packet;
   packet.packet_type = Net::PT_INITIAL_INFO;
-  packet.protocol_version = kActorProtocolVersion - 1;
-  packet.actor_generation = 121;
+  packet.actor_generation = 0;
   packet.player_id = 2;
   Deliver(0, packet);
   EXPECT_FALSE(first->player_manager().HasLocalPlayer());
   EXPECT_EQ(first->GetConnectionState(), GameClient::ConnectionState::Failed);
-  EXPECT_EQ(first_observer.connection_failure, "Incompatible actor synchronization protocol");
+  EXPECT_EQ(first_observer.connection_failure, "Invalid actor generation");
 }
 
 TEST_F(ClientNpcPacketTest, ClearsEngineObserversBeforeDestroyingNetworkMetadata) {

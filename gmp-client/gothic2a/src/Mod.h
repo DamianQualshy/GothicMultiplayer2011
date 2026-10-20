@@ -27,6 +27,10 @@ SOFTWARE.
 
 #include "common.h"
 
+namespace Gothic_II_Addon {
+class oCNpc;
+}
+
 void Initialize(void);
 void SetSuppressLocalEquipEvents(bool suppress);
 bool ShouldSuppressLocalEquipEvents();
@@ -45,6 +49,7 @@ void SetSuppressLocalLifecycleEvents(bool suppress);
 bool ShouldSuppressLocalLifecycleEvents();
 void SetDamageAnimationsEnabled(bool enabled);
 bool AreDamageAnimationsEnabled();
+void PlayNetworkDamageAnimation(Gothic_II_Addon::oCNpc* victim, Gothic_II_Addon::oCNpc* attacker, int damage, unsigned long damage_type);
 void SetMunitionTrailEnabled(bool enabled);
 bool IsMunitionTrailEnabled();
 void ResetLocalActionObservation();
