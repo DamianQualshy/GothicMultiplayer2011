@@ -26,12 +26,11 @@ SOFTWARE.
 
 #include <cstdint>
 #include <deque>
+#include <glm/glm.hpp>
 #include <optional>
+#include <sol/sol.hpp>
 #include <string>
 #include <unordered_map>
-
-#include <glm/glm.hpp>
-#include <sol/sol.hpp>
 
 #include "ZenGin/zGothicAPI.h"
 
@@ -42,8 +41,9 @@ public:
   explicit LuaItemGround(std::uint32_t id = 0);
 
   std::uint32_t getId() const;
-  std::string getItem() const;
+  bool isValid() const;
   std::string getInstance() const;
+  sol::object getDefinition(sol::this_state state) const;
   std::int32_t getAmount() const;
 
 private:
@@ -71,8 +71,8 @@ public:
 
   static ClientItemGroundManager& Instance();
 
-  void Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount, bool physics_enabled,
-              const glm::vec3& position, const glm::vec3& rotation);
+  void Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
+              const glm::vec3& rotation);
   void Destroy(std::uint32_t id, bool emit_event);
   void DetachItem(std::uint32_t id);
   void Clear(bool emit_event);
@@ -87,10 +87,9 @@ public:
 
 private:
   oCItem* FindExistingItem(const std::string& instance, const glm::vec3& position) const;
-  oCItem* CreateItem(const std::string& instance, std::int32_t amount, bool physics_enabled,
-                     const glm::vec3& position, const glm::vec3& rotation) const;
-  void ApplyTransform(oCItem* item, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
-                      const glm::vec3& rotation) const;
+  oCItem* CreateItem(const std::string& instance, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
+                     const glm::vec3& rotation) const;
+  void ApplyTransform(oCItem* item, std::int32_t amount, bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) const;
   void ApplyPhysicsState(oCItem* item, bool physics_enabled) const;
 
   std::unordered_map<std::uint32_t, ItemGround> items_;

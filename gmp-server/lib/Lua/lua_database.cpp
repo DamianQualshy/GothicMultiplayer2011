@@ -24,8 +24,6 @@ SOFTWARE.
 
 #include "Lua/lua_database.h"
 
-#include "Shared/lua_runtime/bind_helpers.h"
-
 #include <mariadb/mysql.h>
 #include <sqlite3.h>
 
@@ -43,6 +41,8 @@ SOFTWARE.
 #include <tuple>
 #include <utility>
 #include <vector>
+
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
 
@@ -225,8 +225,8 @@ sol::table MakeQueryResult(sol::state_view lua, sol::table rows, sol::table colu
 
 /* luagmp (class)
  *
- * Synchronous SQLite database connection. SQLite.open() returns a connection
- * or nil plus a structured error. query() and execute() pass the SQL statement
+ * Synchronous SQLite database connection. `SQLite.open()` returns a connection
+ * or nil plus a structured error. `query()` and `execute()` pass the SQL statement
  * unchanged to SQLite's prepared-statement API and bind positional ? parameters.
  * Successful results contain rows, columns, affectedRows, and lastInsertId.
  * Errors contain driver, code, message, and sqlState when available.
@@ -439,7 +439,7 @@ public:
 
   /* luagmp (method)
    *
-   * Alias of query(), intended for statements which do not return rows.
+   * Executes a statement intended for commands which do not return rows. Uses the parameter and result contract of `query`.
    *
    * @name     execute
    * @param    (string) sql      SQL statement.
@@ -466,6 +466,7 @@ private:
  * @param    (table) options  database, readOnly=false, create=true, foreignKeys=true, busyTimeout=5000.
  * @return   (SQLite|nil, table|nil) Connection and nil, or nil and an error table.
  *
+ * @static
  */
 LuaCallResult SQLiteConnection::Open(const sol::table& options, sol::this_state ts) {
   sol::state_view lua(ts);
@@ -600,8 +601,8 @@ sol::object ConvertMySqlValue(sol::state_view lua, const MYSQL_FIELD& field, con
 /* luagmp (class)
  *
  * Synchronous MySQL database connection backed by MariaDB Connector/C.
- * MySQL.open() returns a connection or nil plus a structured error. query()
- * and execute() pass the SQL statement unchanged to the connector's prepared-
+ * `MySQL.open()` returns a connection or nil plus a structured error. `query()`
+ * and `execute()` pass the SQL statement unchanged to the connector's prepared-
  * statement API and bind positional ? parameters. Successful results contain
  * rows, columns, affectedRows, and lastInsertId. Errors contain driver, code,
  * message, and sqlState when available.
@@ -851,7 +852,7 @@ public:
 
   /* luagmp (method)
    *
-   * Alias of query(), intended for statements which do not return rows.
+   * Executes a statement intended for commands which do not return rows. Uses the parameter and result contract of `query()`.
    *
    * @name     execute
    * @param    (string) sql      SQL statement.
@@ -880,6 +881,7 @@ private:
  *                            unixSocket="", connectTimeout=10, readTimeout=10, writeTimeout=10.
  * @return   (MySQL|nil, table|nil) Connection and nil, or nil and an error table.
  *
+ * @static
  */
 LuaCallResult MySQLConnection::Open(const sol::table& options, sol::this_state ts) {
   sol::state_view lua(ts);

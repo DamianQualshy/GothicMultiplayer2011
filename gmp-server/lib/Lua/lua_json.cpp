@@ -24,21 +24,22 @@ SOFTWARE.
 
 #include "Lua/lua_json.h"
 
-#include "Shared/lua_runtime/bind_helpers.h"
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
+#include <tuple>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
-#include <nlohmann/json.hpp>
-#include <spdlog/spdlog.h>
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
 
@@ -70,8 +71,7 @@ bool EncodeLuaValue(sol::state_view lua, const sol::object& value, Json& out, st
       double integral = 0.0;
       const double int64_min = -std::ldexp(1.0, 63);
       const double int64_max_exclusive = std::ldexp(1.0, 63);
-      if (std::isfinite(number) && std::modf(number, &integral) == 0.0 &&
-          integral >= int64_min && integral < int64_max_exclusive) {
+      if (std::isfinite(number) && std::modf(number, &integral) == 0.0 && integral >= int64_min && integral < int64_max_exclusive) {
         out = static_cast<std::int64_t>(integral);
         return true;
       }
@@ -256,7 +256,7 @@ bool EnsureParentDirectory(const std::filesystem::path& path, std::string& error
 
 /* luagmp (class)
  *
- * JSON-backed key/value file returned by JSON.open().
+ * JSON-backed key/value store returned by `JSON.open()`.
  *
  * @version  0.3.0
  * @name     JSON
@@ -266,9 +266,10 @@ bool EnsureParentDirectory(const std::filesystem::path& path, std::string& error
  */
 class JSON {
 public:
-  explicit JSON(std::filesystem::path path) : path_(std::move(path)) {}
+  explicit JSON(std::filesystem::path path) : path_(std::move(path)) {
+  }
 
-  static sol::object Open(const std::string& relative_path, sol::this_state ts);
+  static std::tuple<sol::object, sol::object> Open(const std::string& relative_path, sol::this_state ts);
 
   bool Load(std::string& error) {
     entries_.clear();
@@ -360,7 +361,7 @@ public:
     return entries_.size();
   }
 
-  sol::object KeyAt(sol::state_view lua, std::size_t index) const {
+  sol::object KeyAtIndex(sol::state_view lua, std::size_t index) const {
     if (index >= entries_.size()) {
       return sol::make_object(lua, sol::lua_nil);
     }
@@ -411,30 +412,30 @@ public:
 
   /* luagmp (method)
    *
-   * Return the key at the given 0-based index or nil if out of range.
+   * Return the key at the given one-based index or nil if out of range.
    *
-   * @name     key
-   * @param    (number) index  Zero-based entry index.
+   * @name     keyAt
+   * @param    (number) index  One-based entry index.
    * @return   (string|nil)    Key at index or nil.
    *
    */
-  sol::object Key(int index, sol::this_state ts) const {
+  sol::object KeyAt(int index, sol::this_state ts) const {
     sol::state_view lua(ts);
-    if (index < 0) {
+    if (index < 1) {
       return sol::make_object(lua, sol::lua_nil);
     }
-    return KeyAt(lua, static_cast<std::size_t>(index));
+    return KeyAtIndex(lua, static_cast<std::size_t>(index - 1));
   }
 
   /* luagmp (method)
    *
    * Return the number of entries in the file.
    *
-   * @name     len
+   * @name     count
    * @return   (number) Entry count.
    *
    */
-  int Len() const {
+  int Count() const {
     return static_cast<int>(EntryCount());
   }
 
@@ -442,17 +443,17 @@ public:
    *
    * Get a value by key.
    *
-   * @name     getItem
+   * @name     get
    * @param    (string) key  Entry key.
    * @return   (any|nil)     Value or nil if missing or invalid.
    *
    */
-  sol::object GetItem(const std::string& key, sol::this_state ts) const {
+  sol::object Get(const std::string& key, sol::this_state ts) const {
     sol::state_view lua(ts);
     std::string error;
     sol::object value = GetValue(lua, key, error);
     if (!error.empty()) {
-      SPDLOG_WARN("JSON getItem failed for key '{}': {}", key, error);
+      SPDLOG_WARN("JSON get failed for key '{}': {}", key, error);
     }
     return value;
   }
@@ -461,51 +462,52 @@ public:
    *
    * Set a value by key and save the file.
    *
-   * @name     setItem
+   * @name     set
    * @param    (string) key  Entry key.
    * @param    (any) value   Value to store.
    *
+   * @return (boolean, table|nil) True and nil on success; false and {message = string} on encoding or persistence failure.
    */
-  void SetItem(const std::string& key, const sol::object& value, sol::this_state ts) {
+  std::tuple<bool, sol::object> Set(const std::string& key, const sol::object& value, sol::this_state ts) {
+    sol::state_view lua(ts);
     std::string error;
-    if (!SetValue(sol::state_view(ts), key, value, error)) {
-      SPDLOG_WARN("JSON setItem failed for key '{}': {}", key, error);
-      return;
-    }
-    if (!Save(error)) {
-      SPDLOG_WARN("JSON save failed for key '{}': {}", key, error);
-    }
+    const bool saved = SetValue(lua, key, value, error) && Save(error);
+    return WriteResult(lua, saved, error);
   }
 
+  // Mutations preserve automatic persistence and now report save failures to Lua.
   /* luagmp (method)
-   *
-   * Remove a key and save the file.
-   *
-   * @name     removeItem
-   * @param    (string) key  Entry key.
-   *
+   * Removes a key if present and persists the store.
+   * @name remove
+   * @param (string) key Entry key.
+   * @return (boolean, table|nil) True and nil on success; false and {message = string} on persistence failure. In-memory changes are retained on
+   * failure.
    */
-  void RemoveItem(const std::string& key) {
+  std::tuple<bool, sol::object> Remove(const std::string& key, sol::this_state ts) {
     RemoveKey(key);
     std::string error;
-    if (!Save(error)) {
-      SPDLOG_WARN("JSON save failed after removeItem for key '{}': {}", key, error);
-    }
+    const bool saved = Save(error);
+    return WriteResult(sol::state_view(ts), saved, error);
   }
 
   /* luagmp (method)
-   *
-   * Remove all keys and save the file.
-   *
-   * @name     clear
-   *
+   * Removes all keys and persists the store.
+   * @name clear
+   * @return (boolean, table|nil) True and nil on success; false and {message = string} on persistence failure. In-memory changes are retained on
+   * failure.
    */
-  void Clear() {
+  std::tuple<bool, sol::object> Clear(sol::this_state ts) {
     entries_.clear();
     std::string error;
-    if (!Save(error)) {
-      SPDLOG_WARN("JSON save failed after clear: {}", error);
-    }
+    const bool saved = Save(error);
+    return WriteResult(sol::state_view(ts), saved, error);
+  }
+
+  static std::tuple<bool, sol::object> WriteResult(sol::state_view lua, bool saved, const std::string& error) {
+    if (saved)
+      return {true, sol::make_object(lua, sol::nil)};
+    SPDLOG_WARN("JSON write failed: {}", error);
+    return {false, sol::make_object(lua, lua.create_table_with("message", error))};
   }
 
 private:
@@ -555,10 +557,11 @@ std::optional<JSON> LoadJSON(const std::string& relative_path, std::string& erro
  *
  * @name     open
  * @param    (string) relative_path  Path under the data/internal directory.
- * @return   (JSON|nil)          File handle or nil on error.
  *
+ * @return (JSON|nil, table|nil) Store and nil on success; nil and {message = string} on failure.
+ * @static
  */
-sol::object JSON::Open(const std::string& relative_path, sol::this_state ts) {
+std::tuple<sol::object, sol::object> JSON::Open(const std::string& relative_path, sol::this_state ts) {
   sol::state_view lua(ts);
   std::string error;
   auto file = LoadJSON(relative_path, error);
@@ -566,22 +569,22 @@ sol::object JSON::Open(const std::string& relative_path, sol::this_state ts) {
     if (!error.empty() && error != "Invalid JSON path") {
       SPDLOG_WARN("JSON open failed for '{}': {}", relative_path, error);
     }
-    return sol::make_object(lua, sol::lua_nil);
+    return {sol::make_object(lua, sol::nil), sol::make_object(lua, lua.create_table_with("message", error))};
   }
-  return sol::make_object(lua, std::move(*file));
+  return {sol::make_object(lua, std::move(*file)), sol::make_object(lua, sol::nil)};
 }
 
 }  // namespace
 
-void BindJson(sol::state& lua) {
-  sol::usertype<JSON> json_type = lua.new_usertype<JSON>("JSON", sol::no_constructor);
-  json_type.set_function("open", &JSON::Open);
-  json_type["key"] = &JSON::Key;
-  json_type["len"] = &JSON::Len;
-  json_type["getItem"] = &JSON::GetItem;
-  json_type["setItem"] = &JSON::SetItem;
-  json_type["removeItem"] = &JSON::RemoveItem;
-  json_type["clear"] = &JSON::Clear;
+void BindJSON(sol::state& lua) {
+  sol::usertype<JSON> store_type = lua.new_usertype<JSON>("JSON", sol::no_constructor);
+  store_type.set_function("open", &JSON::Open);
+  store_type["count"] = &JSON::Count;
+  store_type["clear"] = &JSON::Clear;
+  store_type["get"] = &JSON::Get;
+  store_type["set"] = &JSON::Set;
+  store_type["remove"] = &JSON::Remove;
+  store_type["keyAt"] = &JSON::KeyAt;
 }
 
 }  // namespace lua::bindings

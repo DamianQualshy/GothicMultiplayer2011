@@ -36,8 +36,8 @@ SOFTWARE.
 #include "renderer/d3d9/D3D9Renderer.h"
 #include "renderer/d3d9/patches/D3D9Patches.h"
 #include "scripting/lua_camera.h"
-#include "scripting/lua_draw.h"
-#include "scripting/lua_texture.h"
+#include "scripting/lua_label.h"
+#include "scripting/lua_sprite.h"
 
 namespace {
 
@@ -371,8 +371,8 @@ void __fastcall HooksManager::OnRender(oCGame* gameInstance) {
   // Deferred session changes already ran before the caller selected gameInstance.
   CMainMenu::UpdateMenuScene();
   gmp::gothic::LuaCamera::ApplyMovementLock();
-  gmp::gothic::LuaDraw::EnsureViewsAttached();
-  gmp::gothic::LuaTexture::EnsureViewsAttached();
+  gmp::gothic::LuaLabel::EnsureViewsAttached();
+  gmp::gothic::LuaSprite::EnsureViewsAttached();
 
   if (g_renderOriginal) {
     g_renderOriginal(gameInstance);

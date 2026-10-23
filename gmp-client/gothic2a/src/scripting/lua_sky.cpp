@@ -23,12 +23,13 @@ SOFTWARE.
 */
 
 #include "lua_sky.h"
-#include "net_game.h"
-#include "Shared/lua_runtime/bind_helpers.h"
-#include "sky_utils.h"
 
 #include <optional>
 #include <string>
+
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "net_game.h"
+#include "sky_utils.h"
 
 namespace gmp::gothic {
 namespace {
@@ -70,242 +71,182 @@ std::optional<Color4> ReadColor4Table(const sol::table& table) {
 }  // namespace
 
 /* luagmp (class)
-*
-* Static sky controller for local and synchronized sky settings.
-*
-* @version  0.3.0
-* @name     Sky
-* @side     client
-* @category World
-*
-*/
+ *
+ * Static sky controller for local and synchronized sky settings.
+ *
+ * @version  0.3.0
+ * @name     Sky
+ * @side     client
+ * @category World
+ *
+ */
 class LuaSky {
 public:
+  /// Assigns the weatherType property using the same value format as its getter.
+  void SetWeatherType(int weather_type) const {
+    ApplyWeatherType(weather_type);
+  }
+  /* luagmp (property)
+   *
+   * Current local weather type. Use `requestTimeAndSkySync` to pull the authoritative value from the server. For more
+   * information, see [Weather Constants](../../shared-constants/Weather.md).
+   *
+   * @name     weatherType
+   * @return   (number)
+   */
+  int GetWeatherType() const {
+    return gmp::gothic::GetWeatherType();
+  }
 
-/* luagmp (property)
-*
-* Current local weather type. Use `refresh()` to pull the authoritative value from the server. For more information, see [Weather Constants](../../shared-constants/Weather.md).
-*
-* @name     weatherType
-* @return   (number)
-*
-*/
-  void SetWeatherType(int weather_type) const { ApplyWeatherType(weather_type); }
-  int GetWeatherType() const { return gmp::gothic::GetWeatherType(); }
-
-/* luagmp (property)
-*
-* Rain start time: `{hour = number, min = number}`
-*
-* @name     rainStartTime
-* @return   (table)
-*
-*/
+  /// Assigns the rainStartTime property using the same value format as its getter.
   void SetRainStartTime(const sol::object& value) const {
     if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
       gmp::gothic::SetRainStartTime(time->first, time->second);
     }
   }
 
+  /* luagmp (property)
+   *
+   * Rain start time: `{hour = number, minute = number}`
+   *
+   * @name     rainStartTime
+   * @return   (table)
+   */
   sol::object GetRainStartTime(sol::this_state ts) const {
     const auto time = gmp::gothic::GetRainStartTime();
     return ::lua::bind_helpers::MakeTimeTable(ts, time ? time->hour : 0, time ? time->min : 0);
   }
 
-/* luagmp (property)
-*
-* Rain stop time: `{hour = number, min = number}`
-*
-* @name     rainStopTime
-* @return   (table)
-*
-*/
+  /// Assigns the rainStopTime property using the same value format as its getter.
   void SetRainStopTime(const sol::object& value) const {
     if (auto time = ::lua::bind_helpers::ReadTimeTable(value)) {
       gmp::gothic::SetRainStopTime(time->first, time->second);
     }
   }
 
+  /* luagmp (property)
+   *
+   * Rain stop time: `{hour = number, minute = number}`
+   *
+   * @name     rainStopTime
+   * @return   (table)
+   */
   sol::object GetRainStopTime(sol::this_state ts) const {
     const auto time = gmp::gothic::GetRainStopTime();
     return ::lua::bind_helpers::MakeTimeTable(ts, time ? time->hour : 0, time ? time->min : 0);
   }
 
-/* luagmp (property)
-*
-* Wind scale used during precipitation.
-*
-* @name     windScale
-* @return   (number)
-*
-*/
-  void SetWindScale(float wind_scale) const { gmp::gothic::SetWindScale(wind_scale); }
-  float GetWindScale() const { return gmp::gothic::GetWindScale(); }
-
-/* luagmp (property)
-*
-* Toggles local rain and snow rendering.
-*
-* @name     dontRain
-* @return   (boolean)
-*
-*/
-  void SetDontRain(bool toggle) const { gmp::gothic::SetDontRain(toggle); }
-  bool GetDontRain() const { return gmp::gothic::GetDontRain(); }
-
-/* luagmp (property)
-*
-* Write-only fog color table: `{id = number, r = number, g = number, b = number}`
-*
-* @name     fogColor
-* @return   (table)
-*
-*/
-  void SetFogColor(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    sol::object id = (*table)["id"];
-    if (auto color = ReadColor3Table(*table); color.has_value() && id.is<int>()) {
-      gmp::gothic::SetFogColor(id.as<int>(), color->r, color->g, color->b);
-    }
+  /// Assigns the windScale property using the same value format as its getter.
+  void SetWindScale(float wind_scale) const {
+    gmp::gothic::SetWindScale(wind_scale);
+  }
+  /* luagmp (property)
+   *
+   * Wind scale used during precipitation.
+   *
+   * @name     windScale
+   * @return   (number)
+   */
+  float GetWindScale() const {
+    return gmp::gothic::GetWindScale();
   }
 
-/* luagmp (property)
-*
-* Write-only cloud color table: `{r = number, g = number, b = number}`
-*
-* @name     cloudsColor
-* @return   (table)
-*
-*/
-  void SetCloudsColor(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    if (auto color = ReadColor3Table(*table)) {
-      gmp::gothic::SetCloudsColor(color->r, color->g, color->b);
-    }
+  /// Assigns the precipitationEnabled property using the same value format as its getter.
+  void SetPrecipitationEnabled(bool enabled) const {
+    gmp::gothic::SetDontRain(!enabled);
+  }
+  /* luagmp (property)
+   *
+   * Toggles local rain and snow rendering.
+   *
+   * @name     precipitationEnabled
+   * @return   (boolean)
+   */
+  bool GetPrecipitationEnabled() const {
+    return !gmp::gothic::GetDontRain();
   }
 
-/* luagmp (property)
-*
-* Write-only planet size table: `{planetId = number, size = number}`. For planet identifiers, see [Sky Constants](../../client-constants/Sky.md).
-*
-* @name     planetSize
-* @return   (table)
-*
-*/
-  void SetPlanetSize(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    sol::object planet_id = (*table)["planetId"];
-    sol::object size = (*table)["size"];
-    if (planet_id.is<int>() && size.is<float>()) {
-      gmp::gothic::SetPlanetSize(planet_id.as<int>(), size.as<float>());
-    }
+  /* luagmp (method)
+   * Sets one local fog color entry to the supplied RGB color.
+   * @name setFogColor
+   * @param (number) id Fog entry or sky planet id.
+   * @param (table) value RGB table {r, g, b}.
+   */
+  void SetFogColor(int id, sol::table value) const {
+    const auto color = ReadColor3Table(value);
+    if (!color)
+      throw sol::error("Expected an RGB color table");
+    gmp::gothic::SetFogColor(id, color->r, color->g, color->b);
   }
 
-/* luagmp (property)
-*
-* Write-only planet color table: `{planetId = number, r = number, g = number, b = number, a = number}`. For planet identifiers, see [Sky Constants](../../client-constants/Sky.md).
-*
-* @name     planetColor
-* @return   (table)
-*
-*/
-  void SetPlanetColor(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    sol::object planet_id = (*table)["planetId"];
-    if (auto color = ReadColor4Table(*table); color.has_value() && planet_id.is<int>()) {
-      gmp::gothic::SetPlanetColor(planet_id.as<int>(), color->r, color->g, color->b, color->a);
-    }
+  /* luagmp (method)
+   * Sets the local cloud RGB color.
+   * @name setCloudsColor
+   * @param (table) value RGB table {r, g, b}.
+   */
+  void SetCloudsColor(sol::table value) const {
+    const auto color = ReadColor3Table(value);
+    if (!color)
+      throw sol::error("Expected an RGB color table");
+    gmp::gothic::SetCloudsColor(color->r, color->g, color->b);
   }
 
-/* luagmp (property)
-*
-* Write-only planet texture table: `{planetId = number, texture = string}`. For planet identifiers, see [Sky Constants](../../client-constants/Sky.md).
-*
-* @name     planetTxt
-* @return   (table)
-*
-*/
-  void SetPlanetTxt(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    sol::object planet_id = (*table)["planetId"];
-    sol::object texture = (*table)["texture"];
-    if (planet_id.is<int>() && texture.is<std::string>()) {
-      gmp::gothic::SetPlanetTexture(planet_id.as<int>(), texture.as<std::string>());
-    }
+  /* luagmp (method)
+   * Sets the size of one sky planet.
+   * @name setPlanetSize
+   * @param (number) id Fog entry or sky planet id.
+   * @param (number) size Planet size.
+   */
+  void SetPlanetSize(int id, float size) const {
+    gmp::gothic::SetPlanetSize(id, size);
   }
 
-/* luagmp (property)
-*
-* Write-only lighting color table: `{r = number, g = number, b = number}`
-*
-* @name     lightingColor
-* @return   (table)
-*
-*/
-  void SetLightingColor(const sol::object& value) const {
-    auto table = ToTable(value);
-    if (!table.has_value()) {
-      return;
-    }
-
-    if (auto color = ReadColor3Table(*table)) {
-      gmp::gothic::SetLightingColor(color->r, color->g, color->b);
-    }
+  /* luagmp (method)
+   * Sets one sky planet RGBA color.
+   * @name setPlanetColor
+   * @param (number) id Fog entry or sky planet id.
+   * @param (table) value RGBA table {r, g, b, a}.
+   */
+  void SetPlanetColor(int id, sol::table value) const {
+    const auto color = ReadColor4Table(value);
+    if (!color)
+      throw sol::error("Expected an RGBA color table");
+    gmp::gothic::SetPlanetColor(id, color->r, color->g, color->b, color->a);
   }
 
-/* luagmp (method)
-*
-* Requests authoritative time and sky settings from the server and applies them when the reply arrives.
-*
-* @version  0.3.0
-* @name     refresh
-* @side     client
-* @category Sky
-* @return   (boolean) True if the refresh request was sent.
-*
-*/
-  static bool Refresh() {
+  /* luagmp (method)
+   * Sets the texture file of one sky planet.
+   * @name setPlanetTexture
+   * @param (number) id Fog entry or sky planet id.
+   * @param (string) file Texture file name.
+   */
+  void SetPlanetTexture(int id, const std::string& file) const {
+    gmp::gothic::SetPlanetTexture(id, file);
+  }
+
+  /* luagmp (method)
+   * Sets the local sky lighting RGB color.
+   * @name setLightingColor
+   * @param (table) value RGB table {r, g, b}.
+   */
+  void SetLightingColor(sol::table value) const {
+    const auto color = ReadColor3Table(value);
+    if (!color)
+      throw sol::error("Expected an RGB color table");
+    gmp::gothic::SetLightingColor(color->r, color->g, color->b);
+  }
+
+  /* luagmp (method)
+   * Requests authoritative time and sky settings; they are applied asynchronously when the reply arrives.
+   * @name requestTimeAndSkySync
+   * @return (boolean) Whether the request was sent; completion is asynchronous.
+   */
+  bool RequestTimeAndSkySync() const {
     auto& net_game = NetGame::Instance();
-    if (!net_game.IsConnected()) {
+    if (!net_game.IsConnected())
       return false;
-    }
-
     net_game.SyncGameTime();
     return true;
-  }
-
-  sol::object GetWriteOnly(sol::this_state ts) const {
-    sol::state_view lua(ts);
-    return sol::object(lua, sol::in_place, sol::nil);
-  }
-
-private:
-  static std::optional<sol::table> ToTable(const sol::object& value) {
-    if (!value.is<sol::table>()) {
-      return std::nullopt;
-    }
-
-    return value.as<sol::table>();
   }
 };
 
@@ -316,17 +257,16 @@ void BindSky(sol::state& lua) {
   sky_type["rainStartTime"] = sol::property(&LuaSky::GetRainStartTime, &LuaSky::SetRainStartTime);
   sky_type["rainStopTime"] = sol::property(&LuaSky::GetRainStopTime, &LuaSky::SetRainStopTime);
   sky_type["windScale"] = sol::property(&LuaSky::GetWindScale, &LuaSky::SetWindScale);
-  sky_type["dontRain"] = sol::property(&LuaSky::GetDontRain, &LuaSky::SetDontRain);
-  sky_type["fogColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetFogColor);
-  sky_type["cloudsColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetCloudsColor);
-  sky_type["planetSize"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetSize);
-  sky_type["planetColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetColor);
-  sky_type["planetTxt"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetPlanetTxt);
-  sky_type["lightingColor"] = sol::property(&LuaSky::GetWriteOnly, &LuaSky::SetLightingColor);
-
-  sky_type["refresh"] = &LuaSky::Refresh;
+  sky_type["precipitationEnabled"] = sol::property(&LuaSky::GetPrecipitationEnabled, &LuaSky::SetPrecipitationEnabled);
+  sky_type["setFogColor"] = &LuaSky::SetFogColor;
+  sky_type["setCloudsColor"] = &LuaSky::SetCloudsColor;
+  sky_type["setPlanetSize"] = &LuaSky::SetPlanetSize;
+  sky_type["setPlanetColor"] = &LuaSky::SetPlanetColor;
+  sky_type["setPlanetTexture"] = &LuaSky::SetPlanetTexture;
+  sky_type["setLightingColor"] = &LuaSky::SetLightingColor;
+  sky_type["requestTimeAndSkySync"] = &LuaSky::RequestTimeAndSkySync;
 
   lua["Sky"] = LuaSky{};
 }
 
-} // namespace gmp::gothic
+}  // namespace gmp::gothic

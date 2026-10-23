@@ -47,11 +47,50 @@ protected:
   std::filesystem::path test_directory_;
 };
 
+TEST_F(DatabaseBindingTest, JSONReportsPersistenceErrorsAndUsesOneBasedKeys) {
+  LuaScript script;
+  auto& lua = script.GetLuaState();
+  const auto opened = lua.safe_script(R"lua(
+    assert(JsonStore == nil)
+    store = assert(JSON.open('database-binding-test/store.json'))
+    local ok, error = store:set('first', 1)
+    assert(ok and error == nil)
+    assert(store:set('second', 2))
+    assert(store:count() == 2)
+    assert(store:keyAt(0) == nil and store:keyAt(1) == 'first')
+    assert(store:keyAt(2) == 'second' and store:keyAt(3) == nil)
+    local reloaded = assert(JSON.open('database-binding-test/store.json'))
+    assert(reloaded:get('first') == 1 and reloaded:get('second') == 2)
+  )lua",
+                                      sol::script_pass_on_error);
+  ASSERT_TRUE(opened.valid());
+  // A directory at the file path makes writes fail on Windows and POSIX alike.
+  const auto file = test_directory_ / "store.json";
+  ASSERT_TRUE(std::filesystem::remove(file));
+  ASSERT_TRUE(std::filesystem::create_directory(file));
+  const auto failed = lua.safe_script(R"lua(
+    local ok, error = store:set('third', 3)
+    assert(ok == false and type(error.message) == 'string')
+    assert(store:get('third') == 3)
+    ok, error = store:remove('first')
+    assert(ok == false and type(error.message) == 'string')
+    ok, error = store:clear()
+    assert(ok == false and type(error.message) == 'string')
+    local missing, openError = JSON.open('../outside.json')
+    assert(missing == nil and type(openError.message) == 'string')
+  )lua",
+                                      sol::script_pass_on_error);
+  if (!failed.valid()) {
+    const sol::error error = failed;
+    FAIL() << error.what();
+  }
+}
+
 TEST_F(DatabaseBindingTest, SQLiteUsesPreparedParametersAndTypedResults) {
   LuaScript script;
   sol::state& lua = script.GetLuaState();
 
-  sol::protected_function_result result = lua.safe_script(R"(
+  sol::protected_function_result result = lua.safe_script(R"lua(
     local db, openError = SQLite.open({
       database = "database-binding-test/nested/server.db",
       busyTimeout = 100
@@ -113,7 +152,8 @@ TEST_F(DatabaseBindingTest, SQLiteUsesPreparedParametersAndTypedResults) {
     assert(escaped == nil)
     assert(escapedError.driver == "sqlite")
     assert(escapedError.message == "Invalid SQLite database path")
-  )", sol::script_pass_on_error);
+  )lua",
+                                                          sol::script_pass_on_error);
 
   if (!result.valid()) {
     const sol::error error = result;
@@ -125,13 +165,13 @@ TEST_F(DatabaseBindingTest, MySQLValidatesOptionsBeforeConnecting) {
   LuaScript script;
   sol::state& lua = script.GetLuaState();
 
-  sol::protected_function_result result = lua.safe_script(R"(
+  sol::protected_function_result result = lua.safe_script(R"lua(
     local db, openError = MySQL.open({})
     assert(db == nil)
     assert(openError.driver == "mysql")
     assert(openError.code == 0)
     assert(openError.message == "Missing required 'database' option")
-  )",
+  )lua",
                                                           sol::script_pass_on_error);
 
   if (!result.valid()) {

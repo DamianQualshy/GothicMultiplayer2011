@@ -44,6 +44,7 @@ target("ResourceManagerTest")
 
 target("DatabaseBindingTest")
     set_kind("binary")
+    set_encodings("utf-8")
     add_files("database_binding_test.cpp")
     add_deps("Server")
     add_packages("gtest", "sol2", "sqlite3", "mariadb-connector-c")

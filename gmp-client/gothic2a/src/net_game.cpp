@@ -41,9 +41,9 @@ SOFTWARE.
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <iomanip>
+#include <limits>
 #include <list>
 #include <map>
-#include <limits>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -54,38 +54,38 @@ SOFTWARE.
 #include "CIngame.h"
 #include "Interface.h"
 #include "Mod.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 #include "ZenGin/zGothicAPI.h"
+#include "actor_sync.h"
+#include "animation_sync.h"
 #include "config.h"
 #include "dev/dev_tools.h"
 #include "gmp_core.h"
-#include "main_menu.h"
-#include "magic_sync.h"
-#include "transformation_spells.h"
 #include "hooking/MemoryPatch.h"
 #include "language.h"
+#include "magic_sync.h"
+#include "main_menu.h"
 #include "net_enums.h"
+#include "npc_animation_utils.h"
 #include "packets.h"
-#include "actor_sync.h"
-#include "animation_sync.h"
 #include "patch.h"
 #include "player_name_utils.hpp"
+#include "script_instance_scope.h"
 #include "scripting/gothic_bindings.h"
 #include "scripting/gothic_events.h"
 #include "scripting/item_ground.h"
 #include "scripting/lua_camera.h"
-#include "scripting/lua_draw3d.h"
 #include "scripting/lua_sound3d.h"
+#include "scripting/lua_world_label.h"
 #include "scripting/process_input.h"
 #include "shared/event.h"
-#include "Shared/lua_runtime/lua_value_codec.h"
 #include "sky_utils.h"
-#include "script_instance_scope.h"
 #include "sol/sol.hpp"
-#include "version.h"
-#include "world_utils.hpp"
 #include "torch_utils.h"
-#include "npc_animation_utils.h"
+#include "transformation_spells.h"
+#include "version.h"
 #include "weapon_skills.h"
+#include "world_utils.hpp"
 
 const char* LANG_DIR = ".\\Multiplayer\\Localization\\";
 
@@ -1099,7 +1099,7 @@ void __stdcall NetGame::ProcessTaskScheduler() {
   }
   CChat::GetInstance()->HandleInput();
   gmp::gothic::LuaSound3d::UpdateActiveSounds();
-  gmp::gothic::LuaDraw3d::RenderActiveDraws();
+  gmp::gothic::LuaWorldLabel::RenderActiveLabels();
   instance.UpdateClientEventState();
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnRenderName, 0);
 }
@@ -1656,7 +1656,7 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
   const auto normalized_life_state = NormalizeLifeState(life_state, cplayer ? cplayer->base_player().health() : 0);
   if (!cplayer || !cplayer->GetNpc()) {
     if (trigger_event && normalized_life_state == PLAYER_LIFE_DEAD) {
-      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeathName, gmp::gothic::PlayerLifecycleEvent{player_id});
     }
     return;
   }
@@ -1695,7 +1695,7 @@ void NetGame::ApplyPlayerLifeState(std::uint64_t player_id, std::uint8_t life_st
     }
 
     if (trigger_event) {
-      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+      EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeathName, gmp::gothic::PlayerLifecycleEvent{player_id});
     }
     return;
   }
@@ -4153,10 +4153,11 @@ void NetGame::OnPlayerDied(std::uint64_t player_id) {
 
 void NetGame::OnPlayerDied(std::uint64_t player_id, bool apply_state) {
   if (apply_state) ApplyPlayerLifeState(player_id, PLAYER_LIFE_DEAD, std::nullopt, false);
-  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeadName, gmp::gothic::PlayerLifecycleEvent{player_id});
+  EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerDeathName, gmp::gothic::PlayerLifecycleEvent{player_id});
 }
 
-void NetGame::OnPlayerRespawned(std::uint64_t player_id) { OnPlayerRespawned(player_id, true); }
+void NetGame::OnPlayerRespawned(std::uint64_t player_id) {
+  OnPlayerRespawned(player_id, true); }
 void NetGame::OnPlayerRespawned(std::uint64_t player_id, bool apply_state) {
   if (apply_state) {
     if (auto* actor = GetPlayerById(player_id); actor && actor->GetNpc()) {
@@ -4175,7 +4176,8 @@ void NetGame::OnPlayerUnconscious(std::uint64_t player_id, std::optional<std::ui
   if (apply_state) ApplyPlayerLifeState(player_id, PLAYER_LIFE_UNCONSCIOUS, attacker_id, false);
 }
 
-void NetGame::OnPlayerStandUp(std::uint64_t player_id) { OnPlayerStandUp(player_id, true); }
+void NetGame::OnPlayerStandUp(std::uint64_t player_id) {
+  OnPlayerStandUp(player_id, true); }
 void NetGame::OnPlayerStandUp(std::uint64_t player_id, bool apply_state) {
   if (apply_state) ApplyPlayerLifeState(player_id, PLAYER_LIFE_ALIVE, std::nullopt, false);
 }

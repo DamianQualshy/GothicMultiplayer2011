@@ -5,8 +5,9 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <nlohmann/json.hpp>
 
-#include "Lua/lua_item.h"
+#include "Lua/lua_item_definition.h"
 #include "Script.h"
 #include "character.h"
 #include "game_server.h"
@@ -35,7 +36,7 @@ TEST(WeaponSkills, ServerPersistsMatchingTiersAcrossUpgradesAndDowngrades) {
   auto& actor = server.GetCharacter(id)->get();
   for (int skill = 1; skill <= 4; ++skill) {
     for (const int percentage : {0, 29, 30, 59, 60, 100, 59, 29, -10, 150}) {
-      ASSERT_TRUE(server.SetPlayerSkillWeapon(id, skill, percentage));
+      ASSERT_TRUE(server.SetCharacterSkillWeapon(id, skill, percentage));
       const auto expected = std::clamp(percentage, 0, 100);
       EXPECT_EQ(actor.weapon_skills.at(skill), expected);
       EXPECT_EQ(actor.talents.at(skill), gmp::WeaponSkillTier(expected));
@@ -43,15 +44,15 @@ TEST(WeaponSkills, ServerPersistsMatchingTiersAcrossUpgradesAndDowngrades) {
   }
   const auto skills = actor.weapon_skills;
   const auto talents = actor.talents;
-  EXPECT_FALSE(server.SetPlayerSkillWeapon(id, 0, 60));
-  EXPECT_FALSE(server.SetPlayerSkillWeapon(id, 5, 60));
+  EXPECT_FALSE(server.SetCharacterSkillWeapon(id, 0, 60));
+  EXPECT_FALSE(server.SetCharacterSkillWeapon(id, 5, 60));
   EXPECT_EQ(actor.weapon_skills, skills);
   EXPECT_EQ(actor.talents, talents);
-  ASSERT_TRUE(server.SetPlayerTalent(id, 1, 0));
+  ASSERT_TRUE(server.SetCharacterTalent(id, 1, 0));
   EXPECT_EQ(actor.talents.at(1), 0);
-  ASSERT_TRUE(server.SetPlayerSkillWeapon(id, 1, 60));
+  ASSERT_TRUE(server.SetCharacterSkillWeapon(id, 1, 60));
   EXPECT_EQ(actor.talents.at(1), 2);
-  ASSERT_TRUE(server.SetPlayerTalent(id, 1, 99));
+  ASSERT_TRUE(server.SetCharacterTalent(id, 1, 99));
   EXPECT_EQ(actor.talents.at(1), 2);
 }
 
@@ -97,8 +98,7 @@ protected:
   void SetUp() override {
     const auto directory = std::filesystem::current_path() / "build" / "actor-inventory-tests";
     std::filesystem::create_directories(directory);
-    path = directory /
-           ("gmp-item-catalog-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
+    path = directory / ("gmp-item-catalog-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
   }
   void TearDown() override {
     std::error_code error;
@@ -205,8 +205,7 @@ protected:
   }
   GameServer server;
   std::uint32_t first{0}, second{0}, npc_id{0};
-  PlayerHitReportPacket Hit(Character& attacker, Character& victim, std::uint32_t identity,
-                            std::uint32_t damage_type = 2, bool nonlethal = false) {
+  PlayerHitReportPacket Hit(Character& attacker, Character& victim, std::uint32_t identity, std::uint32_t damage_type = 2, bool nonlethal = false) {
     PlayerHitReportPacket hit{};
     hit.packet_type = Net::PT_PLAYER_HIT;
     hit.attacker_id = attacker.player_id;
@@ -221,8 +220,8 @@ protected:
     return hit;
   }
   void ApproveProjectile(Character& attacker, std::uint32_t identity) {
-    attacker.approved_projectiles.push_back({identity, 10, 32, 3000,
-        std::chrono::steady_clock::now() + std::chrono::seconds(5), {}, 1, attacker.state.position});
+    attacker.approved_projectiles.push_back(
+        {identity, 10, 32, 3000, std::chrono::steady_clock::now() + std::chrono::seconds(5), {}, 1, attacker.state.position});
   }
   PlayerHitReportPacket FinishingMove(Character& attacker, Character& victim, std::uint32_t identity = 1) {
     EXPECT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
@@ -284,7 +283,7 @@ TEST_F(ServerInstanceValidation, ConstructorReplacesOldStatsAppearanceInventoryA
   actor.head_model = "OLD_HEAD";
   ASSERT_TRUE(actor.AddInventory("ITRU_TEST", 3));
   const auto position = actor.state.position;
-  ASSERT_TRUE(server.SetPlayerInstance(first, "PC_MAGE_OW"));
+  ASSERT_TRUE(server.SetCharacterInstance(first, "PC_MAGE_OW"));
   auto ready = Defaults(first);
   ready.defaults.position = {9999.0f, 9999.0f, 9999.0f};
   Send(70002, ready);
@@ -312,13 +311,13 @@ TEST_F(ServerInstanceValidation, ConstructorReplacesOldStatsAppearanceInventoryA
 
 TEST_F(ServerInstanceValidation, ScriptedChangesAfterRequestOverrideConstructorDefaults) {
   auto& actor = server.GetCharacter(first)->get();
-  ASSERT_TRUE(server.SetPlayerInstance(first, "CH"));
+  ASSERT_TRUE(server.SetCharacterInstance(first, "CH"));
   auto ready = Defaults(first);
-  ASSERT_TRUE(server.SetPlayerMaxHealth(first, 1200));
-  ASSERT_TRUE(server.SetPlayerHealth(first, 900));
-  ASSERT_TRUE(server.SetPlayerMaxMana(first, 0));
-  ASSERT_TRUE(server.SetPlayerSkillWeapon(first, 1, 30));
-  ASSERT_TRUE(server.SetPlayerInvulnerable(first, true));
+  ASSERT_TRUE(server.SetCharacterMaxHealth(first, 1200));
+  ASSERT_TRUE(server.SetCharacterHealth(first, 900));
+  ASSERT_TRUE(server.SetCharacterMaxMana(first, 0));
+  ASSERT_TRUE(server.SetCharacterSkillWeapon(first, 1, 30));
+  ASSERT_TRUE(server.SetCharacterInvulnerable(first, true));
   ASSERT_TRUE(server.GiveItem(first, "ITPO_TEST", 1));
   Send(70001, ready);
   EXPECT_EQ(actor.max_health, 1200);
@@ -334,9 +333,9 @@ TEST_F(ServerInstanceValidation, ScriptedChangesAfterRequestOverrideConstructorD
 TEST_F(ServerInstanceValidation, SupersededCompletionCannotReplaceNewerRequestAndFailureRestoresPreviousInstance) {
   auto& actor = server.GetCharacter(first)->get();
   actor.instance = "PC_HERO";
-  ASSERT_TRUE(server.SetPlayerInstance(first, "WOLF"));
+  ASSERT_TRUE(server.SetCharacterInstance(first, "WOLF"));
   auto stale = Defaults(first);
-  ASSERT_TRUE(server.SetPlayerInstance(first, "SCAVENGER"));
+  ASSERT_TRUE(server.SetCharacterInstance(first, "SCAVENGER"));
   const auto revision = actor.instance_change->request_revision;
   Send(70001, stale);
   ASSERT_TRUE(actor.instance_change);
@@ -352,7 +351,7 @@ TEST_F(ServerInstanceValidation, SupersededCompletionCannotReplaceNewerRequestAn
 TEST_F(ServerInstanceValidation, InvalidInventoryCannotGrantItemsOrLeaveInitializationStuck) {
   auto& actor = server.GetCharacter(first)->get();
   actor.instance = "PC_HERO";
-  ASSERT_TRUE(server.SetPlayerInstance(first, "CH"));
+  ASSERT_TRUE(server.SetCharacterInstance(first, "CH"));
   auto ready = Defaults(first);
   ready.defaults.inventory.push_back({999999, 1});
   Send(70001, ready);
@@ -363,7 +362,7 @@ TEST_F(ServerInstanceValidation, InvalidInventoryCannotGrantItemsOrLeaveInitiali
 }
 
 TEST_F(ServerInstanceValidation, OnlyTheCurrentNpcHostCanCompleteTheIssuedConstructor) {
-  ASSERT_TRUE(server.SetPlayerInstance(npc_id, "CH"));
+  ASSERT_TRUE(server.SetCharacterInstance(npc_id, "CH"));
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
   ASSERT_TRUE(npc.instance_change);
   ASSERT_TRUE(server.SetNpcHostPlayer(npc_id, first));
@@ -412,12 +411,12 @@ TEST_F(ServerActorValidation, DelayedNativeTeleportCannotReplaceANewerScriptedTr
   auto& actor = server.GetCharacter(first)->get();
   const auto teleport = Teleport(actor);
   const glm::vec3 scripted_position{500.0f, 200.0f, 300.0f};
-  ASSERT_TRUE(server.SetPlayerPosition(first, scripted_position));
+  ASSERT_TRUE(server.SetCharacterPosition(first, scripted_position));
   Send(70001, teleport);
   EXPECT_EQ(actor.state.position, scripted_position);
   EXPECT_FALSE(actor.last_teleport_action_id);
   auto current = Teleport(actor);
-  ASSERT_TRUE(server.SetPlayerAngle(first, 0.5f));
+  ASSERT_TRUE(server.SetCharacterAngle(first, 0.5f));
   const auto heading = actor.state.nrot;
   Send(70001, current);
   EXPECT_EQ(actor.state.position, scripted_position);
@@ -431,7 +430,7 @@ TEST_F(ServerActorValidation, DelayedNativeTeleportCannotReplaceANewerScriptedTr
 TEST_F(ServerActorValidation, NativeTeleportSurvivesAnUnacknowledgedManaUpdate) {
   auto& actor = server.GetCharacter(first)->get();
   const auto teleport = Teleport(actor);
-  ASSERT_TRUE(server.SetPlayerMana(first, 80));
+  ASSERT_TRUE(server.SetCharacterMana(first, 80));
   EXPECT_NE(actor.command_revision, teleport.command_revision);
   Send(70001, teleport);
   EXPECT_EQ(actor.state.position, teleport.position);
@@ -697,8 +696,8 @@ TEST_F(ServerTransformationValidation, DeadAnimalReturnDoesNotRevivePlayerAndRes
   EXPECT_EQ(actor.health, 0);
   EXPECT_EQ(actor.state.life_state, PLAYER_LIFE_DEAD);
   EXPECT_EQ(actor.instance, "PC_HERO");
-  ASSERT_TRUE(server.UnspawnPlayer(first));
-  ASSERT_TRUE(server.SpawnPlayer(first));
+  ASSERT_TRUE(server.UnspawnCharacter(first));
+  ASSERT_TRUE(server.SpawnCharacter(first));
   EXPECT_EQ(actor.max_health, 1000);
   EXPECT_EQ(actor.health, 1000);
 }
@@ -706,7 +705,7 @@ TEST_F(ServerTransformationValidation, DeadAnimalReturnDoesNotRevivePlayerAndRes
 TEST_F(ServerTransformationValidation, VirtualWorldTransferRestoresHumanBeforeNewGeneration) {
   Send(70001, Transform());
   const auto old = Return();
-  ASSERT_TRUE(server.SetPlayerVirtualWorld(first, 42));
+  ASSERT_TRUE(server.SetCharacterVirtualWorld(first, 42));
   auto& actor = server.GetCharacter(first)->get();
   EXPECT_FALSE(actor.transformation);
   EXPECT_EQ(actor.instance, "PC_HERO");
@@ -832,7 +831,7 @@ TEST_F(ServerSummonValidation, FailedFormationCannotLeavePartialNpcsOrConsumeMan
 TEST_F(ServerSummonValidation, ChangingOwnerVirtualWorldRemovesItsSummons) {
   Send(70001, Cast());
   ASSERT_EQ(Summons().size(), 1u);
-  ASSERT_TRUE(server.SetPlayerVirtualWorld(first, 42));
+  ASSERT_TRUE(server.SetCharacterVirtualWorld(first, 42));
   EXPECT_TRUE(Summons().empty());
 }
 
@@ -998,7 +997,7 @@ TEST_F(ServerHealingValidation, CancelledOrUnaffordableHealingCannotChangeHealth
 
 TEST_F(ServerHealingValidation, ResourceHealthOverrideIsNotHealedTwice) {
   ASSERT_TRUE(
-      EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) { EXPECT_TRUE(server.SetPlayerHealth(first, 777)); }));
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) { EXPECT_TRUE(server.SetCharacterHealth(first, 777)); }));
   Send(70001, Cast(21, 223));
   EXPECT_EQ(server.GetCharacter(first)->get().health, 777);
   EXPECT_EQ(server.GetCharacter(first)->get().mana, 990);
@@ -1372,7 +1371,7 @@ TEST_F(ServerActorValidation, FinishingMoveRequiresOwnedMeleeWeaponAndCanonicalU
   reject();
   victim.flags |= PlayerManager::PL_UNCONCIOUS;
   attacker.state.weapon_mode = 1;
-  reject(); // Fists cannot perform Gothic's finishing move.
+  reject();  // Fists cannot perform Gothic's finishing move.
   attacker.state.weapon_mode = 5;
   reject();
   attacker.state.weapon_mode = 3;
@@ -1439,9 +1438,8 @@ TEST_F(ServerActorValidation, FinishingMoveRechecksRecoveryDuringHitCallback) {
   auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   const auto hit = FinishingMove(attacker, victim);
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) {
-    EXPECT_TRUE(server.SetPlayerHealth(second, 20));
-  }));
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) { EXPECT_TRUE(server.SetCharacterHealth(second, 20)); }));
   Send(70001, hit);
   EXPECT_EQ(victim.health, 20);
   EXPECT_EQ(victim.state.life_state, PLAYER_LIFE_ALIVE);
@@ -1453,8 +1451,10 @@ TEST_F(ServerActorValidation, FinishingMoveRechecksWeaponAndRangeDuringHitCallba
   auto hit = FinishingMove(attacker, victim);
   int requests = 0;
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) {
-    if (++requests == 1) attacker.state.weapon_mode = 1;
-    else attacker.state.position.x = 501.0f;
+    if (++requests == 1)
+      attacker.state.weapon_mode = 1;
+    else
+      attacker.state.position.x = 501.0f;
   }));
   Send(70001, hit);
   EXPECT_EQ(victim.health, 1);
@@ -1472,11 +1472,10 @@ TEST_F(ServerActorValidation, HostedNpcFinishingMoveRequiresCurrentHostAndRechec
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   auto hit = FinishingMove(npc, victim);
   hit.control_epoch = npc.control_epoch;
-  Send(70002, hit); // Another client cannot report this NPC's execution.
+  Send(70002, hit);  // Another client cannot report this NPC's execution.
   EXPECT_EQ(victim.health, 1);
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) {
-    EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second));
-  }));
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) { EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second)); }));
   Send(70001, hit);
   EXPECT_EQ(victim.health, 1);
   EXPECT_EQ(victim.state.life_state, PLAYER_LIFE_UNCONSCIOUS);
@@ -1525,7 +1524,7 @@ TEST_F(ServerActorValidation, StandUpCannotResurrectDeadPlayerOrUsePreviousGener
   recovery.command_revision = player.command_revision;
   Send(70001, recovery);
   EXPECT_EQ(player.state.life_state, PLAYER_LIFE_UNCONSCIOUS);
-  EXPECT_TRUE(server.SetPlayerHealth(first, 0));
+  EXPECT_TRUE(server.SetCharacterHealth(first, 0));
   recovery.actor_generation = player.actor_generation;
   recovery.command_revision = player.command_revision;
   Send(70001, recovery);
@@ -1543,7 +1542,7 @@ TEST_F(ServerActorValidation, ScriptedRecoveryClearsUnconsciousPoseAndRejectsOld
   player.state.animation = 43;
   player.state.animation_name = "S_WOUNDEDB";
   const auto old_revision = player.command_revision;
-  EXPECT_TRUE(server.SetPlayerHealth(first, 20));
+  EXPECT_TRUE(server.SetCharacterHealth(first, 20));
   EXPECT_EQ(player.state.life_state, PLAYER_LIFE_ALIVE);
   EXPECT_EQ(player.state.body_state, 0u);
   EXPECT_EQ(player.state.animation, -1);
@@ -1661,7 +1660,7 @@ TEST_F(ServerActorValidation, LifeResetClearsOutstandingProjectileApprovals) {
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   ApproveProjectile(victim, 100);
   ASSERT_FALSE(victim.approved_projectiles.empty());
-  ASSERT_TRUE(server.SetPlayerHealth(second, 0));
+  ASSERT_TRUE(server.SetCharacterHealth(second, 0));
   EXPECT_TRUE(victim.approved_projectiles.empty());
   EXPECT_EQ(victim.combat_barrier_revision, victim.command_revision);
 }
@@ -1669,9 +1668,8 @@ TEST_F(ServerActorValidation, LifeResetClearsOutstandingProjectileApprovals) {
 TEST_F(ServerActorValidation, NpcUseRechecksHostAfterResourceCallback) {
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
   npc.health = npc.state.health_points = 10;
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any) {
-    EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second));
-  }));
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any) { EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second)); }));
   ActorActionPacket use;
   use.actor_id = npc_id;
   use.actor_generation = npc.actor_generation;
@@ -1695,9 +1693,8 @@ TEST_F(ServerActorValidation, NpcUseRechecksHostAfterResourceCallback) {
 
 TEST_F(ServerActorValidation, NpcCastRechecksHostAfterResourceCallback) {
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) {
-    EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second));
-  }));
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName,
+                                                        [&](std::any) { EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second)); }));
   CastSpellPacket cast{};
   cast.packet_type = Net::PT_CASTSPELL;
   cast.caster_id = npc_id;
@@ -1763,19 +1760,19 @@ TEST_F(ServerActorValidation, RejectedScrollTargetsSendFreshInventoryAndManaCorr
     EXPECT_EQ(caster.InventoryCount("ITSC_TEST"), 1);
     EXPECT_TRUE(caster.approved_projectiles.empty());
   };
-  reject(); // Target packet without a target.
+  reject();  // Target packet without a target.
   cast.target_id = 99999;
-  reject(); // Missing target.
+  reject();  // Missing target.
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   cast.target_id = second;
   cast.target_generation = victim.actor_generation + 1;
-  reject(); // Reused or stale target incarnation.
+  reject();  // Reused or stale target incarnation.
   cast.target_generation = victim.actor_generation;
   victim.virtual_world = 1;
-  reject(); // Different visibility scope.
+  reject();  // Different visibility scope.
   victim.virtual_world = 0;
   victim.state.position.x = 4000.0f;
-  reject(); // Beyond the trusted spell reach.
+  reject();  // Beyond the trusted spell reach.
   victim.state.position.x = 0.0f;
   const auto target = server.GetNpcManager().Create("Target", "PC_HERO", "NEWWORLD.ZEN", std::max(2u, server.GetMaxSlots()));
   ASSERT_NE(target, 0u);
@@ -1786,18 +1783,15 @@ TEST_F(ServerActorValidation, RejectedScrollTargetsSendFreshInventoryAndManaCorr
   server.GetPlayerManager().GetPlayer(first)->get().spawned_players.insert(target);
   cast.target_id = target;
   cast.target_generation = npc_target.actor_generation;
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) {
-    EXPECT_TRUE(server.DestroyNpc(target));
-  }));
-  reject(); // A resource destroys the target during validation.
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) { EXPECT_TRUE(server.DestroyNpc(target)); }));
+  reject();  // A resource destroys the target during validation.
 }
 
 TEST_F(ServerActorValidation, NpcHitRechecksHostAfterResourceCallback) {
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) {
-    EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second));
-  }));
+  ASSERT_TRUE(
+      EventManager::Instance().SubscribeToEvent(kEventOnPlayerHitName, [&](std::any) { EXPECT_TRUE(server.SetNpcHostPlayer(npc_id, second)); }));
   PlayerHitReportPacket hit{};
   hit.packet_type = Net::PT_PLAYER_HIT;
   hit.attacker_id = npc_id;
@@ -1811,7 +1805,6 @@ TEST_F(ServerActorValidation, NpcHitRechecksHostAfterResourceCallback) {
   Send(70001, hit);
   EXPECT_EQ(victim.health, 100);
 }
-
 
 TEST_F(ServerActorValidation, UnprofiledUseDispatchesBeforeOwnershipCheck) {
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
@@ -1828,7 +1821,7 @@ TEST_F(ServerActorValidation, UnprofiledUseDispatchesBeforeOwnershipCheck) {
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
   use.item_instance = 99;
-  use.quantity = 4; // The request is observable even though the actor owns only three.
+  use.quantity = 4;  // The request is observable even though the actor owns only three.
   use.health_delta = 50;
   npc.health = npc.state.health_points = 10;
   Send(70001, use);
@@ -1839,7 +1832,7 @@ TEST_F(ServerActorValidation, UnprofiledUseDispatchesBeforeOwnershipCheck) {
   use.action_id = 2;
   use.quantity = 1;
   Send(70001, use);
-  Send(70001, use); // Duplicate cannot dispatch or consume twice.
+  Send(70001, use);  // Duplicate cannot dispatch or consume twice.
   EXPECT_EQ(requests, 2);
   EXPECT_EQ(npc.health, 60);
   EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 2);
@@ -1862,7 +1855,7 @@ TEST_F(ServerActorValidation, ReusableItemUseDoesNotConsumeOrRequireAProfile) {
   EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 3);
 }
 
-TEST_F(ServerActorValidation, ItemManagerCallbackIsExplicitAndConsumesOnlyOnce) {
+TEST_F(ServerActorValidation, ItemCallbacksAreExplicitAndConsumeOnlyOnce) {
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
   npc.health = npc.state.health_points = 10;
   LuaScript script;
@@ -1870,19 +1863,21 @@ TEST_F(ServerActorValidation, ItemManagerCallbackIsExplicitAndConsumesOnlyOnce) 
   lua["test_actor_id"] = npc_id;
   ASSERT_TRUE(lua.safe_script(R"(
     callback_calls = 0
-    assert(ItemManager.setOnUse('ITPO_TEST', function(id, quantity, target)
+    assert(ItemCallbacks.setOnUse('ITPO_TEST', function(id, quantity, target)
       assert(id == test_actor_id and quantity == 1 and target == nil)
       callback_calls = callback_calls + 1
       assert(removeItem(id, 'ITPO_TEST', quantity))
       assert(setPlayerHealth(id, getPlayerHealth(id) + 7))
     end))
-    local item = Item.getByInstance('ITPO_TEST')
+    local item = ItemDefinition.getByInstance('ITPO_TEST')
     assert(type(item.onUse) == 'function')
     assert(not pcall(function() item.onUse = function() end end))
     assert(not pcall(function() item.instance = 'OTHER' end))
-    assert(not ItemManager.setOnUse('UNKNOWN', function() end))
-    assert(not ItemManager.setOnEquip('ITPO_TEST', 12))
-  )", sol::script_pass_on_error).valid());
+    assert(not ItemCallbacks.setOnUse('UNKNOWN', function() end))
+    assert(not ItemCallbacks.setOnEquip('ITPO_TEST', 12))
+  )",
+                              sol::script_pass_on_error)
+                  .valid());
   ActorActionPacket use;
   use.actor_id = npc_id;
   use.actor_generation = npc.actor_generation;
@@ -1899,7 +1894,7 @@ TEST_F(ServerActorValidation, ItemManagerCallbackIsExplicitAndConsumesOnlyOnce) 
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any event) {
     EventManager::Instance().CancelCurrentEvent();
     const auto request = std::any_cast<OnPlayerUseItemEvent>(event);
-    sol::protected_function callback = lua::bindings::LuaItem("ITPO_TEST").getOnUse(sol::this_state{lua.lua_state()});
+    sol::protected_function callback = lua::bindings::LuaItemDefinition("ITPO_TEST").getOnUse(sol::this_state{lua.lua_state()});
     EXPECT_TRUE(callback(request.player_id, request.quantity, sol::nil).valid());
   }));
   use.action_id = 2;
@@ -1916,11 +1911,11 @@ TEST_F(ServerActorValidation, CancelledUseDoesNotCallRegisteredCallbackOrConsume
   auto& lua = script.GetLuaState();
   ASSERT_TRUE(lua.safe_script(R"(
     callback_calls = 0
-    assert(ItemManager.setOnUse('ITPO_TEST', function() callback_calls = callback_calls + 1 end))
-  )", sol::script_pass_on_error).valid());
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any) {
-    EventManager::Instance().CancelCurrentEvent();
-  }));
+    assert(ItemCallbacks.setOnUse('ITPO_TEST', function() callback_calls = callback_calls + 1 end))
+  )",
+                              sol::script_pass_on_error)
+                  .valid());
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any) { EventManager::Instance().CancelCurrentEvent(); }));
   ActorActionPacket use;
   use.actor_id = npc_id;
   use.actor_generation = npc.actor_generation;
@@ -1939,8 +1934,9 @@ TEST_F(ServerActorValidation, ItemCallbacksAreRemovedBeforeTheirLuaStateCloses) 
   auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
   {
     LuaScript script;
-    ASSERT_TRUE(script.GetLuaState().safe_script("assert(ItemManager.setOnUse('ITPO_TEST', function() return false end))",
-                                                 sol::script_pass_on_error).valid());
+    ASSERT_TRUE(script.GetLuaState()
+                    .safe_script("assert(ItemCallbacks.setOnUse('ITPO_TEST', function() return false end))", sol::script_pass_on_error)
+                    .valid());
     EXPECT_TRUE(lua::bindings::InvokeItemCallback("ITPO_TEST", lua::bindings::ItemCallback::Use, npc_id, 1).handled);
   }
   EXPECT_FALSE(lua::bindings::InvokeItemCallback("ITPO_TEST", lua::bindings::ItemCallback::Use, npc_id, 1).handled);
@@ -1953,15 +1949,17 @@ TEST_F(ServerActorValidation, ExplicitCancelledCastCallbackControlsMana) {
   auto& lua = script.GetLuaState();
   lua["test_target_id"] = second;
   ASSERT_TRUE(lua.safe_script(R"(
-    assert(ItemManager.setOnUse('ITRU_TEST', function(id, quantity, target)
+    assert(ItemCallbacks.setOnUse('ITRU_TEST', function(id, quantity, target)
       assert(quantity == 0 and target == test_target_id)
       setPlayerMana(id, getPlayerMana(id) - 12)
     end))
-  )", sol::script_pass_on_error).valid());
+  )",
+                              sol::script_pass_on_error)
+                  .valid());
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any event) {
     EventManager::Instance().CancelCurrentEvent();
     const auto request = std::any_cast<OnPlayerCastSpellEvent>(event);
-    sol::protected_function callback = lua::bindings::LuaItem("ITRU_TEST").getOnUse(sol::this_state{lua.lua_state()});
+    sol::protected_function callback = lua::bindings::LuaItemDefinition("ITRU_TEST").getOnUse(sol::this_state{lua.lua_state()});
     EXPECT_TRUE(callback(request.caster_id, 0, request.target_id.value()).valid());
   }));
   CastSpellPacket cast{};
@@ -1992,11 +1990,11 @@ TEST_F(ServerActorValidation, NativeCastDeltaPreservesNewerManaCommandsAndConsec
   cast.item_instance = 150;
   cast.spell_id = 19;
   cast.mana_delta = -5;
-  ASSERT_TRUE(server.SetPlayerMana(npc_id, 80));
+  ASSERT_TRUE(server.SetCharacterMana(npc_id, 80));
   cast.action_id = 1;
   Send(70001, cast);
   EXPECT_EQ(npc.mana, 75);
-  cast.action_id = 2; // Same captured command revision, next genuine native cast.
+  cast.action_id = 2;  // Same captured command revision, next genuine native cast.
   Send(70001, cast);
   EXPECT_EQ(npc.mana, 70);
   EXPECT_EQ(npc.approved_projectiles.size(), 2u);
@@ -2040,22 +2038,25 @@ TEST_F(ServerActorValidation, ExplicitEquipmentCallbacksCanAssignCancelledReques
   auto& lua = script.GetLuaState();
   ASSERT_TRUE(lua.safe_script(R"(
     transitions = {}
-    assert(ItemManager.setOnEquip('ITRI_TEST', function(id, slot)
+    assert(ItemCallbacks.setOnEquip('ITRI_TEST', function(id, slot)
       table.insert(transitions, 'equip:' .. slot)
       assert(equipItem(id, 'ITRI_TEST', slot))
     end))
-    assert(ItemManager.setOnUnequip('ITRI_TEST', function(id, slot)
+    assert(ItemCallbacks.setOnUnequip('ITRI_TEST', function(id, slot)
       table.insert(transitions, 'unequip:' .. slot)
       assert(unequipItem(id, 'ITRI_TEST', slot))
     end))
-  )", sol::script_pass_on_error).valid());
+  )",
+                              sol::script_pass_on_error)
+                  .valid());
   ASSERT_TRUE(server.EquipItem(npc_id, "ITRI_TEST", Net::EQUIP_SLOT_RING_LEFT));
   EXPECT_EQ(lua["transitions"].get<sol::table>().size(), 0u);
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerEquipRingName, [&](std::any event) {
     const auto request = std::any_cast<OnPlayerEquipRingEvent>(event);
     EventManager::Instance().CancelCurrentEvent();
-    lua::bindings::LuaItem item("ITRI_TEST");
-    sol::protected_function callback = request.item_index ? item.getOnEquip(sol::this_state{lua.lua_state()}) : item.getOnUnequip(sol::this_state{lua.lua_state()});
+    lua::bindings::LuaItemDefinition item("ITRI_TEST");
+    sol::protected_function callback =
+        request.item_index ? item.getOnEquip(sol::this_state{lua.lua_state()}) : item.getOnUnequip(sol::this_state{lua.lua_state()});
     EXPECT_TRUE(callback(request.player_id, request.ring_slot == 0 ? Net::EQUIP_SLOT_RING_LEFT : Net::EQUIP_SLOT_RING_RIGHT).valid());
   }));
   EXPECT_FALSE(server.EquipItem(npc_id, "ITRI_TEST", Net::EQUIP_SLOT_RING_RIGHT));
@@ -2076,8 +2077,7 @@ TEST(ServerActorLuaBindings, FunctionsAndConstantsUseProductionBindings) {
   const auto id = server.GetPlayerManager().AddPlayer(70001, "LuaActor", 1);
   lua["test_actor_id"] = id;
   const auto definitions = lua.safe_script(R"(
-    for _, name in ipairs({'setPlayerPosition', 'setPlayerInvulnerable', 'isPlayerInvulnerable',
-                           'isPlayerInvulnerable'}) do
+    for _, name in ipairs({'setPlayerPosition', 'setPlayerInvulnerable', 'isPlayerInvulnerable'}) do
       assert(type(_G[name]) == 'function', name)
     end
     assert(setPlayerPosition(test_actor_id, 1, 2, 3))
@@ -2092,11 +2092,34 @@ TEST(ServerActorLuaBindings, FunctionsAndConstantsUseProductionBindings) {
     assert(setPlayerRespawnTime(test_actor_id, 1))
     assert(getPlayerRespawnTime(test_actor_id) == 1)
     assert(not setPlayerRespawnTime(test_actor_id, -1))
+    assert(type(getPlayersStreamedToPlayer(test_actor_id)) == 'table')
+    assert(type(getPlayersStreamingPlayer(test_actor_id)) == 'table')
+    assert(type(setVoiceEnabled) == 'function' and type(getVoiceRange) == 'function')
+    assert(type(setVoiceEnabledForPlayer) == 'function')
+    assert(Voice == nil and setCharacterPosition == nil and getCharactersStreamedToPlayer == nil)
+    assert(type(callEvent) == 'function' and type(triggerClientEvent) == 'function')
+    assert(emitEvent == nil and sendClientEvent == nil)
+    assert(setPlayerHealth(test_actor_id, 75) and getPlayerHealth(test_actor_id) == 75)
+    assert(setPlayerExp(test_actor_id, 123) and getPlayerExp(test_actor_id) == 123)
+    local npc, createError = createNpc('Contract NPC')
+    assert(npc ~= nil and createError == nil and isNpc(npc) and not isNpc(test_actor_id))
+    assert(not isNpc(-1) and not isNpc(npc + 4294967296))
+    assert(setPlayerPosition(npc, 10, 20, 30) and getPlayerPosition(npc).x == 10)
+    assert(setPlayerHealth(npc, 75) and getPlayerHealth(npc) == 75)
+    assert(getNpcHostPlayer(npc) == nil and getNpcActionsCount(npc) == 0)
+    local action, queueError = queueNpcAnimation(npc, 'T_STAND_2_SIT', 1500)
+    assert(action ~= nil and queueError == nil and getNpcActionsCount(npc) == 1)
+    assert(getNpcAction(npc, 0) == nil and getNpcAction(npc, 1).id == action)
+    assert(getNpcAction(npc, 1).timeoutMs == 1500 and getNpcActions(npc)[1].id == action)
+    assert(destroyNpc(npc) and getPlayerHealth(npc) == nil and getNpcActions(npc) == nil)
+    local missingAction, missingError = queueNpcAnimation(npc, 'T_STAND_2_SIT')
+    assert(missingAction == nil and type(missingError.message) == 'string')
     assert(setItemUseProfile == nil and setItemSpellProfile == nil)
-  )", sol::script_pass_on_error);
+  )",
+                                           sol::script_pass_on_error);
   ASSERT_TRUE(definitions.valid());
-  ASSERT_TRUE(server.GetPlayerPosition(id));
-  EXPECT_EQ(*server.GetPlayerPosition(id), glm::vec3(7, 8, 9));
+  ASSERT_TRUE(server.GetCharacterPosition(id));
+  EXPECT_EQ(*server.GetCharacterPosition(id), glm::vec3(7, 8, 9));
 }
 
 int main(int argc, char** argv) {

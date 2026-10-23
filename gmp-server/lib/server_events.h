@@ -26,10 +26,9 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
+#include <glm/glm.hpp>
 #include <optional>
 #include <string>
-
-#include <glm/glm.hpp>
 
 #include "item_ground_manager.h"
 
@@ -87,7 +86,7 @@ struct OnNpcDestroyedEvent {
 
 struct OnNpcChangeHostPlayerEvent {
   std::uint32_t npc_id;
-  std::uint32_t current_id;   // Zero means no host; Lua receives -1.
+  std::uint32_t current_id;  // Zero means no host; Lua receives -1.
   std::uint32_t previous_id;
 };
 

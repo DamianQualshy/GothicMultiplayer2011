@@ -8,18 +8,18 @@
 
 namespace gmp::gothic {
 
-class LuaTextureView;
+class LuaSpriteView;
 
-class LuaTexture {
+class LuaSprite {
 public:
-  friend class LuaTextureView;
+  friend class LuaSpriteView;
 
-  LuaTexture(int x, int y, int width, int height, const std::string& file);
-  LuaTexture(const LuaTexture&) = delete;
-  LuaTexture& operator=(const LuaTexture&) = delete;
-  LuaTexture(LuaTexture&& other) noexcept;
-  LuaTexture& operator=(LuaTexture&& other) noexcept;
-  ~LuaTexture();
+  LuaSprite(int x, int y, int width, int height, const std::string& file);
+  LuaSprite(const LuaSprite&) = delete;
+  LuaSprite& operator=(const LuaSprite&) = delete;
+  LuaSprite(LuaSprite&& other) noexcept;
+  LuaSprite& operator=(LuaSprite&& other) noexcept;
+  ~LuaSprite();
 
   static void CleanupViews();
   static void EnsureViewsAttached();
@@ -40,13 +40,9 @@ public:
   void setSizePx(int width, int height);
   void setSizePxValue(sol::object value);
 
-  sol::table getRect(sol::this_state s);
-  void setRect(int x, int y, int width, int height);
-  void setRectValue(sol::object value);
-
-  sol::table getRectPx(sol::this_state s);
-  void setRectPx(int x, int y, int width, int height);
-  void setRectPxValue(sol::object value);
+  sol::table getUVRect(sol::this_state s) const;
+  void setUVRect(float u, float v, float width, float height);
+  void setUVRectValue(sol::table value);
 
   sol::table getColor(sol::this_state s);
   void setColor(int r, int g, int b);
@@ -61,15 +57,14 @@ public:
   void setVisible(bool visible);
   bool getVisible() const;
 
-  void top();
-  void render();
+  void bringToFront();
   void Blit();
 
 private:
-  LuaTextureView* view_;
+  LuaSpriteView* view_;
   Gothic_II_Addon::zCTexture* texture_;
-  Gothic_II_Addon::zVEC2 uvPos_;
-  Gothic_II_Addon::zVEC2 uvSize_;
+  Gothic_II_Addon::zVEC2 uv_min_;
+  Gothic_II_Addon::zVEC2 uv_max_;
   Gothic_II_Addon::zCOLOR color_;
   Gothic_II_Addon::zTRnd_AlphaBlendFunc alphaFunc_;
   bool fillZ_;
@@ -77,7 +72,7 @@ private:
   std::string fileName_;
   bool attached_to_screen_;
 
-  static std::unordered_set<LuaTexture*> active_textures_;
+  static std::unordered_set<LuaSprite*> active_sprites_;
 
   void Destroy();
   void EnsureAttached();
@@ -85,6 +80,6 @@ private:
   void updateViewPos(int x, int y);
 };
 
-void BindTexture(sol::state& lua);
+void BindSprite(sol::state& lua);
 
 }  // namespace gmp::gothic

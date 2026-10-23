@@ -22,31 +22,31 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "lua_way.h"
+#include "lua_route.h"
 
 #include <cmath>
 #include <limits>
 #include <utility>
 #include <vector>
 
-#include "lua_helpers.h"
 #include "ZenGin/zGothicAPI.h"
+#include "lua_helpers.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
 
 /* luagmp (func)
-*
-* This function will enable/disable waynet rendering.
-*
-* @version  0.3.0
-* @name     toggleDrawWaynet
-* @side     client
-* @category Render
-* @param    (boolean) enabled    True to render waynet, false to disable.
-*
-*/
+ *
+ * This function will enable/disable waynet rendering.
+ *
+ * @version  0.3.0
+ * @name     toggleDrawWaynet
+ * @side     client
+ * @category Render
+ * @param    (boolean) enabled    True to render waynet, false to disable.
+ *
+ */
 void Function_ToggleDrawWaynet(bool enabled) {
   if (!ogame) {
     return;
@@ -56,59 +56,51 @@ void Function_ToggleDrawWaynet(bool enabled) {
 }
 
 /* luagmp (class)
-*
-* This class represents a route between two waypoint names computed from Zengin zCRoute class.
-*
-* @version  0.3.0
-* @name     Way
-* @side     client
-* @category World
-*
-*/
+ *
+ * This class represents a route between two waypoint names computed from Zengin zCRoute class.
+ *
+ * @version  0.3.0
+ * @name     Route
+ * @side     client
+ * @category World
+ *
+ */
 /* luagmp (constructor)
-*
-* Creates a path between two waypoint names.
-*
-* @param    (string) startWp   Name of the start waypoint.
-* @param    (string) endWp     Name of the end waypoint.
-*
-*/
-LuaWay::LuaWay(const std::string& start_wp, const std::string& end_wp)
-    : start_wp_(start_wp), end_wp_(end_wp) {}
+ *
+ * Creates a path between two waypoint names.
+ *
+ * @param    (string) startWp   Name of the start waypoint.
+ * @param    (string) endWp     Name of the end waypoint.
+ *
+ */
+LuaRoute::LuaRoute(const std::string& start_wp, const std::string& end_wp) : start_wp_(start_wp), end_wp_(end_wp) {
+}
 
 /* luagmp (method)
-*
-* This method will return the start waypoint name.
-*
-* @name     getStart
-* @return   (string)
-*
-*/
-const std::string& LuaWay::getStart() const {
+ *
+ * This method will return the start waypoint name.
+ *
+ * @name     getStart
+ * @return   (string)
+ *
+ */
+const std::string& LuaRoute::getStart() const {
   return start_wp_;
 }
 
 /* luagmp (method)
-*
-* This method will return the end waypoint name.
-*
-* @name     getEnd
-* @return   (string)
-*
-*/
-const std::string& LuaWay::getEnd() const {
+ *
+ * This method will return the end waypoint name.
+ *
+ * @name     getEnd
+ * @return   (string)
+ *
+ */
+const std::string& LuaRoute::getEnd() const {
   return end_wp_;
 }
 
-/* luagmp (method)
-*
-* This method will return all waypoints from the computed route.
-*
-* @name     getWaypoints
-* @return   ({wpName...})   Table with waypoint names.
-*
-*/
-std::vector<std::string> LuaWay::getWaypoints() const {
+std::vector<std::string> LuaRoute::ComputeWaypointNames() const {
   std::vector<std::string> result;
 
   zCRoute* route = lua_helpers::FindRouteByName(start_wp_, end_wp_);
@@ -142,36 +134,29 @@ std::vector<std::string> LuaWay::getWaypoints() const {
 }
 
 /* luagmp (method)
-*
-* This method will return the number of waypoints in the computed route.
-*
-* @name     getCountWaypoints
-* @return   (number)      Number of waypoints.
-*
-*/
-int LuaWay::getCountWaypoints() const {
-  zCRoute* route = lua_helpers::FindRouteByName(start_wp_, end_wp_);
-  if (!route) {
-    return 0;
-  }
-
-  const int count = route->GetNumberOfWaypoints();
-  delete route;
-  return count;
+ *
+ * This method will return the number of waypoints in the computed route.
+ *
+ * @name     getWaypointCount
+ * @return   (number)      Number of waypoints.
+ *
+ */
+int LuaRoute::getWaypointCount() const {
+  return static_cast<int>(ComputeWaypointNames().size());
 }
 
 /* luagmp (func)
-*
-* This function will return world position of a waypoint by name.
-*
-* @version  0.3.0
-* @name     getWaypoint
-* @side     client
-* @category World
-* @param    (string) name       Waypoint name.
-* @return   ({x, y, z, angle}|nil)     Waypoint position table or nil.
-*
-*/
+ *
+ * This function will return world position of a waypoint by name.
+ *
+ * @version  0.3.0
+ * @name     getWaypoint
+ * @side     client
+ * @category World
+ * @param    (string) name       Waypoint name.
+ * @return   ({x, y, z, angle}|nil)     Waypoint position table or nil.
+ *
+ */
 sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
   zCWayNet* way_net = lua_helpers::GetWayNet();
@@ -189,17 +174,17 @@ sol::object Function_GetWaypoint(const std::string& waypoint_name, sol::this_sta
 }
 
 /* luagmp (func)
-*
-* This function will return world position of a freepoint by name.
-*
-* @version  0.3.0
-* @name     getFreepoint
-* @side     client
-* @category World
-* @param    (string) name       Freepoint name.
-* @return   ({x, y, z, angle}|nil)     Freepoint position table or nil.
-*
-*/
+ *
+ * This function will return world position of a freepoint by name.
+ *
+ * @version  0.3.0
+ * @name     getFreepoint
+ * @side     client
+ * @category World
+ * @param    (string) name       Freepoint name.
+ * @return   ({x, y, z, angle}|nil)     Freepoint position table or nil.
+ *
+ */
 sol::object Function_GetFreepoint(const std::string& freepoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
   zCVobSpot* freepoint = lua_helpers::FindFreepointByName(freepoint_name);
@@ -211,20 +196,20 @@ sol::object Function_GetFreepoint(const std::string& freepoint_name, sol::this_s
 }
 
 /* luagmp (func)
-*
-* This function will return the nearest waypoint for a given position.
-*
-* @version  0.3.0
-* @name     getNearestWaypoint
-* @side     client
-* @category World
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
-*
-*/
+ *
+ * This function will return the nearest waypoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNearestWaypoint
+ * @side     client
+ * @category World
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @param    (number|nil) distance     Optional maximum search distance.
+ * @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
+ *
+ */
 sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
   zCWayNet* way_net = lua_helpers::GetWayNet();
@@ -266,20 +251,20 @@ sol::object Function_GetNearestWaypoint(float x, float y, float z, sol::optional
 }
 
 /* luagmp (func)
-*
-* This function will return the nearest freepoint for a given position.
-*
-* @version  0.3.0
-* @name     getNearestFreepoint
-* @side     client
-* @category World
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
-*
-*/
+ *
+ * This function will return the nearest freepoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNearestFreepoint
+ * @side     client
+ * @category World
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @param    (number|nil) distance     Optional maximum search distance.
+ * @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
+ *
+ */
 sol::object Function_GetNearestFreepoint(float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
   const auto [nearest, _] = lua_helpers::FindNearestFreepointPair(x, y, z, distance.value_or(-1.0f));
@@ -291,19 +276,19 @@ sol::object Function_GetNearestFreepoint(float x, float y, float z, sol::optiona
 }
 
 /* luagmp (func)
-*
-* This function will return the second nearest waypoint for a given position.
-*
-* @version  0.3.0
-* @name     getNextNearestWaypoint
-* @side     client
-* @category World
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
-*
-*/
+ *
+ * This function will return the second nearest waypoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNextNearestWaypoint
+ * @side     client
+ * @category World
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @return   ({name, x, y, z, angle}|nil)     Waypoint information table or nil.
+ *
+ */
 sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
   zCWayNet* way_net = lua_helpers::GetWayNet();
@@ -349,19 +334,19 @@ sol::object Function_GetNextNearestWaypoint(float x, float y, float z, sol::this
 }
 
 /* luagmp (func)
-*
-* This function will return the second nearest freepoint for a given position.
-*
-* @version  0.3.0
-* @name     getNextNearestFreepoint
-* @side     client
-* @category World
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
-*
-*/
+ *
+ * This function will return the second nearest freepoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNextNearestFreepoint
+ * @side     client
+ * @category World
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @return   ({name, x, y, z, angle}|nil)     Freepoint information table or nil.
+ *
+ */
 sol::object Function_GetNextNearestFreepoint(float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
   const auto [_, second_nearest] = lua_helpers::FindNearestFreepointPair(x, y, z, -1.0f);
@@ -373,16 +358,16 @@ sol::object Function_GetNextNearestFreepoint(float x, float y, float z, sol::thi
 }
 
 /* luagmp (func)
-*
-* This function will return the list of all waypoints from current world.
-*
-* @version  0.3.0
-* @name     getWaypoints
-* @side     client
-* @category World
-* @return   ({...})                 Table of waypoints {name, x, y, z, angle}.
-*
-*/
+ *
+ * This function will return the list of all waypoints from current world.
+ *
+ * @version  0.3.0
+ * @name     getWaypoints
+ * @side     client
+ * @category World
+ * @return   ({...})                 Table of waypoints {name, x, y, z, angle}.
+ *
+ */
 sol::table Function_GetWaypoints(sol::this_state ts) {
   sol::state_view lua(ts);
   sol::table waypoints = lua.create_table();
@@ -404,17 +389,25 @@ sol::table Function_GetWaypoints(sol::this_state ts) {
   return waypoints;
 }
 
-void BindWay(sol::state& lua) {
-  sol::usertype<LuaWay> way_type = lua.new_usertype<LuaWay>(
-      "Way", sol::constructors<LuaWay(const std::string&, const std::string&)>());
+/* luagmp (method)
+ * Returns a one-based Lua array of waypoint names.
+ * @name getWaypointNames
+ * @return (table) Waypoint names.
+ */
+sol::as_table_t<std::vector<std::string>> LuaRoute::getWaypointNames() const {
+  return sol::as_table(ComputeWaypointNames());
+}
 
-  way_type["getStart"] = &LuaWay::getStart;
-  way_type["getEnd"] = &LuaWay::getEnd;
-  way_type["getWaypoints"] = &LuaWay::getWaypoints;
-  way_type["getCountWaypoints"] = &LuaWay::getCountWaypoints;
+void BindRoute(sol::state& lua) {
+  sol::usertype<LuaRoute> route_type = lua.new_usertype<LuaRoute>("Route", sol::constructors<LuaRoute(const std::string&, const std::string&)>());
+
+  route_type["getStart"] = &LuaRoute::getStart;
+  route_type["getEnd"] = &LuaRoute::getEnd;
+  route_type["getWaypointCount"] = &LuaRoute::getWaypointCount;
+  route_type["getWaypointNames"] = &LuaRoute::getWaypointNames;
 
   lua["toggleDrawWaynet"] = Function_ToggleDrawWaynet;
-  
+
   lua["getWaypoint"] = Function_GetWaypoint;
   lua["getNearestWaypoint"] = Function_GetNearestWaypoint;
   lua["getNextNearestWaypoint"] = Function_GetNextNearestWaypoint;

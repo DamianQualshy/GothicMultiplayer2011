@@ -25,9 +25,8 @@ SOFTWARE.
 #pragma once
 
 #include <cstdint>
-#include <string>
-
 #include <sol/sol.hpp>
+#include <string>
 
 #include "../item_ground_manager.h"
 
@@ -39,8 +38,9 @@ public:
   explicit LuaItemGround(ItemGroundManager::ItemGroundId id = 0);
 
   ItemGroundManager::ItemGroundId getId() const;
+  bool isValid() const;
   std::string getInstance() const;
-  sol::object getItem(sol::this_state state) const;
+  sol::object getDefinition(sol::this_state state) const;
   std::int32_t getAmount() const;
   bool getPhysicsEnabled() const;
   void setPhysicsEnabled(bool enabled);
@@ -49,8 +49,8 @@ public:
   void setVirtualWorld(std::int32_t virtual_world);
   sol::table getPosition(sol::this_state state) const;
   void setPosition(float x, float y, float z);
-  sol::table getRotation(sol::this_state state) const;
-  void setRotation(float x, float y, float z);
+  sol::table getRotationDegrees(sol::this_state state) const;
+  void setRotationDegrees(float x, float y, float z);
 
 private:
   ItemGroundManager::ItemGroundId id_{0};

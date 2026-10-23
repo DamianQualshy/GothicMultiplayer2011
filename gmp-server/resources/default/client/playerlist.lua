@@ -23,7 +23,7 @@ local PlayerList = {
   rows = {}
 }
 
-local background = Texture.new(
+local background = Sprite.new(
   PlayerList.backgroundX,
   PlayerList.backgroundY,
   PlayerList.backgroundWidth,
@@ -32,7 +32,7 @@ local background = Texture.new(
 )
 
 local function makeDraw(x, y, text, r, g, b)
-  local draw = Draw.new(x, y, text or '')
+  local draw = Label.new(x, y, text or '')
   draw:setFont(PlayerList.font)
   draw:setColor(r, g, b)
   draw:setVisible(false)
@@ -74,7 +74,7 @@ local function hideRows()
 end
 
 local function getColor(playerId)
-  local color = getPlayerColor(playerId)
+  local color = getPlayerNameColor(playerId)
   if color then
     return clampByte(color.r), clampByte(color.g), clampByte(color.b)
   end

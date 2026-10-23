@@ -22,26 +22,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "Lua/lua_way.h"
+#include "Lua/lua_route.h"
+
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
+#include <glm/glm.hpp>
 #include <limits>
+#include <nlohmann/json.hpp>
 #include <queue>
 #include <string>
 #include <unordered_map>
 #include <utility>
 #include <vector>
 
-#include <glm/glm.hpp>
-#include <nlohmann/json.hpp>
-#include <spdlog/spdlog.h>
-
-#include "game_server.h"
 #include "Shared/lua_runtime/bind_helpers.h"
+#include "game_server.h"
 
 namespace lua::bindings {
 namespace {
@@ -54,8 +54,7 @@ std::string ExtractWorldStem(std::string world) {
 
 std::string BuildWaynetFileName(const std::string& world) {
   std::string file_stem = ExtractWorldStem(world);
-  std::transform(file_stem.begin(), file_stem.end(), file_stem.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  std::transform(file_stem.begin(), file_stem.end(), file_stem.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
   return file_stem + ".json";
 }
 
@@ -133,8 +132,8 @@ public:
       const auto y_it = pos_it->find("y");
       const auto z_it = pos_it->find("z");
       const auto angle_it = pos_it->find("angle");
-      if (x_it == pos_it->end() || y_it == pos_it->end() || z_it == pos_it->end() || angle_it == pos_it->end() ||
-          !x_it->is_number() || !y_it->is_number() || !z_it->is_number() || !angle_it->is_number()) {
+      if (x_it == pos_it->end() || y_it == pos_it->end() || z_it == pos_it->end() || angle_it == pos_it->end() || !x_it->is_number() ||
+          !y_it->is_number() || !z_it->is_number() || !angle_it->is_number()) {
         SPDLOG_WARN("Waynet load skipped waypoint '{}' with malformed position", name_it->get<std::string>());
         continue;
       }
@@ -220,8 +219,8 @@ public:
         const auto y_it = pos_it->find("y");
         const auto z_it = pos_it->find("z");
         const auto angle_it = pos_it->find("angle");
-        if (x_it == pos_it->end() || y_it == pos_it->end() || z_it == pos_it->end() || angle_it == pos_it->end() ||
-            !x_it->is_number() || !y_it->is_number() || !z_it->is_number() || !angle_it->is_number()) {
+        if (x_it == pos_it->end() || y_it == pos_it->end() || z_it == pos_it->end() || angle_it == pos_it->end() || !x_it->is_number() ||
+            !y_it->is_number() || !z_it->is_number() || !angle_it->is_number()) {
           SPDLOG_WARN("Waynet load skipped freepoint '{}' with malformed position", freepoint_name);
           continue;
         }
@@ -504,18 +503,18 @@ sol::table MakeFreepointTable(sol::state_view lua, const FreepointNode& freepoin
 }
 
 /* luagmp (func)
-*
-* Retrieve world position of a waypoint by name.
-*
-* @version  0.3.0
-* @name     getWaypoint
-* @side     server
-* @category World
-* @param    (string) world      World name in which the waypoint exists.
-* @param    (string) name       Waypoint name.
-* @return   ({x, y, z, angle}|nil)     Waypoint position or nil.
-*
-*/
+ *
+ * Retrieve world position of a waypoint by name.
+ *
+ * @version  0.3.0
+ * @name     getWaypoint
+ * @side     server
+ * @category World
+ * @param    (string) world      World name in which the waypoint exists.
+ * @param    (string) name       Waypoint name.
+ * @return   ({x, y, z, angle}|nil)     Waypoint position or nil.
+ *
+ */
 sol::object Function_GetWaypoint(const std::string& world, const std::string& waypoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
@@ -532,18 +531,18 @@ sol::object Function_GetWaypoint(const std::string& world, const std::string& wa
 }
 
 /* luagmp (func)
-*
-* Retrieve world position of a freepoint by name.
-*
-* @version  0.3.0
-* @name     getFreepoint
-* @side     server
-* @category World
-* @param    (string) world      World name in which the freepoint exists.
-* @param    (string) name       Freepoint name.
-* @return   ({x, y, z, angle}|nil)     Freepoint position or nil.
-*
-*/
+ *
+ * Retrieve world position of a freepoint by name.
+ *
+ * @version  0.3.0
+ * @name     getFreepoint
+ * @side     server
+ * @category World
+ * @param    (string) world      World name in which the freepoint exists.
+ * @param    (string) name       Freepoint name.
+ * @return   ({x, y, z, angle}|nil)     Freepoint position or nil.
+ *
+ */
 sol::object Function_GetFreepoint(const std::string& world, const std::string& freepoint_name, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
@@ -560,23 +559,22 @@ sol::object Function_GetFreepoint(const std::string& world, const std::string& f
 }
 
 /* luagmp (func)
-*
-* Retrieve nearest waypoint for a given position.
-*
-* @version  0.3.0
-* @name     getNearestWaypoint
-* @side     server
-* @category World
-* @param    (string) world            World name in which the waypoint exists.
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z, angle}|nil)     Waypoint information or nil.
-*
-*/
-sol::object Function_GetNearestWaypoint(const std::string& world, float x, float y, float z,
-                                        sol::optional<float> distance, sol::this_state ts) {
+ *
+ * Retrieve nearest waypoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNearestWaypoint
+ * @side     server
+ * @category World
+ * @param    (string) world            World name in which the waypoint exists.
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @param    (number|nil) distance     Optional maximum search distance.
+ * @return   ({name, x, y, z, angle}|nil)     Waypoint information or nil.
+ *
+ */
+sol::object Function_GetNearestWaypoint(const std::string& world, float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
   if (!graph) {
@@ -592,23 +590,22 @@ sol::object Function_GetNearestWaypoint(const std::string& world, float x, float
 }
 
 /* luagmp (func)
-*
-* Retrieve nearest freepoint for a given position.
-*
-* @version  0.3.0
-* @name     getNearestFreepoint
-* @side     server
-* @category World
-* @param    (string) world            World name in which the freepoint exists.
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @param    (number|nil) distance     Optional maximum search distance.
-* @return   ({name, x, y, z, angle}|nil)     Freepoint information or nil.
-*
-*/
-sol::object Function_GetNearestFreepoint(const std::string& world, float x, float y, float z,
-                                         sol::optional<float> distance, sol::this_state ts) {
+ *
+ * Retrieve nearest freepoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNearestFreepoint
+ * @side     server
+ * @category World
+ * @param    (string) world            World name in which the freepoint exists.
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @param    (number|nil) distance     Optional maximum search distance.
+ * @return   ({name, x, y, z, angle}|nil)     Freepoint information or nil.
+ *
+ */
+sol::object Function_GetNearestFreepoint(const std::string& world, float x, float y, float z, sol::optional<float> distance, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
   if (!graph) {
@@ -624,20 +621,20 @@ sol::object Function_GetNearestFreepoint(const std::string& world, float x, floa
 }
 
 /* luagmp (func)
-*
-* Retrieve second nearest waypoint for a given position.
-*
-* @version  0.3.0
-* @name     getNextNearestWaypoint
-* @side     server
-* @category World
-* @param    (string) world            World name in which the waypoint exists.
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @return   ({name, x, y, z, angle}|nil)     Waypoint information or nil.
-*
-*/
+ *
+ * Retrieve second nearest waypoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNextNearestWaypoint
+ * @side     server
+ * @category World
+ * @param    (string) world            World name in which the waypoint exists.
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @return   ({name, x, y, z, angle}|nil)     Waypoint information or nil.
+ *
+ */
 sol::object Function_GetNextNearestWaypoint(const std::string& world, float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
@@ -654,20 +651,20 @@ sol::object Function_GetNextNearestWaypoint(const std::string& world, float x, f
 }
 
 /* luagmp (func)
-*
-* Retrieve second nearest freepoint for a given position.
-*
-* @version  0.3.0
-* @name     getNextNearestFreepoint
-* @side     server
-* @category World
-* @param    (string) world            World name in which the freepoint exists.
-* @param    (number) x                Position X.
-* @param    (number) y                Position Y.
-* @param    (number) z                Position Z.
-* @return   ({name, x, y, z, angle}|nil)     Freepoint information or nil.
-*
-*/
+ *
+ * Retrieve second nearest freepoint for a given position.
+ *
+ * @version  0.3.0
+ * @name     getNextNearestFreepoint
+ * @side     server
+ * @category World
+ * @param    (string) world            World name in which the freepoint exists.
+ * @param    (number) x                Position X.
+ * @param    (number) y                Position Y.
+ * @param    (number) z                Position Z.
+ * @return   ({name, x, y, z, angle}|nil)     Freepoint information or nil.
+ *
+ */
 sol::object Function_GetNextNearestFreepoint(const std::string& world, float x, float y, float z, sol::this_state ts) {
   sol::state_view lua(ts);
   const WaynetGraph* graph = g_waynet_repository.GetForWorld(world);
@@ -684,51 +681,68 @@ sol::object Function_GetNextNearestFreepoint(const std::string& world, float x, 
 }
 
 /* luagmp (class)
-*
-* Represents a route between two waypoint names computed from server-side waynet JSON.
-*
-* @version  0.3.0
-* @name     Way
-* @side     server
-* @category World
-*
-*/
-class Way {
+ *
+ * Represents a complete route between two waypoint names computed from server-side waynet JSON data.
+ *
+ * @version  0.3.0
+ * @name     Route
+ * @side     server
+ * @category World
+ *
+ */
+class Route {
 public:
-/* luagmp (constructor)
-*
-* Creates a path between two waypoint names for a specified world.
-*
-* @param    (string) world     World name (example: NEWWORLD\\NEWWORLD.ZEN).
-* @param    (string) startWp   Name of the start waypoint.
-* @param    (string) endWp     Name of the end waypoint.
-*
-*/
-  Way(std::string world, std::string start_wp, std::string end_wp)
+  /* luagmp (constructor)
+   * Computes a route in a server world.
+   * @name Route
+   * @param (string) world World name.
+   * @param (string) startWp Start waypoint name.
+   * @param (string) endWp End waypoint name.
+   */
+  Route(std::string world, std::string start_wp, std::string end_wp)
       : world_(std::move(world)), start_wp_(std::move(start_wp)), end_wp_(std::move(end_wp)) {
     const WaynetGraph* graph = g_waynet_repository.GetForWorld(world_);
     if (!graph) {
-      SPDLOG_WARN("Way('{}', '{}', '{}') failed: missing or invalid waynet", world_, start_wp_, end_wp_);
+      SPDLOG_WARN("Route('{}', '{}', '{}') failed: missing or invalid waynet", world_, start_wp_, end_wp_);
       return;
     }
-
     waypoints_ = graph->FindPathAStar(start_wp_, end_wp_);
   }
 
+  /* luagmp (method)
+   * Returns the start waypoint name.
+   * @name getStart
+   * @return (string)
+   */
   const std::string& getStart() const {
     return start_wp_;
   }
 
+  /* luagmp (method)
+   * Returns the end waypoint name.
+   * @name getEnd
+   * @return (string)
+   */
   const std::string& getEnd() const {
     return end_wp_;
   }
 
-  int getCountWaypoints() const {
+  /* luagmp (method)
+   * Returns the number of waypoint names in the route.
+   * @name getWaypointCount
+   * @return (number)
+   */
+  int getWaypointCount() const {
     return static_cast<int>(waypoints_.size());
   }
 
-  std::vector<std::string> getWaypoints() const {
-    return waypoints_;
+  /* luagmp (method)
+   * Returns a one-based array of waypoint names.
+   * @name getWaypointNames
+   * @return (table)
+   */
+  sol::as_table_t<std::vector<std::string>> getWaypointNames() const {
+    return sol::as_table(waypoints_);
   }
 
 private:
@@ -740,57 +754,19 @@ private:
 
 }  // namespace
 
-void BindWay(sol::state& lua) {
-  sol::usertype<Way> way_type =
-      lua.new_usertype<Way>("Way", sol::constructors<Way(const std::string&, const std::string&, const std::string&)>());
-
-/* luagmp (method)
-*
-* Returns the start waypoint name.
-*
-* @name     getStart
-* @return   (string)
-*
-*/
-  way_type["getStart"] = &Way::getStart;
-
-/* luagmp (method)
-*
-* Returns the end waypoint name.
-*
-* @name     getEnd
-* @return   (string)
-*
-*/
-  way_type["getEnd"] = &Way::getEnd;
-
-/* luagmp (method)
-*
-* Returns number of waypoints in the computed path.
-*
-* @name     getCountWaypoints
-* @return   (number)
-*
-*/
-  way_type["getCountWaypoints"] = &Way::getCountWaypoints;
-
-/* luagmp (method)
-*
-* Returns all waypoint names in the computed path.
-*
-* @name     getWaypoints
-* @return   ([wpName...])
-*
-*/
-  way_type["getWaypoints"] = &Way::getWaypoints;
-
+void BindRoute(sol::state& lua) {
+  sol::usertype<Route> route_type =
+      lua.new_usertype<Route>("Route", sol::constructors<Route(const std::string&, const std::string&, const std::string&)>());
+  route_type["getStart"] = &Route::getStart;
+  route_type["getEnd"] = &Route::getEnd;
+  route_type["getWaypointCount"] = &Route::getWaypointCount;
+  route_type["getWaypointNames"] = &Route::getWaypointNames;
   lua["getWaypoint"] = Function_GetWaypoint;
   lua["getNearestWaypoint"] = Function_GetNearestWaypoint;
   lua["getNextNearestWaypoint"] = Function_GetNextNearestWaypoint;
   lua["getFreepoint"] = Function_GetFreepoint;
   lua["getNearestFreepoint"] = Function_GetNearestFreepoint;
   lua["getNextNearestFreepoint"] = Function_GetNextNearestFreepoint;
-
   g_waynet_repository.PreloadDefaultWorld();
 }
 

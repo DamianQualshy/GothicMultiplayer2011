@@ -24,6 +24,9 @@ SOFTWARE.
 
 #include "lua_diagnostics.h"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
@@ -34,9 +37,6 @@ SOFTWARE.
 #include <system_error>
 #include <utility>
 #include <vector>
-
-#include <fmt/format.h>
-#include <spdlog/spdlog.h>
 
 namespace lua::diagnostics {
 namespace {

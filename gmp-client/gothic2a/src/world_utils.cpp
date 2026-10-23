@@ -58,6 +58,11 @@ void PrepareWorldChange() {
 }
 
 void ResetWorldRenderState() {
+  // Loading can change the world's indoor/outdoor controller. Gothic runs AI
+  // during precaching before zCWorld::Render normally activates that controller.
+  if (ogame && ogame->GetGameWorld()) {
+    zCSkyControler::s_activeSkyControler = ogame->GetGameWorld()->GetActiveSkyControler();
+  }
   if (!zrenderer)
     return;
   // Complete queued geometry before releasing the textures it borrows. Unbind

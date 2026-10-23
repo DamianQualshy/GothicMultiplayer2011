@@ -27,8 +27,8 @@ SOFTWARE.
 #include <cmath>
 #include <limits>
 
-#include "discord_presence.h"
 #include "Shared/lua_runtime/bind_helpers.h"
+#include "discord_presence.h"
 
 namespace gmp::gothic::lua_helpers {
 
@@ -133,8 +133,8 @@ bool ReadRect(sol::object value, int& x, int& y, int& width, int& height) {
   }
 
   sol::table table = value.as<sol::table>();
-  return ReadIntField(table, "x", 1, x) && ReadIntField(table, "y", 2, y) &&
-         ReadIntField(table, "width", 3, width) && ReadIntField(table, "height", 4, height);
+  return ReadIntField(table, "x", 1, x) && ReadIntField(table, "y", 2, y) && ReadIntField(table, "width", 3, width) &&
+         ReadIntField(table, "height", 4, height);
 }
 
 bool ReadColor(sol::object value, int& r, int& g, int& b, int& a) {

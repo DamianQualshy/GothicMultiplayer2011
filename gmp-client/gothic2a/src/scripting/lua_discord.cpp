@@ -23,32 +23,33 @@ SOFTWARE.
 */
 
 #include "lua_discord.h"
-#include "lua_helpers.h"
+
 #include "Shared/lua_runtime/bind_helpers.h"
+#include "lua_helpers.h"
 
 namespace gmp::gothic {
 
 /* luagmp (class)
-*
-* This class exposes static methods for updating the user's Discord activity from the game client.
-*
-* @version  0.3.0
-* @name     Discord
-* @side     client
-* @category Game
-*
-*/
+ *
+ * This class exposes static methods for updating the user's Discord activity from the game client.
+ *
+ * @version  0.3.0
+ * @name     Discord
+ * @side     client
+ * @category Game
+ *
+ */
 
 /* luagmp (method)
-*
-* This function updates the Discord Rich Presence activity. Missing fields keep their last-set values.
-*
-* @version  0.3.0
-* @name     setActivity
-* @static
-* @param    ({...}) Activity configuration table.
-*
-*/
+ *
+ * This function updates the Discord Rich Presence activity. Missing fields keep their last-set values.
+ *
+ * @version  0.3.0
+ * @name     setActivity
+ * @static
+ * @param    ({...}) Activity configuration table.
+ *
+ */
 void Function_Discord_SetActivity(const sol::table& params) {
   auto& activity = lua_helpers::GetDiscordActivityState();
 
@@ -75,15 +76,15 @@ void Function_Discord_SetActivity(const sol::table& params) {
 }
 
 /* luagmp (method)
-*
-* This function will update the activity state text.
-*
-* @version  0.3.0
-* @name     setState
-* @static
-* @param    (string) state
-*
-*/
+ *
+ * This function will update the activity state text.
+ *
+ * @version  0.3.0
+ * @name     setState
+ * @static
+ * @param    (string) state
+ *
+ */
 void Function_Discord_SetState(const std::string& state) {
   auto& activity = lua_helpers::GetDiscordActivityState();
   activity.state = state;
@@ -91,15 +92,15 @@ void Function_Discord_SetState(const std::string& state) {
 }
 
 /* luagmp (method)
-*
-* This function will update the activity details text.
-*
-* @version  0.3.0
-* @name     setDetails
-* @static
-* @param    (string) details
-*
-*/
+ *
+ * This function will update the activity details text.
+ *
+ * @version  0.3.0
+ * @name     setDetails
+ * @static
+ * @param    (string) details
+ *
+ */
 void Function_Discord_SetDetails(const std::string& details) {
   auto& activity = lua_helpers::GetDiscordActivityState();
   activity.details = details;
@@ -107,16 +108,16 @@ void Function_Discord_SetDetails(const std::string& details) {
 }
 
 /* luagmp (method)
-*
-* This function will update the large image entry for the activity.
-*
-* @version  0.3.0
-* @name     setLargeImage
-* @static
-* @param    (string) key    Asset key for the large image.
-* @param    (string) text   Optional tooltip text for the large image.
-*
-*/
+ *
+ * This function will update the large image entry for the activity.
+ *
+ * @version  0.3.0
+ * @name     setLargeImage
+ * @static
+ * @param    (string) key    Asset key for the large image.
+ * @param    (string) text   Optional tooltip text for the large image.
+ *
+ */
 void Function_Discord_SetLargeImage(const std::string& key, const sol::optional<std::string>& text) {
   auto& activity = lua_helpers::GetDiscordActivityState();
   activity.large_image_key = key;
@@ -127,16 +128,16 @@ void Function_Discord_SetLargeImage(const std::string& key, const sol::optional<
 }
 
 /* luagmp (method)
-*
-* This function will update the small image entry for the activity.
-*
-* @version  0.3.0
-* @name     setSmallImage
-* @static
-* @param    (string) key    Asset key for the small image.
-* @param    (string) text   Optional tooltip text for the small image.
-*
-*/
+ *
+ * This function will update the small image entry for the activity.
+ *
+ * @version  0.3.0
+ * @name     setSmallImage
+ * @static
+ * @param    (string) key    Asset key for the small image.
+ * @param    (string) text   Optional tooltip text for the small image.
+ *
+ */
 void Function_Discord_SetSmallImage(const std::string& key, const sol::optional<std::string>& text) {
   auto& activity = lua_helpers::GetDiscordActivityState();
   activity.small_image_key = key;
@@ -147,14 +148,14 @@ void Function_Discord_SetSmallImage(const std::string& key, const sol::optional<
 }
 
 /* luagmp (method)
-*
-* This function will clear the current activity and stored values.
-*
-* @version  0.3.0
-* @name     clearActivity
-* @static
-*
-*/
+ *
+ * This function will clear the current activity and stored values.
+ *
+ * @version  0.3.0
+ * @name     clearActivity
+ * @static
+ *
+ */
 void Function_Discord_ClearActivity() {
   lua_helpers::ClearDiscordActivityState();
 }

@@ -28,6 +28,6 @@ SOFTWARE.
 
 namespace lua::bindings {
 
-void BindJson(sol::state& lua);
+void BindJSON(sol::state& lua);
 
 }  // namespace lua::bindings

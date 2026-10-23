@@ -24,11 +24,141 @@ SOFTWARE.
 
 #include "lua_constants.h"
 
-#include "server_constants.h"
 #include "net_enums.h"
+#include "server_constants.h"
 
 namespace lua {
 namespace bindings {
+
+/* luagmp (const)
+ *
+ * Selects the equipment category of the item; rings use an available ring slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_GENERIC
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the armor slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_ARMOR
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the melee weapon slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_MELEE_WEAPON
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the ranged weapon slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_RANGED_WEAPON
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the helmet slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_HELMET
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the shield slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_SHIELD
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the amulet slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_AMULET
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the belt slot.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_BELT
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the first ring slot, independently of the other ring's item instance.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_RING_LEFT
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Selects the second ring slot, independently of the other ring's item instance.
+ *
+ * @category Inventory
+ * @side     server
+ * @name     EQUIP_SLOT_RING_RIGHT
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Represents disconnected player state.
+ *
+ * @category Network
+ * @side     server
+ * @name     DISCONNECTED
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Represents lost connection player state.
+ *
+ * @category Network
+ * @side     server
+ * @name     LOST_CONNECTION
+ *
+ */
+
+/* luagmp (const)
+ *
+ * Represents crash player state.
+ *
+ * @category Network
+ * @side     server
+ * @name     HAS_CRASHED
+ *
+ */
 
 void BindServerConstants(sol::state& lua) {
   lua["DISCONNECTED"] = gmp::server::DISCONNECTED;
@@ -48,133 +178,3 @@ void BindServerConstants(sol::state& lua) {
 
 }  // namespace bindings
 }  // namespace lua
-
-/* luagmp (const)
-*
-* Selects the equipment category of the item; rings use an available ring slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_GENERIC
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the armor slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_ARMOR
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the melee weapon slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_MELEE_WEAPON
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the ranged weapon slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_RANGED_WEAPON
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the helmet slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_HELMET
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the shield slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_SHIELD
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the amulet slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_AMULET
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the belt slot.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_BELT
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the first ring slot, independently of the other ring's item instance.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_RING_LEFT
-*
-*/
-
-/* luagmp (const)
-*
-* Selects the second ring slot, independently of the other ring's item instance.
-*
-* @category Inventory
-* @side     server
-* @name     EQUIP_SLOT_RING_RIGHT
-*
-*/
-
-/* luagmp (const)
-*
-* Represents disconnected player state.
-*
-* @category Network
-* @side     server
-* @name     DISCONNECTED
-*
-*/
-
-/* luagmp (const)
-*
-* Represents lost connection player state.
-*
-* @category Network
-* @side     server
-* @name     LOST_CONNECTION
-*
-*/
-
-/* luagmp (const)
-*
-* Represents crash player state.
-*
-* @category Network
-* @side     server
-* @name     HAS_CRASHED
-*
-*/

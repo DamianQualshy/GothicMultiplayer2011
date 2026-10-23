@@ -51,7 +51,7 @@ local previousControlsDisabled = false
 local previousKeyState = {}
 local activeMenuLoop = nil
 
-local title = Draw.new(Anims.x, Anims.y, 'Anims Menu')
+local title = Label.new(Anims.x, Anims.y, 'Anims Menu')
 title:setFont(Anims.font)
 title:setColor(255, 255, 255)
 title:setVisible(false)
@@ -121,7 +121,7 @@ local function getHeroAnimation()
 end
 
 local function getControlsDisabled()
-  local ok, disabled = pcall(isControlsDisabled)
+  local ok, disabled = pcall(function() return isControlsDisabled() end)
   return ok and disabled == true
 end
 
@@ -138,9 +138,9 @@ local function setMenuInputDisabled(disabled)
 
     for _, key in ipairs(suppressedKeys) do
       if previousKeyState[key] == nil then
-        previousKeyState[key] = isKeyDisabled(key)
+        previousKeyState[key] = not isScriptKeyEnabled(key)
       end
-      disableKey(key, true)
+      setScriptKeyEnabled(key, false)
     end
 
     return
@@ -152,7 +152,7 @@ local function setMenuInputDisabled(disabled)
   for _, key in ipairs(suppressedKeys) do
     local previous = previousKeyState[key]
     if previous ~= nil then
-      disableKey(key, previous)
+      setScriptKeyEnabled(key, not previous)
       previousKeyState[key] = nil
     end
   end
@@ -163,7 +163,7 @@ local function isSelectedLoopActive(animation)
 end
 
 for index = 1, Anims.maxVisibleRows do
-  local row = Draw.new(Anims.x, Anims.y + index * Anims.lineHeight, '')
+  local row = Label.new(Anims.x, Anims.y + index * Anims.lineHeight, '')
   row:setFont(Anims.font)
   row:setColor(255, 255, 255)
   row:setVisible(false)
@@ -307,7 +307,7 @@ addEventHandler('onKeyDown', function(key)
   end
 end, 9000)
 
-addEventHandler('onPlayerDead', function(playerId)
+addEventHandler('onPlayerDeath', function(playerId)
   if heroId ~= nil and tonumber(playerId) == tonumber(heroId) then
     activeMenuLoop = nil
     Anims:close()

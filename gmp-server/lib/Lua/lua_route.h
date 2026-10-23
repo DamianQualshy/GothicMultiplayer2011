@@ -24,28 +24,10 @@ SOFTWARE.
 
 #pragma once
 
-#include <string>
-#include <vector>
-
 #include "sol/sol.hpp"
 
-namespace gmp::gothic {
+namespace lua::bindings {
 
-class LuaWay {
-public:
-  LuaWay(const std::string& start_wp, const std::string& end_wp);
+void BindRoute(sol::state& lua);
 
-  const std::string& getStart() const;
-  const std::string& getEnd() const;
-
-  std::vector<std::string> getWaypoints() const;
-  int getCountWaypoints() const;
-
-private:
-  std::string start_wp_;
-  std::string end_wp_;
-};
-
-void BindWay(sol::state& lua);
-
-}  // namespace gmp::gothic
+}  // namespace lua::bindings

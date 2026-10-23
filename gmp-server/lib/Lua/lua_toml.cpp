@@ -24,7 +24,7 @@ SOFTWARE.
 
 #include "Lua/lua_toml.h"
 
-#include "Shared/lua_runtime/bind_helpers.h"
+#include <spdlog/spdlog.h>
 
 #include <cmath>
 #include <cstdint>
@@ -33,11 +33,11 @@ SOFTWARE.
 #include <optional>
 #include <sstream>
 #include <string>
+#include <toml.hpp>
 #include <utility>
 #include <vector>
 
-#include <spdlog/spdlog.h>
-#include <toml.hpp>
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace lua::bindings {
 
@@ -209,9 +209,8 @@ bool ValidateTomlValue(const TomlValue& value, std::string& error, int depth, st
 
 /* luagmp (class)
  *
- * Read-only TOML document returned by TOML.open(). Nested sections and arrays
- * are returned as TOML values. Use getOr() when a missing value should fall
- * back without replacing configured false.
+ * Read-only TOML document loaded from a file.
+ * Nested sections and arrays are returned as TOML values. Use `getOr()` when a missing value should fall back without replacing configured false.
  *
  * @version  0.3.0
  * @name     TOML
@@ -221,8 +220,8 @@ bool ValidateTomlValue(const TomlValue& value, std::string& error, int depth, st
  */
 class TOML {
 public:
-  TOML(std::shared_ptr<const TomlValue> root, std::vector<TomlPathEntry> path = {})
-      : root_(std::move(root)), path_(std::move(path)) {}
+  TOML(std::shared_ptr<const TomlValue> root, std::vector<TomlPathEntry> path = {}) : root_(std::move(root)), path_(std::move(path)) {
+  }
 
   static sol::object Open(const std::string& relative_path, sol::this_state ts);
 
@@ -426,6 +425,7 @@ std::optional<TOML> LoadTOML(const std::string& relative_path, std::string& erro
  * @param    (string) relative_path  Path under the data/internal directory.
  * @return   (TOML|nil)          File handle or nil on error.
  *
+ * @static
  */
 sol::object TOML::Open(const std::string& relative_path, sol::this_state ts) {
   sol::state_view lua(ts);

@@ -269,7 +269,13 @@ bool ContentTransitionManager::RecreateGameSession(bool deactivate_overlay, std:
   }
 
   ScopedResourceThreadingPause pause;
+  // World disposal reads the global sky controller. It must belong to the
+  // session being destroyed, even if that session has not rendered yet.
+  auto* old_world = gameMan->gameSession->GetGameWorld();
+  zCSkyControler::s_activeSkyControler = old_world ? old_world->GetActiveSkyControler() : nullptr;
   gameMan->GameSessionDone();
+  // Native world destruction releases the controller without clearing this pointer.
+  zCSkyControler::s_activeSkyControler = nullptr;
 
   if (deactivate_overlay) {
     GothicVfsOverlay::Instance().Deactivate();
@@ -284,11 +290,12 @@ bool ContentTransitionManager::RecreateGameSession(bool deactivate_overlay, std:
   // context intact. INITPERCEPTIONS must not restore a symbol from the old session.
   zCPar_Symbol::SetUseInstance(nullptr);
   gameMan->GameSessionInit();
-  if (!gameMan->gameSession || !ogame) {
+  if (!gameMan->gameSession || !ogame || !ogame->GetGameWorld()) {
     error = "Gothic failed to initialize a fresh game session";
     return false;
   }
 
+  zCSkyControler::s_activeSkyControler = ogame->GetGameWorld()->GetActiveSkyControler();
   SPDLOG_INFO("Recreated Gothic game session for {} content", deactivate_overlay ? "base" : "server");
   error.clear();
   return true;

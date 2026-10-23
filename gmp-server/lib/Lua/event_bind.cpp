@@ -33,1258 +33,1001 @@ SOFTWARE.
 #include <utility>
 #include <vector>
 
-#include "game_server.h"
-#include "../server_events.h"
 #include "../resource_manager.h"
+#include "../server_events.h"
+#include "Shared/lua_runtime/bind_helpers.h"
+#include "Shared/lua_runtime/lua_events.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
+#include "game_server.h"
 #include "lua.h"
-#include "lua_item.h"
+#include "lua_item_definition.h"
 #include "lua_item_ground.h"
 #include "shared/event.h"
-#include "Shared/lua_runtime/bind_helpers.h"
-#include "Shared/lua_runtime/lua_diagnostics.h"
-#include "Shared/lua_runtime/lua_value_codec.h"
 
 namespace lua {
 namespace bindings {
 
 namespace {
 
-struct LuaEventCallback {
-  sol::protected_function callback;
-  std::string event_name;
-  std::string resource_name;
+using LuaProxyArgs = ::gmp::lua::LuaEventProxyArgs;
+::gmp::lua::LuaEventProxyMap kLuaEventProxies;
 
-  LuaEventCallback() = default;
+std::optional<std::string> CurrentEventOwner() {
+  auto* owner = ResourceManager::GetCurrentResource();
+  if (!ResourceManager::GetActiveInstance() || !owner)
+    return std::nullopt;
+  return owner->GetName();
+}
 
-  LuaEventCallback(sol::protected_function callback, std::string event_name, std::string resource_name)
-      : callback(std::move(callback)), event_name(std::move(event_name)), resource_name(std::move(resource_name)) {}
+void ExecuteResourceEvent(const std::string& owner, std::function<void()> callback) {
+  auto* manager = ResourceManager::GetActiveInstance();
+  const auto resource = manager ? manager->GetResource(owner) : std::nullopt;
+  if (!resource || !resource->get().IsLoaded())
+    return;
+  ResourceManager::ScopedResourceContext context(resource->get());
+  callback();
+}
 
-  lua_State* lua_state() {
-    return callback.lua_state();
-  }
-
-  template <typename... Args>
-  sol::protected_function_result operator()(Args&&... callback_args) {
-    sol::protected_function_result result = callback(std::forward<Args>(callback_args)...);
-    if (!result.valid()) {
-      sol::error error = result;
-      ::lua::diagnostics::LogRuntimeError(error.what(), {resource_name, "event handler", event_name});
-    }
-    return result;
-  }
-};
-
-struct LuaProxyArgs {
-  std::any event;
-  LuaEventCallback callback;
-};
-static std::map<std::string, std::function<void(LuaProxyArgs)>> kLuaEventProxies;
-
-struct HandlerRegistration {
-  const void* identity = nullptr;
-  EventManager::EventHandlerId id = 0;
-  std::string owner_name;
-};
-
-static std::unordered_map<std::string, std::vector<HandlerRegistration>> kHandlerRegistrations;
-static std::unordered_map<std::string, std::string> kCustomEventOwners;
-static std::unordered_set<std::string> kCustomEvents;
-static std::unordered_set<std::string> kRemoteEvents;
+::gmp::lua::LuaEventBindings kEventBindings{kLuaEventProxies, {CurrentEventOwner, ExecuteResourceEvent}};
 
 sol::object MakeItemOrNil(sol::state_view lua, const std::optional<std::int32_t>& item_index) {
   if (!item_index.has_value()) {
     return sol::nil;
   }
   const auto* item = g_server->GetItemRegistry().FindByIndex(*item_index);
-  return item ? MakeItemObject(lua, item->instance) : sol::make_object(lua, sol::nil);
+  return item ? MakeItemDefinitionObject(lua, item->instance) : sol::make_object(lua, sol::nil);
+}
+
+/* luagmp (event)
+ *
+ * Reports NPC creation at the end of the server tick. The NPC may already be spawned or destroyed.
+ *
+ * @version  0.3.0
+ * @name     onNpcCreated
+ * @side     server
+ * @category NPC
+ * @param    (number) npc_id  Created NPC id.
+ *
+ */
+void Proxy_OnNpcCreated(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnNpcCreatedEvent>(args.event);
+  args.callback(event.npc_id);
+}
+
+/* luagmp (event)
+ *
+ * Triggered after a server-owned NPC is destroyed. The id is no longer valid.
+ *
+ * @version  0.3.0
+ * @name     onNpcDestroyed
+ * @side     server
+ * @category NPC
+ * @param    (number) npc_id  Destroyed NPC id.
+ *
+ */
+void Proxy_OnNpcDestroyed(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnNpcDestroyedEvent>(args.event);
+  args.callback(event.npc_id);
+}
+
+/* luagmp (event)
+ *
+ * Triggered when the player responsible for executing an NPC's actions changes.
+ *
+ * @version  0.3.0
+ * @name     onNpcChangeHostPlayer
+ * @side     server
+ * @category NPC
+ * @param    (number) npc_id       NPC id.
+ * @param    (number|nil) previous_id Previous host id, or nil when unhosted.
+ * @param    (number|nil) current_id New host id, or nil when unhosted.
+ *
+ */
+void Proxy_OnNpcChangeHostPlayer(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnNpcChangeHostPlayerEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  args.callback(event.npc_id, event.previous_id == 0 ? sol::make_object(lua, sol::nil) : sol::make_object(lua, event.previous_id),
+                event.current_id == 0 ? sol::make_object(lua, sol::nil) : sol::make_object(lua, event.current_id));
+}
+
+/* luagmp (event)
+ *
+ * Triggered when the current action is dispatched to its host. A replay after host migration may emit it again.
+ *
+ * @version  0.3.0
+ * @name     onNpcActionSent
+ * @side     server
+ * @category NPC
+ * @param    (number) npc_id       NPC id.
+ * @param    (number) action_type  ACTION_PLAY_ANI.
+ * @param    (number) action_id    Dispatched action id.
+ *
+ */
+void Proxy_OnNpcActionSent(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnNpcActionSentEvent>(args.event);
+  args.callback(event.npc_id, event.action_type, event.action_id);
+}
+
+/* luagmp (event)
+ *
+ * Triggered when an action leaves the queue through completion, failure, cancellation or timeout.
+ *
+ * @version  0.3.0
+ * @name     onNpcActionFinished
+ * @side     server
+ * @category NPC
+ * @param    (number) npc_id       NPC id.
+ * @param    (number) action_type  ACTION_PLAY_ANI.
+ * @param    (number) action_id    Finished action id.
+ * @param    (boolean) result     True only for successful completion reported by the current host.
+ *
+ */
+void Proxy_OnNpcActionFinished(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnNpcActionFinishedEvent>(args.event);
+  args.callback(event.npc_id, event.action_type, event.action_id, event.result);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered in every server main loop iteration.
+ *
+ * @version  0.3.0
+ * @name     onTick
+ * @side     server
+ * @category Game
+ *
+ */
+void Proxy_OnTick(LuaProxyArgs args) {
+  std::any_cast<OnTickEvent>(args.event);
+  args.callback();
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered every time the server clock updates.
+ *
+ * @version  0.3.0
+ * @name     onClockUpdate
+ * @side     server
+ * @category Game
+ * @param    (number) day           The current ingame day.
+ * @param    (number) hour          The current ingame hour.
+ * @param    (number) min           The current ingame minute.
+ *
+ */
+void Proxy_OnClockUpdate(LuaProxyArgs args) {
+  OnClockUpdateEvent gametime_event = std::any_cast<OnClockUpdateEvent>(args.event);
+  args.callback(gametime_event.day, gametime_event.hour, gametime_event.min);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player connects to the server.
+ *
+ * @version  0.3.0
+ * @name     onPlayerConnect
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player that connected.
+ *
+ */
+void Proxy_OnPlayerConnect(LuaProxyArgs args) {
+  std::uint32_t player_id = std::any_cast<std::uint32_t>(args.event);
+  args.callback(player_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player disconnects from the server.
+ *
+ * @version  0.3.0
+ * @name     onPlayerDisconnect
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player that disconnected.
+ * @param    (number) reason       The reason why player got disconnected. For more information, see [Network
+ * Constants](../../server-constants/Network.md).
+ *
+ */
+void Proxy_OnPlayerDisconnect(LuaProxyArgs args) {
+  OnPlayerDisconnectEvent player_disconnect_event = std::any_cast<OnPlayerDisconnectEvent>(args.event);
+  args.callback(player_disconnect_event.player_id, player_disconnect_event.reason);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player sends a chat message.
+ *
+ * @version  0.3.0
+ * @name     onPlayerMessage
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player who sent the message.
+ * @param    (string) text         The message text.
+ *
+ */
+void Proxy_OnPlayerMessage(LuaProxyArgs args) {
+  OnPlayerMessageEvent player_message_event = std::any_cast<OnPlayerMessageEvent>(args.event);
+  args.callback(player_message_event.pid, player_message_event.text);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player issues a command.
+ *
+ * @version  0.3.0
+ * @name     onPlayerCommand
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player issuing the command.
+ * @param    (string) command      The command name.
+ * @param    ({...}) params        Command parameters.
+ *
+ */
+void Proxy_OnPlayerCommand(LuaProxyArgs args) {
+  OnPlayerCommandEvent player_command_event = std::any_cast<OnPlayerCommandEvent>(args.event);
+  args.callback(player_command_event.pid, player_command_event.command, player_command_event.params);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player dies.
+ *
+ * @version  0.3.0
+ * @name     onPlayerDeath
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player who died.
+ * @param    (number|nil) killer_id Optional id of the killer (nil if none).
+ *
+ */
+void Proxy_OnPlayerDeath(LuaProxyArgs args) {
+  OnPlayerDeathEvent player_death_event = std::any_cast<OnPlayerDeathEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object killer = player_death_event.killer_id.has_value() ? sol::make_object(lua, player_death_event.killer_id.value()) : sol::lua_nil;
+  args.callback(player_death_event.player_id, killer);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player stands up after being unconscious.
+ *
+ * @version  0.3.0
+ * @name     onPlayerStandUp
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player who stood up.
+ *
+ */
+void Proxy_OnPlayerStandUp(LuaProxyArgs args) {
+  OnPlayerStandUpEvent player_standup_event = std::any_cast<OnPlayerStandUpEvent>(args.event);
+  args.callback(player_standup_event.player_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player becomes unconscious.
+ *
+ * @version  0.3.0
+ * @name     onPlayerUnconscious
+ * @side     server
+ * @category Player
+ * @param    (number|nil) attacker_id Optional attacker id (nil if none).
+ * @param    (number) victim_id      Victim player or NPC id.
+ *
+ */
+void Proxy_OnPlayerUnconscious(LuaProxyArgs args) {
+  OnPlayerUnconsciousEvent player_unconscious_event = std::any_cast<OnPlayerUnconsciousEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object attacker =
+      player_unconscious_event.attacker_id.has_value() ? sol::make_object(lua, player_unconscious_event.attacker_id.value()) : sol::lua_nil;
+  args.callback(attacker, player_unconscious_event.victim_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player drops an item.
+ *
+ * @version  0.3.0
+ * @name     onPlayerDropItem
+ * @side     server
+ * @category Player
+ * @param    (number) player_id        Player id who dropped the item.
+ * @param    (ItemGround) item_ground  Ground item object.
+ *
+ */
+void Proxy_OnPlayerDropItem(LuaProxyArgs args) {
+  OnPlayerDropItemEvent drop_item_event = std::any_cast<OnPlayerDropItemEvent>(args.event);
+  args.callback(drop_item_event.pid, LuaItemGround(drop_item_event.item_ground_id));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player picks up an item.
+ *
+ * @version  0.3.0
+ * @name     onPlayerTakeItem
+ * @side     server
+ * @category Player
+ * @param    (number) player_id        Player id who took the item.
+ * @param    (ItemGround) item_ground  Ground item object.
+ *
+ */
+void Proxy_OnPlayerTakeItem(LuaProxyArgs args) {
+  OnPlayerTakeItemEvent take_item_event = std::any_cast<OnPlayerTakeItemEvent>(args.event);
+  args.callback(take_item_event.pid, LuaItemGround(take_item_event.item_ground_id));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when the player/npc attempts to use an item.
+ *
+ * @version  0.3.0
+ * @name     onPlayerUseItem
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player/npc using the item.
+ * @param    (ItemDefinition|nil) item          [ItemDefinition](../../server-classes/item/ItemDefinition.md) definition, or nil for an unknown item.
+ * @param    (number) quantity       Amount consumed; zero for a reusable item.
+ * @param    (string) scheme         [ItemDefinition](../../server-classes/item/ItemDefinition.md) use scheme.
+ *
+ */
+void Proxy_OnPlayerUseItem(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnPlayerUseItemEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  args.callback(event.player_id, MakeItemOrNil(lua, event.item_instance), event.quantity, event.scheme);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when the player/npc attempts to cast a spell.
+ *
+ * @version  0.3.0
+ * @name     onPlayerCastSpell
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) caster_id    Caster player or server NPC id.
+ * @param    (number) spell_id     Spell identifier.
+ * @param    (number|nil) target_id Optional target player or server NPC id (nil if none).
+ *
+ */
+void Proxy_OnPlayerCastSpell(LuaProxyArgs args) {
+  OnPlayerCastSpellEvent cast_spell_event = std::any_cast<OnPlayerCastSpellEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object target = cast_spell_event.target_id.has_value() ? sol::make_object(lua, cast_spell_event.target_id.value()) : sol::lua_nil;
+  args.callback(cast_spell_event.caster_id, cast_spell_event.spell_id, target);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player summons an NPC using a game's spell.
+ *
+ * @version  0.3.0
+ * @name     onPlayerSummon
+ * @side     server
+ * @category Player
+ * @param    (number) playerId       The id of the player who summoned the NPC.
+ * @param    (number) spellId        The id of the spell used to summon the NPC.
+ * @param    (string) summonInstance The instance name of the summoned NPC.
+ * @param    (number) npcId          The id of the summoned NPC.
+ *
+ */
+void Proxy_OnPlayerSummon(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnPlayerSummonEvent>(args.event);
+  args.callback(event.player_id, event.spell_id, event.summon_instance, event.npc_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player teleports using a game's spell or teleport trigger.
+ *
+ * @version  0.3.0
+ * @name     onPlayerTeleport
+ * @side     server
+ * @category Player
+ * @note     This event is triggered after the teleport is completed and cannot be cancelled. Calling [setPlayerPosition](../../server-functions/player/setPlayerPosition.md) does not trigger this event.
+ * @param    (number) playerId The id of the player who teleported.
+ * @param    (string) vobName  The name of the destination waypoint, freepoint or vob.
+ *
+ */
+void Proxy_OnPlayerTeleport(LuaProxyArgs args) {
+  const auto event = std::any_cast<OnPlayerTeleportEvent>(args.event);
+  args.callback(event.player_id, event.destination);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when player health changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerChangeHealth
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player whose health points got changed.
+ * @param    (number) oldHP        The previous health points of the player.
+ * @param    (number) newHP        The new health points of the player.
+ *
+ */
+void Proxy_OnPlayerChangeHealth(LuaProxyArgs args) {
+  OnPlayerChangeHealthEvent health_event = std::any_cast<OnPlayerChangeHealthEvent>(args.event);
+  args.callback(health_event.player_id, health_event.old_hp, health_event.new_hp);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when player mana changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerChangeMana
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player whose mana points got changed.
+ * @param    (number) previous     The previous mana points of the player.
+ * @param    (number) current      The current mana points of the player.
+ *
+ */
+void Proxy_OnPlayerChangeMana(LuaProxyArgs args) {
+  OnPlayerChangeManaEvent mana_event = std::any_cast<OnPlayerChangeManaEvent>(args.event);
+  args.callback(mana_event.player_id, mana_event.previous, mana_event.current);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when player tries to change the played world (ZEN).
+ *
+ * @version  0.3.0
+ * @name     onPlayerWorldChange
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player who tries to change the played world.
+ * @param    (string) world        The filename of the world.
+ * @param    (string) waypoint     The name of the waypoint that the player will be teleported to.
+ *
+ */
+void Proxy_OnPlayerWorldChange(LuaProxyArgs args) {
+  OnPlayerChangeWorldEvent world_event = std::any_cast<OnPlayerChangeWorldEvent>(args.event);
+  args.callback(world_event.player_id, world_event.world, world_event.waypoint);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when player entered the world and was spawned in it.
+ *
+ * @version  0.3.0
+ * @name     onPlayerWorldEnter
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    The id of the player who entered the world.
+ * @param    (string) world        The filename of the world.
+ *
+ */
+void Proxy_OnPlayerWorldEnter(LuaProxyArgs args) {
+  OnPlayerWorldEnterEvent world_event = std::any_cast<OnPlayerWorldEnterEvent>(args.event);
+  args.callback(world_event.player_id, world_event.world);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's weapon mode changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerWeaponModeChange
+ * @side     server
+ * @category Player
+ * @param    (number) player_id  Player id.
+ * @param    (number) old_mode   Previous weapon mode. For more information, see [Weapon Mode Constants](../../shared-constants/WeaponMode.md).
+ * @param    (number) new_mode   New weapon mode from the same table.
+ *
+ */
+void Proxy_OnPlayerWeaponModeChange(LuaProxyArgs args) {
+  OnPlayerWeaponModeChangeEvent weapon_mode_event = std::any_cast<OnPlayerWeaponModeChangeEvent>(args.event);
+  args.callback(weapon_mode_event.player_id, weapon_mode_event.old_mode, weapon_mode_event.new_mode);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped amulet changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipAmulet
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped amulet item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipAmulet(LuaProxyArgs args) {
+  OnPlayerEquipAmuletEvent amulet_event = std::any_cast<OnPlayerEquipAmuletEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, amulet_event.item_index);
+  args.callback(amulet_event.player_id, item, MakeItemOrNil(lua, amulet_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped armor changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipArmor
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped armor item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipArmor(LuaProxyArgs args) {
+  OnPlayerEquipArmorEvent armor_event = std::any_cast<OnPlayerEquipArmorEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, armor_event.item_index);
+  args.callback(armor_event.player_id, item, MakeItemOrNil(lua, armor_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped belt changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipBelt
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped belt item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipBelt(LuaProxyArgs args) {
+  OnPlayerEquipBeltEvent belt_event = std::any_cast<OnPlayerEquipBeltEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, belt_event.item_index);
+  args.callback(belt_event.player_id, item, MakeItemOrNil(lua, belt_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped hand item changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipHandItem
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (number) hand           Hand id (0 = left, 1 = right).
+ * @param    (ItemDefinition|nil) item         Equipped hand item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipHandItem(LuaProxyArgs args) {
+  OnPlayerEquipHandItemEvent hand_item_event = std::any_cast<OnPlayerEquipHandItemEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, hand_item_event.item_index);
+  args.callback(hand_item_event.player_id, hand_item_event.hand, item, MakeItemOrNil(lua, hand_item_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped helmet changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipHelmet
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped helmet item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipHelmet(LuaProxyArgs args) {
+  OnPlayerEquipHelmetEvent helmet_event = std::any_cast<OnPlayerEquipHelmetEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, helmet_event.item_index);
+  args.callback(helmet_event.player_id, item, MakeItemOrNil(lua, helmet_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped melee weapon changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipMeleeWeapon
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped melee weapon item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipMeleeWeapon(LuaProxyArgs args) {
+  OnPlayerEquipMeleeWeaponEvent melee_weapon_event = std::any_cast<OnPlayerEquipMeleeWeaponEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, melee_weapon_event.item_index);
+  args.callback(melee_weapon_event.player_id, item, MakeItemOrNil(lua, melee_weapon_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped ranged weapon changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipRangedWeapon
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped ranged weapon item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipRangedWeapon(LuaProxyArgs args) {
+  OnPlayerEquipRangedWeaponEvent ranged_weapon_event = std::any_cast<OnPlayerEquipRangedWeaponEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, ranged_weapon_event.item_index);
+  args.callback(ranged_weapon_event.player_id, item, MakeItemOrNil(lua, ranged_weapon_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped ring changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipRing
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (number) ring_slot      Logical ring slot (0 or 1).
+ * @param    (ItemDefinition|nil) item         Equipped ring item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipRing(LuaProxyArgs args) {
+  OnPlayerEquipRingEvent ring_event = std::any_cast<OnPlayerEquipRingEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, ring_event.item_index);
+  args.callback(ring_event.player_id, ring_event.ring_slot, item, MakeItemOrNil(lua, ring_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's equipped shield changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipShield
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (ItemDefinition|nil) item         Equipped shield item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipShield(LuaProxyArgs args) {
+  OnPlayerEquipShieldEvent shield_event = std::any_cast<OnPlayerEquipShieldEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, shield_event.item_index);
+  args.callback(shield_event.player_id, item, MakeItemOrNil(lua, shield_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player's active spell slot changes.
+ *
+ * @version  0.3.0
+ * @name     onPlayerEquipSpellSlot
+ * @side     server
+ * @category Player
+ * @note     This event can be cancelled.
+ * @param    (number) player_id      Player id.
+ * @param    (number) slot_id        Active spell slot id (0 if none).
+ * @param    (ItemDefinition|nil) item         Active spell item (nil if none).
+ * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ *
+ */
+void Proxy_OnPlayerEquipSpellSlot(LuaProxyArgs args) {
+  OnPlayerEquipSpellSlotEvent spell_event = std::any_cast<OnPlayerEquipSpellSlotEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object item = MakeItemOrNil(lua, spell_event.item_index);
+  args.callback(spell_event.player_id, spell_event.slot_id, item, MakeItemOrNil(lua, spell_event.previous_item_index));
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player spawns (initial spawn).
+ *
+ * @version  0.3.0
+ * @name     onPlayerSpawn
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    Player id spawned.
+ * @param    (number) x         X coordinate of spawn.
+ * @param    (number) y         Y coordinate of spawn.
+ * @param    (number) z         Z coordinate of spawn.
+ *
+ */
+void Proxy_OnPlayerSpawn(LuaProxyArgs args) {
+  OnPlayerSpawnEvent player_spawn_event = std::any_cast<OnPlayerSpawnEvent>(args.event);
+  args.callback(player_spawn_event.player_id, player_spawn_event.position.x, player_spawn_event.position.y, player_spawn_event.position.z);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player respawns.
+ *
+ * @version  0.3.0
+ * @name     onPlayerRespawn
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    Player id respawned.
+ * @param    (number) x         X coordinate of respawn.
+ * @param    (number) y         Y coordinate of respawn.
+ * @param    (number) z         Z coordinate of respawn.
+ *
+ */
+void Proxy_OnPlayerRespawn(LuaProxyArgs args) {
+  OnPlayerRespawnEvent player_respawn_event = std::any_cast<OnPlayerRespawnEvent>(args.event);
+  args.callback(player_respawn_event.player_id, player_respawn_event.position.x, player_respawn_event.position.y, player_respawn_event.position.z);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player is spawned for another player (streaming in).
+ *
+ * @version  0.3.0
+ * @name     onPlayerSpawnFor
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    Player id receiving the spawn.
+ * @param    (number) spawn_id     Player id spawned for the receiver.
+ *
+ */
+void Proxy_OnPlayerSpawnFor(LuaProxyArgs args) {
+  OnPlayerSpawnForEvent player_spawn_for_event = std::any_cast<OnPlayerSpawnForEvent>(args.event);
+  args.callback(player_spawn_for_event.player_id, player_spawn_for_event.spawn_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player is unspawned for another player (streaming out).
+ *
+ * @version  0.3.0
+ * @name     onPlayerUnspawnFor
+ * @side     server
+ * @category Player
+ * @param    (number) player_id    Player id losing the spawn.
+ * @param    (number) spawn_id     Player or NPC id removed for the viewer.
+ *
+ */
+void Proxy_OnPlayerUnspawnFor(LuaProxyArgs args) {
+  OnPlayerUnspawnForEvent player_unspawn_for_event = std::any_cast<OnPlayerUnspawnForEvent>(args.event);
+  args.callback(player_unspawn_for_event.player_id, player_unspawn_for_event.spawn_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player is hit.
+ *
+ * @version  0.3.0
+ * @name     onPlayerHit
+ * @side     server
+ * @category Player
+ * @param    (number|nil) attacker_id  Optional attacker id (nil if none).
+ * @param    (number) victim_id     Victim player or NPC id.
+ * @param    (number) damage        Damage to deal. Use [setEventValue](../../shared-functions/event/setEventValue.md)(newDamage) to change it, or
+ * [cancelEvent](../../shared-functions/event/cancelEvent.md)() to prevent it.
+ * @param    (number) damageType    Gothic damage type/mode flags. For more information, see [Damage Constants](../../shared-constants/Damage.md).
+ *
+ */
+void Proxy_OnPlayerHit(LuaProxyArgs args) {
+  OnPlayerHitEvent player_hit_event = std::any_cast<OnPlayerHitEvent>(args.event);
+  sol::state_view lua(args.callback.lua_state());
+  sol::object attacker = player_hit_event.attacker_id.has_value() ? sol::make_object(lua, player_hit_event.attacker_id.value()) : sol::lua_nil;
+  args.callback(attacker, player_hit_event.victim_id, player_hit_event.damage, player_hit_event.damage_type);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when validated voice packets start arriving from a player.
+ *
+ * @version  0.3.0
+ * @name     onPlayerVoiceStart
+ * @side     server
+ * @category Voice
+ * @param    (number) player_id  Speaking player id.
+ *
+ */
+void Proxy_OnPlayerVoiceStart(LuaProxyArgs args) {
+  OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+  args.callback(event.player_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered after a player's validated voice traffic stops.
+ *
+ * @version  0.3.0
+ * @name     onPlayerVoiceStop
+ * @side     server
+ * @category Voice
+ * @param    (number) player_id  Player id.
+ *
+ */
+void Proxy_OnPlayerVoiceStop(LuaProxyArgs args) {
+  OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
+  args.callback(event.player_id);
+}
+
+/* luagmp (event)
+ *
+ * This event is triggered when a player changes voice channels.
+ *
+ * @version  0.3.0
+ * @name     onPlayerVoiceChannelChange
+ * @side     server
+ * @category Voice
+ * @param    (number) player_id    Player id.
+ * @param    (string) old_channel  Previous channel name.
+ * @param    (string) new_channel  New channel name.
+ *
+ */
+void Proxy_OnPlayerVoiceChannelChange(LuaProxyArgs args) {
+  OnPlayerVoiceChannelChangeEvent event = std::any_cast<OnPlayerVoiceChannelChangeEvent>(args.event);
+  args.callback(event.player_id, event.old_channel, event.new_channel);
 }
 
 void RegisterProxies() {
+  kLuaEventProxies[kEventOnNpcCreatedName] = Proxy_OnNpcCreated;
 
-/* luagmp (event)
-*
-* Reports NPC creation at the end of the server tick. The NPC may already be spawned or destroyed.
-*
-* @version  0.3.0
-* @name     onNpcCreated
-* @side     server
-* @category NPC
-* @param    (number) npc_id  Created NPC id.
-*
-*/
-  kLuaEventProxies[kEventOnNpcCreatedName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnNpcCreatedEvent>(args.event);
-    args.callback(event.npc_id);
-  }};
+  kLuaEventProxies[kEventOnNpcDestroyedName] = Proxy_OnNpcDestroyed;
 
-/* luagmp (event)
-*
-* Triggered after a server-owned NPC is destroyed. The id is no longer valid.
-*
-* @version  0.3.0
-* @name     onNpcDestroyed
-* @side     server
-* @category NPC
-* @param    (number) npc_id  Destroyed NPC id.
-*
-*/
-  kLuaEventProxies[kEventOnNpcDestroyedName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnNpcDestroyedEvent>(args.event);
-    args.callback(event.npc_id);
-  }};
+  kLuaEventProxies[kEventOnNpcChangeHostPlayerName] = Proxy_OnNpcChangeHostPlayer;
 
-/* luagmp (event)
-*
-* Triggered when the player responsible for executing an NPC's actions changes.
-*
-* @version  0.3.0
-* @name     onNpcChangeHostPlayer
-* @side     server
-* @category NPC
-* @param    (number) npc_id       NPC id.
-* @param    (number) current_id   New host id, or -1 for no host.
-* @param    (number) previous_id  Previous host id, or -1 for no host.
-*
-*/
-  kLuaEventProxies[kEventOnNpcChangeHostPlayerName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnNpcChangeHostPlayerEvent>(args.event);
-    args.callback(event.npc_id, event.current_id == 0 ? -1 : static_cast<std::int64_t>(event.current_id),
-                  event.previous_id == 0 ? -1 : static_cast<std::int64_t>(event.previous_id));
-  }};
+  kLuaEventProxies[kEventOnNpcActionSentName] = Proxy_OnNpcActionSent;
 
-/* luagmp (event)
-*
-* Triggered when the current action is dispatched to its host. A replay after host migration may emit it again.
-*
-* @version  0.3.0
-* @name     onNpcActionSent
-* @side     server
-* @category NPC
-* @param    (number) npc_id       NPC id.
-* @param    (number) action_type  ACTION_PLAY_ANI.
-* @param    (number) action_id    Dispatched action id.
-*
-*/
-  kLuaEventProxies[kEventOnNpcActionSentName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnNpcActionSentEvent>(args.event);
-    args.callback(event.npc_id, event.action_type, event.action_id);
-  }};
+  kLuaEventProxies[kEventOnNpcActionFinishedName] = Proxy_OnNpcActionFinished;
 
-/* luagmp (event)
-*
-* Triggered when an action leaves the queue through completion, failure, cancellation or timeout.
-*
-* @version  0.3.0
-* @name     onNpcActionFinished
-* @side     server
-* @category NPC
-* @param    (number) npc_id       NPC id.
-* @param    (number) action_type  ACTION_PLAY_ANI.
-* @param    (number) action_id    Finished action id.
-* @param    (boolean) result     True only for successful completion reported by the current host.
-*
-*/
-  kLuaEventProxies[kEventOnNpcActionFinishedName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnNpcActionFinishedEvent>(args.event);
-    args.callback(event.npc_id, event.action_type, event.action_id, event.result);
-  }};
+  kLuaEventProxies[kEventOnTickName] = Proxy_OnTick;
 
-/* luagmp (event)
-*
-* This event is triggered in every server main loop iteration.
-*
-* @version  0.3.0
-* @name     onTick
-* @side     server
-* @category Game
-*
-*/
-  kLuaEventProxies[kEventOnTickName] = {[](LuaProxyArgs args) {
-    std::any_cast<OnTickEvent>(args.event);
-    args.callback();
-  }};
+  kLuaEventProxies[kEventOnClockUpdateName] = Proxy_OnClockUpdate;
 
-/* luagmp (event)
-*
-* This event is triggered every time the server clock updates.
-*
-* @version  0.3.0
-* @name     onClockUpdate
-* @side     server
-* @category Game
-* @param    (number) day           The current ingame day.
-* @param    (number) hour          The current ingame hour.
-* @param    (number) min           The current ingame minute.
-*
-*/
-  kLuaEventProxies[kEventOnClockUpdateName] = {[](LuaProxyArgs args) {
-    OnClockUpdateEvent gametime_event = std::any_cast<OnClockUpdateEvent>(args.event);
-    args.callback(gametime_event.day, gametime_event.hour, gametime_event.min);
-  }};
+  kLuaEventProxies[kEventOnPlayerConnectName] = Proxy_OnPlayerConnect;
 
-/* luagmp (event)
-*
-* This event is triggered when a player connects to the server.
-*
-* @version  0.3.0
-* @name     onPlayerConnect
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player that connected.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerConnectName] = {[](LuaProxyArgs args) {
-    std::uint32_t player_id = std::any_cast<std::uint32_t>(args.event);
-    args.callback(player_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerDisconnectName] = Proxy_OnPlayerDisconnect;
 
-/* luagmp (event)
-*
-* This event is triggered when a player disconnects from the server.
-*
-* @version  0.3.0
-* @name     onPlayerDisconnect
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player that disconnected.
-* @param    (number) reason       The reason why player got disconnected. For more information, see [Network Constants](../../server-constants/Network.md).
-*
-*/
-  kLuaEventProxies[kEventOnPlayerDisconnectName] = {[](LuaProxyArgs args) {
-    OnPlayerDisconnectEvent player_disconnect_event = std::any_cast<OnPlayerDisconnectEvent>(args.event);
-    args.callback(player_disconnect_event.player_id, player_disconnect_event.reason);
-  }};
+  kLuaEventProxies[kEventOnPlayerMessageName] = Proxy_OnPlayerMessage;
 
-/* luagmp (event)
-*
-* This event is triggered when a player sends a chat message.
-*
-* @version  0.3.0
-* @name     onPlayerMessage
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player who sent the message.
-* @param    (string) text         The message text.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerMessageName] = {[](LuaProxyArgs args) {
-    OnPlayerMessageEvent player_message_event = std::any_cast<OnPlayerMessageEvent>(args.event);
-    args.callback(player_message_event.pid, player_message_event.text);
-  }};
+  kLuaEventProxies[kEventOnPlayerCommandName] = Proxy_OnPlayerCommand;
 
-/* luagmp (event)
-*
-* This event is triggered when a player issues a command.
-*
-* @version  0.3.0
-* @name     onPlayerCommand
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player issuing the command.
-* @param    (string) command      The command name.
-* @param    ({...}) params        Command parameters.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerCommandName] = {[](LuaProxyArgs args) {
-    OnPlayerCommandEvent player_command_event = std::any_cast<OnPlayerCommandEvent>(args.event);
-    args.callback(player_command_event.pid, player_command_event.command, player_command_event.params);
-  }};
+  kLuaEventProxies[kEventOnPlayerDeathName] = Proxy_OnPlayerDeath;
 
-/* luagmp (event)
-*
-* This event is triggered when a player dies.
-*
-* @version  0.3.0
-* @name     onPlayerDeath
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player who died.
-* @param    (number|nil) killer_id Optional id of the killer (nil if none).
-*
-*/
-  kLuaEventProxies[kEventOnPlayerDeathName] = {[](LuaProxyArgs args) {
-    OnPlayerDeathEvent player_death_event = std::any_cast<OnPlayerDeathEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object killer = player_death_event.killer_id.has_value() ? sol::make_object(lua, player_death_event.killer_id.value()) : sol::lua_nil;
-    args.callback(player_death_event.player_id, killer);
-  }};
+  kLuaEventProxies[kEventOnPlayerStandUpName] = Proxy_OnPlayerStandUp;
 
-/* luagmp (event)
-*
-* This event is triggered when a player stands up after being unconscious.
-*
-* @version  0.3.0
-* @name     onPlayerStandUp
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player who stood up.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerStandUpName] = {[](LuaProxyArgs args) {
-    OnPlayerStandUpEvent player_standup_event = std::any_cast<OnPlayerStandUpEvent>(args.event);
-    args.callback(player_standup_event.player_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerUnconsciousName] = Proxy_OnPlayerUnconscious;
 
-/* luagmp (event)
-*
-* This event is triggered when a player becomes unconscious.
-*
-* @version  0.3.0
-* @name     onPlayerUnconscious
-* @side     server
-* @category Player
-* @param    (number|nil) attacker_id Optional attacker id (nil if none).
-* @param    (number) victim_id      Victim player id.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerUnconsciousName] = {[](LuaProxyArgs args) {
-    OnPlayerUnconsciousEvent player_unconscious_event = std::any_cast<OnPlayerUnconsciousEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object attacker =
-        player_unconscious_event.attacker_id.has_value() ? sol::make_object(lua, player_unconscious_event.attacker_id.value()) : sol::lua_nil;
-    args.callback(attacker, player_unconscious_event.victim_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerDropItemName] = Proxy_OnPlayerDropItem;
 
-/* luagmp (event)
-*
-* This event is triggered when a player drops an item.
-*
-* @version  0.3.0
-* @name     onPlayerDropItem
-* @side     server
-* @category Player
-* @param    (number) player_id        Player id who dropped the item.
-* @param    (ItemGround) item_ground  Ground item object.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerDropItemName] = {[](LuaProxyArgs args) {
-    OnPlayerDropItemEvent drop_item_event = std::any_cast<OnPlayerDropItemEvent>(args.event);
-    args.callback(drop_item_event.pid, LuaItemGround(drop_item_event.item_ground_id));
-  }};
+  kLuaEventProxies[kEventOnPlayerTakeItemName] = Proxy_OnPlayerTakeItem;
 
-/* luagmp (event)
-*
-* This event is triggered when a player picks up an item.
-*
-* @version  0.3.0
-* @name     onPlayerTakeItem
-* @side     server
-* @category Player
-* @param    (number) player_id        Player id who took the item.
-* @param    (ItemGround) item_ground  Ground item object.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerTakeItemName] = {[](LuaProxyArgs args) {
-    OnPlayerTakeItemEvent take_item_event = std::any_cast<OnPlayerTakeItemEvent>(args.event);
-    args.callback(take_item_event.pid, LuaItemGround(take_item_event.item_ground_id));
-  }};
+  kLuaEventProxies[kEventOnPlayerUseItemName] = Proxy_OnPlayerUseItem;
 
-/* luagmp (event)
-*
-* This event is triggered when the player/npc attempts to use an item.
-*
-* @version  0.3.0
-* @name     onPlayerUseItem
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player/npc using the item.
-* @param    (Item|nil) item          Item definition, or nil for an unknown item.
-* @param    (number) quantity       Amount consumed; zero for a reusable item.
-* @param    (string) scheme         Item use scheme.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerUseItemName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnPlayerUseItemEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    args.callback(event.player_id, MakeItemOrNil(lua, event.item_instance), event.quantity, event.scheme);
-  }};
+  kLuaEventProxies[kEventOnPlayerCastSpellName] = Proxy_OnPlayerCastSpell;
 
-/* luagmp (event)
-*
-* This event is triggered when the player/npc attempts to cast a spell.
-*
-* @version  0.3.0
-* @name     onPlayerCastSpell
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) caster_id    Caster player or server NPC id.
-* @param    (number) spell_id     Spell identifier.
-* @param    (number|nil) target_id Optional target player or server NPC id (nil if none).
-*
-*/
-  kLuaEventProxies[kEventOnPlayerCastSpellName] = {[](LuaProxyArgs args) {
-    OnPlayerCastSpellEvent cast_spell_event = std::any_cast<OnPlayerCastSpellEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object target = cast_spell_event.target_id.has_value() ? sol::make_object(lua, cast_spell_event.target_id.value()) : sol::lua_nil;
-    args.callback(cast_spell_event.caster_id, cast_spell_event.spell_id, target);
-  }};
+  kLuaEventProxies[kEventOnPlayerSummonName] = Proxy_OnPlayerSummon;
 
-/* luagmp (event)
-*
-* This event is triggered when a player summons an NPC using a game's spell.
-*
-* @version  0.3.0
-* @name     onPlayerSummon
-* @side     server
-* @category Player
-* @param    (number) playerId       The id of the player who summoned the NPC.
-* @param    (number) spellId        The id of the spell used to summon the NPC.
-* @param    (string) summonInstance The instance name of the summoned NPC.
-* @param    (number) npcId          The id of the summoned NPC.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerSummonName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnPlayerSummonEvent>(args.event);
-    args.callback(event.player_id, event.spell_id, event.summon_instance, event.npc_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerTeleportName] = Proxy_OnPlayerTeleport;
 
-/* luagmp (event)
-*
-* This event is triggered when a player teleports using a game's spell or teleport trigger.
-*
-* @version  0.3.0
-* @name     onPlayerTeleport
-* @side     server
-* @category Player
-* @note     This event is triggered after the teleport is completed and cannot be cancelled. Calling `setPlayerPosition` does not trigger this event.
-* @param    (number) playerId The id of the player who teleported.
-* @param    (string) vobName  The name of the destination waypoint, freepoint or vob.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerTeleportName] = {[](LuaProxyArgs args) {
-    const auto event = std::any_cast<OnPlayerTeleportEvent>(args.event);
-    args.callback(event.player_id, event.destination);
-  }};
+  kLuaEventProxies[kEventOnPlayerChangeHealthName] = Proxy_OnPlayerChangeHealth;
 
-/* luagmp (event)
-*
-* This event is triggered when player health changes.
-*
-* @version  0.3.0
-* @name     onPlayerChangeHealth
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player whose health points got changed.
-* @param    (number) oldHP        The previous health points of the player.
-* @param    (number) newHP        The new health points of the player.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerChangeHealthName] = {[](LuaProxyArgs args) {
-    OnPlayerChangeHealthEvent health_event = std::any_cast<OnPlayerChangeHealthEvent>(args.event);
-    args.callback(health_event.player_id, health_event.old_hp, health_event.new_hp);
-  }};
+  kLuaEventProxies[kEventOnPlayerChangeManaName] = Proxy_OnPlayerChangeMana;
 
-/* luagmp (event)
-*
-* This event is triggered when player mana changes.
-*
-* @version  0.3.0
-* @name     onPlayerChangeMana
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player whose mana points got changed.
-* @param    (number) previous     The previous mana points of the player.
-* @param    (number) current      The current mana points of the player.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerChangeManaName] = {[](LuaProxyArgs args) {
-    OnPlayerChangeManaEvent mana_event = std::any_cast<OnPlayerChangeManaEvent>(args.event);
-    args.callback(mana_event.player_id, mana_event.previous, mana_event.current);
-  }};
+  kLuaEventProxies[kEventOnPlayerWorldChangeName] = Proxy_OnPlayerWorldChange;
 
-/* luagmp (event)
-*
-* This event is triggered when player tries to change the played world (ZEN).
-*
-* @version  0.3.0
-* @name     onPlayerWorldChange
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player who tries to change the played world.
-* @param    (string) world        The filename of the world.
-* @param    (string) waypoint     The name of the waypoint that the player will be teleported to.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerWorldChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerChangeWorldEvent world_event = std::any_cast<OnPlayerChangeWorldEvent>(args.event);
-    args.callback(world_event.player_id, world_event.world, world_event.waypoint);
-  }};
+  kLuaEventProxies[kEventOnPlayerWorldEnterName] = Proxy_OnPlayerWorldEnter;
 
-/* luagmp (event)
-*
-* This event is triggered when player entered the world and was spawned in it.
-*
-* @version  0.3.0
-* @name     onPlayerWorldEnter
-* @side     server
-* @category Player
-* @param    (number) player_id    The id of the player who entered the world.
-* @param    (string) world        The filename of the world.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerWorldEnterName] = {[](LuaProxyArgs args) {
-    OnPlayerWorldEnterEvent world_event = std::any_cast<OnPlayerWorldEnterEvent>(args.event);
-    args.callback(world_event.player_id, world_event.world);
-  }};
+  kLuaEventProxies[kEventOnPlayerWeaponModeChangeName] = Proxy_OnPlayerWeaponModeChange;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's weapon mode changes.
-*
-* @version  0.3.0
-* @name     onPlayerWeaponModeChange
-* @side     server
-* @category Player
-* @param    (number) player_id  Player id.
-* @param    (number) old_mode   Previous weapon mode. For more information, see [Weapon Mode Constants](../../shared-constants/WeaponMode.md).
-* @param    (number) new_mode   New weapon mode from the same table.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerWeaponModeChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerWeaponModeChangeEvent weapon_mode_event = std::any_cast<OnPlayerWeaponModeChangeEvent>(args.event);
-    args.callback(weapon_mode_event.player_id, weapon_mode_event.old_mode, weapon_mode_event.new_mode);
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipAmuletName] = Proxy_OnPlayerEquipAmulet;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped amulet changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipAmulet
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped amulet item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipAmuletName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipAmuletEvent amulet_event = std::any_cast<OnPlayerEquipAmuletEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, amulet_event.item_index);
-    args.callback(amulet_event.player_id, item, MakeItemOrNil(lua, amulet_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipArmorName] = Proxy_OnPlayerEquipArmor;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped armor changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipArmor
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped armor item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipArmorName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipArmorEvent armor_event = std::any_cast<OnPlayerEquipArmorEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, armor_event.item_index);
-    args.callback(armor_event.player_id, item, MakeItemOrNil(lua, armor_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipBeltName] = Proxy_OnPlayerEquipBelt;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped belt changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipBelt
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped belt item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipBeltName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipBeltEvent belt_event = std::any_cast<OnPlayerEquipBeltEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, belt_event.item_index);
-    args.callback(belt_event.player_id, item, MakeItemOrNil(lua, belt_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipHandItemName] = Proxy_OnPlayerEquipHandItem;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped hand item changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipHandItem
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (number) hand           Hand id (0 = left, 1 = right).
-* @param    (Item|nil) item         Equipped hand item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipHandItemName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipHandItemEvent hand_item_event = std::any_cast<OnPlayerEquipHandItemEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, hand_item_event.item_index);
-    args.callback(hand_item_event.player_id, hand_item_event.hand, item, MakeItemOrNil(lua, hand_item_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipHelmetName] = Proxy_OnPlayerEquipHelmet;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped helmet changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipHelmet
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped helmet item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipHelmetName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipHelmetEvent helmet_event = std::any_cast<OnPlayerEquipHelmetEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, helmet_event.item_index);
-    args.callback(helmet_event.player_id, item, MakeItemOrNil(lua, helmet_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipMeleeWeaponName] = Proxy_OnPlayerEquipMeleeWeapon;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped melee weapon changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipMeleeWeapon
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped melee weapon item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipMeleeWeaponName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipMeleeWeaponEvent melee_weapon_event = std::any_cast<OnPlayerEquipMeleeWeaponEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, melee_weapon_event.item_index);
-    args.callback(melee_weapon_event.player_id, item, MakeItemOrNil(lua, melee_weapon_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipRangedWeaponName] = Proxy_OnPlayerEquipRangedWeapon;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped ranged weapon changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipRangedWeapon
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped ranged weapon item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipRangedWeaponName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipRangedWeaponEvent ranged_weapon_event = std::any_cast<OnPlayerEquipRangedWeaponEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, ranged_weapon_event.item_index);
-    args.callback(ranged_weapon_event.player_id, item, MakeItemOrNil(lua, ranged_weapon_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipRingName] = Proxy_OnPlayerEquipRing;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped ring changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipRing
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (number) ring_slot      Logical ring slot (0 or 1).
-* @param    (Item|nil) item         Equipped ring item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipRingName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipRingEvent ring_event = std::any_cast<OnPlayerEquipRingEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, ring_event.item_index);
-    args.callback(ring_event.player_id, ring_event.ring_slot, item, MakeItemOrNil(lua, ring_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipShieldName] = Proxy_OnPlayerEquipShield;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's equipped shield changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipShield
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (Item|nil) item         Equipped shield item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipShieldName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipShieldEvent shield_event = std::any_cast<OnPlayerEquipShieldEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, shield_event.item_index);
-    args.callback(shield_event.player_id, item, MakeItemOrNil(lua, shield_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerEquipSpellSlotName] = Proxy_OnPlayerEquipSpellSlot;
 
-/* luagmp (event)
-*
-* This event is triggered when a player's active spell slot changes.
-*
-* @version  0.3.0
-* @name     onPlayerEquipSpellSlot
-* @side     server
-* @category Player
-* @note     This event can be cancelled.
-* @param    (number) player_id      Player id.
-* @param    (number) slot_id        Active spell slot id (0 if none).
-* @param    (Item|nil) item         Active spell item (nil if none).
-* @param    (Item|nil) previous_item Previously equipped item.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerEquipSpellSlotName] = {[](LuaProxyArgs args) {
-    OnPlayerEquipSpellSlotEvent spell_event = std::any_cast<OnPlayerEquipSpellSlotEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object item = MakeItemOrNil(lua, spell_event.item_index);
-    args.callback(spell_event.player_id, spell_event.slot_id, item, MakeItemOrNil(lua, spell_event.previous_item_index));
-  }};
+  kLuaEventProxies[kEventOnPlayerSpawnName] = Proxy_OnPlayerSpawn;
 
-/* luagmp (event)
-*
-* This event is triggered when a player spawns (initial spawn).
-*
-* @version  0.3.0
-* @name     onPlayerSpawn
-* @side     server
-* @category Player
-* @param    (number) player_id    Player id spawned.
-* @param    (number) x         X coordinate of spawn.
-* @param    (number) y         Y coordinate of spawn.
-* @param    (number) z         Z coordinate of spawn.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerSpawnName] = {[](LuaProxyArgs args) {
-    OnPlayerSpawnEvent player_spawn_event = std::any_cast<OnPlayerSpawnEvent>(args.event);
-    args.callback(player_spawn_event.player_id, player_spawn_event.position.x, player_spawn_event.position.y, player_spawn_event.position.z);
-  }};
+  kLuaEventProxies[kEventOnPlayerRespawnName] = Proxy_OnPlayerRespawn;
 
-/* luagmp (event)
-*
-* This event is triggered when a player respawns.
-*
-* @version  0.3.0
-* @name     onPlayerRespawn
-* @side     server
-* @category Player
-* @param    (number) player_id    Player id respawned.
-* @param    (number) x         X coordinate of respawn.
-* @param    (number) y         Y coordinate of respawn.
-* @param    (number) z         Z coordinate of respawn.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerRespawnName] = {[](LuaProxyArgs args) {
-    OnPlayerRespawnEvent player_respawn_event = std::any_cast<OnPlayerRespawnEvent>(args.event);
-    args.callback(player_respawn_event.player_id, player_respawn_event.position.x, player_respawn_event.position.y, player_respawn_event.position.z);
-  }};
+  kLuaEventProxies[kEventOnPlayerSpawnForName] = Proxy_OnPlayerSpawnFor;
 
-/* luagmp (event)
-*
-* This event is triggered when a player is spawned for another player (streaming in).
-*
-* @version  0.3.0
-* @name     onPlayerSpawnFor
-* @side     server
-* @category Player
-* @param    (number) player_id    Player id receiving the spawn.
-* @param    (number) spawn_id     Player id spawned for the receiver.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerSpawnForName] = {[](LuaProxyArgs args) {
-    OnPlayerSpawnForEvent player_spawn_for_event = std::any_cast<OnPlayerSpawnForEvent>(args.event);
-    args.callback(player_spawn_for_event.player_id, player_spawn_for_event.spawn_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerUnspawnForName] = Proxy_OnPlayerUnspawnFor;
 
-/* luagmp (event)
-*
-* This event is triggered when a player is unspawned for another player (streaming out).
-*
-* @version  0.3.0
-* @name     onPlayerUnspawnFor
-* @side     server
-* @category Player
-* @param    (number) player_id    Player id losing the spawn.
-* @param    (number) spawn_id     Player id removed for the receiver.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerUnspawnForName] = {[](LuaProxyArgs args) {
-    OnPlayerUnspawnForEvent player_unspawn_for_event = std::any_cast<OnPlayerUnspawnForEvent>(args.event);
-    args.callback(player_unspawn_for_event.player_id, player_unspawn_for_event.spawn_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerHitName] = Proxy_OnPlayerHit;
 
-/* luagmp (event)
-*
-* This event is triggered when a player is hit.
-*
-* @version  0.3.0
-* @name     onPlayerHit
-* @side     server
-* @category Player
-* @param    (number|nil) attacker_id  Optional attacker id (nil if none).
-* @param    (number) victim_id     Victim player id.
-* @param    (number) damage        Damage to deal. Use eventValue(newDamage) to change it, or cancelEvent() to prevent it.
-* @param    (number) damageType    Gothic damage type/mode flags. For more information, see [Damage Constants](../../shared-constants/Damage.md).
-*
-*/
-  kLuaEventProxies[kEventOnPlayerHitName] = {[](LuaProxyArgs args) {
-    OnPlayerHitEvent player_hit_event = std::any_cast<OnPlayerHitEvent>(args.event);
-    sol::state_view lua(args.callback.lua_state());
-    sol::object attacker = player_hit_event.attacker_id.has_value() ? sol::make_object(lua, player_hit_event.attacker_id.value()) : sol::lua_nil;
-    args.callback(attacker, player_hit_event.victim_id, player_hit_event.damage, player_hit_event.damage_type);
-  }};
+  kLuaEventProxies[kEventOnPlayerVoiceStartName] = Proxy_OnPlayerVoiceStart;
 
-/* luagmp (event)
-*
-* This event is triggered when validated voice packets start arriving from a player.
-*
-* @version  0.3.0
-* @name     onPlayerVoiceStart
-* @side     server
-* @category Voice
-* @param    (number) player_id  Speaking player id.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerVoiceStartName] = {[](LuaProxyArgs args) {
-    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
-    args.callback(event.player_id);
-  }};
+  kLuaEventProxies[kEventOnPlayerVoiceStopName] = Proxy_OnPlayerVoiceStop;
 
-/* luagmp (event)
-*
-* This event is triggered after a player's validated voice traffic stops.
-*
-* @version  0.3.0
-* @name     onPlayerVoiceStop
-* @side     server
-* @category Voice
-* @param    (number) player_id  Player id.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerVoiceStopName] = {[](LuaProxyArgs args) {
-    OnPlayerVoiceEvent event = std::any_cast<OnPlayerVoiceEvent>(args.event);
-    args.callback(event.player_id);
-  }};
-
-/* luagmp (event)
-*
-* This event is triggered when a player changes voice channels.
-*
-* @version  0.3.0
-* @name     onPlayerVoiceChannelChange
-* @side     server
-* @category Voice
-* @param    (number) player_id    Player id.
-* @param    (string) old_channel  Previous channel name.
-* @param    (string) new_channel  New channel name.
-*
-*/
-  kLuaEventProxies[kEventOnPlayerVoiceChannelChangeName] = {[](LuaProxyArgs args) {
-    OnPlayerVoiceChannelChangeEvent event = std::any_cast<OnPlayerVoiceChannelChangeEvent>(args.event);
-    args.callback(event.player_id, event.old_channel, event.new_channel);
-  }};
-}
-
-std::optional<std::function<void(LuaProxyArgs)>> GetProxy(std::string event_name) {
-  auto it = kLuaEventProxies.find(event_name);
-  if (it != kLuaEventProxies.end()) {
-    return it->second;
-  }
-
-  if (kCustomEvents.find(event_name) != kCustomEvents.end()) {
-    return {[](LuaProxyArgs args) {
-      LuaCustomEvent custom_event = std::any_cast<LuaCustomEvent>(args.event);
-      sol::state_view lua(args.callback.lua_state());
-      sol::object previous_source = lua["source"];
-      sol::object source_object = sol::make_object(lua, sol::lua_nil);
-      if (custom_event.source_element.has_value()) {
-        source_object = sol::make_object(lua, static_cast<int>(*custom_event.source_element));
-        lua["source"] = source_object;
-      } else {
-        lua["source"] = sol::lua_nil;
-      }
-      std::vector<sol::object> callback_args;
-      callback_args.reserve(custom_event.args.size() + 1);
-      callback_args.emplace_back(std::move(source_object));
-      callback_args.insert(callback_args.end(), custom_event.args.begin(), custom_event.args.end());
-      args.callback(sol::as_args(callback_args));
-      lua["source"] = previous_source;
-    }};
-  }
-
-  return std::nullopt;
+  kLuaEventProxies[kEventOnPlayerVoiceChannelChangeName] = Proxy_OnPlayerVoiceChannelChange;
 }
 
 }  // namespace
 
-void BindEvents(sol::state& lua) {
-  RegisterProxies();
-
-  lua["addEventHandler"] = [&lua](std::string event_name, sol::protected_function lua_callback,
-                                  sol::optional<int> priority_opt) -> bool {
-    SPDLOG_TRACE("addEventHandler({})", event_name);
-
-    auto proxy = GetProxy(event_name);
-    if (!proxy) {
-      SPDLOG_ERROR("addEventHandler: event with name {} doesn't exist!", event_name);
-      return false;
-    }
-
-    auto* resource_manager = ResourceManager::GetActiveInstance();
-    if (resource_manager == nullptr) {
-      SPDLOG_ERROR("addEventHandler called before ResourceManager initialization for event '{}'", event_name);
-      return false;
-    }
-
-    Resource* owner = ResourceManager::GetCurrentResource();
-    if (owner == nullptr) {
-      SPDLOG_ERROR("addEventHandler: no active resource context when subscribing to event '{}'", event_name);
-      return false;
-    }
-
-    std::string owner_name = owner->GetName();
-    int priority = priority_opt.value_or(9999);
-    const void* identity = ::lua::bind_helpers::GetLuaIdentity(lua_callback);
-
-    auto callback = [proxy, lua_callback, owner_name, event_name](std::any event) {
-      auto* manager = ResourceManager::GetActiveInstance();
-      if (manager == nullptr) {
-        SPDLOG_ERROR("Cannot dispatch event '{}' because ResourceManager is unavailable", event_name);
-        return;
-      }
-
-      auto resource_opt = manager->GetResource(owner_name);
-      if (!resource_opt || !resource_opt->get().IsLoaded()) {
-        SPDLOG_DEBUG("Skipping event '{}' for resource '{}' because it is not loaded", event_name, owner_name);
-        return;
-      }
-
-      ResourceManager::ScopedResourceContext ctx(resource_opt->get());
-      LuaProxyArgs args;
-      args.event = event;
-      args.callback = LuaEventCallback(lua_callback, event_name, owner_name);
-      (*proxy)(args);
-    };
-    
-
-    auto handler_id = EventManager::Instance().SubscribeToEventWithPriority(event_name, callback, priority);
-    if (!handler_id) {
-      return false;
-    }
-
-    kHandlerRegistrations[event_name].push_back(HandlerRegistration{identity, *handler_id, owner_name});
-    return true;
-  };
-
-  lua["addEvent"] = [](std::string event_name, sol::optional<bool> allow_remote_trigger) -> bool {
-    SPDLOG_TRACE("addEvent({})", event_name);
-
-    Resource* owner = ResourceManager::GetCurrentResource();
-    if (owner == nullptr) {
-      SPDLOG_ERROR("addEvent: no active resource context when registering event '{}'", event_name);
-      return false;
-    }
-
-    if (!EventManager::Instance().RegisterEvent(event_name)) {
-      return false;
-    }
-
-    kCustomEventOwners[event_name] = owner->GetName();
-    kCustomEvents.insert(event_name);
-    if (allow_remote_trigger.value_or(false)) {
-      kRemoteEvents.insert(event_name);
-    } else {
-      kRemoteEvents.erase(event_name);
-    }
-    return true;
-  };
 /* luagmp (func)
-*
-* This function will treigger a custom client-side event for one or more players and optionally passes arguments.
-*
-* @version  0.3.0
-* @name     triggerClientEvent
-* @side     server
-* @category Network
-* @note     If sendTo is omitted or `nil`, the event is sent to all connected players. If sendTo is a number, it is treated as a single player id. If sendTo is a table, it must contain player ids.
-* @note     You may optionally provide a numeric source element id after the event name, followed by any number of additional arguments to send with the event. 
-* @param    (number|{...}|nil) sendTo Target player id, table of player ids, or nil to send to all players.
-* @param    (string) eventName Name of the client-side event to trigger.
-* @param    (number|nil) sourceElement Optional source element id. Use nil if not needed.
-* @param    (...) ... Optional arguments passed to the client event handler.
-* @return   (boolean) True if the event was sent successfully, otherwise false.
-*
-*/
-  lua["triggerClientEvent"] = [&lua](sol::variadic_args args) -> bool {
-    SPDLOG_TRACE("triggerClientEvent");
-
-    if (args.size() == 0) {
-      SPDLOG_ERROR("triggerClientEvent missing event name");
-      return false;
-    }
-
-    std::optional<sol::object> send_to;
-    std::size_t index = 0;
-    sol::object first = args[0];
-    sol::object event_name_obj;
-
-    if (first.get_type() == sol::type::string) {
-      event_name_obj = first;
-      index = 1;
-    } else if (first.get_type() == sol::type::nil) {
-      send_to = first;
-      if (args.size() < 2) {
-        SPDLOG_ERROR("triggerClientEvent missing event name");
-        return false;
-      }
-      event_name_obj = args[1];
-      index = 2;
-    } else {
-      send_to = first;
-      if (args.size() < 2) {
-        SPDLOG_ERROR("triggerClientEvent missing event name");
-        return false;
-      }
-      event_name_obj = args[1];
-      index = 2;
-    }
-
-    if (event_name_obj.get_type() != sol::type::string) {
-      SPDLOG_ERROR("triggerClientEvent expected event name string");
-      return false;
-    }
-    std::string event_name = event_name_obj.as<std::string>();
-    if (event_name.empty()) {
-      SPDLOG_ERROR("triggerClientEvent called with empty event name");
-      return false;
-    }
-
-    std::uint32_t source_element = 0;
-    if (index < args.size()) {
-      sol::object source_obj = args[index];
-      auto remaining = args.size() - index;
-      if (source_obj.get_type() == sol::type::number && remaining >= 1) {
-        source_element = source_obj.as<std::uint32_t>();
-        index++;
-      } else if (source_obj.get_type() == sol::type::nil) {
-        index++;
-      }
-    }
-
-    std::vector<sol::object> event_args = ::lua::bind_helpers::CopyArguments(lua, args, index);
-
-    std::string payload;
-    std::string error;
-    if (!gmp::lua::EncodeLuaArgs(lua, event_args, payload, error)) {
-      SPDLOG_ERROR("triggerClientEvent failed to encode payload for '{}': {}", event_name, error);
-      return false;
-    }
-
-    std::vector<GameServer::PlayerId> targets;
-    if (!g_server) {
-      SPDLOG_WARN("triggerClientEvent called without an active server");
-      return false;
-    }
-
-    if (!send_to.has_value() || send_to->get_type() == sol::type::nil) {
-      const auto& players = g_server->GetPlayerManager().GetAllPlayers();
-      targets.reserve(players.size());
-      for (const auto& entry : players) {
-        targets.push_back(entry.first);
-      }
-    } else if (send_to->get_type() == sol::type::number) {
-      targets.push_back(send_to->as<std::uint32_t>());
-    } else if (send_to->get_type() == sol::type::table) {
-      sol::table tbl = send_to->as<sol::table>();
-      for (const auto& kv : tbl) {
-        sol::object value = kv.second;
-        if (value.get_type() != sol::type::number) {
-          SPDLOG_ERROR("triggerClientEvent sendTo table must contain player ids");
-          return false;
-        }
-        targets.push_back(value.as<std::uint32_t>());
-      }
-    } else {
-      SPDLOG_ERROR("triggerClientEvent sendTo must be a player id or table of player ids");
-      return false;
-    }
-
-    if (targets.empty()) {
-      SPDLOG_WARN("triggerClientEvent did not target any players");
-      return false;
-    }
-
-    return g_server->TriggerClientEvent(targets, event_name, source_element, payload);
-  };
-
-  lua["callEvent"] = [](std::string event_name, sol::variadic_args args) -> bool {
-    SPDLOG_TRACE("callEvent({})", event_name);
-    if (kCustomEvents.find(event_name) == kCustomEvents.end()) {
-      SPDLOG_ERROR("callEvent: event with name {} doesn't exist!", event_name);
-      return false;
-    }
-
-    LuaCustomEvent event;
-    event.args.reserve(args.size());
-    for (auto arg : args) {
-      event.args.emplace_back(arg);
-    }
-
-    auto result = EventManager::Instance().DispatchEvent(event_name, event);
-    return result.dispatched && !result.cancelled;
-  };
-
-  lua["cancelEvent"] = []() { EventManager::Instance().CancelCurrentEvent(); };
-
-  lua["eventValue"] = [](int event_value) { EventManager::Instance().SetCurrentEventValue(event_value); };
-
-  lua["isEventCancelled"] = []() -> bool { return EventManager::Instance().IsCurrentEventCancelled(); };
-
-  lua["removeEvent"] = [](std::string event_name) {
-    SPDLOG_TRACE("removeEvent({})", event_name);
-    if (kCustomEvents.find(event_name) == kCustomEvents.end()) {
-      SPDLOG_ERROR("removeEvent: event with name {} doesn't exist!", event_name);
-      return;
-    }
-
-    Resource* owner = ResourceManager::GetCurrentResource();
-    auto owner_it = kCustomEventOwners.find(event_name);
-    if (owner_it != kCustomEventOwners.end()) {
-      if (owner == nullptr) {
-        SPDLOG_ERROR("removeEvent: no active resource context when removing event '{}'", event_name);
-        return;
-      }
-
-      if (owner_it->second != owner->GetName()) {
-        SPDLOG_ERROR("removeEvent: resource '{}' does not own event '{}'", owner->GetName(), event_name);
-        return;
-      }
-    }
-
-    EventManager::Instance().UnregisterEvent(event_name);
-    kCustomEvents.erase(event_name);
-    kRemoteEvents.erase(event_name);
-    kCustomEventOwners.erase(event_name);
-    kHandlerRegistrations.erase(event_name);
-  };
-
-  lua["removeEventHandler"] = [](std::string event_name, sol::protected_function lua_callback) -> bool {
-    SPDLOG_TRACE("removeEventHandler({})", event_name);
-
-    auto* resource_manager = ResourceManager::GetActiveInstance();
-    if (resource_manager == nullptr) {
-      SPDLOG_ERROR("removeEventHandler called before ResourceManager initialization for event '{}'", event_name);
-      return false;
-    }
-
-    Resource* owner = ResourceManager::GetCurrentResource();
-    if (owner == nullptr) {
-      SPDLOG_ERROR("removeEventHandler: no active resource context when unsubscribing from event '{}'", event_name);
-      return false;
-    }
-
-    const void* identity = ::lua::bind_helpers::GetLuaIdentity(lua_callback);
-    auto it = kHandlerRegistrations.find(event_name);
-    if (it == kHandlerRegistrations.end()) {
-      return false;
-    }
-
-    auto& handlers = it->second;
-    auto owner_name = owner->GetName();
-    for (auto handler_it = handlers.begin(); handler_it != handlers.end(); ++handler_it) {
-      if (handler_it->identity == identity && handler_it->owner_name == owner_name) {
-        bool removed = EventManager::Instance().UnsubscribeFromEvent(event_name, handler_it->id);
-        handlers.erase(handler_it);
-        return removed;
-      }
-    }
-
+ * Sends payload arguments to a client custom event. The server is the sender; options.sourceId is script metadata.
+ * @name triggerClientEvent
+ * @side server
+ * @category Event
+ * @param (number|table|nil) recipients Player id, array of player ids, or nil for all players.
+ * @param (string) name Remote-enabled client event name.
+ * @param (table|nil) options Metadata {sourceId = positive integer}; pass nil for no metadata.
+ * @param (any...) ... Serializable payload arguments, including nil.
+ * @return (boolean) Whether the event was sent.
+ */
+auto Function_Events_TriggerClientEvent(sol::object recipients, const std::string& name, sol::object options, sol::variadic_args args,
+                                        sol::this_state ts) {
+  sol::state_view lua(ts);
+  if (!g_server || name.empty())
     return false;
-  };
-
-  lua["toggleEvent"] = [](std::string event_name, bool toggle) {
-    SPDLOG_TRACE("toggleEvent({}, {})", event_name, toggle);
-    if (!EventManager::Instance().ToggleEvent(event_name, toggle)) {
-      SPDLOG_ERROR("toggleEvent: event with name {} doesn't exist!", event_name);
-    }
-  };
+  const auto source = gmp::lua::ReadEventSource(options);
+  std::vector<GameServer::PlayerId> targets;
+  if (recipients.get_type() == sol::type::nil) {
+    for (const auto& entry : g_server->GetPlayerManager().GetAllPlayers()) targets.push_back(entry.first);
+  } else if (recipients.get_type() == sol::type::table) {
+    for (const auto& entry : recipients.as<sol::table>()) targets.push_back(gmp::lua::ReadEventId(entry.second));
+  } else {
+    targets.push_back(gmp::lua::ReadEventId(recipients));
+  }
+  if (targets.empty())
+    return false;
+  std::string encoded;
+  std::string error;
+  if (!gmp::lua::EncodeLuaArgs(lua, args, encoded, error)) {
+    SPDLOG_ERROR("triggerClientEvent '{}': {}", name, error);
+    return false;
+  }
+  return g_server->TriggerClientEvent(targets, name, source.value_or(0), encoded);
 }
 
 void RemoveHandlersForResource(const std::string& owner_name) {
-  std::vector<std::string> owned_custom_events;
-  for (const auto& [event_name, event_owner] : kCustomEventOwners) {
-    if (event_owner == owner_name) {
-      owned_custom_events.push_back(event_name);
-    }
-  }
-
-  for (const auto& event_name : owned_custom_events) {
-    EventManager::Instance().UnregisterEvent(event_name);
-    kCustomEvents.erase(event_name);
-    kRemoteEvents.erase(event_name);
-    kCustomEventOwners.erase(event_name);
-    kHandlerRegistrations.erase(event_name);
-  }
-
-  for (auto it = kHandlerRegistrations.begin(); it != kHandlerRegistrations.end();) {
-    auto& event_name = it->first;
-    auto& handlers = it->second;
-    for (auto handler_it = handlers.begin(); handler_it != handlers.end();) {
-      if (handler_it->owner_name == owner_name) {
-        EventManager::Instance().UnsubscribeFromEvent(event_name, handler_it->id);
-        handler_it = handlers.erase(handler_it);
-      } else {
-        ++handler_it;
-      }
-    }
-
-    if (handlers.empty()) {
-      it = kHandlerRegistrations.erase(it);
-    } else {
-      ++it;
-    }
-  }
+  kEventBindings.RemoveHandlersForOwner(owner_name);
 }
 
-bool TriggerRemoteEvent(sol::state_view lua, const std::string& event_name, std::uint32_t source_element,
+bool TriggerRemoteEvent(sol::state_view lua, const std::string& event_name, std::uint32_t sender_player_id, std::uint32_t source_element,
                         const std::vector<sol::object>& args) {
   (void)lua;
-  if (kCustomEvents.find(event_name) == kCustomEvents.end()) {
-    SPDLOG_ERROR("Remote event '{}' is not registered on the server", event_name);
-    return false;
-  }
-  if (kRemoteEvents.find(event_name) == kRemoteEvents.end()) {
-    SPDLOG_WARN("Remote event '{}' is not allowed for server triggering", event_name);
-    return false;
-  }
-
-  LuaCustomEvent event;
-  event.args = args;
-  if (source_element != 0) {
-    event.source_element = source_element;
-  }
-
-  auto result = EventManager::Instance().DispatchEvent(event_name, event);
-  return result.dispatched && !result.cancelled;
+  ::gmp::lua::EventMetadata metadata;
+  metadata.sender_player_id = sender_player_id;
+  if (source_element != 0)
+    metadata.source_element = source_element;
+  return kEventBindings.TriggerRemoteEvent(event_name, metadata, args);
 }
+
+void BindEvents(sol::state& lua) {
+  RegisterProxies();
+  ::gmp::lua::BindCommonEvents(lua, kEventBindings);
+  lua["triggerClientEvent"] = Function_Events_TriggerClientEvent;
+}
+
 }  // namespace bindings
 }  // namespace lua

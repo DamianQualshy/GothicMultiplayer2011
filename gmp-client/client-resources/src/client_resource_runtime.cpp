@@ -294,7 +294,7 @@ bool ClientResourceRuntime::ExecuteEntryPoints(ResourceInstance& instance, std::
     if (!chunk.valid()) {
       sol::error err = chunk;
       ::lua::diagnostics::LogSyntaxError(err.what(), {instance.name, "loading entrypoint", entrypoint});
-      error_message = fmt::format("Resource '{}': failed to load entrypoint '{}'", instance.name, entrypoint);
+      error_message = fmt::format("Resource '{}': failed to load entrypoint '{}': {}", instance.name, entrypoint, err.what());
       return false;
     }
 
@@ -318,7 +318,7 @@ bool ClientResourceRuntime::ExecuteEntryPoints(ResourceInstance& instance, std::
     if (!result.valid()) {
       sol::error err = result;
       ::lua::diagnostics::LogRuntimeError(err.what(), {instance.name, "executing entrypoint", entrypoint});
-      error_message = fmt::format("Resource '{}': failed to execute entrypoint '{}'", instance.name, entrypoint);
+      error_message = fmt::format("Resource '{}': failed to execute entrypoint '{}': {}", instance.name, entrypoint, err.what());
       return false;
     }
     CaptureLifecycleHooks(instance);

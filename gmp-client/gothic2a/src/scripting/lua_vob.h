@@ -28,9 +28,8 @@ SOFTWARE.
 #include <string>
 
 #include "Shared/lua_runtime/lua_math.h"
-#include "sol/sol.hpp"
-
 #include "ZenGin/zGothicAPI.h"
+#include "sol/sol.hpp"
 
 namespace gmp::gothic {
 
@@ -42,8 +41,8 @@ public:
   std::string getObjectName() const;
   void setObjectName(const std::string& name);
 
-  ::lua::types::Mat4 getMatrix() const;
-  void setMatrix(const ::lua::types::Mat4& matrix);
+  ::lua::types::Mat4 getWorldTransform() const;
+  void setWorldTransform(const ::lua::types::Mat4& matrix);
 
   sol::object getParent(sol::this_state ts) const;
   void setParent(sol::optional<LuaVob> parent);
@@ -65,8 +64,8 @@ public:
 
   void setPosition(float x, float y, float z);
   sol::table getPosition(sol::this_state s) const;
-  void setRotation(float x, float y, float z);
-  sol::table getRotation(sol::this_state s) const;
+  void setRotationDegrees(float x, float y, float z);
+  sol::table getRotationDegrees(sol::this_state s) const;
 
   void addToWorld(sol::optional<LuaVob> parent);
   void removeFromWorld();

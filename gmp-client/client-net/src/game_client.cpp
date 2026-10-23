@@ -173,7 +173,7 @@ void GameClient::InitPacketHandlers() {
   packet_handlers_[PT_ACTOR_DAMAGE] = [this](Packet p) { OnActorDamage(p); };
   packet_handlers_[PT_ITEM_TRANSACTION_RESULT] = [this](Packet p) { OnItemTransactionResult(p); };
   packet_handlers_[PT_MSG] = [this](Packet p) { OnMessage(p); };
-  packet_handlers_[PT_PLAYER_SPAWN] = [this](Packet p) { OnPlayerSpawn(p); };
+  packet_handlers_[PT_PLAYER_SPAWN] = [this](Packet p) { OnCharacterSpawn(p); };
   packet_handlers_[PT_NPC_SPAWN] = [this](Packet p) { OnNpcSpawn(p); };
   packet_handlers_[PT_NPC_CONTROL] = [this](Packet p) { OnNpcControl(p); };
   packet_handlers_[PT_NPC_ANIMATION] = [this](Packet p) { OnNpcAnimation(p); };
@@ -1393,7 +1393,7 @@ void GameClient::OnMessage(Packet p) {
   event_observer_.OnPlayerMessage(packet.sender, packet.r, packet.g, packet.b, packet.message);
 }
 
-void GameClient::OnPlayerSpawn(Packet p) {
+void GameClient::OnCharacterSpawn(Packet p) {
   PlayerSpawnPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);

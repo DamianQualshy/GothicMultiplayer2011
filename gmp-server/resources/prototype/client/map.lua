@@ -6,7 +6,7 @@ local Map = {
   currentConfig = nil
 }
 
-local mapTexture = Texture.new(0, 0, Map.textureSize, Map.textureSize, 'MAP_NEWWORLD.TGA')
+local mapTexture = Sprite.new(0, 0, Map.textureSize, Map.textureSize, 'MAP_NEWWORLD.TGA')
 mapTexture:setVisible(false)
 
 local mapConfigs = {
@@ -112,7 +112,7 @@ end
 local function getMarkerDraw(index)
   local marker = Map.markerDraws[index]
   if marker == nil then
-    marker = Draw.new(0, 0, '')
+    marker = Label.new(0, 0, '')
     marker:setFont(Map.markerFont)
     marker:setColor(255, 255, 255)
     marker:setVisible(false)

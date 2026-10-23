@@ -30,9 +30,8 @@ SOFTWARE.
 #include <unordered_set>
 
 #include "ZenGin/zGothicAPI.h"
-#include "sol/sol.hpp"
-
 #include "lua_vob.h"
+#include "sol/sol.hpp"
 
 namespace gmp::gothic {
 
@@ -54,7 +53,7 @@ public:
   std::string getFile() const;
   void setFile(const std::string& filename);
 
-  float getPlayingTime() const;
+  float getDuration() const;
 
   float getVolume() const;
   void setVolume(float volume);
@@ -87,11 +86,7 @@ public:
   void setTargetVobValue(sol::object value);
 
 private:
-  enum class TargetKind {
-    None,
-    Vob,
-    Player
-  };
+  enum class TargetKind { None, Vob, Player };
 
   void ReloadSound();
   void StopIfNeeded();

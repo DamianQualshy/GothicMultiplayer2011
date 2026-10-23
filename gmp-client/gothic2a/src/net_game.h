@@ -34,6 +34,8 @@ SOFTWARE.
 
 #include "CSyncFuncs.h"
 #include "HooksManager.h"
+#include "VoiceCapture.h"
+#include "VoicePlayback.h"
 #include "ZenGin/zGothicAPI.h"
 #include "client_resources/client_resource_runtime.h"
 #include "content/content_transition_manager.h"
@@ -41,8 +43,6 @@ SOFTWARE.
 #include "game_client.hpp"
 #include "gothic2a_player.hpp"
 #include "gothic_task_scheduler.h"
-#include "VoiceCapture.h"
-#include "VoicePlayback.h"
 
 struct MD5Sum {
   BYTE data[16];

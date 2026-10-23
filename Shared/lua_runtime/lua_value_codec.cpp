@@ -24,12 +24,11 @@ SOFTWARE.
 
 #include "Shared/lua_runtime/lua_value_codec.h"
 
-#include "Shared/lua_runtime/bind_helpers.h"
-
 #include <nlohmann/json.hpp>
-
 #include <string>
 #include <unordered_set>
+
+#include "Shared/lua_runtime/bind_helpers.h"
 
 namespace gmp::lua {
 

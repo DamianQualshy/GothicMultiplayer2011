@@ -61,7 +61,7 @@ LuaCursor::LuaCursor()
       height_(lua_helpers::kCursorDefaultSizePx) {
   EnsureView();
   setSizePx(lua_helpers::kCursorDefaultSizePx, lua_helpers::kCursorDefaultSizePx);
-  setTexture(texture_name_);
+  setTextureFile(texture_name_);
 }
 
 LuaCursor::~LuaCursor() {
@@ -278,7 +278,7 @@ sol::table LuaCursor::getSizePx(sol::this_state s) const {
   return MakeSizeTable(s, true);
 }
 
-void LuaCursor::setTexture(const std::string& file) {
+void LuaCursor::setTextureFile(const std::string& file) {
   texture_name_ = file;
   zSTRING fileString(file.c_str());
   texture_ = zCTexture::Load(fileString, 0);
@@ -287,7 +287,7 @@ void LuaCursor::setTexture(const std::string& file) {
   }
 }
 
-std::string LuaCursor::getTexture() const {
+std::string LuaCursor::getTextureFile() const {
   return texture_name_;
 }
 
@@ -319,7 +319,7 @@ float LuaCursor::getSensitivity() const {
   return sensitivity_;
 }
 
-bool LuaCursor::isButtonPressed(int button) const {
+bool LuaCursor::isButtonDown(int button) const {
   if (!zinput || button < 0 || static_cast<std::size_t>(button) >= lua_helpers::kCursorMouseButtonCodes.size()) {
     return false;
   }

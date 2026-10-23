@@ -24,11 +24,11 @@ SOFTWARE.
 
 #include "item_ground.h"
 
+#include <spdlog/spdlog.h>
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
-
-#include <spdlog/spdlog.h>
 
 #include "gothic_events.h"
 #include "lua_helpers.h"
@@ -66,62 +66,48 @@ float DistanceSquared(oCItem* item, const glm::vec3& position) {
 }  // namespace
 
 /* luagmp (class)
-*
-* Represents a synchronized server-side ground item visible on the client.
-*
-* @version  0.3.0
-* @name     ItemGround
-* @side     client
-* @category Item
-*
-*/
-LuaItemGround::LuaItemGround(std::uint32_t id) : id_(id) {}
+ *
+ * Represents a synchronized server-side ground item visible on the client.
+ *
+ * @version  0.3.0
+ * @name     ItemGround
+ * @side     client
+ * @category Item
+ *
+ */
+LuaItemGround::LuaItemGround(std::uint32_t id) : id_(id) {
+}
 
 /* luagmp (property)
-*
-* Represents the unique ground item id.
-*
-* @name     id
-* @return   (number)
-*
-*/
+ *
+ * Represents the unique ground item id.
+ *
+ * @name     id
+ * @return   (number)
+ */
 std::uint32_t LuaItemGround::getId() const {
   return id_;
 }
 
 /* luagmp (property)
-*
-* Represents the Gothic item instance name. Alias of instance.
-*
-* @name     item
-* @return   (string)
-*
-*/
-std::string LuaItemGround::getItem() const {
-  return getInstance();
-}
-
-/* luagmp (property)
-*
-* Represents the Gothic item instance name.
-*
-* @name     instance
-* @return   (string)
-*
-*/
+ *
+ * Represents the Gothic item instance name.
+ *
+ * @name     instance
+ * @return   (string)
+ */
 std::string LuaItemGround::getInstance() const {
   auto* item_ground = ClientItemGroundManager::Instance().GetById(id_);
   return item_ground ? item_ground->instance : std::string{};
 }
 
 /* luagmp (property)
-*
-* Represents the item amount.
-*
-* @name     amount
-* @return   (number)
-*
-*/
+ *
+ * Represents the item amount.
+ *
+ * @name     amount
+ * @return   (number)
+ */
 std::int32_t LuaItemGround::getAmount() const {
   auto* item_ground = ClientItemGroundManager::Instance().GetById(id_);
   return item_ground ? item_ground->amount : 0;
@@ -137,8 +123,7 @@ void ClientItemGroundManager::RememberPendingTake(std::int32_t instance_id, std:
     return;
   }
 
-  pending_takes_by_instance_[instance_id].push_back(
-      PendingInventoryAdd{instance_id, amount, std::max<std::int32_t>(0, previous_amount)});
+  pending_takes_by_instance_[instance_id].push_back(PendingInventoryAdd{instance_id, amount, std::max<std::int32_t>(0, previous_amount)});
 }
 
 std::optional<ClientItemGroundManager::PendingInventoryAdd> ClientItemGroundManager::ConsumePendingTake(std::int32_t instance_id) {
@@ -155,8 +140,8 @@ std::optional<ClientItemGroundManager::PendingInventoryAdd> ClientItemGroundMana
   return pending;
 }
 
-void ClientItemGroundManager::Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount,
-                                     bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {
+void ClientItemGroundManager::Upsert(std::uint32_t id, const std::string& instance, std::int32_t amount, bool physics_enabled,
+                                     const glm::vec3& position, const glm::vec3& rotation) {
   if (id == 0 || instance.empty()) {
     return;
   }
@@ -174,8 +159,7 @@ void ClientItemGroundManager::Upsert(std::uint32_t id, const std::string& instan
     item_ground.item = FindExistingItem(item_ground.instance, item_ground.position);
   }
   if (item_ground.item == nullptr) {
-    item_ground.item = CreateItem(item_ground.instance, item_ground.amount, item_ground.physics_enabled, item_ground.position,
-                                  item_ground.rotation);
+    item_ground.item = CreateItem(item_ground.instance, item_ground.amount, item_ground.physics_enabled, item_ground.position, item_ground.rotation);
   } else {
     ApplyTransform(item_ground.item, item_ground.amount, item_ground.physics_enabled, item_ground.position, item_ground.rotation);
   }
@@ -255,8 +239,8 @@ void ClientItemGroundManager::RefreshPending() {
 
     item_ground.item = FindExistingItem(item_ground.instance, item_ground.position);
     if (item_ground.item == nullptr) {
-      item_ground.item = CreateItem(item_ground.instance, item_ground.amount, item_ground.physics_enabled, item_ground.position,
-                                    item_ground.rotation);
+      item_ground.item =
+          CreateItem(item_ground.instance, item_ground.amount, item_ground.physics_enabled, item_ground.position, item_ground.rotation);
     } else {
       ApplyTransform(item_ground.item, item_ground.amount, item_ground.physics_enabled, item_ground.position, item_ground.rotation);
     }
@@ -326,8 +310,8 @@ oCItem* ClientItemGroundManager::FindExistingItem(const std::string& instance, c
   return best_item;
 }
 
-oCItem* ClientItemGroundManager::CreateItem(const std::string& instance, std::int32_t amount, bool physics_enabled,
-                                            const glm::vec3& position, const glm::vec3& rotation) const {
+oCItem* ClientItemGroundManager::CreateItem(const std::string& instance, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
+                                            const glm::vec3& rotation) const {
   if (ogame == nullptr || ogame->GetGameWorld() == nullptr || zfactory == nullptr || zCParser::GetParser() == nullptr) {
     return nullptr;
   }
@@ -350,16 +334,15 @@ oCItem* ClientItemGroundManager::CreateItem(const std::string& instance, std::in
   return item;
 }
 
-void ClientItemGroundManager::ApplyTransform(oCItem* item, std::int32_t amount, bool physics_enabled,
-                                             const glm::vec3& position, const glm::vec3& rotation) const {
+void ClientItemGroundManager::ApplyTransform(oCItem* item, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
+                                             const glm::vec3& rotation) const {
   if (item == nullptr) {
     return;
   }
 
   item->amount = std::max<std::int32_t>(1, amount);
   zMAT4 matrix = item->GetNewTrafoObjToWorld();
-  matrix.SetByEulerAngles(
-      lua_helpers::LuaRotationToGothicEuler(zVEC3(rotation.x, rotation.y, rotation.z)));
+  matrix.SetByEulerAngles(lua_helpers::LuaRotationToGothicEuler(zVEC3(rotation.x, rotation.y, rotation.z)));
   matrix.SetTranslation(zVEC3(position.x, position.y, position.z));
   item->SetTrafoObjToWorld(matrix);
   ApplyPhysicsState(item, physics_enabled);
@@ -377,28 +360,48 @@ void ClientItemGroundManager::ApplyPhysicsState(oCItem* item, bool physics_enabl
   }
 }
 
-/* luagmp (class)
-*
-* Provides client-side lookup for synchronized ground items visible in the current world.
-*
-* @version  0.3.0
-* @name     ItemGroundManager
-* @side     client
-* @category Item
-*
-*/
 /* luagmp (method)
-*
-* Returns a synchronized ground item by id.
-*
-* @version  0.3.0
-* @name     getById
-* @side     client
-* @category Item
-* @param    (number) id        Ground item id.
-* @return   (ItemGround|nil)   Ground item object or nil if missing.
-*
-*/
+ * Checks whether this handle still refers to an existing synchronized ground item.
+ * @name isValid
+ * @return (boolean) True while the item exists.
+ */
+bool LuaItemGround::isValid() const {
+  return ClientItemGroundManager::Instance().GetById(id_) != nullptr;
+}
+
+/* luagmp (property)
+ * ItemDefinition definitions are currently available on the server only.
+ * @name definition
+ * @return (nil)
+ */
+sol::object LuaItemGround::getDefinition(sol::this_state state) const {
+  return sol::make_object(sol::state_view(state), sol::nil);
+}
+
+/* luagmp (class)
+ *
+ * Provides client-side lookup for synchronized ground items visible in the current world.
+ *
+ * @version  0.3.0
+ * @name     ItemGroundManager
+ * @side     client
+ * @category Item
+ *
+ * @static
+ */
+/* luagmp (method)
+ *
+ * Returns a synchronized ground item by id.
+ *
+ * @version  0.3.0
+ * @name     getById
+ * @side     client
+ * @category Item
+ * @param    (number) id        Ground item id.
+ * @return   (ItemGround|nil)   Ground item object or nil if missing.
+ *
+ * @static
+ */
 sol::object Function_ItemGround_GetById(std::uint32_t id, sol::this_state state) {
   sol::state_view lua(state);
   if (ClientItemGroundManager::Instance().GetById(id) == nullptr) {
@@ -408,18 +411,19 @@ sol::object Function_ItemGround_GetById(std::uint32_t id, sol::this_state state)
 }
 
 /* luagmp (method)
-*
-* Returns the first synchronized ground item with the given item instance.
-*
-* @version  0.3.0
-* @name     getByItem
-* @side     client
-* @category Item
-* @param    (string) instance  Gothic item instance name.
-* @return   (ItemGround|nil)   Ground item object or nil if missing.
-*
-*/
-sol::object Function_ItemGround_GetByItem(const std::string& instance, sol::this_state state) {
+ *
+ * Returns the first synchronized ground item with the given item instance.
+ *
+ * @version  0.3.0
+ * @name     findByInstance
+ * @side     client
+ * @category Item
+ * @param    (string) instance  Gothic item instance name.
+ * @return   (ItemGround|nil)   Ground item object or nil if missing.
+ *
+ * @static
+ */
+sol::object Function_ItemGround_FindByInstance(const std::string& instance, sol::this_state state) {
   sol::state_view lua(state);
   for (const auto& [id, item_ground] : ClientItemGroundManager::Instance().Items()) {
     if (item_ground.instance == instance) {
@@ -432,12 +436,14 @@ sol::object Function_ItemGround_GetByItem(const std::string& instance, sol::this
 void BindItemGround(sol::state& lua) {
   auto item_ground_type = lua.new_usertype<LuaItemGround>("ItemGround", sol::no_constructor);
   item_ground_type["id"] = sol::property(&LuaItemGround::getId);
-  item_ground_type["item"] = sol::property(&LuaItemGround::getItem);
+  // Definitions are currently server-only. Keep instance a string on both sides.
+  item_ground_type["definition"] = sol::property(&LuaItemGround::getDefinition);
+  item_ground_type["isValid"] = &LuaItemGround::isValid;
   item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
   item_ground_type["amount"] = sol::property(&LuaItemGround::getAmount);
   sol::table manager = lua.create_table();
   manager["getById"] = Function_ItemGround_GetById;
-  manager["getByItem"] = Function_ItemGround_GetByItem;
+  manager["findByInstance"] = Function_ItemGround_FindByInstance;
   lua["ItemGroundManager"] = manager;
 }
 

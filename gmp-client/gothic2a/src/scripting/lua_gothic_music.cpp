@@ -22,16 +22,16 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 */
 
-#include "lua_music_theme.h"
+#include "lua_gothic_music.h"
 
-#include "ZenGin/zGothicAPI.h"
 #include "Shared/lua_runtime/bind_helpers.h"
+#include "ZenGin/zGothicAPI.h"
 
 using namespace Gothic_II_Addon;
 
 namespace gmp::gothic {
 namespace {
-struct MusicThemeState {
+struct GothicMusicState {
   zCMusicTheme* theme{nullptr};
   std::string file_name;
   float volume{zMUS_THEME_VOL_DEFAULT};
@@ -51,8 +51,8 @@ struct MusicThemeState {
   bool name_overridden{false};
 };
 
-MusicThemeState& State() {
-  static MusicThemeState state;
+GothicMusicState& State() {
+  static GothicMusicState state;
   return state;
 }
 
@@ -267,26 +267,26 @@ std::string GetNameRaw() {
 }  // namespace
 
 /* luagmp (class)
-*
-* Static access to the engine music theme system.
-*
-* @version  0.3.0
-* @name     MusicTheme
-* @side     client
-* @category Game
-*
-*/
+ *
+ * Singleton controlling the native Gothic music theme system. Call its methods with colon syntax.
+ *
+ * @version  0.3.0
+ * @name     GothicMusic
+ * @side     client
+ * @category Game
+ *
+ */
 
 /* luagmp (method)
-*
-* Loads a music theme by script name, falling back to a raw file name.
-*
-* @name     loadTheme
-* @param    (string) fileName    Theme script name or file name.
-* @return   (boolean)            True if the theme was loaded.
-*
-*/
-bool LuaMusicTheme::loadTheme(const std::string& file_name) {
+ *
+ * Loads a music theme by script name, falling back to a raw file name.
+ *
+ * @name     loadTheme
+ * @param    (string) fileName    Theme script name or file name.
+ * @return   (boolean)            True if the theme was loaded.
+ *
+ */
+bool LuaGothicMusic::loadTheme(const std::string& file_name) {
   auto& state = State();
   state.file_name = file_name;
   state.file_name_overridden = false;
@@ -294,14 +294,14 @@ bool LuaMusicTheme::loadTheme(const std::string& file_name) {
 }
 
 /* luagmp (method)
-*
-* Plays the currently loaded theme.
-*
-* @name     playTheme
-* @return   (boolean) True if playback was started.
-*
-*/
-bool LuaMusicTheme::playTheme() {
+ *
+ * Plays the currently loaded theme.
+ *
+ * @name     playTheme
+ * @return   (boolean) True if playback was started.
+ *
+ */
+bool LuaGothicMusic::playTheme() {
   auto& state = State();
   if (!state.theme && !LoadThemeFromState()) {
     return false;
@@ -320,91 +320,95 @@ bool LuaMusicTheme::playTheme() {
 }
 
 /* luagmp (method)
-*
-* Stops music theme playback.
-*
-* @name     stopTheme
-*
-*/
-void LuaMusicTheme::stopTheme() {
+ *
+ * Stops music theme playback.
+ *
+ * @name     stopTheme
+ *
+ */
+void LuaGothicMusic::stopTheme() {
   if (zmusic) {
     zmusic->Stop();
   }
 }
 
 /* luagmp (property)
-*
-* Represents the loaded theme file name.
-*
-* @name     fileName
-* @return   (string) Theme file name.
-*
-*/
-std::string LuaMusicTheme::getFileName() {
+ *
+ * Represents the loaded theme file name.
+ *
+ * @name     fileName
+ * @return   (string)
+ *
+ */
+std::string LuaGothicMusic::getFileName() {
   return GetFileNameRaw();
 }
 
-void LuaMusicTheme::setFileName(const std::string& file_name) {
+/// Assigns the fileName property using the same value format as its getter.
+void LuaGothicMusic::setFileName(const std::string& file_name) {
   SetFileNameRaw(file_name);
 }
 
 /* luagmp (property)
-*
-* Represents the theme volume.
-*
-* @name     volume
-* @return   (number) Theme volume.
-*
-*/
-float LuaMusicTheme::getVolume() {
+ *
+ * Represents the theme volume.
+ *
+ * @name     volume
+ * @return   (number)
+ *
+ */
+float LuaGothicMusic::getVolume() {
   return GetVolumeRaw();
 }
 
-void LuaMusicTheme::setVolume(float volume) {
+/// Assigns the volume property using the same value format as its getter.
+void LuaGothicMusic::setVolume(float volume) {
   SetVolumeRaw(volume);
 }
 
 /* luagmp (property)
-*
-* Represents whether the theme should loop.
-*
-* @name     loop
-* @return   (boolean) True if looping is enabled.
-*
-*/
-bool LuaMusicTheme::getLoop() {
+ *
+ * Represents whether the theme should loop.
+ *
+ * @name     looping
+ * @return   (boolean)
+ *
+ */
+bool LuaGothicMusic::getLooping() {
   return GetLoopRaw();
 }
 
-void LuaMusicTheme::setLoop(bool loop) {
+/// Assigns the looping property using the same value format as its getter.
+void LuaGothicMusic::setLooping(bool loop) {
   SetLoopRaw(loop);
 }
 
 /* luagmp (property)
-*
-* Represents whether the engine music system is disabled.
-*
-* @name     disabled
-* @return   (boolean) True if music is disabled.
-*
-*/
-bool LuaMusicTheme::getDisabled() {
-  return zCMusicSystem::s_musicSystemDisabled != 0;
+ *
+ * Represents whether the engine music system is enabled.
+ *
+ * @name     enabled
+ * @return   (boolean)
+ *
+ */
+bool LuaGothicMusic::getEnabled() {
+  return zCMusicSystem::s_musicSystemDisabled == 0;
 }
 
-void LuaMusicTheme::setDisabled(bool disabled) {
-  zCMusicSystem::DisableMusicSystem(disabled ? 1 : 0);
+/// Assigns the enabled property using the same value format as its getter.
+void LuaGothicMusic::setEnabled(bool enabled) {
+  zCMusicSystem::DisableMusicSystem(enabled ? 0 : 1);
 }
 
 /* luagmp (property)
-*
-* Represents the active engine music theme name or file name.
-*
-* @name     activeTheme
-* @return   (string|nil) Active theme identifier.
-*
-*/
-sol::object LuaMusicTheme::getActiveTheme(sol::this_state ts) {
+ *
+ * Represents the active engine music theme name or file name.
+ *
+ * @name     activeThemeName
+ * @return   (string|nil)
+ *
+ */
+sol::object LuaGothicMusic::getActiveThemeName(sol::this_state ts) {
   sol::state_view lua(ts);
   zCMusicTheme* active = zmusic ? zmusic->GetActiveTheme() : nullptr;
   if (!active) {
@@ -414,120 +418,110 @@ sol::object LuaMusicTheme::getActiveTheme(sol::this_state ts) {
   return sol::make_object(lua, ThemeName(active));
 }
 
-void LuaMusicTheme::setActiveTheme(sol::object value) {
-  if (value.get_type() == sol::type::nil) {
-    stopTheme();
-    return;
-  }
-
-  if (value.is<std::string>()) {
-    loadTheme(value.as<std::string>());
-    playTheme();
-  }
-}
-
 /* luagmp (property)
-*
-* Represents the theme reverb mix.
-*
-* @name     reverbMix
-* @return   (number) Reverb mix.
-*
-*/
-float LuaMusicTheme::getReverbMix() {
+ *
+ * Represents the theme reverb mix.
+ *
+ * @name     reverbMix
+ * @return   (number)
+ *
+ */
+float LuaGothicMusic::getReverbMix() {
   return GetReverbMixRaw();
 }
 
-void LuaMusicTheme::setReverbMix(float value) {
+/// Assigns the reverbMix property using the same value format as its getter.
+void LuaGothicMusic::setReverbMix(float value) {
   SetReverbMixRaw(value);
 }
 
 /* luagmp (property)
-*
-* Represents the theme reverb time.
-*
-* @name     reverbTime
-* @return   (number) Reverb time.
-*
-*/
-float LuaMusicTheme::getReverbTime() {
+ *
+ * Represents the theme reverb time.
+ *
+ * @name     reverbTime
+ * @return   (number)
+ *
+ */
+float LuaGothicMusic::getReverbTime() {
   return GetReverbTimeRaw();
 }
 
-void LuaMusicTheme::setReverbTime(float value) {
+/// Assigns the reverbTime property using the same value format as its getter.
+void LuaGothicMusic::setReverbTime(float value) {
   SetReverbTimeRaw(value);
 }
 
 /* luagmp (property)
-*
-* Represents the theme transition type.
-*
-* @name     transType
-* @return   (number) Transition type.
-*
-*/
-int LuaMusicTheme::getTransType() {
+ *
+ * Represents the theme transition type.
+ *
+ * @name     transType
+ * @return   (number)
+ *
+ */
+int LuaGothicMusic::getTransType() {
   return GetTransTypeRaw();
 }
 
-void LuaMusicTheme::setTransType(int value) {
+/// Assigns the transType property using the same value format as its getter.
+void LuaGothicMusic::setTransType(int value) {
   SetTransTypeRaw(value);
 }
 
 /* luagmp (property)
-*
-* Represents the theme transition subtype.
-*
-* @name     transSubType
-* @return   (number) Transition subtype.
-*
-*/
-int LuaMusicTheme::getTransSubType() {
+ *
+ * Represents the theme transition subtype.
+ *
+ * @name     transSubType
+ * @return   (number)
+ *
+ */
+int LuaGothicMusic::getTransSubType() {
   return GetTransSubTypeRaw();
 }
 
-void LuaMusicTheme::setTransSubType(int value) {
+/// Assigns the transSubType property using the same value format as its getter.
+void LuaGothicMusic::setTransSubType(int value) {
   SetTransSubTypeRaw(value);
 }
 
 /* luagmp (property)
-*
-* Represents the theme script name.
-*
-* @name     name
-* @return   (string) Theme name.
-*
-*/
-std::string LuaMusicTheme::getName() {
+ *
+ * Represents the theme script name.
+ *
+ * @name     name
+ * @return   (string)
+ *
+ */
+std::string LuaGothicMusic::getName() {
   return GetNameRaw();
 }
 
-void LuaMusicTheme::setName(const std::string& name) {
+/// Assigns the name property using the same value format as its getter.
+void LuaGothicMusic::setName(const std::string& name) {
   SetNameRaw(name);
 }
 
-void BindMusicTheme(sol::state& lua) {
-  sol::usertype<LuaMusicTheme> music_theme_type = lua.new_usertype<LuaMusicTheme>("MusicTheme", sol::no_constructor);
+void BindGothicMusic(sol::state& lua) {
+  sol::usertype<LuaGothicMusic> music_type = lua.new_usertype<LuaGothicMusic>("GothicMusic", sol::no_constructor);
 
-  music_theme_type["loadTheme"] = [](sol::variadic_args args) {
-    std::string file_name;
-    return ::lua::bind_helpers::ReadStringArgument(args, file_name) && LuaMusicTheme::loadTheme(file_name);
-  };
-  music_theme_type["playTheme"] = [](sol::variadic_args) { return LuaMusicTheme::playTheme(); };
-  music_theme_type["stopTheme"] = [](sol::variadic_args) { LuaMusicTheme::stopTheme(); };
+  music_type["loadTheme"] = &LuaGothicMusic::loadTheme;
+  music_type["playTheme"] = &LuaGothicMusic::playTheme;
+  music_type["stopTheme"] = &LuaGothicMusic::stopTheme;
 
-  music_theme_type["fileName"] = sol::property(&LuaMusicTheme::getFileName, &LuaMusicTheme::setFileName);
-  music_theme_type["volume"] = sol::property(&LuaMusicTheme::getVolume, &LuaMusicTheme::setVolume);
-  music_theme_type["loop"] = sol::property(&LuaMusicTheme::getLoop, &LuaMusicTheme::setLoop);
-  music_theme_type["disabled"] = sol::property(&LuaMusicTheme::getDisabled, &LuaMusicTheme::setDisabled);
-  music_theme_type["activeTheme"] = sol::property(&LuaMusicTheme::getActiveTheme, &LuaMusicTheme::setActiveTheme);
-  music_theme_type["reverbMix"] = sol::property(&LuaMusicTheme::getReverbMix, &LuaMusicTheme::setReverbMix);
-  music_theme_type["reverbTime"] = sol::property(&LuaMusicTheme::getReverbTime, &LuaMusicTheme::setReverbTime);
-  music_theme_type["transType"] = sol::property(&LuaMusicTheme::getTransType, &LuaMusicTheme::setTransType);
-  music_theme_type["transSubType"] = sol::property(&LuaMusicTheme::getTransSubType, &LuaMusicTheme::setTransSubType);
-  music_theme_type["name"] = sol::property(&LuaMusicTheme::getName, &LuaMusicTheme::setName);
+  music_type["fileName"] = sol::property(&LuaGothicMusic::getFileName, &LuaGothicMusic::setFileName);
+  music_type["volume"] = sol::property(&LuaGothicMusic::getVolume, &LuaGothicMusic::setVolume);
+  music_type["looping"] = sol::property(&LuaGothicMusic::getLooping, &LuaGothicMusic::setLooping);
+  music_type["activeThemeName"] = sol::property(&LuaGothicMusic::getActiveThemeName);
+  music_type["reverbMix"] = sol::property(&LuaGothicMusic::getReverbMix, &LuaGothicMusic::setReverbMix);
+  music_type["reverbTime"] = sol::property(&LuaGothicMusic::getReverbTime, &LuaGothicMusic::setReverbTime);
+  music_type["transType"] = sol::property(&LuaGothicMusic::getTransType, &LuaGothicMusic::setTransType);
+  music_type["transSubType"] = sol::property(&LuaGothicMusic::getTransSubType, &LuaGothicMusic::setTransSubType);
+  music_type["name"] = sol::property(&LuaGothicMusic::getName, &LuaGothicMusic::setName);
 
-  lua["MusicTheme"] = LuaMusicTheme();
+  music_type["enabled"] = sol::property(&LuaGothicMusic::getEnabled, &LuaGothicMusic::setEnabled);
+  lua["GothicMusic"] = LuaGothicMusic();
 }
 
 }  // namespace gmp::gothic

@@ -26,20 +26,19 @@ SOFTWARE.
 
 #include <cstdint>
 #include <optional>
+#include <sol/sol.hpp>
 #include <string>
 #include <string_view>
-
-#include <sol/sol.hpp>
 
 namespace lua {
 namespace bindings {
 
-class LuaItem {
+class LuaItemDefinition {
 public:
-  explicit LuaItem(std::string instance = {});
+  explicit LuaItemDefinition(std::string instance = {});
 
   std::string getInstance() const;
-  std::int32_t getMainflag() const;
+  std::int32_t getMainFlag() const;
   std::int32_t getFlags() const;
   std::string getVisual() const;
   std::int32_t getWear() const;
@@ -51,13 +50,12 @@ public:
   std::string getMunition() const;
   sol::object getMunitionItem(sol::this_state state) const;
   std::int32_t getSpell() const;
-  std::string getScemename() const;
-  std::int32_t getMagCircle() const;
+  std::string getSchemeName() const;
+  std::int32_t getMagicCircle() const;
   sol::table getProtections(sol::this_state state) const;
-  sol::table getConditions(sol::this_state state) const;
+  sol::table getRequirements(sol::this_state state) const;
+  sol::object getRequirement(int index, sol::this_state state) const;
   std::int32_t getProtection(std::int32_t damage_type) const;
-  std::int32_t getCondAtr(std::int32_t index) const;
-  std::int32_t getCondValue(std::int32_t index) const;
   sol::object getOnUse(sol::this_state state) const;
   sol::object getOnEquip(sol::this_state state) const;
   sol::object getOnUnequip(sol::this_state state) const;
@@ -66,18 +64,18 @@ private:
   std::string instance_;
 };
 
-sol::object MakeItemObject(sol::state_view lua, std::string_view instance);
+sol::object MakeItemDefinitionObject(sol::state_view lua, std::string_view instance);
 
-void BindItem(sol::state& lua);
-void BindItemManager(sol::state& lua);
+void BindItemDefinition(sol::state& lua);
+void BindItemCallbacks(sol::state& lua);
 
 enum class ItemCallback { Use, Equip, Unequip };
 struct ItemCallbackResult {
   bool handled{false};
   bool accepted{true};
 };
-ItemCallbackResult InvokeItemCallback(std::string_view instance, ItemCallback kind, std::uint32_t player_id,
-                                    std::int32_t quantity_or_slot, std::optional<std::uint32_t> target_id = std::nullopt);
+ItemCallbackResult InvokeItemCallback(std::string_view instance, ItemCallback kind, std::uint32_t player_id, std::int32_t quantity_or_slot,
+                                      std::optional<std::uint32_t> target_id = std::nullopt);
 void RemoveItemCallbacksForResource(const std::string& owner_name);
 void RemoveItemCallbacksForState(lua_State* state);
 bool IsItemCallbackActiveFor(std::uint32_t player_id);

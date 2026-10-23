@@ -204,8 +204,11 @@ struct RecordingObserver final : EventObserver {
     equipment_applied.push_back(apply);
   }
   void OnPlayerLeft(std::uint64_t id, const std::string&) override {
-    EXPECT_NE(client->player_manager().GetPlayer(id), nullptr);
-    spawned_player = nullptr;
+    // Roster-only players may leave streaming without ever creating an actor.
+    if (spawned_player && spawned_player->id() == id) {
+      EXPECT_EQ(client->player_manager().GetPlayer(id), spawned_player);
+      spawned_player = nullptr;
+    }
   }
   void OnPlayersClearing() override {
     if (spawned_player) {

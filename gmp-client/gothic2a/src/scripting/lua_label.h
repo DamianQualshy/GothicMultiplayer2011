@@ -32,17 +32,17 @@ SOFTWARE.
 
 namespace gmp::gothic {
 
-class LuaDrawView;
+class LuaLabelView;
 
-class LuaDraw {
+class LuaLabel {
 public:
-  LuaDraw();
-  LuaDraw(int x, int y, const std::string& text);
-  LuaDraw(const LuaDraw&) = delete;
-  LuaDraw& operator=(const LuaDraw&) = delete;
-  LuaDraw(LuaDraw&& other) noexcept;
-  LuaDraw& operator=(LuaDraw&& other) noexcept;
-  ~LuaDraw();
+  LuaLabel();
+  LuaLabel(int x, int y, const std::string& text);
+  LuaLabel(const LuaLabel&) = delete;
+  LuaLabel& operator=(const LuaLabel&) = delete;
+  LuaLabel(LuaLabel&& other) noexcept;
+  LuaLabel& operator=(LuaLabel&& other) noexcept;
+  ~LuaLabel();
 
   static void CleanupViews();
   static void EnsureViewsAttached();
@@ -72,17 +72,16 @@ public:
   void setVisible(bool visible);
   bool getVisible() const;
 
-  void render();
 
 private:
-  friend class LuaDrawView;
+  friend class LuaLabelView;
 
   void Blit();
   void Initialize();
   void Destroy();
   void EnsureAttached();
 
-  LuaDrawView* view_;
+  LuaLabelView* view_;
   std::string text_;
   std::string fontName_;
   int posX_;
@@ -91,9 +90,9 @@ private:
   bool visible_;
   bool attached_to_screen_;
 
-  static std::unordered_set<LuaDraw*> active_draws_;
+  static std::unordered_set<LuaLabel*> active_labels_;
 };
 
-void BindDraw(sol::state& lua);
+void BindLabel(sol::state& lua);
 
 }  // namespace gmp::gothic

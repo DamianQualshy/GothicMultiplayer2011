@@ -9,7 +9,7 @@ local VoiceChat = {
   defaultChannel = 'default'
 }
 
-local indicator = Draw.new(6500, 7600, '')
+local indicator = Label.new(6500, 7600, '')
 indicator:setFont('FONT_DEFAULT.TGA')
 indicator:setColor(80, 220, 120)
 indicator:setVisible(false)
@@ -32,7 +32,7 @@ function VoiceChat:initialize()
   local channelSet = Voice:setChannel(self.defaultChannel)
 
   self.available = self:isAvailable()
-  self.enabled = self.available and Voice:setEnabled(true)
+  self.enabled = self.available and Voice:setScriptEnabled(true)
   self.range = Voice:getRange()
   self.channel = Voice:getChannel()
   self:updateIndicator()

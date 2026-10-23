@@ -73,7 +73,7 @@ public:
 
   // Create the global exports proxy table
   // This allows resources to call exports.otherResource.func()
-  void CreateExportsProxy(sol::state& lua);
+  void BindExports(sol::state& lua);
 
   // Override setTimer in Lua to capture current resource for ownership tracking
   void BindResourceAwareTimer(LuaScript& lua_script);

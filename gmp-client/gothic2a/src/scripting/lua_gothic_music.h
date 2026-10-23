@@ -24,10 +24,48 @@ SOFTWARE.
 
 #pragma once
 
+#include <string>
+
 #include "sol/sol.hpp"
 
-namespace lua::bindings {
+namespace gmp::gothic {
 
-void BindWay(sol::state& lua);
+class LuaGothicMusic {
+public:
+  bool loadTheme(const std::string& file_name);
+  bool playTheme();
+  void stopTheme();
 
-}  // namespace lua::bindings
+  std::string getFileName();
+  void setFileName(const std::string& file_name);
+
+  float getVolume();
+  void setVolume(float volume);
+
+  bool getLooping();
+  void setLooping(bool loop);
+
+  bool getEnabled();
+  void setEnabled(bool disabled);
+
+  sol::object getActiveThemeName(sol::this_state ts);
+
+  float getReverbMix();
+  void setReverbMix(float value);
+
+  float getReverbTime();
+  void setReverbTime(float value);
+
+  int getTransType();
+  void setTransType(int value);
+
+  int getTransSubType();
+  void setTransSubType(int value);
+
+  std::string getName();
+  void setName(const std::string& name);
+};
+
+void BindGothicMusic(sol::state& lua);
+
+}  // namespace gmp::gothic

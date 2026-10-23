@@ -188,7 +188,7 @@ private:
   Player* FindActor(std::uint64_t id);
   Player* FindActor(std::uint64_t id, std::uint64_t generation);
   void OnMessage(Packet packet);
-  void OnPlayerSpawn(Packet packet);
+  void OnCharacterSpawn(Packet packet);
   void ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc = false, bool native_defaults = false);
   void OnNpcSpawn(Packet packet);
   void OnNpcControl(Packet packet);

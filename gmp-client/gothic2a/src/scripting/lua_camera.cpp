@@ -27,9 +27,9 @@ SOFTWARE.
 #include <cstddef>
 #include <optional>
 
+#include "Shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
 #include "lua_helpers.h"
-#include "Shared/lua_runtime/bind_helpers.h"
 #include "net_game.h"
 
 using namespace Gothic_II_Addon;
@@ -231,7 +231,7 @@ void EnableCameraMovement() {
   state.initialized = false;
 }
 
-zCVob* PlayerVob(std::uint64_t player_id) {
+zCVob* NetworkCharacterVob(std::uint64_t player_id) {
   for (auto* player : NetGame::Instance().players) {
     if (player && player->base_player().id() == player_id) {
       return player->GetNpc();
@@ -241,11 +241,7 @@ zCVob* PlayerVob(std::uint64_t player_id) {
   return nullptr;
 }
 
-enum class CameraTargetKind {
-  None,
-  Vob,
-  Player
-};
+enum class CameraTargetKind { None, Vob, Player };
 
 struct CameraTargetBinding {
   CameraTargetKind kind = CameraTargetKind::None;
@@ -272,7 +268,7 @@ zCVob* ResolveBoundTarget() {
   }
 
   if (binding.kind == CameraTargetKind::Player && binding.player_id.has_value()) {
-    return PlayerVob(*binding.player_id);
+    return NetworkCharacterVob(*binding.player_id);
   }
 
   return nullptr;
@@ -297,81 +293,28 @@ void RefreshBoundTarget() {
   }
 }
 
-bool ReadNumberArg(sol::variadic_args args, float& out) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.get_type() == sol::type::number) {
-      out = arg.as<float>();
-      return true;
-    }
-  }
-  return false;
-}
-
-bool ReadUIntArg(sol::variadic_args args, std::uint64_t& out) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.get_type() == sol::type::number) {
-      out = arg.as<std::uint64_t>();
-      return true;
-    }
-  }
-  return false;
-}
-
-bool ReadVec3Args(sol::variadic_args args, float& x, float& y, float& z) {
-  int found = 0;
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.get_type() != sol::type::number) {
-      continue;
-    }
-
-    if (found == 0) {
-      x = arg.as<float>();
-    } else if (found == 1) {
-      y = arg.as<float>();
-    } else {
-      z = arg.as<float>();
-      return true;
-    }
-    ++found;
-  }
-  return false;
-}
-
-bool ReadVobArg(sol::variadic_args args, LuaVob& out) {
-  for (std::size_t i = 0; i < args.size(); ++i) {
-    sol::object arg = args[i];
-    if (arg.is<LuaVob>()) {
-      out = arg.as<LuaVob>();
-      return true;
-    }
-  }
-  return false;
-}
 }  // namespace
 
 /* luagmp (class)
-*
-* Static access to the active engine camera.
-*
-* @version  0.3.0
-* @name     Camera
-* @side     client
-* @category Game
-*
-*/
+ *
+ * Static access to the active engine camera.
+ *
+ * @version  0.3.0
+ * @name     Camera
+ * @side     client
+ * @category Game
+ *
+ */
 
 /* luagmp (method)
-*
-* Sets the active camera mode.
-*
-* @name     setMode
-* @param    (string) mode    Camera mode name.
-* @return   (boolean)        True if an AI camera is available.
-*
-*/
+ *
+ * Sets the active camera mode.
+ *
+ * @name     setMode
+ * @param    (string) mode    Camera mode name.
+ * @return   (boolean)        True if an AI camera is available.
+ *
+ */
 bool LuaCamera::setMode(const std::string& mode) {
   auto* ai = AiCamera();
   if (!ai) {
@@ -389,13 +332,13 @@ bool LuaCamera::setMode(const std::string& mode) {
 }
 
 /* luagmp (method)
-*
-* Returns the active camera mode.
-*
-* @name     getMode
-* @return   (string) Camera mode name.
-*
-*/
+ *
+ * Returns the active camera mode.
+ *
+ * @name     getMode
+ * @return   (string) Camera mode name.
+ *
+ */
 std::string LuaCamera::getMode() {
   auto* ai = AiCamera();
   if (!ai) {
@@ -406,16 +349,16 @@ std::string LuaCamera::getMode() {
 }
 
 /* luagmp (method)
-*
-* Sets the active camera world position.
-* This puts the camera into manual movement mode until movementEnabled is set to true.
-*
-* @name     setPosition
-* @param    (number) x    X world position.
-* @param    (number) y    Y world position.
-* @param    (number) z    Z world position.
-*
-*/
+ *
+ * Sets the active camera world position.
+ * This puts the camera into manual movement mode until movementEnabled is set to true.
+ *
+ * @name     setPosition
+ * @param    (number) x    X world position.
+ * @param    (number) y    Y world position.
+ * @param    (number) z    Z world position.
+ *
+ */
 void LuaCamera::setPosition(float x, float y, float z) {
   if (!HasCameraTransformTarget()) {
     return;
@@ -426,23 +369,14 @@ void LuaCamera::setPosition(float x, float y, float z) {
   LockCameraTransform(matrix);
 }
 
-void LuaCamera::setPositionValue(sol::object value) {
-  float x = 0.0f;
-  float y = 0.0f;
-  float z = 0.0f;
-  if (lua_helpers::ReadVec3(value, x, y, z)) {
-    setPosition(x, y, z);
-  }
-}
-
 /* luagmp (method)
-*
-* Returns the active camera world position.
-*
-* @name     getPosition
-* @return   ({x, y, z})   Table containing x,y,z world position.
-*
-*/
+ *
+ * Returns the active camera world position.
+ *
+ * @name     getPosition
+ * @return   ({x, y, z})   Table containing x,y,z world position.
+ *
+ */
 sol::table LuaCamera::getPosition(sol::this_state ts) {
   sol::state_view lua(ts);
   zVEC3 position(0.0f, 0.0f, 0.0f);
@@ -456,17 +390,17 @@ sol::table LuaCamera::getPosition(sol::this_state ts) {
 }
 
 /* luagmp (method)
-*
-* Sets the active camera Euler rotation in degrees.
-* This puts the camera into manual movement mode until movementEnabled is set to true.
-*
-* @name     setRotation
-* @param    (number) x    X rotation in degrees.
-* @param    (number) y    Y rotation in degrees.
-* @param    (number) z    Z rotation in degrees.
-*
-*/
-void LuaCamera::setRotation(float x, float y, float z) {
+ *
+ * Sets the active camera Euler rotation in degrees.
+ * This puts the camera into manual movement mode until movementEnabled is set to true.
+ *
+ * @name     setRotationDegrees
+ * @param    (number) x    X rotation in degrees.
+ * @param    (number) y    Y rotation in degrees.
+ * @param    (number) z    Z rotation in degrees.
+ *
+ */
+void LuaCamera::setRotationDegrees(float x, float y, float z) {
   if (!HasCameraTransformTarget()) {
     return;
   }
@@ -476,24 +410,15 @@ void LuaCamera::setRotation(float x, float y, float z) {
   LockCameraTransform(matrix);
 }
 
-void LuaCamera::setRotationValue(sol::object value) {
-  float x = 0.0f;
-  float y = 0.0f;
-  float z = 0.0f;
-  if (lua_helpers::ReadVec3(value, x, y, z)) {
-    setRotation(x, y, z);
-  }
-}
-
 /* luagmp (method)
-*
-* Returns the active camera Euler rotation in degrees.
-*
-* @name     getRotation
-* @return   ({x, y, z})   Table containing x,y,z rotation.
-*
-*/
-sol::table LuaCamera::getRotation(sol::this_state ts) {
+ *
+ * Returns the active camera Euler rotation in degrees.
+ *
+ * @name     getRotationDegrees
+ * @return   ({x, y, z})   Table containing x,y,z rotation.
+ *
+ */
+sol::table LuaCamera::getRotationDegrees(sol::this_state ts) {
   sol::state_view lua(ts);
   zVEC3 rotation(0.0f, 0.0f, 0.0f);
   if (auto* vob = CameraVob()) {
@@ -507,14 +432,14 @@ sol::table LuaCamera::getRotation(sol::this_state ts) {
 }
 
 /* luagmp (method)
-*
-* Sets a Vob as the active camera target.
-*
-* @name     setTargetVob
-* @param    (Vob) vob    Target Vob.
-* @return   (boolean)    True if the target was applied.
-*
-*/
+ *
+ * Sets a Vob as the active camera target.
+ *
+ * @name     setTargetVob
+ * @param    (Vob) vob    Target Vob.
+ * @return   (boolean)    True if the target was applied.
+ *
+ */
 bool LuaCamera::setTargetVob(const LuaVob& vob) {
   zCVob* handle = vob.handle();
   if (!AiCamera() || !handle) {
@@ -531,16 +456,16 @@ bool LuaCamera::setTargetVob(const LuaVob& vob) {
 }
 
 /* luagmp (method)
-*
-* Sets a player or NPC as the active camera target.
-*
-* @name     setTargetPlayer
-* @param    (number) playerId    Player id.
-* @return   (boolean)            True if the player or NPC exists.
-*
-*/
+ *
+ * Sets a streamed player or server NPC as the active camera target. Local NPC ids are not supported.
+ *
+ * @name     setTargetPlayer
+ * @param    (number) playerId    Streamed player or server NPC id; client-local NPC ids are not supported.
+ * @return   (boolean)            True if the player or NPC exists.
+ *
+ */
 bool LuaCamera::setTargetPlayer(std::int64_t player_id) {
-  zCVob* handle = PlayerVob(player_id);
+  zCVob* handle = NetworkCharacterVob(player_id);
   if (!AiCamera() || !handle) {
     return false;
   }
@@ -555,13 +480,13 @@ bool LuaCamera::setTargetPlayer(std::int64_t player_id) {
 }
 
 /* luagmp (method)
-*
-* Sets the active render camera field of view.
-*
-* @name     setFOV
-* @param    (number) fov    Field of view.
-*
-*/
+ *
+ * Sets the active render camera field of view.
+ *
+ * @name     setFOV
+ * @param    (number) fov    Field of view.
+ *
+ */
 void LuaCamera::setFOV(float fov) {
   if (auto* camera = RenderCamera()) {
     camera->SetFOV(fov);
@@ -569,13 +494,13 @@ void LuaCamera::setFOV(float fov) {
 }
 
 /* luagmp (method)
-*
-* Returns the active render camera field of view.
-*
-* @name     getFOV
-* @return   (number) Field of view.
-*
-*/
+ *
+ * Returns the active render camera field of view.
+ *
+ * @name     getFOV
+ * @return   (number) Field of view.
+ *
+ */
 float LuaCamera::getFOV() {
   if (auto* camera = RenderCamera()) {
     return camera->GetFOV();
@@ -584,35 +509,37 @@ float LuaCamera::getFOV() {
 }
 
 /* luagmp (property)
-*
-* Represents whether scripted camera mode changes are enabled.
-*
-* @name     modeChangeEnabled
-* @return   (boolean) True if mode changes are enabled.
-*
-*/
+ *
+ * Represents whether scripted camera mode changes are enabled.
+ *
+ * @name     modeChangeEnabled
+ * @return   (boolean)
+ *
+ */
 bool LuaCamera::getModeChangeEnabled() {
   return GetModeChangeEnabledRaw();
 }
 
+/// Assigns the modeChangeEnabled property using the same value format as its getter.
 void LuaCamera::setModeChangeEnabled(bool enabled) {
   SetModeChangeEnabledRaw(enabled);
 }
 
 /* luagmp (property)
-*
-* Represents whether the camera is allowed to move.
-* Setting this to true restores engine camera AI after manual position or rotation changes.
-*
-* @name     movementEnabled
-* @return   (boolean) True if camera movement is enabled.
-*
-*/
+ *
+ * Represents whether the camera is allowed to move.
+ * Setting this to true restores engine camera AI after manual position or rotation changes.
+ *
+ * @name     movementEnabled
+ * @return   (boolean)
+ *
+ */
 bool LuaCamera::getMovementEnabled() {
   auto& state = MovementLock();
   return state.enabled && GetMovementEnabledRaw();
 }
 
+/// Assigns the movementEnabled property using the same value format as its getter.
 void LuaCamera::setMovementEnabled(bool enabled) {
   if (enabled) {
     EnableCameraMovement();
@@ -634,13 +561,13 @@ void LuaCamera::ApplyMovementLock() {
 }
 
 /* luagmp (property)
-*
-* Represents the active camera target Vob.
-*
-* @name     targetVob
-* @return   (Vob|nil) Current target Vob.
-*
-*/
+ *
+ * Represents the active camera target Vob.
+ *
+ * @name     targetVob
+ * @return   (Vob|nil)
+ *
+ */
 sol::object LuaCamera::getTargetVob(sol::this_state ts) {
   sol::state_view lua(ts);
   RefreshBoundTarget();
@@ -653,6 +580,7 @@ sol::object LuaCamera::getTargetVob(sol::this_state ts) {
   return sol::make_object(lua, LuaVob::FromExisting(ai->target));
 }
 
+/// Assigns the targetVob property using the same value format as its getter.
 void LuaCamera::setTargetVobValue(sol::object value) {
   if (value.get_type() == sol::type::nil) {
     ClearTargetBinding();
@@ -675,44 +603,16 @@ void ResetCamera() {
 void BindCamera(sol::state& lua) {
   sol::usertype<LuaCamera> camera_type = lua.new_usertype<LuaCamera>("Camera", sol::no_constructor);
 
-  camera_type["setMode"] = [](sol::variadic_args args) {
-    std::string mode;
-    return ::lua::bind_helpers::ReadStringArgument(args, mode) && LuaCamera::setMode(mode);
-  };
-  camera_type["getMode"] = [](sol::variadic_args) { return LuaCamera::getMode(); };
-  camera_type["setPosition"] = [](sol::variadic_args args) {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    if (ReadVec3Args(args, x, y, z)) {
-      LuaCamera::setPosition(x, y, z);
-    }
-  };
-  camera_type["getPosition"] = [](sol::this_state ts, sol::variadic_args) { return LuaCamera::getPosition(ts); };
-  camera_type["setRotation"] = [](sol::variadic_args args) {
-    float x = 0.0f;
-    float y = 0.0f;
-    float z = 0.0f;
-    if (ReadVec3Args(args, x, y, z)) {
-      LuaCamera::setRotation(x, y, z);
-    }
-  };
-  camera_type["getRotation"] = [](sol::this_state ts, sol::variadic_args) { return LuaCamera::getRotation(ts); };
-  camera_type["setTargetVob"] = [](sol::variadic_args args) {
-    LuaVob vob = LuaVob::FromExisting(nullptr);
-    return ReadVobArg(args, vob) && LuaCamera::setTargetVob(vob);
-  };
-  camera_type["setTargetPlayer"] = [](sol::variadic_args args) {
-    std::uint64_t player_id = 0;
-    return ReadUIntArg(args, player_id) && LuaCamera::setTargetPlayer(player_id);
-  };
-  camera_type["setFOV"] = [](sol::variadic_args args) {
-    float fov = 0.0f;
-    if (ReadNumberArg(args, fov)) {
-      LuaCamera::setFOV(fov);
-    }
-  };
-  camera_type["getFOV"] = [](sol::variadic_args) { return LuaCamera::getFOV(); };
+  camera_type["setMode"] = &LuaCamera::setMode;
+  camera_type["getMode"] = &LuaCamera::getMode;
+  camera_type["setPosition"] = &LuaCamera::setPosition;
+  camera_type["getPosition"] = &LuaCamera::getPosition;
+  camera_type["setRotationDegrees"] = &LuaCamera::setRotationDegrees;
+  camera_type["getRotationDegrees"] = &LuaCamera::getRotationDegrees;
+  camera_type["setTargetVob"] = &LuaCamera::setTargetVob;
+  camera_type["setTargetPlayer"] = &LuaCamera::setTargetPlayer;
+  camera_type["setFOV"] = &LuaCamera::setFOV;
+  camera_type["getFOV"] = &LuaCamera::getFOV;
 
   camera_type["modeChangeEnabled"] = sol::property(&LuaCamera::getModeChangeEnabled, &LuaCamera::setModeChangeEnabled);
   camera_type["movementEnabled"] = sol::property(&LuaCamera::getMovementEnabled, &LuaCamera::setMovementEnabled);

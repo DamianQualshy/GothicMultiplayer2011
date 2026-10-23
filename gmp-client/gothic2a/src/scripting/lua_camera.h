@@ -27,40 +27,37 @@ SOFTWARE.
 #include <cstdint>
 #include <string>
 
-#include "sol/sol.hpp"
-
 #include "lua_vob.h"
+#include "sol/sol.hpp"
 
 namespace gmp::gothic {
 
 class LuaCamera {
 public:
-  static bool setMode(const std::string& mode);
-  static std::string getMode();
+  bool setMode(const std::string& mode);
+  std::string getMode();
 
-  static void setPosition(float x, float y, float z);
-  static void setPositionValue(sol::object value);
-  static sol::table getPosition(sol::this_state ts);
+  void setPosition(float x, float y, float z);
+  sol::table getPosition(sol::this_state ts);
 
-  static void setRotation(float x, float y, float z);
-  static void setRotationValue(sol::object value);
-  static sol::table getRotation(sol::this_state ts);
+  void setRotationDegrees(float x, float y, float z);
+  sol::table getRotationDegrees(sol::this_state ts);
 
-  static bool setTargetVob(const LuaVob& vob);
-  static bool setTargetPlayer(std::int64_t player_id);
+  bool setTargetVob(const LuaVob& vob);
+  bool setTargetPlayer(std::int64_t player_id);
 
-  static void setFOV(float fov);
-  static float getFOV();
+  void setFOV(float fov);
+  float getFOV();
 
-  static bool getModeChangeEnabled();
-  static void setModeChangeEnabled(bool enabled);
+  bool getModeChangeEnabled();
+  void setModeChangeEnabled(bool enabled);
 
-  static bool getMovementEnabled();
-  static void setMovementEnabled(bool enabled);
+  bool getMovementEnabled();
+  void setMovementEnabled(bool enabled);
   static void ApplyMovementLock();
 
-  static sol::object getTargetVob(sol::this_state ts);
-  static void setTargetVobValue(sol::object value);
+  sol::object getTargetVob(sol::this_state ts);
+  void setTargetVobValue(sol::object value);
 };
 
 void BindCamera(sol::state& lua);

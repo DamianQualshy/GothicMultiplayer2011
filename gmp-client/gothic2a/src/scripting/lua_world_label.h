@@ -33,28 +33,31 @@ SOFTWARE.
 
 namespace gmp::gothic {
 
-class LuaDraw3dView;
+class LuaWorldLabelView;
 
-class LuaDraw3d {
+class LuaWorldLabel {
 public:
-  LuaDraw3d();
-  LuaDraw3d(float x, float y, float z);
-  LuaDraw3d(float x, float y, float z, const std::string& text);
-  ~LuaDraw3d();
+  LuaWorldLabel();
+  LuaWorldLabel(float x, float y, float z);
+  LuaWorldLabel(float x, float y, float z, const std::string& text);
+  ~LuaWorldLabel();
 
   static void CleanupViews();
-  static void RenderActiveDraws();
+  static void RenderActiveLabels();
 
   void setPosition(float x, float y, float z);
   void setPositionValue(sol::object value);
   sol::table getPosition(sol::this_state s) const;
 
-  void insertText(const std::string& text);
-  void removeText(int index);
-  void updateText(int index, const std::string& text);
-  void clearText();
-  sol::table getText(sol::this_state s) const;
+  void appendLine(const std::string& text);
+  void clearLines();
+  sol::table getLines(sol::this_state s) const;
+  void setLines(sol::table lines);
+  std::string getText() const;
   void setText(const std::string& text);
+  bool removeLine(int index);
+  bool setLine(int index, const std::string& text);
+  sol::object getLine(int index, sol::this_state s) const;
 
   void setFont(const std::string& font_name);
   std::string getFont() const;
@@ -69,30 +72,30 @@ public:
   void setVisible(bool visible);
   bool getVisible() const;
 
-  void setDistance(float distance);
-  float getDistance() const;
+  void setMaxRenderDistance(float distance);
+  float getMaxRenderDistance() const;
 
-  void top();
+  void bringToFront();
   void render();
 
 private:
-  friend class LuaDraw3dView;
+  friend class LuaWorldLabelView;
 
   void Initialize();
   void Blit();
 
-  LuaDraw3dView* view_;
+  LuaWorldLabelView* view_;
   std::vector<std::string> lines_;
   std::string font_name_;
   Gothic_II_Addon::zVEC3 position_;
   Gothic_II_Addon::zCOLOR color_;
   bool visible_;
   bool attached_to_screen_;
-  float distance_;
+  float max_render_distance_;
 
-  static std::unordered_set<LuaDraw3d*> active_draws_;
+  static std::unordered_set<LuaWorldLabel*> active_labels_;
 };
 
-void BindDraw3d(sol::state& lua);
+void BindWorldLabel(sol::state& lua);
 
 }  // namespace gmp::gothic

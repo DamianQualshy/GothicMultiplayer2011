@@ -26,8 +26,8 @@ local Chat = {
   lines = {}
 }
 
-local inputPrompt = Draw.new(Chat.x, Chat.y + Chat.maxLines * Chat.lineHeight, '->')
-local inputText = Draw.new(Chat.x + Chat.inputTextOffset, Chat.y + Chat.maxLines * Chat.lineHeight, '')
+local inputPrompt = Label.new(Chat.x, Chat.y + Chat.maxLines * Chat.lineHeight, '->')
+local inputText = Label.new(Chat.x + Chat.inputTextOffset, Chat.y + Chat.maxLines * Chat.lineHeight, '')
 local lastInputText = ''
 
 inputPrompt:setFont(Chat.font)
@@ -71,7 +71,7 @@ local function splitLines(text)
 end
 
 local function makeDraw(text, r, g, b)
-  local draw = Draw.new(0, 0, text or '')
+  local draw = Label.new(0, 0, text or '')
   draw:setFont(Chat.font)
   draw:setColor(clampByte(r), clampByte(g), clampByte(b))
   draw:setAlpha(0)

@@ -46,8 +46,8 @@ public:
   sol::table getSize(sol::this_state s) const;
   sol::table getSizePx(sol::this_state s) const;
 
-  void setTexture(const std::string& file);
-  std::string getTexture() const;
+  void setTextureFile(const std::string& file);
+  std::string getTextureFile() const;
 
   void setVisible(bool visible);
   bool isVisible() const;
@@ -55,7 +55,7 @@ public:
   void setSensitivity(float sensitivity);
   float getSensitivity() const;
 
-  bool isButtonPressed(int button) const;
+  bool isButtonDown(int button) const;
 
   static void CleanupViews();
 
@@ -80,7 +80,6 @@ private:
   float pos_y_;
   int width_;
   int height_;
-
 };
 
 }  // namespace gmp::gothic

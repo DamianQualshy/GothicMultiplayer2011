@@ -34,9 +34,11 @@ SOFTWARE.
 #include <thread>
 #include <vector>
 
+#include "Lua/event_bind.h"
+#include "Lua/lua_item_definition.h"
 #include "Script.h"
+#include "Shared/lua_runtime/lua_value_codec.h"
 #include "game_server.h"
-#include "Lua/lua_item.h"
 
 namespace {
 
@@ -233,13 +235,13 @@ TEST_F(ResourceManagerTest, UnloadResourceRemovesOwnedEventHandlers) {
   ASSERT_TRUE(manager.LoadResource("event_resource", lua_script));
   sol::protected_function call_event = lua_script.GetLuaState()["callEvent"];
 
-  sol::protected_function_result first_result = call_event("cleanup_test");
+  sol::protected_function_result first_result = call_event("cleanup_test", sol::nil);
   ASSERT_TRUE(first_result.valid());
   EXPECT_TRUE(first_result.get<bool>());
   ASSERT_EQ(calls.size(), 1u);
 
   manager.UnloadResource("event_resource", lua_script);
-  sol::protected_function_result second_result = call_event("cleanup_test");
+  sol::protected_function_result second_result = call_event("cleanup_test", sol::nil);
   ASSERT_TRUE(second_result.valid());
   EXPECT_FALSE(second_result.get<bool>());
   EXPECT_EQ(calls.size(), 1u);
@@ -315,7 +317,7 @@ TEST_F(ResourceManagerTest, GetResourceReturnsNulloptForNonexistentResource) {
 }
 
 TEST_F(ResourceManagerTest, ExportsProxyCreatesGlobalTable) {
-  manager.CreateExportsProxy(lua_script.GetLuaState());
+  manager.BindExports(lua_script.GetLuaState());
 
   auto& lua = lua_script.GetLuaState();
 
@@ -334,7 +336,7 @@ TEST_F(ResourceManagerTest, ExportsProxyReturnsNilForUnloadedResource) {
   )");
 
   manager.LoadResource("resource_a", lua_script);
-  manager.CreateExportsProxy(lua_script.GetLuaState());
+  manager.BindExports(lua_script.GetLuaState());
   manager.UnloadResource("resource_a", lua_script);
 
   auto& lua = lua_script.GetLuaState();
@@ -427,24 +429,194 @@ TEST_F(ResourceManagerTest, ItemCallbackRunsInItsResourceAndIsRemovedOnUnload) {
   ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(item_file));
   CreateTestResource("item_resource", R"(
     exports = {}
-    assert(ItemManager.setOnUse('ITPO_CALLBACK', function(id, quantity)
+    assert(ItemCallbacks.setOnUse('ITPO_CALLBACK', function(id, quantity)
       exports.owner = __test_getCurrentResourceName()
     end))
   )");
   ASSERT_TRUE(manager.LoadResource("item_resource", lua_script));
-  ASSERT_TRUE(lua_script.GetLuaState().safe_script("Item.getByInstance('ITPO_CALLBACK').onUse(1, 1)",
-                                                   sol::script_pass_on_error).valid());
+  ASSERT_TRUE(lua_script.GetLuaState().safe_script("ItemDefinition.getByInstance('ITPO_CALLBACK').onUse(1, 1)", sol::script_pass_on_error).valid());
   auto resource = manager.GetResource("item_resource");
   ASSERT_TRUE(resource);
   EXPECT_EQ(resource->get().GetExports()["owner"].get<std::string>(), "item_resource");
   manager.UnloadResource("item_resource", lua_script);
-  EXPECT_TRUE(lua_script.GetLuaState().safe_script("assert(Item.getByInstance('ITPO_CALLBACK').onUse == nil)",
-                                                  sol::script_pass_on_error).valid());
+  EXPECT_TRUE(
+      lua_script.GetLuaState().safe_script("assert(ItemDefinition.getByInstance('ITPO_CALLBACK').onUse == nil)", sol::script_pass_on_error).valid());
   std::filesystem::remove(item_file);
 }
 
+TEST_F(ResourceManagerTest, CustomEventsKeepPayloadAndTrustedSenderSeparate) {
+  CreateTestResource("event_contract", R"(
+    exports = {}
+    assert(addEvent('contract_outer', true))
+    assert(addEvent('contract_inner'))
+    local nestedContext
+    assert(addEventHandler('contract_inner', function(context, payload)
+      nestedContext = context
+      assert(payload == 42 and context.sourceId == 8 and not context.remote)
+    end))
+    local function handler(context, payload)
+      assert(callEvent('contract_inner', {sourceId = 8}, 42))
+      assert(context ~= nestedContext)
+      if context.remote then
+        assert(context.senderPlayerId == 23 and context.sourceId == 17)
+        assert(payload.senderPlayerId == 999)
+        exports.received = true
+      else
+        assert(payload == 42 and context.senderPlayerId == nil and context.sourceId == nil)
+        exports.localReceived = true
+      end
+    end
+    assert(addEventHandler('contract_outer', handler))
+    exports.runLocal = function()
+      assert(callEvent('contract_outer', nil, 42))
+    end
+    exports.unsubscribe = function()
+      assert(removeEventHandler('contract_outer', handler))
+      assert(not removeEventHandler('contract_outer', handler))
+    end
+  )");
+  ASSERT_TRUE(manager.LoadResource("event_contract", lua_script));
+  auto& lua = lua_script.GetLuaState();
+  sol::table forged_payload = lua.create_table_with("senderPlayerId", 999);
+  ASSERT_TRUE(lua::bindings::TriggerRemoteEvent(lua, "contract_outer", 23, 17, {sol::make_object(lua, forged_payload)}));
+  auto resource = manager.GetResource("event_contract");
+  ASSERT_TRUE(resource);
+  sol::table exports = resource->get().GetExports();
+  ResourceManager::ScopedResourceContext context(resource->get());
+  sol::protected_function run_local = exports["runLocal"];
+  ASSERT_TRUE(run_local().valid());
+  EXPECT_TRUE(exports["localReceived"].get<bool>());
+  EXPECT_TRUE(exports["received"].get<bool>());
+  sol::protected_function unsubscribe = exports["unsubscribe"];
+  EXPECT_TRUE(unsubscribe().valid());
+}
+
+TEST_F(ResourceManagerTest, CustomEventsPreserveVariadicArgumentsAndRemotePolicy) {
+  CreateTestResource("event_arguments", R"(
+    exports = {localCalls = 0, remoteCalls = 0}
+    assert(emitEvent == nil and sendClientEvent == nil)
+    assert(addEvent('argument_contract', true))
+    assert(addEvent('local_only'))
+    assert(addEventHandler('argument_contract', function(context, ...)
+      local count = select('#', ...)
+      if context.remote then
+        assert(context.senderPlayerId == 23 and context.sourceId == nil)
+        exports.remoteCalls = exports.remoteCalls + 1
+      else
+        assert(context.senderPlayerId == nil and context.sourceId == nil)
+        exports.localCalls = exports.localCalls + 1
+      end
+      if count > 0 then
+        local first, second, third, fourth = ...
+        assert(count == 4 and first == 42 and second == nil and third.value == 'table' and fourth == nil)
+      end
+      exports.lastCount = count
+    end))
+    exports.runLocal = function()
+      assert(callEvent('argument_contract', nil))
+      assert(callEvent('argument_contract', nil, 42, nil, {value = 'table'}, nil))
+      assert(not pcall(callEvent, 'argument_contract', 42))
+      assert(not pcall(callEvent, 'argument_contract', {sourceId = 1.5}))
+      assert(not callEvent('not_registered', nil))
+    end
+  )");
+  ASSERT_TRUE(manager.LoadResource("event_arguments", lua_script));
+  auto resource = manager.GetResource("event_arguments");
+  ASSERT_TRUE(resource);
+  sol::table exports = resource->get().GetExports();
+  ResourceManager::ScopedResourceContext context(resource->get());
+  sol::protected_function run_local = exports["runLocal"];
+  ASSERT_TRUE(run_local().valid());
+  EXPECT_EQ(exports["localCalls"].get<int>(), 2);
+  EXPECT_EQ(exports["lastCount"].get<int>(), 4);
+
+  auto& lua = lua_script.GetLuaState();
+  sol::table table = lua.create_table_with("value", "table");
+  const std::vector<sol::object> arguments{sol::make_object(lua, 42), sol::make_object(lua, sol::nil), sol::make_object(lua, table),
+                                           sol::make_object(lua, sol::nil)};
+  std::string encoded, error;
+  ASSERT_TRUE(gmp::lua::EncodeLuaArgs(lua, arguments, encoded, error)) << error;
+  std::vector<sol::object> decoded;
+  ASSERT_TRUE(gmp::lua::DecodeLuaArgs(lua, encoded, decoded, error)) << error;
+  EXPECT_FALSE(lua::bindings::TriggerRemoteEvent(lua, "local_only", 23, 0, decoded));
+  EXPECT_FALSE(lua::bindings::TriggerRemoteEvent(lua, "not_registered", 23, 0, decoded));
+  ASSERT_TRUE(lua::bindings::TriggerRemoteEvent(lua, "argument_contract", 23, 0, decoded));
+  EXPECT_EQ(exports["remoteCalls"].get<int>(), 1);
+  EXPECT_EQ(exports["lastCount"].get<int>(), 4);
+  ASSERT_TRUE(lua::bindings::TriggerRemoteEvent(lua, "argument_contract", 23, 0, {}));
+  EXPECT_EQ(exports["remoteCalls"].get<int>(), 2);
+  EXPECT_EQ(exports["lastCount"].get<int>(), 0);
+}
+
+TEST_F(ResourceManagerTest, SharedEventBindingsKeepServerResourceOwnership) {
+  CreateTestResource("event_owner", R"(
+    exports = {calls = 0}
+    assert(addEvent('owned_contract'))
+    exports.handler = function()
+      assert(__test_getCurrentResourceName() == 'event_owner')
+      exports.calls = exports.calls + 1
+    end
+    assert(addEventHandler('owned_contract', exports.handler))
+  )");
+  CreateTestResource("event_other", "exports = {}");
+  ASSERT_TRUE(manager.LoadResource("event_owner", lua_script));
+  ASSERT_TRUE(manager.LoadResource("event_other", lua_script));
+  auto owner = manager.GetResource("event_owner");
+  auto other = manager.GetResource("event_other");
+  ASSERT_TRUE(owner && other);
+  auto& lua = lua_script.GetLuaState();
+  sol::table owner_exports = owner->get().GetExports();
+  lua["foreign_handler"] = owner_exports["handler"];
+  {
+    ResourceManager::ScopedResourceContext context(other->get());
+    ASSERT_TRUE(lua.safe_script(R"(
+      removeEvent('owned_contract')
+      assert(not removeEventHandler('owned_contract', foreign_handler))
+      assert(callEvent('owned_contract', nil))
+    )", sol::script_pass_on_error).valid());
+  }
+  EXPECT_EQ(owner_exports["calls"].get<int>(), 1);
+  {
+    ResourceManager::ScopedResourceContext context(owner->get());
+    ASSERT_TRUE(lua.safe_script(R"(
+      assert(removeEventHandler('owned_contract', foreign_handler))
+      removeEvent('owned_contract')
+      assert(not callEvent('owned_contract', nil))
+    )", sol::script_pass_on_error).valid());
+  }
+}
+
+TEST_F(ResourceManagerTest, RouteRepresentsACompletePathWithConsistentWaypointCount) {
+  const auto navigation = std::filesystem::current_path() / "data" / "navigation";
+  std::filesystem::create_directories(navigation);
+  const auto file = navigation / "api_route_contract.json";
+  {
+    std::ofstream data(file);
+    data << R"({"zen":"API_ROUTE_CONTRACT.ZEN","waypoints":[
+      {"name":"A","position":{"x":0,"y":0,"z":0,"angle":0},"connectsTo":["B"]},
+      {"name":"B","position":{"x":10,"y":0,"z":0,"angle":0},"connectsTo":["C"]},
+      {"name":"C","position":{"x":20,"y":0,"z":0,"angle":0},"connectsTo":[]}
+    ]})";
+  }
+  const auto result = lua_script.GetLuaState().safe_script(R"(
+    assert(Way == nil)
+    local route = Route.new('API_ROUTE_CONTRACT.ZEN', 'A', 'C')
+    local names = route:getWaypointNames()
+    assert(type(names) == 'table' and #names == 3 and names[0] == nil)
+    assert(names[1] == 'A' and names[2] == 'B' and names[3] == 'C')
+    assert(route:getWaypointCount() == #names and route:getStart() == 'A' and route:getEnd() == 'C')
+    local missing = Route.new('API_ROUTE_CONTRACT.ZEN', 'A', 'UNKNOWN')
+    assert(missing:getWaypointCount() == 0 and #missing:getWaypointNames() == 0)
+  )", sol::script_pass_on_error);
+  std::filesystem::remove(file);
+  if (!result.valid()) {
+    const sol::error error = result;
+    FAIL() << error.what();
+  }
+}
+
 TEST_F(ResourceManagerTest, ExportsProxyExecutesUnderTargetResourceContext) {
-  manager.CreateExportsProxy(lua_script.GetLuaState());
+  manager.BindExports(lua_script.GetLuaState());
 
   CreateTestResource("resource_b", R"(
     exports = {}
@@ -502,5 +674,11 @@ TEST_F(ResourceManagerTest, ExportsProxyExecutesUnderTargetResourceContext) {
 int main(int argc, char** argv) {
   ::testing::GTEST_FLAG(catch_exceptions) = false;
   ::testing::InitGoogleTest(&argc, argv);
-  return RUN_ALL_TESTS();
+  const auto project = std::filesystem::current_path();
+  const auto scratch = project / "build" / "resource-manager-tests";
+  std::filesystem::create_directories(scratch);
+  std::filesystem::current_path(scratch);
+  const auto result = RUN_ALL_TESTS();
+  std::filesystem::current_path(project);
+  return result;
 }

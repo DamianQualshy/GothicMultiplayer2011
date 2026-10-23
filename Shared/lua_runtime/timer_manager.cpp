@@ -95,7 +95,7 @@ void TimerManager::SetInterval(TimerId id, std::chrono::milliseconds interval) {
   }
 }
 
-std::optional<std::uint32_t> TimerManager::GetExecuteTimes(TimerId id) const {
+std::optional<std::uint32_t> TimerManager::GetRemainingExecutions(TimerId id) const {
   if (auto it = timers_.find(id); it != timers_.end()) {
     if (it->second.infinite) {
       return 0u;
@@ -105,7 +105,7 @@ std::optional<std::uint32_t> TimerManager::GetExecuteTimes(TimerId id) const {
   return std::nullopt;
 }
 
-void TimerManager::SetExecuteTimes(TimerId id, std::uint32_t execute_times) {
+void TimerManager::SetRemainingExecutions(TimerId id, std::uint32_t execute_times) {
   if (auto it = timers_.find(id); it != timers_.end()) {
     it->second.remaining_executions = execute_times;
     it->second.infinite = execute_times == 0;
@@ -152,8 +152,7 @@ void TimerManager::ProcessTimers() {
       sol::protected_function_result result = callback(sol::as_args(arguments));
       if (!result.valid()) {
         sol::error error = result;
-        ::lua::diagnostics::LogRuntimeError(error.what(),
-                                            {owner_resource, "timer callback", "timer " + std::to_string(id)});
+        ::lua::diagnostics::LogRuntimeError(error.what(), {owner_resource, "timer callback", "timer " + std::to_string(id)});
       }
     };
 

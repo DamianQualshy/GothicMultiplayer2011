@@ -18,7 +18,7 @@ local function formatPercent(value)
 end
 
 local function makeLine(index, text, r, g, b)
-  local draw = Draw.new(Net.x, Net.y + (index - 1) * Net.lineHeight, text)
+  local draw = Label.new(Net.x, Net.y + (index - 1) * Net.lineHeight, text)
   draw:setFont(Net.font)
   draw:setColor(r, g, b)
   draw:setVisible(false)

@@ -8,7 +8,7 @@ local Watch = {
 }
 
 local function makeLine(index, text)
-  local draw = Draw.new(Watch.x, Watch.y + (index - 1) * Watch.lineHeight, text)
+  local draw = Label.new(Watch.x, Watch.y + (index - 1) * Watch.lineHeight, text)
   draw:setFont(Watch.font)
   draw:setColor(255, 255, 255)
   draw:setVisible(Watch.visible)

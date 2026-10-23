@@ -47,7 +47,7 @@ public:
   std::string getFile() const;
   void setFile(const std::string& filename);
 
-  float getPlayingTime() const;
+  float getDuration() const;
 
   float getVolume() const;
   void setVolume(float volume);

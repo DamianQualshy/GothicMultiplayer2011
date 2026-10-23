@@ -34,10 +34,10 @@ SOFTWARE.
 #include <version.h>
 
 #include <algorithm>
-#include <climits>
 #include <array>
 #include <cctype>
 #include <chrono>
+#include <climits>
 #include <cmath>
 #include <cstring>
 #include <ctime>
@@ -59,18 +59,16 @@ SOFTWARE.
 #include <vector>
 
 #include "Lua/event_bind.h"
-#include "Lua/lua_item.h"
+#include "Lua/lua_item_definition.h"
 #include "Shared/lua_runtime/lua_value_codec.h"
 #include "diagnostics_manager.h"
 #include "gothic_clock.h"
 #include "healing_spells.h"
 #include "inventory_sync.h"
-#include "weapon_skills.h"
 #include "master_server_endpoint.h"
+#include "native_event_packets.h"
 #include "net_enums.h"
 #include "npc_packets.h"
-#include "native_event_packets.h"
-#include "transformation_spells.h"
 #include "packets.h"
 #include "platform_depend.h"
 #include "server_constants.h"
@@ -78,7 +76,9 @@ SOFTWARE.
 #include "shared/event.h"
 #include "shared/math.h"
 #include "sol/sol.hpp"
+#include "transformation_spells.h"
 #include "transport/transport.h"
+#include "weapon_skills.h"
 
 // Non-owning access for serialization helpers; GameServer owns the endpoint.
 static Net::ServerTransport* g_transport = nullptr;
@@ -1231,7 +1231,7 @@ bool GameServer::Init() {
   resource_manager_->BindResourceAwareTimer(*lua_script_);
 
   // Set up exports proxy
-  resource_manager_->CreateExportsProxy(lua_script_->GetLuaState());
+  resource_manager_->BindExports(lua_script_->GetLuaState());
 
   // Discover resource metadata, then load only the resources configured by server order.
   resource_manager_->DiscoverResources();
@@ -1423,8 +1423,7 @@ bool GameServer::RespawnPlayerInternal(Player& player) {
   const auto restored_mana = player.mana;
   const auto position = player.state.position;
   if (old_health != restored_health) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player_id, old_health, restored_health});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{player_id, old_health, restored_health});
   }
   auto current = player_manager_.GetPlayer(player_id);
   if (!current || current->get().actor_generation != generation) return true;
@@ -1794,8 +1793,7 @@ void GameServer::HandlePlayerStandUpReport(Packet p, std::uint8_t packet_identif
   pending_npc_events_.push_back([this, player_id, generation, old_health, new_hp] {
     const auto current = GetCharacter(player_id);
     if (!current || current->get().actor_generation != generation) return;
-    if (old_health != new_hp) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-        OnPlayerChangeHealthEvent{player_id, old_health, new_hp});
+    if (old_health != new_hp) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{player_id, old_health, new_hp});
     const auto after_health = GetCharacter(player_id);
     if (after_health && after_health->get().actor_generation == generation &&
         GetPlayerLifeState(after_health->get()) == PLAYER_LIFE_ALIVE)
@@ -1860,8 +1858,7 @@ bool GameServer::ApplyCharacterDamage(Character& victim, std::optional<PlayerId>
   if (attacker_id.has_value()) {
     event_attacker = attacker_id.value();
   }
-  auto result = EventManager::Instance().DispatchEvent(
-      kEventOnPlayerHitName, std::any(OnPlayerHitEvent{event_attacker, victim.player_id, damage, damage_type}));
+  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerHitName, std::any(OnPlayerHitEvent{event_attacker, victim.player_id, damage, damage_type}));
   if (result.cancelled) {
     return false;
   }
@@ -1937,8 +1934,7 @@ bool GameServer::ApplyCharacterDamage(Character& victim, std::optional<PlayerId>
     pending_npc_events_.push_back([this, victim_id, victim_generation, old_health, new_hp] {
       const auto actor = GetCharacter(victim_id);
       if (!actor || actor->get().actor_generation != victim_generation) return;
-      EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                           OnPlayerChangeHealthEvent{victim_id, old_health, new_hp});
+      EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim_id, old_health, new_hp});
     });
   }
 
@@ -1979,8 +1975,7 @@ bool GameServer::MakePlayerUnconscious(Player& victim, std::optional<PlayerId> a
   pending_npc_events_.push_back([this, victim_id, generation, old_health, event_attacker] {
     const auto actor = GetCharacter(victim_id);
     if (!actor || actor->get().actor_generation != generation) return;
-    if (old_health != 1) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-        OnPlayerChangeHealthEvent{victim_id, old_health, 1});
+    if (old_health != 1) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim_id, old_health, 1});
     const auto current = GetCharacter(victim_id);
     if (current && current->get().actor_generation == generation &&
         GetPlayerLifeState(current->get()) == PLAYER_LIFE_UNCONSCIOUS)
@@ -2022,8 +2017,7 @@ void GameServer::HandlePlayerDeath(Character& victim, std::optional<PlayerId> ki
   pending_npc_events_.push_back([this, victim_id, generation, old_health, killer_id] {
     const auto actor = GetCharacter(victim_id);
     if (!actor || actor->get().actor_generation != generation) return;
-    if (old_health != 0) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-        OnPlayerChangeHealthEvent{victim_id, old_health, 0});
+    if (old_health != 0) EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{victim_id, old_health, 0});
     const auto current = GetCharacter(victim_id);
     if (current && current->get().actor_generation == generation && current->get().tod != 0)
       EventManager::Instance().TriggerEvent(kEventOnPlayerDeathName, OnPlayerDeathEvent{victim_id, killer_id});
@@ -2448,7 +2442,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     const auto previous = hand == 0 ? old_state.left_hand_item_instance : old_state.right_hand_item_instance;
     if (observed == previous) continue;
     field = previous;
-    const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipHandItemName,
+    const auto result = EventManager::Instance().DispatchEvent(
+        kEventOnPlayerEquipHandItemName,
         OnPlayerEquipHandItemEvent{updated_actor_id, static_cast<std::uint8_t>(hand),
                                   item_index_or_nil(observed), item_index_or_nil(previous)});
     actor = GetCharacter(updated_actor_id);
@@ -2494,8 +2489,8 @@ void GameServer::HandlePlayerUpdate(Packet p) {
     const auto observed_item = updated_player.state.active_spell_instance;
     updated_player.state.active_spell_nr = old_state.active_spell_nr;
     updated_player.state.active_spell_instance = old_state.active_spell_instance;
-    const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipSpellSlotName,
-        OnPlayerEquipSpellSlotEvent{updated_actor_id, observed_slot, item_index_or_nil(observed_item),
+    const auto result = EventManager::Instance().DispatchEvent(
+        kEventOnPlayerEquipSpellSlotName, OnPlayerEquipSpellSlotEvent{updated_actor_id, observed_slot, item_index_or_nil(observed_item),
                                    item_index_or_nil(old_state.active_spell_instance)});
     const auto actor = GetCharacter(updated_actor_id);
     if (!actor || actor->get().actor_generation != packet.actor_generation) return;
@@ -2525,6 +2520,12 @@ void GameServer::HandlePlayerUpdate(Packet p) {
 }
 
 void GameServer::HandleLuaEvent(Packet p) {
+  const auto sender = GetIngamePlayerByConnection(p.id);
+  if (!sender) {
+    DiagnosticsManager::Instance().RecordPacketRejected(GetPacketIdentifier(p));
+    return;
+  }
+  const auto sender_player_id = sender->get().player_id;
   LuaEventPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   auto state = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
@@ -2549,7 +2550,7 @@ void GameServer::HandleLuaEvent(Packet p) {
     return;
   }
 
-  if (!lua::bindings::TriggerRemoteEvent(lua_script_->GetLuaState(), packet.event_name, packet.source_element, args)) {
+  if (!lua::bindings::TriggerRemoteEvent(lua_script_->GetLuaState(), packet.event_name, sender_player_id, packet.source_element, args)) {
     SPDLOG_WARN("Lua event '{}' rejected or cancelled", packet.event_name);
   }
 }
@@ -2983,7 +2984,7 @@ void GameServer::HandleCastSpell(Packet p, bool target) {
   const auto mana_before_callbacks = caster.mana;
   const auto health_before_callbacks = caster.health;
   const auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerCastSpellName,
-      OnPlayerCastSpellEvent{caster_id, packet.spell_id, packet.target_id});
+                                                             OnPlayerCastSpellEvent{caster_id, packet.spell_id, packet.target_id});
   actor = GetCharacter(caster_id);
   sender = GetIngamePlayerByConnection(p.id);
   if (!actor || !sender || actor->get().actor_generation != actor_generation) {
@@ -3266,8 +3267,8 @@ void GameServer::HandleActorAction(Packet p) {
       const auto mana_before_callbacks = current.mana;
       const auto* definition = item_registry_.FindByIndex(packet.item_instance);
       packet.scheme = definition ? definition->scemename : std::string{};
-      const auto decision = EventManager::Instance().DispatchEvent(kEventOnPlayerUseItemName,
-          OnPlayerUseItemEvent{actor_id, packet.item_instance, packet.quantity, packet.scheme});
+      const auto decision = EventManager::Instance().DispatchEvent(
+          kEventOnPlayerUseItemName, OnPlayerUseItemEvent{actor_id, packet.item_instance, packet.quantity, packet.scheme});
       const auto reject_use = [&] {
         const auto actor = GetCharacter(actor_id);
         if (!actor || actor->get().actor_generation != generation) return;
@@ -3302,10 +3303,10 @@ void GameServer::HandleActorAction(Packet p) {
       packet.mana_delta = mana - mana_before_callbacks;
       ClearRemovedEquipment(user, packet.item_instance, user.InventoryCount(instance));
       SendItemTransactionResult(user, 0, packet.item_instance, true);
-      SetPlayerHealth(actor_id, health);
+      SetCharacterHealth(actor_id, health);
       actor = GetCharacter(actor_id);
       if (!actor || actor->get().actor_generation != generation) return;
-      SetPlayerMana(actor_id, mana);
+      SetCharacterMana(actor_id, mana);
       break;
     }
     case ActorActionKind::MobState: {
@@ -3368,7 +3369,7 @@ void GameServer::ProcessActorEffects() {
     auto actor = GetCharacter(id);
     if (!actor) continue;
     actor->get().timed_overlays.erase(overlay);
-    RemovePlayerOverlay(id, overlay);
+    RemoveCharacterOverlay(id, overlay);
   }
 }
 
@@ -3422,8 +3423,7 @@ void GameServer::HandleDropItem(Packet p) {
   options.virtual_world = player.virtual_world;
 
   const auto item_ground_id = CreateItemGround(std::move(options));
-  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerDropItemName,
-                                                       OnPlayerDropItemEvent{player_id, item_ground_id});
+  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerDropItemName, OnPlayerDropItemEvent{player_id, item_ground_id});
   const auto current_player = GetIngamePlayerByConnection(p.id);
   if (!current_player || current_player->get().actor_generation != actor_generation) {
     DestroyItemGround(item_ground_id);
@@ -3472,8 +3472,7 @@ void GameServer::HandleTakeItem(Packet p) {
   const auto ground_id = item_ground->id;
   const auto player_id = player.player_id;
   const auto actor_generation = player.actor_generation;
-  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerTakeItemName,
-                                                       OnPlayerTakeItemEvent{player_id, ground_id});
+  auto result = EventManager::Instance().DispatchEvent(kEventOnPlayerTakeItemName, OnPlayerTakeItemEvent{player_id, ground_id});
   // Both entities can be destroyed or moved by Lua. Never retain pointers across
   // the callback, and never transfer a replacement/mutated ground item.
   const auto current_player = GetIngamePlayerByConnection(p.id);
@@ -4558,7 +4557,7 @@ void GameServer::HandleNpcActionResult(Packet p) {
   BroadcastNpcControl(packet.npc_id);
 }
 
-bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> position_override) {
+bool GameServer::SpawnCharacter(PlayerId player_id, std::optional<glm::vec3> position_override) {
   if (npc_manager_.GetNpc(player_id)) {
     return SpawnNpc(player_id, position_override);
   }
@@ -4614,7 +4613,7 @@ bool GameServer::SpawnPlayer(PlayerId player_id, std::optional<glm::vec3> positi
   return true;
 }
 
-bool GameServer::UnspawnPlayer(PlayerId player_id) {
+bool GameServer::UnspawnCharacter(PlayerId player_id) {
   if (npc_manager_.GetNpc(player_id)) {
     return UnspawnNpc(player_id);
   }
@@ -4646,7 +4645,7 @@ bool GameServer::UnspawnPlayer(PlayerId player_id) {
   return true;
 }
 
-bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
+bool GameServer::SetCharacterName(PlayerId player_id, const std::string& name) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerName called for unknown player id {}", player_id);
@@ -4671,7 +4670,7 @@ bool GameServer::SetPlayerName(PlayerId player_id, const std::string& name) {
   return true;
 }
 
-bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position, std::optional<bool> teleport) {
+bool GameServer::SetCharacterPosition(PlayerId player_id, const glm::vec3& position, std::optional<bool> teleport) {
   if (!IsValidActorPosition(position)) {
     return false;
   }
@@ -4713,7 +4712,7 @@ bool GameServer::SetPlayerPosition(PlayerId player_id, const glm::vec3& position
   return true;
 }
 
-bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
+bool GameServer::SetCharacterAngle(PlayerId player_id, float angle) {
   if (!std::isfinite(angle)) {
     return false;
   }
@@ -4737,7 +4736,7 @@ bool GameServer::SetPlayerAngle(PlayerId player_id, float angle) {
   return true;
 }
 
-bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, std::optional<std::string> start_point) {
+bool GameServer::SetCharacterWorld(PlayerId player_id, const std::string& world, std::optional<std::string> start_point) {
   if (auto npc = npc_manager_.GetNpc(player_id)) {
     const auto sanitized = SanitizeWorldName(world);
     // A headless server cannot resolve a Gothic waypoint into coordinates.
@@ -4817,7 +4816,7 @@ bool GameServer::SetPlayerWorld(PlayerId player_id, const std::string& world, st
   return true;
 }
 
-bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_world) {
+bool GameServer::SetCharacterVirtualWorld(PlayerId player_id, std::int32_t virtual_world) {
   if (auto npc = npc_manager_.GetNpc(player_id)) {
     const auto clamped = std::clamp<std::int32_t>(virtual_world, 0, 65535);
     if (npc->get().virtual_world != clamped) {
@@ -4866,7 +4865,7 @@ bool GameServer::SetPlayerVirtualWorld(PlayerId player_id, std::int32_t virtual_
   return true;
 }
 
-bool GameServer::SetPlayerStrength(PlayerId player_id, std::int32_t strength) {
+bool GameServer::SetCharacterStrength(PlayerId player_id, std::int32_t strength) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerStrength called for unknown player id {}", player_id);
@@ -4879,7 +4878,7 @@ bool GameServer::SetPlayerStrength(PlayerId player_id, std::int32_t strength) {
   return true;
 }
 
-bool GameServer::SetPlayerDexterity(PlayerId player_id, std::int32_t dexterity) {
+bool GameServer::SetCharacterDexterity(PlayerId player_id, std::int32_t dexterity) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerDexterity called for unknown player id {}", player_id);
@@ -4892,7 +4891,7 @@ bool GameServer::SetPlayerDexterity(PlayerId player_id, std::int32_t dexterity) 
   return true;
 }
 
-bool GameServer::SetPlayerLevel(PlayerId player_id, std::int32_t level) {
+bool GameServer::SetCharacterLevel(PlayerId player_id, std::int32_t level) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerLevel called for unknown player id {}", player_id);
@@ -4905,7 +4904,7 @@ bool GameServer::SetPlayerLevel(PlayerId player_id, std::int32_t level) {
   return true;
 }
 
-bool GameServer::SetPlayerExp(PlayerId player_id, std::int32_t exp) {
+bool GameServer::SetCharacterExperience(PlayerId player_id, std::int32_t exp) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerExp called for unknown player id {}", player_id);
@@ -4918,7 +4917,7 @@ bool GameServer::SetPlayerExp(PlayerId player_id, std::int32_t exp) {
   return true;
 }
 
-bool GameServer::SetPlayerNextLevelExp(PlayerId player_id, std::int32_t next_level_exp) {
+bool GameServer::SetCharacterNextLevelExperience(PlayerId player_id, std::int32_t next_level_exp) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerNextLevelExp called for unknown player id {}", player_id);
@@ -4931,7 +4930,7 @@ bool GameServer::SetPlayerNextLevelExp(PlayerId player_id, std::int32_t next_lev
   return true;
 }
 
-bool GameServer::SetPlayerLearnPoints(PlayerId player_id, std::int32_t learn_points) {
+bool GameServer::SetCharacterLearnPoints(PlayerId player_id, std::int32_t learn_points) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerLearnPoints called for unknown player id {}", player_id);
@@ -4944,7 +4943,7 @@ bool GameServer::SetPlayerLearnPoints(PlayerId player_id, std::int32_t learn_poi
   return true;
 }
 
-bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health) {
+bool GameServer::SetCharacterMaxHealth(PlayerId player_id, std::int32_t max_health) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMaxHealth called for unknown player id {}", player_id);
@@ -4967,13 +4966,12 @@ bool GameServer::SetPlayerMaxHealth(PlayerId player_id, std::int32_t max_health)
   AdvancePlayerStateSequence(player);
   SendPlayerAttributeUpdate(player_manager_, player, ATTR_HEALTH, player.health);
   if (old_health != player.health && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player_id, old_health, player.health});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{player_id, old_health, player.health});
   }
   return true;
 }
 
-bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
+bool GameServer::SetCharacterHealth(PlayerId player_id, std::int32_t health) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerHealth called for unknown player id {}", player_id);
@@ -5011,8 +5009,7 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
     SendStandUpInfo(player_id);
   }
   if (old_health != new_health && !npc_manager_.GetNpc(player_id)) {
-    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName,
-                                          OnPlayerChangeHealthEvent{player_id, old_health, new_health});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerChangeHealthName, OnPlayerChangeHealthEvent{player_id, old_health, new_health});
   }
   const auto current = GetCharacter(player_id);
   if (should_stand_up && current && current->get().actor_generation == generation &&
@@ -5022,7 +5019,7 @@ bool GameServer::SetPlayerHealth(PlayerId player_id, std::int32_t health) {
   return true;
 }
 
-bool GameServer::SetPlayerInvulnerable(PlayerId player_id, bool enabled) {
+bool GameServer::SetCharacterInvulnerable(PlayerId player_id, bool enabled) {
   const auto actor = GetCharacter(player_id);
   if (!actor) return false;
   auto& subject = actor->get();
@@ -5037,7 +5034,7 @@ bool GameServer::SetPlayerInvulnerable(PlayerId player_id, bool enabled) {
   return true;
 }
 
-bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
+bool GameServer::SetCharacterMaxMana(PlayerId player_id, std::int32_t max_mana) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMaxMana called for unknown player id {}", player_id);
@@ -5060,7 +5057,7 @@ bool GameServer::SetPlayerMaxMana(PlayerId player_id, std::int32_t max_mana) {
   return true;
 }
 
-bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
+bool GameServer::SetCharacterMana(PlayerId player_id, std::int32_t mana) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerMana called for unknown player id {}", player_id);
@@ -5080,7 +5077,7 @@ bool GameServer::SetPlayerMana(PlayerId player_id, std::int32_t mana) {
   return true;
 }
 
-bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
+bool GameServer::SetCharacterVisual(PlayerId player_id, const std::string& body_model, std::int16_t body_texture, const std::string& head_model,
                                  std::int16_t head_texture, std::int16_t teeth_texture, std::int16_t skin_color) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
@@ -5120,7 +5117,7 @@ bool GameServer::SetPlayerVisual(PlayerId player_id, const std::string& body_mod
   return true;
 }
 
-bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instance) {
+bool GameServer::SetCharacterInstance(PlayerId player_id, const std::string& instance) {
   auto actor = GetCharacter(player_id);
   const auto instance_name = SanitizeServerText(instance);
   if (!actor || instance_name.empty() || instance_name.size() > 255)
@@ -5157,10 +5154,10 @@ bool GameServer::SetPlayerInstance(PlayerId player_id, const std::string& instan
   return true;
 }
 
-bool GameServer::SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
+bool GameServer::SetCharacterNameColor(PlayerId player_id, std::uint8_t r, std::uint8_t g, std::uint8_t b) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
-    SPDLOG_WARN("setPlayerColor called for unknown player id {}", player_id);
+    SPDLOG_WARN("setPlayerNameColor called for unknown player id {}", player_id);
     return false;
   }
 
@@ -5173,7 +5170,7 @@ bool GameServer::SetPlayerColor(PlayerId player_id, std::uint8_t r, std::uint8_t
   return true;
 }
 
-bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage) {
+bool GameServer::SetCharacterSkillWeapon(PlayerId player_id, std::int32_t skill_id, std::int32_t percentage) {
   if (!gmp::IsWeaponSkill(skill_id))
     return false;
   auto player_opt = GetCharacter(player_id);
@@ -5196,7 +5193,7 @@ bool GameServer::SetPlayerSkillWeapon(PlayerId player_id, std::int32_t skill_id,
   return true;
 }
 
-bool GameServer::SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std::int32_t talent_value) {
+bool GameServer::SetCharacterTalent(PlayerId player_id, std::int32_t talent_id, std::int32_t talent_value) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerTalent called for unknown player id {}", player_id);
@@ -5211,7 +5208,7 @@ bool GameServer::SetPlayerTalent(PlayerId player_id, std::int32_t talent_id, std
   return true;
 }
 
-bool GameServer::SetPlayerFatness(PlayerId player_id, float fatness) {
+bool GameServer::SetCharacterFatness(PlayerId player_id, float fatness) {
   if (!std::isfinite(fatness)) {
     return false;
   }
@@ -5228,7 +5225,7 @@ bool GameServer::SetPlayerFatness(PlayerId player_id, float fatness) {
   return true;
 }
 
-bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
+bool GameServer::SetCharacterScale(PlayerId player_id, const glm::vec3& scale) {
   if (!IsFinitePosition(scale)) {
     return false;
   }
@@ -5245,7 +5242,7 @@ bool GameServer::SetPlayerScale(PlayerId player_id, const glm::vec3& scale) {
   return true;
 }
 
-bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mode) {
+bool GameServer::SetCharacterWeaponMode(PlayerId player_id, std::int32_t weapon_mode) {
   if (weapon_mode < 0 || weapon_mode > 7) return false;
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
@@ -5261,9 +5258,8 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
   AdvanceActorCommand(player);
 
   if (old_mode != player.state.weapon_mode) {
-    EventManager::Instance().TriggerEvent(
-        kEventOnPlayerWeaponModeChangeName,
-        OnPlayerWeaponModeChangeEvent{player.player_id, old_mode, player.state.weapon_mode});
+    EventManager::Instance().TriggerEvent(kEventOnPlayerWeaponModeChangeName,
+                                          OnPlayerWeaponModeChangeEvent{player.player_id, old_mode, player.state.weapon_mode});
   }
 
   AdvancePlayerStateSequence(player);
@@ -5274,7 +5270,7 @@ bool GameServer::SetPlayerWeaponMode(PlayerId player_id, std::int32_t weapon_mod
   return true;
 }
 
-bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overlay) {
+bool GameServer::ApplyCharacterOverlay(PlayerId player_id, const std::string& overlay) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("applyPlayerOverlay called for unknown player id {}", player_id);
@@ -5302,7 +5298,7 @@ bool GameServer::ApplyPlayerOverlay(PlayerId player_id, const std::string& overl
   return true;
 }
 
-bool GameServer::RemovePlayerOverlay(PlayerId player_id, const std::string& overlay) {
+bool GameServer::RemoveCharacterOverlay(PlayerId player_id, const std::string& overlay) {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("removePlayerOverlay called for unknown player id {}", player_id);
@@ -5785,29 +5781,28 @@ bool GameServer::TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot,
   EventManager::EventDispatchResult result;
   switch (slot) {
     case EquipmentSlot::Armor:
-      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipArmorName,
-          OnPlayerEquipArmorEvent{player_id, item_index, previous_index}); break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipArmorName, OnPlayerEquipArmorEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Helmet:
       result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipHelmetName,
-          OnPlayerEquipHelmetEvent{player_id, item_index, previous_index}); break;
+                                                      OnPlayerEquipHelmetEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Shield:
       result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipShieldName,
-          OnPlayerEquipShieldEvent{player_id, item_index, previous_index}); break;
+                                                      OnPlayerEquipShieldEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::MeleeWeapon:
       result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipMeleeWeaponName,
-          OnPlayerEquipMeleeWeaponEvent{player_id, item_index, previous_index}); break;
+                                                      OnPlayerEquipMeleeWeaponEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::RangedWeapon:
       result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipRangedWeaponName,
-          OnPlayerEquipRangedWeaponEvent{player_id, item_index, previous_index}); break;
+                                                      OnPlayerEquipRangedWeaponEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Amulet:
       result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipAmuletName,
-          OnPlayerEquipAmuletEvent{player_id, item_index, previous_index}); break;
+                                                      OnPlayerEquipAmuletEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::Belt:
-      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipBeltName,
-          OnPlayerEquipBeltEvent{player_id, item_index, previous_index}); break;
+      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipBeltName, OnPlayerEquipBeltEvent{player_id, item_index, previous_index}); break;
     case EquipmentSlot::RingLeft:
     case EquipmentSlot::RingRight:
-      result = EventManager::Instance().DispatchEvent(kEventOnPlayerEquipRingName,
+      result = EventManager::Instance().DispatchEvent(
+          kEventOnPlayerEquipRingName,
           OnPlayerEquipRingEvent{player_id, static_cast<std::uint8_t>(slot == EquipmentSlot::RingLeft ? 0 : 1),
                                 item_index, previous_index}); break;
   }
@@ -6131,7 +6126,7 @@ bool GameServer::RemoveItem(PlayerId player_id, const std::string& instance, std
   return true;
 }
 
-std::optional<glm::vec3> GameServer::GetPlayerPosition(PlayerId player_id) const {
+std::optional<glm::vec3> GameServer::GetCharacterPosition(PlayerId player_id) const {
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     return std::nullopt;
@@ -6189,7 +6184,7 @@ std::vector<GameServer::PlayerId> GameServer::FindNearbyPlayers(const glm::vec3&
   return nearby_players;
 }
 
-std::vector<GameServer::PlayerId> GameServer::GetSpawnedPlayersForPlayer(PlayerId player_id) const {
+std::vector<GameServer::PlayerId> GameServer::GetCharactersStreamedToPlayer(PlayerId player_id) const {
   std::vector<PlayerId> spawned_players;
   auto player_opt = player_manager_.GetPlayer(player_id);
   if (!player_opt.has_value() || !player_opt->get().is_ingame) {
@@ -6203,9 +6198,9 @@ std::vector<GameServer::PlayerId> GameServer::GetSpawnedPlayersForPlayer(PlayerI
   return spawned_players;
 }
 
-std::vector<GameServer::PlayerId> GameServer::GetStreamedPlayersByPlayer(PlayerId player_id) const {
+std::vector<GameServer::PlayerId> GameServer::GetPlayersStreamingCharacter(PlayerId player_id) const {
   std::vector<PlayerId> streaming_players;
-  auto player_opt = player_manager_.GetPlayer(player_id);
+  auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value() || !player_opt->get().is_ingame) {
     return streaming_players;
   }

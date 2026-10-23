@@ -34,26 +34,26 @@ namespace gmp::gothic {
 
 class LuaVoice {
 public:
-  static bool isAvailable();
-  static bool isEnabled();
-  static bool setEnabled(bool enabled);
-  static float getRange();
-  static bool setRange(float range);
-  static float getOutputVolume();
-  static void setOutputVolume(float volume);
-  static int getPushToTalkKey();
-  static bool setPushToTalkKey(int key);
-  static std::vector<std::string> getInputDevices();
-  static std::string getInputDevice();
-  static bool setInputDevice(const std::string& device_name);
-  static std::vector<std::string> getOutputDevices();
-  static std::string getOutputDevice();
-  static bool setOutputDevice(const std::string& device_name);
-  static std::string getChannel();
-  static bool setChannel(const std::string& channel);
-  static bool isTransmitting();
+  bool isAvailable();
+  bool isEnabled();
+  bool setScriptEnabled(bool enabled);
+  float getRange();
+  bool setLocalRangeLimit(float range);
+  float getOutputVolume();
+  void setOutputVolume(float volume);
+  int getPushToTalkKey();
+  bool setPushToTalkKey(int key);
+  sol::as_table_t<std::vector<std::string>> getInputDevices();
+  std::string getInputDevice();
+  bool setInputDevice(const std::string& device_name);
+  sol::as_table_t<std::vector<std::string>> getOutputDevices();
+  std::string getOutputDevice();
+  bool setOutputDevice(const std::string& device_name);
+  std::string getChannel();
+  bool setChannel(const std::string& channel);
+  bool isTransmitting();
 };
 
-void BindVoiceChat(sol::state& lua);
+void BindVoice(sol::state& lua);
 
 }  // namespace gmp::gothic

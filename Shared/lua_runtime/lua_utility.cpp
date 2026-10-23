@@ -23,7 +23,8 @@ SOFTWARE.
 
 #include "lua_utility.h"
 
-#include "bind_helpers.h"
+#include <sodium.h>
+#include <xxhash.h>
 
 #include <array>
 #include <cctype>
@@ -34,9 +35,7 @@ SOFTWARE.
 #include <sstream>
 #include <string>
 
-#include <sodium.h>
-#include <xxhash.h>
-
+#include "bind_helpers.h"
 #include "shared/crypto_utils.h"
 
 namespace lua {
@@ -90,17 +89,17 @@ std::optional<std::array<int, 3>> ParseHexColor(const std::string& hex) {
 }
 
 /* luagmp (func)
-*
-* This function will convert a hex color string to an RGB table.
-*
-* @version  0.3.0
-* @name     hexToRgb
-* @side     shared
-* @category Utility
-* @param    (string) hex   Hex color string (e.g. "#RRGGBB", "0xRRGGBB", or "RGB").
-* @return   ({r, g, b}|nil)   Table containing r, g, b components or nil on failure.
-*
-*/
+ *
+ * This function will convert a hex color string to an RGB table.
+ *
+ * @version  0.3.0
+ * @name     hexToRgb
+ * @side     shared
+ * @category Utility
+ * @param    (string) hex   Hex color string (e.g. "#RRGGBB", "0xRRGGBB", or "RGB").
+ * @return   ({r, g, b}|nil)   Table containing r, g, b components or nil on failure.
+ *
+ */
 sol::object Function_HexToRgb(const std::string& hex, sol::this_state ts) {
   sol::state_view lua(ts);
   auto color = ParseHexColor(hex);
@@ -120,19 +119,19 @@ sol::object Function_HexToRgb(const std::string& hex, sol::this_state ts) {
 }
 
 /* luagmp (func)
-*
-* This function will convert RGB components to a lowercase hex color string.
-*
-* @version  0.3.0
-* @name     rgbToHex
-* @side     shared
-* @category Utility
-* @param    (number) r   Red component (0-255).
-* @param    (number) g   Green component (0-255).
-* @param    (number) b   Blue component (0-255).
-* @return   (string) Lowercase hexadecimal representation.
-*
-*/
+ *
+ * This function will convert RGB components to a lowercase hex color string.
+ *
+ * @version  0.3.0
+ * @name     rgbToHex
+ * @side     shared
+ * @category Utility
+ * @param    (number) r   Red component (0-255).
+ * @param    (number) g   Green component (0-255).
+ * @param    (number) b   Blue component (0-255).
+ * @return   (string) Lowercase hexadecimal representation.
+ *
+ */
 std::string Function_RgbToHex(int r, int g, int b) {
   std::ostringstream stream;
   stream << std::hex << std::nouppercase << std::setfill('0');
@@ -143,18 +142,18 @@ std::string Function_RgbToHex(int r, int g, int b) {
 }
 
 /* luagmp (func)
-*
-* This function will split text according to a format string and return the parsed values.
-*
-* @version  0.3.0
-* @name     sscanf
-* @side     shared
-* @category Utility
-* @param    (string) format  Format string where each specifier maps to a value. Supported specifiers: `d` (integer), `f` (number), `s` (string).
-* @param    (string) text    Input text to parse.
-* @return   (table|nil)      Array of parsed values, or nil on parse failure.
-*
-*/
+ *
+ * This function will split text according to a format string and return the parsed values.
+ *
+ * @version  0.3.0
+ * @name     sscanf
+ * @side     shared
+ * @category Utility
+ * @param    (string) format  Format string where each specifier maps to a value. Supported specifiers: `d` (integer), `f` (number), `s` (string).
+ * @param    (string) text    Input text to parse.
+ * @return   (table|nil)      Array of parsed values, or nil on parse failure.
+ *
+ */
 sol::object Function_Sscanf(const std::string& format, const std::string& text, sol::this_state ts) {
   sol::state_view lua(ts);
   sol::table result = lua.create_table();
@@ -218,31 +217,31 @@ sol::object Function_Sscanf(const std::string& format, const std::string& text, 
 }
 
 /* luagmp (func)
-*
-* This function will return the number of milliseconds since the scripting runtime started.
-*
-* @version  0.3.0
-* @name     getTickCount
-* @side     shared
-* @category Utility
-* @return   (number)       Milliseconds since startup.
-*
-*/
+ *
+ * This function will return the number of milliseconds since the scripting runtime started.
+ *
+ * @version  0.3.0
+ * @name     getTickCount
+ * @side     shared
+ * @category Utility
+ * @return   (number)       Milliseconds since startup.
+ *
+ */
 std::int64_t Function_GetTickCount() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - kStartTime).count();
 }
 
 /* luagmp (func)
-*
-* This function will return the current local wall-clock time.
-*
-* @version  0.3.0
-* @name     getRealTime
-* @side     shared
-* @category Utility
-* @return   ({hour, minute, second})  Table containing local time components.
-*
-*/
+ *
+ * This function will return the current local wall-clock time.
+ *
+ * @version  0.3.0
+ * @name     getRealTime
+ * @side     shared
+ * @category Utility
+ * @return   ({hour, minute, second})  Table containing local time components.
+ *
+ */
 sol::table Function_GetRealTime(sol::this_state ts) {
   sol::state_view lua(ts);
   sol::table result = lua.create_table();
@@ -263,36 +262,36 @@ sol::table Function_GetRealTime(sol::this_state ts) {
 }
 
 /* luagmp (func)
-*
-* This function will calculate the SHA-256 hash of a string and return it as hex.
-*
-* @version  0.3.0
-* @name     sha256
-* @side     shared
-* @category Hash
-* @param    (string) input  Input text to hash.
-* @return   (string)        Hexadecimal hash string.
-*
-*/
-std::string Function_HashSha256(const std::string& input) {
+ *
+ * This function will calculate the SHA-256 hash of a string and return it as hex.
+ *
+ * @version  0.3.0
+ * @name     sha256
+ * @side     shared
+ * @category Hash
+ * @param    (string) input  Input text to hash.
+ * @return   (string)        Hexadecimal hash string.
+ *
+ */
+std::string Function_Sha256(const std::string& input) {
   unsigned char digest[crypto_hash_sha256_BYTES];
   crypto_hash_sha256(digest, reinterpret_cast<const unsigned char*>(input.data()), input.size());
   return gmp::crypto::BytesToHex(digest, crypto_hash_sha256_BYTES);
 }
 
 /* luagmp (func)
-*
-* This function will calculate the SHA-512 hash of a string and return it as hex.
-*
-* @version  0.3.0
-* @name     sha512
-* @side     shared
-* @category Hash
-* @param    (string) input  Input text to hash.
-* @return   (string)        Hexadecimal hash string.
-*
-*/
-std::string Function_HashSha512(const std::string& input) {
+ *
+ * This function will calculate the SHA-512 hash of a string and return it as hex.
+ *
+ * @version  0.3.0
+ * @name     sha512
+ * @side     shared
+ * @category Hash
+ * @param    (string) input  Input text to hash.
+ * @return   (string)        Hexadecimal hash string.
+ *
+ */
+std::string Function_Sha512(const std::string& input) {
   unsigned char digest[crypto_hash_sha512_BYTES];
   crypto_hash_sha512(digest, reinterpret_cast<const unsigned char*>(input.data()), input.size());
   return gmp::crypto::BytesToHex(digest, crypto_hash_sha512_BYTES);
@@ -313,19 +312,19 @@ lua_Integer ReadXxHashSeed(const sol::optional<sol::stack_object>& seed) {
 }
 
 /* luagmp (func)
-*
-* Return the XXH32 hash of the input string as lowercase hexadecimal text.
-*
-* @version  0.3.0
-* @name     xxh32
-* @side     shared
-* @category Hash
-* @param    (string) input  Input bytes to hash.
-* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
-* @return   (string)        Lowercase hexadecimal hash string (8 characters, including leading zeros).
-*
-*/
-std::string Function_HashXxh32(const std::string& input, sol::optional<sol::stack_object> seed) {
+ *
+ * Return the XXH32 hash of the input string as lowercase hexadecimal text.
+ *
+ * @version  0.3.0
+ * @name     xxh32
+ * @side     shared
+ * @category Hash
+ * @param    (string) input  Input bytes to hash.
+ * @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+ * @return   (string)        Lowercase hexadecimal hash string (8 characters, including leading zeros).
+ *
+ */
+std::string Function_Xxh32(const std::string& input, sol::optional<sol::stack_object> seed) {
   const lua_Integer seed_value = ReadXxHashSeed(seed);
   XXH32_canonical_t digest;
   XXH32_canonicalFromHash(&digest, XXH32(input.data(), input.size(), static_cast<XXH32_hash_t>(seed_value)));
@@ -333,19 +332,19 @@ std::string Function_HashXxh32(const std::string& input, sol::optional<sol::stac
 }
 
 /* luagmp (func)
-*
-* Return the XXH64 hash of the input string as lowercase hexadecimal text.
-*
-* @version  0.3.0
-* @name     xxh64
-* @side     shared
-* @category Hash
-* @param    (string) input  Input bytes to hash.
-* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
-* @return   (string)        Lowercase hexadecimal hash string (16 characters, including leading zeros).
-*
-*/
-std::string Function_HashXxh64(const std::string& input, sol::optional<sol::stack_object> seed) {
+ *
+ * Return the XXH64 hash of the input string as lowercase hexadecimal text.
+ *
+ * @version  0.3.0
+ * @name     xxh64
+ * @side     shared
+ * @category Hash
+ * @param    (string) input  Input bytes to hash.
+ * @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+ * @return   (string)        Lowercase hexadecimal hash string (16 characters, including leading zeros).
+ *
+ */
+std::string Function_Xxh64(const std::string& input, sol::optional<sol::stack_object> seed) {
   const auto seed_value = static_cast<XXH64_hash_t>(ReadXxHashSeed(seed));
   XXH64_canonical_t digest;
   XXH64_canonicalFromHash(&digest, XXH64(input.data(), input.size(), seed_value));
@@ -353,19 +352,19 @@ std::string Function_HashXxh64(const std::string& input, sol::optional<sol::stac
 }
 
 /* luagmp (func)
-*
-* Return the XXH128 hash of the input string as lowercase hexadecimal text.
-*
-* @version  0.3.0
-* @name     xxh128
-* @side     shared
-* @category Hash
-* @param    (string) input  Input bytes to hash.
-* @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
-* @return   (string)        Lowercase hexadecimal hash string (32 characters, including leading zeros).
-*
-*/
-std::string Function_HashXxh128(const std::string& input, sol::optional<sol::stack_object> seed) {
+ *
+ * Return the XXH128 hash of the input string as lowercase hexadecimal text.
+ *
+ * @version  0.3.0
+ * @name     xxh128
+ * @side     shared
+ * @category Hash
+ * @param    (string) input  Input bytes to hash.
+ * @param    (number) seed   Integer seed from 0 to 4294967295. (Optional, defaults to 0.)
+ * @return   (string)        Lowercase hexadecimal hash string (32 characters, including leading zeros).
+ *
+ */
+std::string Function_Xxh128(const std::string& input, sol::optional<sol::stack_object> seed) {
   const auto seed_value = static_cast<XXH64_hash_t>(ReadXxHashSeed(seed));
   XXH128_canonical_t digest;
   XXH128_canonicalFromHash(&digest, XXH3_128bits_withSeed(input.data(), input.size(), seed_value));
@@ -374,136 +373,173 @@ std::string Function_HashXxh128(const std::string& input, sol::optional<sol::sta
 
 }  // namespace
 
-void BindUtilities(sol::state& lua) {
-  lua["getTickCount"] = Function_GetTickCount;
-  lua["getRealTime"] = Function_GetRealTime;
-  lua["hexToRgb"] = Function_HexToRgb;
-  lua["rgbToHex"] = Function_RgbToHex;
-  lua["sscanf"] = Function_Sscanf;
-  lua["sha256"] = Function_HashSha256;
-  lua["sha512"] = Function_HashSha512;
-  lua["xxh32"] = Function_HashXxh32;
-  lua["xxh64"] = Function_HashXxh64;
-  lua["xxh128"] = Function_HashXxh128;
-}
+struct SetTimerBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will create a new timer that calls the given function at a fixed interval.
+   *
+   * The timer passes any additional arguments to the callback when it executes.
+   * If execute_times is 0 or negative, the timer repeats indefinitely.
+   *
+   * @version  0.3.0
+   * @name     setTimer
+   * @side     shared
+   * @category Timer
+   * @param    (function) func         Callback function executed by the timer.
+   * @param    (number) interval       Interval in milliseconds.
+   * @param    (number) execute_times  How many times to execute the callback (<= 0 means infinite).
+   * @param    (...) ...               Additional arguments forwarded to the callback.
+   * @return   (number)                Timer ID.
+   *
+   */
 
-void BindTimers(sol::state& lua, TimerManager& timer_manager) {
-/* luagmp (func)
-*
-* This function will create a new timer that calls the given function at a fixed interval.
-*
-* The timer passes any additional arguments to the callback when it executes.
-* If execute_times is 0 or negative, the timer repeats indefinitely.
-*
-* @version  0.3.0
-* @name     setTimer
-* @side     shared
-* @category Timer
-* @param    (function) func         Callback function executed by the timer.
-* @param    (number) interval       Interval in milliseconds.
-* @param    (number) execute_times  How many times to execute the callback (<= 0 means infinite).
-* @param    (...) ...               Additional arguments forwarded to the callback.
-* @return   (number)                Timer ID.
-*
-*/
-  lua.set_function("setTimer",
-                   [&timer_manager](sol::protected_function func, int interval, int execute_times, sol::variadic_args args, sol::this_state ts) {
-                     sol::state_view lua(ts);
-                     auto copied_arguments = ::lua::bind_helpers::CopyArguments(lua, args);
-                     auto timer_interval = std::chrono::milliseconds(interval);
-                     std::uint32_t times = execute_times > 0 ? static_cast<std::uint32_t>(execute_times) : 0u;
-                     return static_cast<int>(timer_manager.CreateTimer(std::move(func), timer_interval, times, std::move(copied_arguments)));
-                   });
+  auto operator()(sol::protected_function func, int interval, int execute_times, sol::variadic_args args, sol::this_state ts) const {
+    sol::state_view lua(ts);
+    auto copied_arguments = ::lua::bind_helpers::CopyArguments(lua, args);
+    auto timer_interval = std::chrono::milliseconds(interval);
+    std::uint32_t times = execute_times > 0 ? static_cast<std::uint32_t>(execute_times) : 0u;
+    return static_cast<int>(timer_manager.CreateTimer(std::move(func), timer_interval, times, std::move(copied_arguments)));
+  }
+};
 
-/* luagmp (func)
-*
-* This function will stop and remove an existing timer.
-*
-* @version  0.3.0
-* @name     killTimer
-* @side     shared
-* @category Timer
-* @param    (number) timer_id   Timer ID returned by setTimer.
-*
-*/
-  lua.set_function("killTimer", [&timer_manager](int timer_id) { timer_manager.KillTimer(static_cast<TimerManager::TimerId>(timer_id)); });
+struct KillTimerBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will stop and remove an existing timer.
+   *
+   * @version  0.3.0
+   * @name     killTimer
+   * @side     shared
+   * @category Timer
+   * @param    (number) timer_id   Timer ID returned by [setTimer](setTimer.md).
+   *
+   */
 
-/* luagmp (func)
-*
-* This function will set the interval (in milliseconds) of an existing timer.
-*
-* @version  0.3.0
-* @name     setTimerInterval
-* @side     shared
-* @category Timer
-* @param    (number) timer_id     Timer ID returned by setTimer.
-* @param    (number) interval     New interval in milliseconds.
-*
-*/
-  lua.set_function("setTimerInterval", [&timer_manager](int timer_id, int interval) {
+  auto operator()(int timer_id) const {
+    timer_manager.KillTimer(static_cast<TimerManager::TimerId>(timer_id));
+  }
+};
+
+struct SetTimerIntervalBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will set the interval (in milliseconds) of an existing timer.
+   *
+   * @version  0.3.0
+   * @name     setTimerInterval
+   * @side     shared
+   * @category Timer
+   * @param    (number) timer_id     Timer ID returned by [setTimer](setTimer.md).
+   * @param    (number) interval     New interval in milliseconds.
+   *
+   */
+
+  auto operator()(int timer_id, int interval) const {
     timer_manager.SetInterval(static_cast<TimerManager::TimerId>(timer_id), std::chrono::milliseconds(interval));
-  });
+  }
+};
 
-/* luagmp (func)
-*
-* This function will return the interval (in milliseconds) of a timer, or nil if the timer does not exist.
-*
-* @version  0.3.0
-* @name     getTimerInterval
-* @side     shared
-* @category Timer
-* @param    (number) timer_id      Timer ID returned by setTimer.
-* @return   (number|nil)           Interval in milliseconds, or nil if not found.
-*
-*/
-  lua.set_function("getTimerInterval", [&timer_manager](int timer_id, sol::this_state ts) -> sol::object {
+struct GetTimerIntervalBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will return the interval (in milliseconds) of a timer, or nil if the timer does not exist.
+   *
+   * @version  0.3.0
+   * @name     getTimerInterval
+   * @side     shared
+   * @category Timer
+   * @param    (number) timer_id      Timer ID returned by [setTimer](setTimer.md).
+   * @return   (number|nil)           Interval in milliseconds, or nil if not found.
+   *
+   */
+
+  auto operator()(int timer_id, sol::this_state ts) const -> sol::object {
     sol::state_view lua(ts);
     auto interval = timer_manager.GetInterval(static_cast<TimerManager::TimerId>(timer_id));
     if (!interval) {
       return sol::make_object(lua, sol::lua_nil);
     }
     return sol::make_object(lua, static_cast<int>(interval->count()));
-  });
+  }
+};
 
-/* luagmp (func)
-*
-* This function will set how many times the timer should execute.
-* If execute_times is 0 or negative, the timer repeats indefinitely.
-*
-* @version  0.3.0
-* @name     setTimerExecuteTimes
-* @side     shared
-* @category Timer
-* @param    (number) timer_id       Timer ID returned by setTimer.
-* @param    (number) execute_times  How many times to execute (<= 0 means infinite).
-*
-*/
-  lua.set_function("setTimerExecuteTimes", [&timer_manager](int timer_id, int execute_times) {
+struct SetTimerRemainingExecutionsBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will set how many times the timer should execute.
+   * If execute_times is 0 or negative, the timer repeats indefinitely.
+   *
+   * @version  0.3.0
+   * @name     setTimerRemainingExecutions
+   * @side     shared
+   * @category Timer
+   * @param    (number) timer_id       Timer ID returned by [setTimer](setTimer.md).
+   * @param    (number) execute_times  How many times to execute (<= 0 means infinite).
+   *
+   */
+
+  auto operator()(int timer_id, int execute_times) const {
     std::uint32_t times = execute_times > 0 ? static_cast<std::uint32_t>(execute_times) : 0u;
-    timer_manager.SetExecuteTimes(static_cast<TimerManager::TimerId>(timer_id), times);
-  });
+    timer_manager.SetRemainingExecutions(static_cast<TimerManager::TimerId>(timer_id), times);
+  }
+};
 
-/* luagmp (func)
-*
-* This function will return how many times the timer will execute, or nil if the timer does not exist.
-* A value of 0 means the timer repeats indefinitely.
-*
-* @version  0.3.0
-* @name     getTimerExecuteTimes
-* @side     shared
-* @category Timer
-* @param    (number) timer_id     Timer ID returned by setTimer.
-* @return   (number|nil)          Execute count (0 = infinite), or nil if not found.
-*
-*/
-  lua.set_function("getTimerExecuteTimes", [&timer_manager](int timer_id, sol::this_state ts) -> sol::object {
+struct GetTimerRemainingExecutionsBinding {
+  TimerManager& timer_manager;
+  /* luagmp (func)
+   *
+   * This function will return how many times the timer will execute, or nil if the timer does not exist.
+   * A value of 0 means the timer repeats indefinitely.
+   *
+   * @version  0.3.0
+   * @name     getTimerRemainingExecutions
+   * @side     shared
+   * @category Timer
+   * @param    (number) timer_id     Timer ID returned by [setTimer](setTimer.md).
+   * @return   (number|nil)          Execute count (0 = infinite), or nil if not found.
+   *
+   */
+
+  auto operator()(int timer_id, sol::this_state ts) const -> sol::object {
     sol::state_view lua(ts);
-    auto times = timer_manager.GetExecuteTimes(static_cast<TimerManager::TimerId>(timer_id));
+    auto times = timer_manager.GetRemainingExecutions(static_cast<TimerManager::TimerId>(timer_id));
     if (!times) {
       return sol::make_object(lua, sol::lua_nil);
     }
     return sol::make_object(lua, static_cast<int>(*times));
-  });
+  }
+};
+
+void BindUtilities(sol::state& lua) {
+  lua["getTickCount"] = Function_GetTickCount;
+  lua["getRealTime"] = Function_GetRealTime;
+  lua["hexToRgb"] = Function_HexToRgb;
+  lua["rgbToHex"] = Function_RgbToHex;
+  lua["sscanf"] = Function_Sscanf;
+  lua["sha256"] = Function_Sha256;
+  lua["sha512"] = Function_Sha512;
+  lua["xxh32"] = Function_Xxh32;
+  lua["xxh64"] = Function_Xxh64;
+  lua["xxh128"] = Function_Xxh128;
+}
+
+void BindTimers(sol::state& lua, TimerManager& timer_manager) {
+  lua.set_function("setTimer", SetTimerBinding{timer_manager});
+
+  lua.set_function("killTimer", KillTimerBinding{timer_manager});
+
+  lua.set_function("setTimerInterval", SetTimerIntervalBinding{timer_manager});
+
+  lua.set_function("getTimerInterval", GetTimerIntervalBinding{timer_manager});
+
+  lua.set_function("setTimerRemainingExecutions", SetTimerRemainingExecutionsBinding{timer_manager});
+
+  lua.set_function("getTimerRemainingExecutions", GetTimerRemainingExecutionsBinding{timer_manager});
 }
 
 }  // namespace bindings

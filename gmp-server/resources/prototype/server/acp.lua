@@ -64,7 +64,7 @@ local function cmdColor(playerId, params)
     return
   end
 
-  setPlayerColor(id, r, g, b)
+  setPlayerNameColor(id, r, g, b)
 
   sendMessageToPlayer(playerId, r, g, b, string.format('ACP: You changed color of %s to %d, %d, %d', playerName(id), r, g, b))
   sendMessageToPlayer(id, r, g, b, string.format('Your color was changed to %d, %d, %d by %s', r, g, b, playerName(playerId)))
@@ -319,13 +319,18 @@ local function cmdPos(playerId, params)
     return
   end
 
-  file:setItem(name, {
+  local saved, saveError = file:set(name, {
     x = position.x,
     y = position.y,
     z = position.z,
     angle = angle,
     world = getPlayerWorld(playerId) or ''
   })
+
+  if not saved then
+    sendMessageToPlayer(playerId, 255, 0, 0, 'ACP: Cannot save position: ' .. saveError.message)
+    return
+  end
 
   sendMessageToPlayer(playerId, 0, 255, 0, string.format('ACP: Saved position %s (%.2f, %.2f, %.2f, %.2f)',
       name, position.x, position.y, position.z, angle))

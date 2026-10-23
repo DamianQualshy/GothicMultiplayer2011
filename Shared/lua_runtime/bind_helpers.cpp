@@ -63,6 +63,14 @@ std::uint8_t ClampByte(int value) {
   return static_cast<std::uint8_t>(std::clamp(value, 0, 255));
 }
 
+LuaResult MakeFailure(sol::state_view lua, std::string_view message) {
+  return {sol::make_object(lua, sol::nil), sol::make_object(lua, lua.create_table_with("message", std::string(message)))};
+}
+
+LuaResult MakeSuccess(sol::state_view lua, sol::object value) {
+  return {std::move(value), sol::make_object(lua, sol::nil)};
+}
+
 /**
  * @brief Normalize an angle in degrees
  *
@@ -101,8 +109,7 @@ std::optional<float> GetOptionalFloat(const sol::table& table, const char* lower
  * @param upper_key Fallback uppercase field name
  * @return Field value, or std::nullopt when neither field contains a compatible value
  */
-std::optional<std::string> GetOptionalString(const sol::table& table, const char* lower_key,
-                                             const char* upper_key) {
+std::optional<std::string> GetOptionalString(const sol::table& table, const char* lower_key, const char* upper_key) {
   return GetOptional<std::string>(table, lower_key, upper_key);
 }
 
@@ -132,8 +139,7 @@ bool ReadStringArgument(sol::variadic_args arguments, std::string& value) {
  * @param first Zero-based index of the first argument to copy
  * @return Copied arguments, or an empty vector when first is out of range
  */
-std::vector<sol::object> CopyArguments(sol::state_view lua, const sol::variadic_args& arguments,
-                                       std::size_t first) {
+std::vector<sol::object> CopyArguments(sol::state_view lua, const sol::variadic_args& arguments, std::size_t first) {
   if (first >= arguments.size()) {
     return {};
   }
@@ -184,8 +190,7 @@ const void* GetLuaIdentity(const sol::protected_function& function) {
  * @param data_root Data directory relative to the current working directory
  * @return Normalized path, or std::nullopt when the path is invalid
  */
-std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative, bool allow_root,
-                                                     std::string_view data_root) {
+std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative, bool allow_root, std::string_view data_root) {
   const std::filesystem::path requested(relative);
   if (requested.empty() || requested.is_absolute()) {
     return std::nullopt;
@@ -196,8 +201,7 @@ std::optional<std::filesystem::path> ResolveDataPath(const std::string& relative
     }
   }
 
-  const std::filesystem::path root =
-      (std::filesystem::current_path() / std::filesystem::path{std::string(data_root)}).lexically_normal();
+  const std::filesystem::path root = (std::filesystem::current_path() / std::filesystem::path{std::string(data_root)}).lexically_normal();
   const std::filesystem::path full = (root / requested.lexically_normal()).lexically_normal();
   const std::string full_string = full.generic_string();
   std::string root_prefix = root.generic_string();
@@ -275,7 +279,7 @@ std::optional<std::pair<int, int>> ReadTimeTable(const sol::object& value) {
 
   sol::table table = value.as<sol::table>();
   sol::object hour = table["hour"];
-  sol::object minute = table["min"];
+  sol::object minute = table["minute"];
   if (!hour.is<int>() || !minute.is<int>()) {
     return std::nullopt;
   }
@@ -295,7 +299,7 @@ sol::object MakeTimeTable(sol::this_state state, int hour, int minute) {
   sol::state_view lua(state);
   sol::table table = lua.create_table();
   table["hour"] = hour;
-  table["min"] = minute;
+  table["minute"] = minute;
   return sol::make_object(lua, table);
 }
 

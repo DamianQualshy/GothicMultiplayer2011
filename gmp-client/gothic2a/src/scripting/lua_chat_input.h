@@ -24,49 +24,10 @@ SOFTWARE.
 
 #pragma once
 
-#include <string>
-
 #include "sol/sol.hpp"
 
 namespace gmp::gothic {
 
-class LuaMusicTheme {
-public:
-  static bool loadTheme(const std::string& file_name);
-  static bool playTheme();
-  static void stopTheme();
-
-  static std::string getFileName();
-  static void setFileName(const std::string& file_name);
-
-  static float getVolume();
-  static void setVolume(float volume);
-
-  static bool getLoop();
-  static void setLoop(bool loop);
-
-  static bool getDisabled();
-  static void setDisabled(bool disabled);
-
-  static sol::object getActiveTheme(sol::this_state ts);
-  static void setActiveTheme(sol::object value);
-
-  static float getReverbMix();
-  static void setReverbMix(float value);
-
-  static float getReverbTime();
-  static void setReverbTime(float value);
-
-  static int getTransType();
-  static void setTransType(int value);
-
-  static int getTransSubType();
-  static void setTransSubType(int value);
-
-  static std::string getName();
-  static void setName(const std::string& name);
-};
-
-void BindMusicTheme(sol::state& lua);
+void BindChatInput(sol::state& lua);
 
 }  // namespace gmp::gothic

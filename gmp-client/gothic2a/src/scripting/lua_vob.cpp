@@ -27,9 +27,9 @@ SOFTWARE.
 #include <algorithm>
 #include <utility>
 
-#include "lua_helpers.h"
 #include "Shared/lua_runtime/bind_helpers.h"
 #include "ZenGin/zGothicAPI.h"
+#include "lua_helpers.h"
 
 using namespace Gothic_II_Addon;
 
@@ -46,23 +46,23 @@ LuaVob::VobInstance::~VobInstance() {
 }
 
 /* luagmp (class)
-*
-* This class represents a 3d object in the world.
-*
-* @version  0.3.0
-* @name     Vob
-* @side     client
-* @category Game
-*
-*/
+ *
+ * This class represents a 3d object in the world.
+ *
+ * @version  0.3.0
+ * @name     Vob
+ * @side     client
+ * @category Game
+ *
+ */
 
 /* luagmp (constructor)
-*
-* Creates a new Vob using the provided visual model.
-*
-* @param    (string) model  Visual model name (e.g. "SPHERE.3DS").
-*
-*/
+ *
+ * Creates a new Vob using the provided visual model.
+ *
+ * @param    (string) model  Visual model name (e.g. "SPHERE.3DS").
+ *
+ */
 LuaVob::LuaVob(const std::string& model) : instance_(std::make_shared<VobInstance>()) {
   instance_->vob = new oCVob();
   instance_->owned = true;
@@ -71,7 +71,8 @@ LuaVob::LuaVob(const std::string& model) : instance_(std::make_shared<VobInstanc
   ApplyPendingVisual();
 }
 
-LuaVob::LuaVob(std::shared_ptr<VobInstance> instance) : instance_(std::move(instance)) {}
+LuaVob::LuaVob(std::shared_ptr<VobInstance> instance) : instance_(std::move(instance)) {
+}
 
 LuaVob LuaVob::FromExisting(zCVob* vob) {
   auto instance = std::make_shared<VobInstance>();
@@ -88,20 +89,20 @@ zCVob* LuaVob::handle() const {
   return vob();
 }
 
-/* luagmp (property)
-*
-* Represents the internal engine object name of the Vob.
-*
-* @name     objectName
-* @return   (string)
-*
-*/
+/// Assigns the objectName property using the same value format as its getter.
 void LuaVob::setObjectName(const std::string& name) {
   if (auto* handle = vob()) {
     handle->SetObjectName(zSTRING(name.c_str()));
   }
 }
 
+/* luagmp (property)
+ *
+ * Represents the internal engine object name of the Vob.
+ *
+ * @name     objectName
+ * @return   (string)
+ */
 std::string LuaVob::getObjectName() const {
   if (auto* handle = vob()) {
     return std::string(handle->GetObjectName().ToChar());
@@ -109,36 +110,37 @@ std::string LuaVob::getObjectName() const {
   return {};
 }
 
-/* luagmp (property)
-*
-* Represents the reference to the Vob matrix.
-*
-* @name     matrix
-* @return   (Mat4)
-*
-*/
-void LuaVob::setMatrix(const ::lua::types::Mat4& matrix) {
+/* luagmp (method)
+ * Applies a world-transform snapshot to this Vob.
+ * @name setWorldTransform
+ * @param (Mat4) matrix New world transform.
+ */
+void LuaVob::setWorldTransform(const ::lua::types::Mat4& matrix) {
   if (auto* handle = vob()) {
     handle->SetTrafoObjToWorld(lua_helpers::ToZenMat4(matrix));
   }
 }
 
-::lua::types::Mat4 LuaVob::getMatrix() const {
+/* luagmp (property)
+ *
+ * A copy of the Vob world transform. Assign the changed matrix back to update the Vob.
+ *
+ * @name     worldTransform
+ * @return   (Mat4)
+ */
+/* luagmp (method)
+ * Returns a copy of the world transform. Modify the copy and assign it back using `setWorldTransform` to apply changes.
+ * @name getWorldTransform
+ * @return (Mat4) World-transform snapshot.
+ */
+::lua::types::Mat4 LuaVob::getWorldTransform() const {
   if (auto* handle = vob()) {
     return lua_helpers::ToLuaMat4(handle->GetNewTrafoObjToWorld());
   }
   return {};
 }
 
-/* luagmp (property)
-*
-* Represents the reference to the parent Vob.
-*
-* @note     The Vob hierarchy will be lost after changing the world.
-* @name     parent
-* @return   (Vob|nil)
-*
-*/
+/// Assigns the parent property using the same value format as its getter.
 void LuaVob::setParent(sol::optional<LuaVob> parent) {
   auto* handle = vob();
   if (!handle) {
@@ -161,6 +163,14 @@ void LuaVob::setParent(sol::optional<LuaVob> parent) {
   world->MoveVobSubtreeToWorldSpace(handle);
 }
 
+/* luagmp (property)
+ *
+ * Represents the reference to the parent Vob.
+ *
+ * @note     The Vob hierarchy will be lost after changing the world.
+ * @name     parent
+ * @return   (Vob|nil)
+ */
 sol::object LuaVob::getParent(sol::this_state ts) const {
   sol::state_view lua(ts);
   auto* handle = vob();
@@ -176,20 +186,20 @@ sol::object LuaVob::getParent(sol::this_state ts) const {
   return sol::make_object(lua, LuaVob::FromExisting(parent_node->data));
 }
 
-/* luagmp (property)
-*
-* Represents the state of dynamic collision of the Vob. Enabling this option will prevent other dynamic objects from passing through it.
-*
-* @name     cdDynamic
-* @return   (boolean)
-*
-*/
+/// Assigns the cdDynamic property using the same value format as its getter.
 void LuaVob::setCdDynamic(bool enabled) {
   if (auto* handle = vob()) {
     handle->SetCollDetDyn(enabled ? 1 : 0);
   }
 }
 
+/* luagmp (property)
+ *
+ * Represents the state of dynamic collision of the Vob. Enabling this option will prevent other dynamic objects from passing through it.
+ *
+ * @name     cdDynamic
+ * @return   (boolean)
+ */
 bool LuaVob::getCdDynamic() const {
   if (auto* handle = vob()) {
     return handle->collDetectionDynamic != 0;
@@ -197,20 +207,21 @@ bool LuaVob::getCdDynamic() const {
   return false;
 }
 
-/* luagmp (property)
-*
-* Represents the state of static collision of the Vob. Enabling this option will prevent static objects (i.e. world mesh) from passing through it.
-*
-* @name     cdStatic
-* @return   (boolean)
-*
-*/
+/// Assigns the cdStatic property using the same value format as its getter.
 void LuaVob::setCdStatic(bool enabled) {
   if (auto* handle = vob()) {
     handle->SetCollDetStat(enabled ? 1 : 0);
   }
 }
 
+/* luagmp (property)
+ *
+ * Represents the state of static collision of the Vob. Enabling this option will prevent static objects (i.e. world mesh) from passing
+ * through it.
+ *
+ * @name     cdStatic
+ * @return   (boolean)
+ */
 bool LuaVob::getCdStatic() const {
   if (auto* handle = vob()) {
     return handle->collDetectionStatic != 0;
@@ -218,20 +229,20 @@ bool LuaVob::getCdStatic() const {
   return false;
 }
 
-/* luagmp (property)
-*
-* Represents the max distance at which the Vob will still be rendered.
-*
-* @name     farClipZScale
-* @return   (number)
-*
-*/
+/// Assigns the farClipZScale property using the same value format as its getter.
 void LuaVob::setFarClipZScale(float scale) {
   if (auto* handle = vob()) {
     handle->m_fVobFarClipZScale = scale;
   }
 }
 
+/* luagmp (property)
+ *
+ * Represents the max distance at which the Vob will still be rendered.
+ *
+ * @name     farClipZScale
+ * @return   (number)
+ */
 float LuaVob::getFarClipZScale() const {
   if (auto* handle = vob()) {
     return handle->m_fVobFarClipZScale;
@@ -239,14 +250,7 @@ float LuaVob::getFarClipZScale() const {
   return 0.0f;
 }
 
-/* luagmp (property)
-*
-* Represents the model file name used as Vob visual, e.g. "SPHERE.3DS".
-*
-* @name     visual
-* @return   (string)
-*
-*/
+/// Assigns the visual property using the same value format as its getter.
 void LuaVob::setVisual(const std::string& visual) {
   if (instance_) {
     instance_->pending_visual = visual;
@@ -254,6 +258,13 @@ void LuaVob::setVisual(const std::string& visual) {
   }
 }
 
+/* luagmp (property)
+ *
+ * Represents the model file name used as Vob visual, e.g. "SPHERE.3DS".
+ *
+ * @name     visual
+ * @return   (string)
+ */
 std::string LuaVob::getVisual() const {
   if (auto* handle = vob()) {
     if (auto* visual = handle->GetVisual()) {
@@ -263,14 +274,7 @@ std::string LuaVob::getVisual() const {
   return {};
 }
 
-/* luagmp (property)
-*
-* Represents the transparency of the Vob visual.
-*
-* @name     visualAlpha
-* @return   (number) Alpha in range [0.0, 1.0].
-*
-*/
+/// Assigns the visualAlpha property using the same value format as its getter.
 void LuaVob::setVisualAlpha(float alpha) {
   if (auto* handle = vob()) {
     float clamped = std::clamp(alpha, 0.0f, 1.0f);
@@ -279,6 +283,13 @@ void LuaVob::setVisualAlpha(float alpha) {
   }
 }
 
+/* luagmp (property)
+ * Visual opacity from 0.0 (transparent) to 1.0 (opaque).
+ *
+ * @name     visualAlpha
+ * @return   (number)
+ *
+ */
 float LuaVob::getVisualAlpha() const {
   if (auto* handle = vob()) {
     return handle->visualAlpha;
@@ -287,15 +298,15 @@ float LuaVob::getVisualAlpha() const {
 }
 
 /* luagmp (method)
-*
-* This method will set the position of the Vob in the world.
-*
-* @name     setPosition
-* @param    (number) x    Position on X axis.
-* @param    (number) y    Position on Y axis.
-* @param    (number) z    Position on Z axis.
-*
-*/
+ *
+ * This method will set the position of the Vob in the world.
+ *
+ * @name     setPosition
+ * @param    (number) x    Position on X axis.
+ * @param    (number) y    Position on Y axis.
+ * @param    (number) z    Position on Z axis.
+ *
+ */
 void LuaVob::setPosition(float x, float y, float z) {
   if (auto* handle = vob()) {
     handle->SetPositionWorld(zVEC3(x, y, z));
@@ -303,13 +314,13 @@ void LuaVob::setPosition(float x, float y, float z) {
 }
 
 /* luagmp (method)
-*
-* This method will return the position of the Vob in the world.
-*
-* @name     getPosition
-* @return   ({x, y, z})   Table containing x,y,z position.
-*
-*/
+ *
+ * This method will return the position of the Vob in the world.
+ *
+ * @name     getPosition
+ * @return   ({x, y, z})   Table containing x,y,z position.
+ *
+ */
 sol::table LuaVob::getPosition(sol::this_state s) const {
   sol::state_view lua(s);
 
@@ -324,16 +335,16 @@ sol::table LuaVob::getPosition(sol::this_state s) const {
 }
 
 /* luagmp (method)
-*
-* This method will set the euler rotation of the Vob in the world, in degrees.
-*
-* @name     setRotation
-* @param    (number) x    Rotation on X axis in degrees.
-* @param    (number) y    Rotation on Y axis in degrees.
-* @param    (number) z    Rotation on Z axis in degrees.
-*
-*/
-void LuaVob::setRotation(float x, float y, float z) {
+ *
+ * This method will set the euler rotation of the Vob in the world, in degrees.
+ *
+ * @name     setRotationDegrees
+ * @param    (number) x    Rotation on X axis in degrees.
+ * @param    (number) y    Rotation on Y axis in degrees.
+ * @param    (number) z    Rotation on Z axis in degrees.
+ *
+ */
+void LuaVob::setRotationDegrees(float x, float y, float z) {
   if (auto* handle = vob()) {
     zMAT4 matrix = handle->GetNewTrafoObjToWorld();
     zVEC3 translation = matrix.GetTranslation();
@@ -344,14 +355,14 @@ void LuaVob::setRotation(float x, float y, float z) {
 }
 
 /* luagmp (method)
-*
-* This method will return the euler rotation of the vob in the world, in degrees.
-*
-* @name     getRotation
-* @return   ({x, y, z})   Table containing x,y,z rotation.
-*
-*/
-sol::table LuaVob::getRotation(sol::this_state s) const {
+ *
+ * This method will return the euler rotation of the vob in the world, in degrees.
+ *
+ * @name     getRotationDegrees
+ * @return   ({x, y, z})   Table containing x,y,z rotation.
+ *
+ */
+sol::table LuaVob::getRotationDegrees(sol::this_state s) const {
   sol::state_view lua(s);
 
   float x = 0.0f;
@@ -368,13 +379,13 @@ sol::table LuaVob::getRotation(sol::this_state s) const {
 }
 
 /* luagmp (method)
-*
-* This method will add the vob to the currently loaded world. If the vob is not added, it won't show up.
-*
-* @name     addToWorld
-* @param    (Vob|nil) parent  Optional parent vob to attach to.
-*
-*/
+ *
+ * This method will add the vob to the currently loaded world. If the vob is not added, it won't show up.
+ *
+ * @name     addToWorld
+ * @param    (Vob|nil) parent  Optional parent vob to attach to.
+ *
+ */
 void LuaVob::addToWorld(sol::optional<LuaVob> parent) {
   auto* handle = vob();
   if (!handle || handle->GetHomeWorld() != nullptr) {
@@ -406,12 +417,12 @@ void LuaVob::addToWorld(sol::optional<LuaVob> parent) {
 }
 
 /* luagmp (method)
-*
-* This method will remove the vob from the currently loaded world.
-*
-* @name     removeFromWorld
-*
-*/
+ *
+ * This method will remove the vob from the currently loaded world.
+ *
+ * @name     removeFromWorld
+ *
+ */
 void LuaVob::removeFromWorld() {
   if (auto* handle = vob()) {
     if (handle->GetHomeWorld()) {
@@ -421,12 +432,12 @@ void LuaVob::removeFromWorld() {
 }
 
 /* luagmp (method)
-*
-* This method will try to put the vob on the floor. If the difference between vob position and the floor y position is <= 1000, the method succeeds.
-*
-* @name     floor
-*
-*/
+ *
+ * This method will try to put the vob on the floor. If the difference between vob position and the floor y position is <= 1000, the method succeeds.
+ *
+ * @name     floor
+ *
+ */
 void LuaVob::floor() {
   auto* handle = vob();
   if (!handle) {
@@ -474,23 +485,21 @@ void LuaVob::ApplyPendingVisual() {
 }
 
 void BindVob(sol::state& lua) {
-  sol::usertype<LuaVob> vob_type = lua.new_usertype<LuaVob>(
-      "Vob",
-      sol::constructors<LuaVob(const std::string&)>());
-
-  vob_type[sol::meta_function::call] = [](const std::string& model) { return LuaVob(model); };
+  sol::usertype<LuaVob> vob_type = lua.new_usertype<LuaVob>("Vob", sol::constructors<LuaVob(const std::string&)>());
 
   vob_type["setPosition"] = &LuaVob::setPosition;
   vob_type["getPosition"] = &LuaVob::getPosition;
-  vob_type["setRotation"] = &LuaVob::setRotation;
-  vob_type["getRotation"] = &LuaVob::getRotation;
+  vob_type["setRotationDegrees"] = &LuaVob::setRotationDegrees;
+  vob_type["getRotationDegrees"] = &LuaVob::getRotationDegrees;
 
   vob_type["addToWorld"] = &LuaVob::addToWorld;
   vob_type["removeFromWorld"] = &LuaVob::removeFromWorld;
   vob_type["floor"] = &LuaVob::floor;
 
   vob_type["objectName"] = sol::property(&LuaVob::getObjectName, &LuaVob::setObjectName);
-  vob_type["matrix"] = sol::property(&LuaVob::getMatrix, &LuaVob::setMatrix);
+  vob_type["worldTransform"] = sol::property(&LuaVob::getWorldTransform, &LuaVob::setWorldTransform);
+  vob_type["getWorldTransform"] = &LuaVob::getWorldTransform;
+  vob_type["setWorldTransform"] = &LuaVob::setWorldTransform;
   vob_type["parent"] = sol::property(&LuaVob::getParent, &LuaVob::setParent);
   vob_type["cdDynamic"] = sol::property(&LuaVob::getCdDynamic, &LuaVob::setCdDynamic);
   vob_type["cdStatic"] = sol::property(&LuaVob::getCdStatic, &LuaVob::setCdStatic);
