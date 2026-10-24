@@ -47,6 +47,7 @@ SOFTWARE.
 namespace {
 constexpr std::uint32_t kMaxNameLength = 100;
 constexpr std::uint32_t kMaxAuthKeyLength = 32;
+constexpr std::size_t kServerIdentitySeedBytes = 32;
 
 const std::unordered_map<std::string, std::variant<std::string, std::vector<std::string>, std::int32_t, bool>> kDefault_Config_Values = {
     {"name", std::string("Gothic Multiplayer Server")},
@@ -145,7 +146,7 @@ void Config::Load() {
         value.second);
   }
   ValidateAndFixValues();
-  EnsureServerKeys();
+  EnsureServerIdentitySeed();
 }
 
 void Config::ValidateAndFixValues() {
@@ -310,72 +311,32 @@ void Config::LogConfigValues() const {
   SPDLOG_INFO(kFrame);
 }
 
-void Config::EnsureServerKeys() {
+void Config::EnsureServerIdentitySeed() {
   auto& seed = std::get<std::string>(values_.at("server_identity_seed"));
 
-  // Check if seed already exists and is valid
+  // Preserve the existing website token and server-list identity.
   if (!seed.empty()) {
     auto decoded_seed = base64_decode(seed);
 
-    if (decoded_seed.size() == crypto_sign_SEEDBYTES) {
-      SPDLOG_INFO("Server identity seed loaded from config");
-      DeriveKeysFromSeed();
+    if (decoded_seed.size() == kServerIdentitySeedBytes) {
+      SPDLOG_INFO("Server website token loaded from config");
       return;
     } else {
-      SPDLOG_WARN("Existing server seed is invalid (expected {} bytes, got {}), generating new one", crypto_sign_SEEDBYTES, decoded_seed.size());
+      SPDLOG_WARN("Existing server seed is invalid (expected {} bytes, got {}), generating new one", kServerIdentitySeedBytes, decoded_seed.size());
     }
   }
 
   // Generate new random seed
-  std::array<unsigned char, crypto_sign_SEEDBYTES> new_seed;
+  std::array<unsigned char, kServerIdentitySeedBytes> new_seed;
   randombytes_buf(new_seed.data(), new_seed.size());
 
   // Encode to base64 and store
   seed = base64_encode(new_seed.data(), new_seed.size());
 
-  SPDLOG_INFO("Generated new server identity seed");
-
-  // Derive and cache the keys
-  DeriveKeysFromSeed();
+  SPDLOG_INFO("Generated new server website token");
 
   // Save to config file
   SaveConfigToFile();
-}
-
-void Config::DeriveKeysFromSeed() {
-  const auto& seed_str = Get<std::string>("server_identity_seed");
-  if (seed_str.empty()) {
-    SPDLOG_ERROR("Cannot derive keys: seed is empty");
-    cached_public_key_.clear();
-    cached_private_key_.clear();
-    return;
-  }
-
-  // Decode and cache the seed
-  auto binary_seed = base64_decode(seed_str);
-  if (binary_seed.size() != crypto_sign_SEEDBYTES) {
-    SPDLOG_ERROR("Invalid seed size for key derivation: expected {} bytes, got {}", crypto_sign_SEEDBYTES, binary_seed.size());
-    cached_public_key_.clear();
-    cached_private_key_.clear();
-    return;
-  }
-
-  // Derive keypair from seed
-  std::array<unsigned char, crypto_sign_PUBLICKEYBYTES> pk;
-  std::array<unsigned char, crypto_sign_SECRETKEYBYTES> sk;
-
-  if (crypto_sign_seed_keypair(pk.data(), sk.data(), binary_seed.data()) != 0) {
-    SPDLOG_ERROR("Failed to derive keypair from seed");
-    cached_public_key_.clear();
-    cached_private_key_.clear();
-    return;
-  }
-
-  // Cache the derived keys
-  cached_public_key_.assign(pk.begin(), pk.end());
-  cached_private_key_.assign(sk.begin(), sk.end());
-
-  SPDLOG_DEBUG("Server identity keys derived and cached in memory");
 }
 
 void Config::SaveConfigToFile() {
@@ -387,20 +348,8 @@ void Config::SaveConfigToFile() {
 
     config.Serialize(config_path_.string());
 
-    SPDLOG_INFO("Saved server identity seed to {}", config_path_.string());
+    SPDLOG_INFO("Saved server website token to {}", config_path_.string());
   } catch (const std::exception& ex) {
     SPDLOG_ERROR("Failed to save config file: {}", ex.what());
   }
-}
-
-// ============================================================================
-// Binary accessors - for network transmission and crypto operations
-// ============================================================================
-
-std::vector<unsigned char> Config::GetServerPublicKeyBinary() const {
-  return cached_public_key_;
-}
-
-std::vector<unsigned char> Config::GetServerPrivateKeyBinary() const {
-  return cached_private_key_;
 }

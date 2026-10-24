@@ -65,7 +65,7 @@ SOFTWARE.
 #include "gothic_clock.h"
 #include "healing_spells.h"
 #include "inventory_sync.h"
-#include "master_server_endpoint.h"
+#include "master_server_client.h"
 #include "native_event_packets.h"
 #include "net_enums.h"
 #include "npc_packets.h"
@@ -642,23 +642,6 @@ std::string SanitizeWorldName(std::string world) {
   }
 
   return world;
-}
-
-std::unique_ptr<httplib::Client> CreateMasterServerClient(const master_server::EndpointInfo& info) {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-  if (info.use_https) {
-    auto client = std::make_unique<httplib::SSLClient>(info.host, info.port);
-    client->enable_server_certificate_verification(true);
-    return client;
-  }
-#else
-  if (info.use_https) {
-    SPDLOG_ERROR("Master server endpoint '{}' requires HTTPS support, but the build lacks OpenSSL support.", info.host);
-    return nullptr;
-  }
-#endif
-
-  return std::make_unique<httplib::Client>(info.host, info.port);
 }
 
 std::string SanitizeServerText(std::string text) {
@@ -3810,15 +3793,15 @@ void GameServer::AddToPublicListHTTP() {
 
   auto endpoint_info_opt = master_server::ParseEndpoint(kMasterServerEndpoint);
   if (!endpoint_info_opt) {
-    SPDLOG_WARN("Master server endpoint '{}' has an invalid format. Skipping public list updates.", kMasterServerEndpoint);
+    SPDLOG_WARN("Master server endpoint must be a valid HTTPS URL. Skipping public list updates.");
     return;
   }
 
   const auto endpoint_info = *endpoint_info_opt;
 
-  auto client = CreateMasterServerClient(endpoint_info);
+  auto client = master_server::CreateClient(endpoint_info);
   if (!client) {
-    SPDLOG_ERROR("Unable to create HTTP client for master server endpoint '{}'.", kMasterServerEndpoint);
+    SPDLOG_ERROR("Unable to create HTTPS client for master server endpoint '{}'. Check OpenSSL support.", kMasterServerEndpoint);
     return;
   }
 
@@ -3838,7 +3821,7 @@ void GameServer::AddToPublicListHTTP() {
       if (!response) {
         SPDLOG_WARN("Failed to update master server at {}:{}{}: {}", endpoint_info.host, endpoint_info.port, endpoint_info.path,
                     httplib::to_string(response.error()));
-      } else if (response->status >= 400) {
+      } else if (response->status < 200 || response->status >= 300) {
         SPDLOG_WARN("Master server responded with status {} when updating {}:{}{}", response->status, endpoint_info.host, endpoint_info.port,
                     endpoint_info.path);
       } else {

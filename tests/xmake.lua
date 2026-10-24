@@ -20,6 +20,15 @@
 -- OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 -- SOFTWARE.
 
+target("MasterServerEndpointTest")
+    set_kind("binary")
+    add_files("master_server_endpoint_test.cpp")
+    add_deps("common")
+    add_packages("gtest", "cpp-httplib")
+    add_tests("default")
+    set_rundir(os.projectdir())
+    set_default(false)
+
 target("ConnectionTest")
     set_kind("binary")
     set_encodings("utf-8")

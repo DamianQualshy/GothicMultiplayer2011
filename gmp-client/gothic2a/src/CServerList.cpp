@@ -40,7 +40,7 @@ SOFTWARE.
 #include <nlohmann/json.hpp>
 
 #include "CServerList.h"
-#include "master_server_endpoint.h"
+#include "master_server_client.h"
 
 namespace {
 
@@ -49,22 +49,6 @@ constexpr std::string_view kMasterServerEndpoint = MASTER_SERVER_ENDPOINT;
 #else
 constexpr std::string_view kMasterServerEndpoint{};
 #endif
-
-std::unique_ptr<httplib::Client> CreateMasterServerClient(const master_server::EndpointInfo& info) {
-#ifdef CPPHTTPLIB_OPENSSL_SUPPORT
-  if (info.use_https) {
-    auto client = std::make_unique<httplib::SSLClient>(info.host, info.port);
-    client->enable_server_certificate_verification(true);
-    return client;
-  }
-#else
-  if (info.use_https) {
-    return nullptr;
-  }
-#endif
-
-  return std::make_unique<httplib::Client>(info.host, info.port);
-}
 
 unsigned short ClampToUint16(int value) {
   if (value < 0) {
@@ -287,7 +271,7 @@ bool CServerList::ReceiveListHttp() {
 
   auto endpoint_info_opt = master_server::ParseEndpoint(kMasterServerEndpoint);
   if (!endpoint_info_opt) {
-    SetError(ErrorCode::kInvalidEndpoint, "Master server endpoint has an invalid format.");
+    SetError(ErrorCode::kInvalidEndpoint, "Master server endpoint must be a valid HTTPS URL.");
     return false;
   }
 
@@ -300,9 +284,9 @@ bool CServerList::ReceiveListHttp() {
   }
 #endif
 
-  auto client = CreateMasterServerClient(endpoint_info);
+  auto client = master_server::CreateClient(endpoint_info);
   if (!client) {
-    SetError(ErrorCode::kConnectionFailed, "Unable to initialize HTTP client for the master server endpoint.");
+    SetError(ErrorCode::kConnectionFailed, "Unable to initialize HTTPS client for the master server endpoint.");
     return false;
   }
 

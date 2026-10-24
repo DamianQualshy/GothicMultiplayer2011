@@ -31,7 +31,7 @@ target("Server")
     add_deps("common", "SharedLib", "AddonSupport", "LuaRuntime", "Transport", "ResourcePacker")
     add_defines("SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE")
     add_packages("spdlog", "fmt", "toml11", "nlohmann_json", "bitsery", "glm", "sol2", "cpp-httplib",
-                 "openssl", "libsodium", "libopus", "sqlite3", "mariadb-connector-c", {public = true})
+                 "openssl3", "libsodium", "libopus", "sqlite3", "mariadb-connector-c", {public = true})
     local master_endpoint = get_config("master_server_endpoint")
     if master_endpoint and #master_endpoint > 0 then
         add_defines(string.format("MASTER_SERVER_ENDPOINT=\"%s\"", master_endpoint))

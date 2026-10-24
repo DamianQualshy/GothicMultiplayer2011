@@ -48,10 +48,10 @@ protected:
     std::filesystem::remove_all(directory_, ignored);
   }
 
-  void WriteConfig(const std::string& body) const {
+  void WriteConfig(const std::string& body, const std::string& seed = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=") const {
     std::ofstream output(config_path_, std::ios::binary | std::ios::trunc);
     ASSERT_TRUE(output.is_open());
-    output << "server_identity_seed = \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=\"\n";
+    output << "server_identity_seed = \"" << seed << "\"\n";
     output << body;
     ASSERT_TRUE(output.good());
   }
@@ -75,6 +75,29 @@ downloader_download_timeout_seconds = 45
   EXPECT_EQ(config.Get<std::int32_t>("downloader_rate_limit"), 0);
   EXPECT_EQ(config.Get<std::string>("downloader_group"), "MyServer");
   EXPECT_EQ(config.Get<std::int32_t>("downloader_download_timeout_seconds"), 45);
+}
+
+TEST_F(AddonConfigTest, PreservesExistingWebsiteTokenAcrossReloads) {
+  WriteConfig("public = true\n");
+
+  const Config config(config_path_);
+  EXPECT_EQ(config.Get<std::string>("server_identity_seed"), "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=");
+
+  const Config reloaded(config_path_);
+  EXPECT_EQ(reloaded.Get<std::string>("server_identity_seed"), config.Get<std::string>("server_identity_seed"));
+}
+
+TEST_F(AddonConfigTest, PersistsGeneratedWebsiteTokenWithoutLosingServerSettings) {
+  WriteConfig("name = \"Website Token Test\"\npublic = true\n", "");
+
+  const Config config(config_path_);
+  const auto token = config.Get<std::string>("server_identity_seed");
+  ASSERT_EQ(token.size(), 44);
+
+  const Config reloaded(config_path_);
+  EXPECT_EQ(reloaded.Get<std::string>("server_identity_seed"), token);
+  EXPECT_EQ(reloaded.Get<std::string>("name"), "Website Token Test");
+  EXPECT_TRUE(reloaded.Get<bool>("public"));
 }
 
 }  // namespace

@@ -35,8 +35,8 @@ namespace master_server {
 struct EndpointInfo {
   std::string host;
   std::string path{"/"};
-  int port{80};
-  bool use_https{false};
+  int port{443};
+  bool use_https{true};
 };
 
 namespace detail {
@@ -89,27 +89,12 @@ inline void AssignPath(EndpointInfo& info, std::string_view path) {
 
 inline std::optional<EndpointInfo> ParseEndpoint(std::string_view endpoint) {
   endpoint = detail::TrimAsciiWhitespace(endpoint);
-  if (endpoint.empty()) {
+  if (!endpoint.starts_with("https://")) {
     return std::nullopt;
   }
 
   EndpointInfo info;
-  std::string_view remainder = endpoint;
-
-  const auto scheme_pos = remainder.find("://");
-  if (scheme_pos != std::string_view::npos) {
-    const auto scheme = remainder.substr(0, scheme_pos);
-    if (scheme == "http") {
-      info.use_https = false;
-      info.port = 80;
-    } else if (scheme == "https") {
-      info.use_https = true;
-      info.port = 443;
-    } else {
-      return std::nullopt;
-    }
-    remainder.remove_prefix(scheme_pos + 3);
-  }
+  std::string_view remainder = endpoint.substr(std::string_view("https://").size());
 
   if (remainder.empty()) {
     return std::nullopt;
@@ -158,7 +143,7 @@ inline std::optional<EndpointInfo> ParseEndpoint(std::string_view endpoint) {
   }
 
   host = detail::TrimAsciiWhitespace(host);
-  if (host.empty()) {
+  if (host.empty() || host.find_first_of(" \t\r\n\f\v@#\\[]") != std::string_view::npos) {
     return std::nullopt;
   }
 
