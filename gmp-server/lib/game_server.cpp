@@ -144,6 +144,28 @@ bool AcceptActionId(std::optional<std::uint32_t>& last, std::uint32_t incoming) 
   return true;
 }
 
+void ReconcileWeaponModeHands(Character& character, const ItemRegistry& registry) {
+  auto& state = character.state;
+  // Mode commands and constructor completion must publish the same weapon
+  // attachments. An old hand sample must not redraw a sheathed weapon later.
+  constexpr auto weapon_flags =
+      kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe | kItemFlagBow | kItemFlagCrossbow;
+  for (auto* hand : {&state.left_hand_item_instance, &state.right_hand_item_instance}) {
+    if (const auto* item = registry.FindByIndex(*hand); item && (item->flags & weapon_flags) != 0)
+      *hand = 0;
+  }
+  const std::int32_t mode_flags[] = {
+      0, 0, kItemFlagDag, kItemFlagSword | kItemFlagAxe, kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe, kItemFlagBow, kItemFlagCrossbow, 0};
+  const auto* drawn = registry.FindByIndex(state.weapon_mode >= 5 ? state.ranged_weapon_instance : state.melee_weapon_instance);
+  if (drawn && (drawn->flags & mode_flags[state.weapon_mode]) != 0 && character.InventoryCount(drawn->instance) > 0) {
+    (state.weapon_mode == 5 ? state.left_hand_item_instance : state.right_hand_item_instance) = drawn->index;
+  }
+  if (state.weapon_mode != 7) {
+    state.active_spell_instance = state.active_spell_nr = state.active_spell_level = 0;
+    state.spell_investing = false;
+  }
+}
+
 struct CombatBounds {
   std::int32_t damage{0};
   std::uint32_t types{0};
@@ -2238,6 +2260,7 @@ void GameServer::CompletePlayerInstanceChange(Character& character, const Player
     character.pending_equipment_commands.clear();
     ValidatePlayerEquipment(character, state);
     character.state = state;
+    ReconcileWeaponModeHands(character, item_registry_);
     character.flags &= ~PlayerManager::PL_UNCONCIOUS;
     character.tod = character.health ? 0 : std::time(nullptr);
     character.death_started_at.reset();
@@ -5226,7 +5249,8 @@ bool GameServer::SetCharacterScale(PlayerId player_id, const glm::vec3& scale) {
 }
 
 bool GameServer::SetCharacterWeaponMode(PlayerId player_id, std::int32_t weapon_mode) {
-  if (weapon_mode < 0 || weapon_mode > 7) return false;
+  if (weapon_mode < 0 || weapon_mode > 7)
+    return false;
   auto player_opt = GetCharacter(player_id);
   if (!player_opt.has_value()) {
     SPDLOG_WARN("setPlayerWeaponMode called for unknown player id {}", player_id);
@@ -5234,10 +5258,13 @@ bool GameServer::SetCharacterWeaponMode(PlayerId player_id, std::int32_t weapon_
   }
 
   auto& player = player_opt->get();
-  if (player.instance_change) player.instance_change->weapon_mode_changed = true;
+  if (player.instance_change)
+    player.instance_change->weapon_mode_changed = true;
   const auto old_mode = player.state.weapon_mode;
   const auto clamped_mode = static_cast<std::uint8_t>(weapon_mode);
   player.state.weapon_mode = clamped_mode;
+  ReconcileWeaponModeHands(player, item_registry_);
+  const auto generation = player.actor_generation;
   AdvanceActorCommand(player);
 
   if (old_mode != player.state.weapon_mode) {
@@ -5245,11 +5272,17 @@ bool GameServer::SetCharacterWeaponMode(PlayerId player_id, std::int32_t weapon_
                                           OnPlayerWeaponModeChangeEvent{player.player_id, old_mode, player.state.weapon_mode});
   }
 
-  AdvancePlayerStateSequence(player);
+  // A script callback can issue another mode command or destroy the actor.
+  player_opt = GetCharacter(player_id);
+  if (!player_opt || player_opt->get().actor_generation != generation)
+    return false;
+  auto& current = player_opt->get();
+  ReconcileWeaponModeHands(current, item_registry_);
+  AdvancePlayerStateSequence(current);
 
-  auto packet = MakePlayerStateUpdatePacket(player);
-  packet.state.correction_mask = kSyncCombat;
-  BroadcastToRelevant(player_manager_, player, packet, TrafficClass::Control);
+  auto packet = MakePlayerStateUpdatePacket(current);
+  packet.state.correction_mask = kSyncCombat | kSyncEquipment;
+  BroadcastToRelevant(player_manager_, current, packet, TrafficClass::Control);
   return true;
 }
 

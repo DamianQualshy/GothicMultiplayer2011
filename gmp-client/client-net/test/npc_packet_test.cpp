@@ -1138,6 +1138,37 @@ TEST_F(ClientNpcPacketTest, ContinuousSamplesAndExplicitComponentCorrectionsKeep
   EXPECT_EQ(first->player_manager().GetPlayer(21)->command_revision(), 4u);
 }
 
+TEST_F(ClientNpcPacketTest, ScriptedSheathCorrectsModeAndHandsTogetherAndRejectsTheOldDrawSample) {
+  Deliver(0, MakeSpawn());
+  auto drawn = MakeMovement(12);
+  drawn.state.weapon_mode = 5;
+  drawn.state.ranged_weapon_instance = 201;
+  drawn.state.left_hand_item_instance = 201;
+  Deliver(0, drawn);
+  auto* actor = first->player_manager().GetPlayer(21);
+  ASSERT_EQ(actor->weapon_mode(), 5);
+  ASSERT_EQ(actor->left_hand_item(), 201);
+
+  auto sheath = MakeMovement(13);
+  sheath.command_revision = 4;
+  sheath.state = actor->state();
+  sheath.state.correction_mask = kSyncCombat | kSyncEquipment;
+  sheath.state.weapon_mode = 0;
+  sheath.state.left_hand_item_instance = sheath.state.right_hand_item_instance = 0;
+  Deliver(0, sheath);
+  EXPECT_EQ(actor->weapon_mode(), 0);
+  EXPECT_EQ(actor->left_hand_item(), 0);
+  EXPECT_EQ(actor->right_hand_item(), 0);
+  EXPECT_EQ(actor->ranged_weapon(), 201);
+  EXPECT_TRUE(first_observer.state_corrections.back());
+  EXPECT_EQ(first_observer.states.back().correction_mask, kSyncCombat | kSyncEquipment);
+
+  Deliver(0, drawn);
+  EXPECT_EQ(actor->weapon_mode(), 0);
+  EXPECT_EQ(actor->left_hand_item(), 0);
+  EXPECT_EQ(actor->ranged_weapon(), 201);
+}
+
 TEST_F(ClientNpcPacketTest, ObsoleteEquipmentCommandStillRequestsVerificationWithoutReplaying) {
   Deliver(0, MakeSpawn());
   auto state = MakeMovement(12);

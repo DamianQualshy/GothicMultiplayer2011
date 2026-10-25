@@ -1128,6 +1128,114 @@ TEST_F(ServerTorchValidation, RemovingLastBackingTorchImmediatelyClearsItsBurnin
   EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 0);
 }
 
+class ServerWeaponModeValidation : public ServerActorValidation {
+protected:
+  void SetUp() override {
+    ServerActorValidation::SetUp();
+    Write(R"({"items":[{"instance":"BOW","index":200,"mainflag":4,"flags":524288},
+                      {"instance":"CROSSBOW","index":201,"mainflag":4,"flags":1048576},
+                      {"instance":"SWORD","index":202,"mainflag":2,"flags":16384},
+                      {"instance":"TWOHANDER","index":203,"mainflag":2,"flags":65536},
+                      {"instance":"TORCH","index":204,"mainflag":1,"flags":268435456}]})");
+    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+    for (const auto id : {first, npc_id}) {
+      auto& actor = server.GetCharacter(id)->get();
+      for (const auto* instance : {"BOW", "CROSSBOW", "SWORD", "TWOHANDER", "TORCH"}) ASSERT_TRUE(actor.AddInventory(instance, 1));
+    }
+  }
+};
+
+TEST_F(ServerWeaponModeValidation, DrawSheathAndDirectSwitchesKeepModesAndHandsTogetherForPlayersAndNpcs) {
+  for (const auto id : {first, npc_id}) {
+    auto& actor = server.GetCharacter(id)->get();
+    actor.state.melee_weapon_instance = 202;
+    actor.state.ranged_weapon_instance = 200;
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 5));
+    EXPECT_EQ(actor.state.weapon_mode, 5);
+    EXPECT_EQ(actor.state.left_hand_item_instance, 200);
+    EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 0));
+    EXPECT_EQ(actor.state.weapon_mode, 0);
+    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.ranged_weapon_instance, 200);
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 5));
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 3));
+    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.right_hand_item_instance, 202);
+    actor.state.ranged_weapon_instance = 201;
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 6));
+    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.right_hand_item_instance, 201);
+    actor.state.melee_weapon_instance = 203;
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 4));
+    EXPECT_EQ(actor.state.right_hand_item_instance, 203);
+    ASSERT_TRUE(server.SetCharacterWeaponMode(id, 1));
+    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+    for (const auto* instance : {"BOW", "CROSSBOW", "SWORD", "TWOHANDER"}) EXPECT_EQ(actor.InventoryCount(instance), 1);
+  }
+}
+
+TEST_F(ServerWeaponModeValidation, RepeatedNoneRepairsStaleWeaponsWithoutRemovingOtherHeldItems) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.state.weapon_mode = 0;
+  actor.state.left_hand_item_instance = 200;
+  actor.state.right_hand_item_instance = 202;
+  ASSERT_TRUE(server.SetCharacterWeaponMode(first, 0));
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+  actor.state.left_hand_item_instance = 204;
+  actor.state.right_hand_item_instance = 202;
+  actor.state.active_spell_instance = 150;
+  actor.state.active_spell_level = 2;
+  actor.state.spell_investing = true;
+  ASSERT_TRUE(server.SetCharacterWeaponMode(first, 0));
+  EXPECT_EQ(actor.state.left_hand_item_instance, 204);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.active_spell_instance, 0);
+  EXPECT_EQ(actor.state.active_spell_level, 0);
+  EXPECT_FALSE(actor.state.spell_investing);
+}
+
+TEST_F(ServerWeaponModeValidation, CounterstrikeStyleModeOverrideKeepsTheNestedCommandState) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.state.ranged_weapon_instance = 200;
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerWeaponModeChangeName, [&](std::any event) {
+    const auto change = std::any_cast<OnPlayerWeaponModeChangeEvent>(event);
+    if (change.player_id == first && change.new_mode == 5)
+      EXPECT_TRUE(server.SetCharacterWeaponMode(first, 0));
+  }));
+  ASSERT_TRUE(server.SetCharacterWeaponMode(first, 5));
+  EXPECT_EQ(actor.state.weapon_mode, 0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+}
+
+TEST_F(ServerWeaponModeValidation, WeaponModeCallbackMayDestroyTheNpc) {
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerWeaponModeChangeName, [&](std::any event) {
+    const auto change = std::any_cast<OnPlayerWeaponModeChangeEvent>(event);
+    if (change.player_id == npc_id)
+      EXPECT_TRUE(server.DestroyNpc(npc_id));
+  }));
+  EXPECT_FALSE(server.SetCharacterWeaponMode(npc_id, 0));
+  EXPECT_FALSE(server.GetCharacter(npc_id));
+}
+
+TEST_F(ServerInstanceValidation, PendingLoadoutDrawCommandSurvivesConstructorCompletion) {
+  auto& actor = server.GetCharacter(first)->get();
+  ASSERT_TRUE(server.SetCharacterInstance(first, "PC_HERO"));
+  ASSERT_TRUE(server.EquipMeleeWeapon(first, "ITMW_TEST"));
+  ASSERT_TRUE(server.SetCharacterWeaponMode(first, 3));
+  auto ready = Defaults(first);
+  ready.defaults.weapon_mode = 0;
+  Send(70001, ready);
+  EXPECT_FALSE(actor.instance_change);
+  EXPECT_EQ(actor.state.weapon_mode, 3);
+  EXPECT_EQ(actor.state.melee_weapon_instance, 175);
+  EXPECT_EQ(actor.state.right_hand_item_instance, 175);
+  EXPECT_EQ(actor.InventoryCount("ITMW_TEST"), 1);
+}
+
 TEST_F(ServerActorValidation, WorldEntryNeverImportsNativeInventoryAndPreservesServerGrants) {
   auto& player = server.GetPlayerManager().GetPlayer(first)->get();
   player.npc_world_ready = false;

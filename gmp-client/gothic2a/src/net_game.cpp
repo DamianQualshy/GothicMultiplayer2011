@@ -67,6 +67,7 @@ SOFTWARE.
 #include "main_menu.h"
 #include "net_enums.h"
 #include "npc_animation_utils.h"
+#include "npc_weapon_utils.h"
 #include "packets.h"
 #include "patch.h"
 #include "player_name_utils.hpp"
@@ -486,43 +487,6 @@ oCItem* GetCurrentRangedWeapon(oCNpc* npc) {
     }
   }
   return npc->GetEquippedRangedWeapon();
-}
-
-const char* GetSheathedWeaponSlot(oCItem* item) {
-  if (!item)
-    return nullptr;
-  if (item->HasFlag(ITM_FLAG_2HD_SWD) || item->HasFlag(ITM_FLAG_2HD_AXE))
-    return NPC_NODE_LONGSWORD;
-  if (IsMeleeWeaponItem(item))
-    return NPC_NODE_SWORD;
-  if (item->HasFlag(ITM_FLAG_BOW))
-    return NPC_NODE_BOW;
-  if (item->HasFlag(ITM_FLAG_CROSSBOW))
-    return NPC_NODE_CROSSBOW;
-  return nullptr;
-}
-
-void MoveInventoryWeaponToSlot(oCNpc* npc, oCItem* item, const char* destination) {
-  auto* target = npc && destination ? npc->GetInvSlot(zSTRING(destination)) : nullptr;
-  if (!target || !item)
-    return;
-
-  // PutInSlot/SetRightHand only replace the destination node. They do not clear
-  // another node displaying the same inventory object's mesh. Detach all source
-  // weapon nodes first, including an existing duplicate from a previous update.
-  item->AddRef();
-  bool detached = false;
-  for (const char* name : {NPC_NODE_SWORD, NPC_NODE_LONGSWORD, NPC_NODE_BOW, NPC_NODE_CROSSBOW, NPC_NODE_LEFTHAND, NPC_NODE_RIGHTHAND}) {
-    auto* source = npc->GetInvSlot(zSTRING(name));
-    if (source && source != target && source->vob == item) {
-      npc->RemoveFromSlot(source, FALSE, FALSE);
-      detached = true;
-    }
-  }
-  if (target->vob != item || detached) {
-    npc->PutInSlot(target, item, npc->IsInInv(item, 1) != nullptr);
-  }
-  item->Release();
 }
 
 bool HasItemFlag(oCItem* item, int item_flag) {
@@ -3675,8 +3639,9 @@ void NetGame::ApplyServerStats(Gothic2APlayer& actor) {
   }
 }
 
-void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due) {
-  if (IsActorInstancePending(actor)) return;
+void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due, bool weapon_mode_command) {
+  if (IsActorInstancePending(actor))
+    return;
   auto* npc = actor.GetNpc();
   if (!npc) {
     return;
@@ -3831,8 +3796,8 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
 
   if ((mask & kSyncCombat) != 0) {
     const int mode = terminal ? NPC_WEAPON_NONE : std::clamp<int>(state.weapon_mode, NPC_WEAPON_NONE, NPC_WEAPON_MAG);
-    if (npc->GetWeaponMode() != mode) {
-      npc->SetWeaponMode(mode);
+    if (npc->GetWeaponMode() != mode || weapon_mode_command) {
+      SetNpcWeaponMode(npc, mode, weapon_mode_command);
     }
     if (mode == NPC_WEAPON_MAG && (snapshot || !local)) {
       if (auto* spell = GetSelectedMagicSpell(npc))
@@ -3980,9 +3945,15 @@ void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& st
 
 void NetGame::OnPlayerStateUpdate(std::uint64_t player_id, const PlayerState& state, bool authoritative_correction) {
   auto* actor = GetPlayerById(player_id);
-  if (!actor || !actor->GetNpc()) return;
-  if (authoritative_correction) actor->InvalidatePresentation(state.correction_mask);
-  ApplyActorState(*actor, state, false, authoritative_correction);
+  if (!actor || !actor->GetNpc())
+    return;
+  if (authoritative_correction) {
+    // Old draw/sheath animation actions also mutate weapon mode through native
+    // tags. They must not run after an explicit combat correction.
+    const auto invalidated = state.correction_mask | ((state.correction_mask & kSyncCombat) ? kSyncPose : 0);
+    actor->InvalidatePresentation(invalidated);
+  }
+  ApplyActorState(*actor, state, false, authoritative_correction, authoritative_correction);
 }
 
 void NetGame::OnPlayerPositionUpdate(std::uint64_t player_id, float x, float y, float z) {

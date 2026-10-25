@@ -64,6 +64,7 @@ SOFTWARE.
 #include "lua_world_label.h"
 #include "net_game.h"
 #include "npc_animation_utils.h"
+#include "npc_weapon_utils.h"
 #include "patch.h"
 #include "process_input.h"
 #include "script_instance_scope.h"
@@ -1525,8 +1526,7 @@ bool Function_SetPlayerWeaponMode(std::int64_t id, int weapon_mode) {
   if (weapon_mode < NPC_WEAPON_NONE || weapon_mode > NPC_WEAPON_MAG)
     return false;
   if (auto* npc = GetNpcById(id); npc) {
-    npc->SetWeaponMode(weapon_mode);
-    return true;
+    return SetNpcWeaponMode(npc, weapon_mode);
   }
 
   return false;

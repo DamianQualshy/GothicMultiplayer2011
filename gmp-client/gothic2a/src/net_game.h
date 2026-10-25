@@ -306,7 +306,8 @@ private:
 
   Gothic2APlayer* GetPlayerById(std::uint64_t player_id);
   void SpawnRemotePlayer(gmp::client::Player& new_player);
-  void ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due = false);
+  void ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, bool snapshot, bool presentation_due = false,
+                       bool weapon_mode_command = false);
   void ApplyServerStats(Gothic2APlayer& actor);
   bool IsActorInstancePending(Gothic2APlayer& actor) const;
   std::uint16_t native_transformation_spell_{0};
