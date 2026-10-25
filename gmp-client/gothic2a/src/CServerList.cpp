@@ -25,7 +25,10 @@ SOFTWARE.
 
 #pragma warning(disable : 4101)
 
+#include <algorithm>
+#include <array>
 #include <charconv>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -37,6 +40,8 @@ SOFTWARE.
 #include <utility>
 
 #include <httplib.h>
+#include <iphlpapi.h>
+#include <icmpapi.h>
 #include <nlohmann/json.hpp>
 
 #include "CServerList.h"
@@ -160,9 +165,37 @@ std::string ParseStringField(const nlohmann::json& object, const char* key) {
   return {};
 }
 
+int PingHost(const std::string& host) {
+  addrinfo hints{};
+  hints.ai_family = AF_INET;
+  hints.ai_socktype = SOCK_DGRAM;
+  addrinfo* address = nullptr;
+  if (getaddrinfo(host.c_str(), nullptr, &hints, &address) != 0) {
+    return -1;
+  }
+  const std::unique_ptr<addrinfo, decltype(&freeaddrinfo)> resolved(address, freeaddrinfo);
+  if (!address || !address->ai_addr) {
+    return -1;
+  }
+  const auto destination = reinterpret_cast<const sockaddr_in*>(address->ai_addr)->sin_addr.s_addr;
+  const HANDLE handle = IcmpCreateFile();
+  if (handle == INVALID_HANDLE_VALUE) {
+    return -1;
+  }
+  alignas(ICMP_ECHO_REPLY) std::array<unsigned char, sizeof(ICMP_ECHO_REPLY) + 8> buffer{};
+  const auto count = IcmpSendEcho(handle, destination, nullptr, 0, nullptr, buffer.data(), static_cast<DWORD>(buffer.size()), 1000);
+  IcmpCloseHandle(handle);
+  const auto* reply = reinterpret_cast<const ICMP_ECHO_REPLY*>(buffer.data());
+  if (count == 0 || reply->Status != IP_SUCCESS) {
+    return -1;
+  }
+  return ClampToInt(static_cast<std::uint64_t>(reply->RoundTripTime));
+}
+
 }  // namespace
 
 CServerList::~CServerList(void) {
+  stop_pinging_->store(true);
   if (!this->server_vector.empty())
     this->server_vector.clear();
 }
@@ -259,35 +292,27 @@ void CServerList::Parse() {
   data.clear();
 }
 
-bool CServerList::ReceiveListHttp() {
-  server_vector.clear();
-  data.clear();
-  SetError(ErrorCode::kNone, "");
-
+CServerList::FetchResult CServerList::FetchBody() {
   if (kMasterServerEndpoint.empty()) {
-    SetError(ErrorCode::kNotConfigured, "Master server endpoint is not configured.");
-    return false;
+    return {ErrorCode::kNotConfigured, {}, "Master server endpoint is not configured."};
   }
 
   auto endpoint_info_opt = master_server::ParseEndpoint(kMasterServerEndpoint);
   if (!endpoint_info_opt) {
-    SetError(ErrorCode::kInvalidEndpoint, "Master server endpoint must be a valid HTTPS URL.");
-    return false;
+    return {ErrorCode::kInvalidEndpoint, {}, "Master server endpoint must be a valid HTTPS URL."};
   }
 
   const auto endpoint_info = *endpoint_info_opt;
 
 #ifndef CPPHTTPLIB_OPENSSL_SUPPORT
   if (endpoint_info.use_https) {
-    SetError(ErrorCode::kConnectionFailed, "Master server endpoint requires HTTPS support, but this build lacks OpenSSL.");
-    return false;
+    return {ErrorCode::kConnectionFailed, {}, "Master server endpoint requires HTTPS support, but this build lacks OpenSSL."};
   }
 #endif
 
   auto client = master_server::CreateClient(endpoint_info);
   if (!client) {
-    SetError(ErrorCode::kConnectionFailed, "Unable to initialize HTTPS client for the master server endpoint.");
-    return false;
+    return {ErrorCode::kConnectionFailed, {}, "Unable to initialize HTTPS client for the master server endpoint."};
   }
 
   client->set_connection_timeout(5, 0);
@@ -296,19 +321,87 @@ bool CServerList::ReceiveListHttp() {
 
   auto response = client->Get(endpoint_info.path.c_str());
   if (!response) {
-    SetError(ErrorCode::kConnectionFailed, "Failed to connect to the master server endpoint.");
-    return false;
+    return {ErrorCode::kConnectionFailed, {}, "Failed to connect to the master server endpoint."};
   }
 
   if (response->status != 200) {
-    SetError(ErrorCode::kBadResponse, "Master server responded with HTTP status " + std::to_string(response->status) + ".");
-    return false;
+    return {ErrorCode::kBadResponse, {}, "Master server responded with HTTP status " + std::to_string(response->status) + "."};
   }
 
-  data = response->body;
+  return {ErrorCode::kNone, std::move(response->body), {}};
+}
+
+bool CServerList::ApplyFetchResult(FetchResult result) {
+  SetError(result.error, std::move(result.message));
+  if (result.error != ErrorCode::kNone) {
+    return false;
+  }
+  server_vector.clear();
+  data = std::move(result.body);
   list_type = HTTP_LIST;
   Parse();
   return error_code == ErrorCode::kNone;
+}
+
+bool CServerList::ReceiveListHttp() {
+  return ApplyFetchResult(FetchBody());
+}
+
+bool CServerList::BeginRefresh() {
+  if (refresh_result_.valid()) {
+    return true;
+  }
+  try {
+    refresh_result_ = std::async(std::launch::async, &CServerList::FetchBody);
+    return true;
+  } catch (const std::exception& error) {
+    SetError(ErrorCode::kConnectionFailed, error.what());
+    return false;
+  }
+}
+
+std::optional<bool> CServerList::PollRefresh() {
+  if (!refresh_result_.valid() || refresh_result_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    return std::nullopt;
+  }
+  try {
+    return ApplyFetchResult(refresh_result_.get());
+  } catch (const std::exception& error) {
+    SetError(ErrorCode::kConnectionFailed, error.what());
+    return false;
+  }
+}
+
+void CServerList::BeginPings(std::vector<std::string> hosts) {
+  if (ping_result_.valid() || hosts.empty()) {
+    return;
+  }
+  std::sort(hosts.begin(), hosts.end());
+  hosts.erase(std::unique(hosts.begin(), hosts.end()), hosts.end());
+  ping_result_ = std::async(std::launch::async, [hosts = std::move(hosts), stop = stop_pinging_]() {
+    PingResults results;
+    WSADATA winsock{};
+    if (WSAStartup(MAKEWORD(2, 2), &winsock) != 0) {
+      return results;
+    }
+    struct Cleanup {
+      ~Cleanup() { WSACleanup(); }
+    } cleanup;
+    for (const auto& host : hosts) {
+      if (stop->load()) {
+        break;
+      }
+      results.emplace_back(host, PingHost(host));
+    }
+    return results;
+  });
+}
+
+std::optional<CServerList::PingResults> CServerList::PollPings() {
+  if (!ping_result_.valid() || ping_result_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+    return std::nullopt;
+  }
+  return ping_result_.get();
 }
 
 bool CServerList::ReceiveListUDP() {

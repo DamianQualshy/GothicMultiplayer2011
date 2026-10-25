@@ -25,6 +25,7 @@ SOFTWARE.
 
 #pragma once
 
+#include <chrono>
 #include <cstdint>
 #include <string_view>
 #include <vector>
@@ -42,7 +43,6 @@ public:
   std::string name, map, ip;
   int max_players, num_of_players, port, ping;
   ServerInfo();
-  void updatePing();
 };
 
 struct FavoriteServerEndpoint {
@@ -78,10 +78,8 @@ public:
   void fillTables();
   void updatePings();
 
-  HANDLE srvList_access;
-
 private:
-  static DWORD WINAPI pingThreadProc(ExtendedServerList* esl);
+  void PollNetworkResults();
   std::vector<ServerInfo>& GetActiveServerList();
   const std::vector<ServerInfo>& GetActiveServerList() const;
   G2W::Table* GetActiveTable();
@@ -95,4 +93,6 @@ private:
   int SelectedTab;
   int SelectedServer;
   CServerList& server_list_;
+  std::chrono::steady_clock::time_point next_ping_update_{};
+  bool tables_dirty_{true};
 };
