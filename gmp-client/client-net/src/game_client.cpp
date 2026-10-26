@@ -1290,7 +1290,7 @@ void GameClient::OnPlayerTransformation(Packet p) {
   PlayerTransformationPacket packet;
   using InputAdapter = bitsery::InputBufferAdapter<unsigned char*>;
   const auto decoded = bitsery::quickDeserialization<InputAdapter>({p.data, p.length}, packet);
-  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || packet.instance.empty() ||
+  if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || (packet.spell_id != 0 && packet.instance.empty()) ||
       (packet.spell_id != 0 && (packet.spell_id < 47 || packet.spell_id > 58)) || packet.max_health < 1 || packet.max_mana < 0 ||
       packet.strength < 0 || packet.dexterity < 0 || !IsFiniteActorVector(packet.state.position) || !IsFiniteActorVector(packet.state.nrot))
     return;

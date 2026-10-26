@@ -66,6 +66,7 @@ struct PlayerTransformationPacket {
   std::uint32_t state_sequence{0};
   std::uint32_t cast_id{0};
   std::uint16_t spell_id{0};
+  // Empty on return means the player's original default instance.
   std::string instance;
   std::int32_t max_health{0};
   std::int32_t max_mana{0};

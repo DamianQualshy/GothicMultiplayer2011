@@ -192,10 +192,14 @@ CombatBounds GetCombatBounds(const Character& actor, const ItemRegistry& registr
                             (kItemFlagDag | kItemFlagSword | kItemFlagAxe | kItemFlagTwoHandedSword | kItemFlagTwoHandedAxe);
   if ((weapon->flags & flags) == 0 || actor.state.weapon_mode == 7) return {};
   const auto attribute = ranged ? actor.dexterity : actor.strength;
-  const auto total = std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->damage->total) + std::max(0, attribute), 0, 1000000);
-  return {static_cast<std::int32_t>(total), static_cast<std::uint32_t>(weapon->damage->types) & 255u,
-          ranged ? 10000u : static_cast<std::uint32_t>(std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->range.value_or(150)) + 150, 150, 500)),
-          ranged ? 500u : 200u};
+  // This is an upper bound, not another damage calculation. Even a zero-damage
+  // physical weapon can produce Gothic's five-point native minimum. A smaller
+  // cap would turn that valid hit into 0..4 damage (or reject it entirely).
+  const auto total = std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->damage->total) + std::max(0, attribute), 5, 1000000);
+  return {
+      static_cast<std::int32_t>(total), static_cast<std::uint32_t>(weapon->damage->types) & 255u,
+      ranged ? 10000u : static_cast<std::uint32_t>(std::clamp<std::int64_t>(static_cast<std::int64_t>(weapon->range.value_or(150)) + 150, 150, 500)),
+      ranged ? 500u : 200u};
 }
 
 bool CanFinishCharacter(const Character& attacker, const Character& victim, const ItemRegistry& registry) {
@@ -488,6 +492,7 @@ void EnterTransformation(Character& actor, std::uint16_t spell, std::uint32_t ca
   actor.instance = form->instance;
   const auto old = actor.state;
   actor.state = PlayerState{};
+  actor.state.weapon_mode = gmp::kTransformationWeaponMode;
   actor.state.position = old.position;
   actor.state.nrot = old.nrot;
   actor.state.source_time_ms = ActorClockMilliseconds();
@@ -5854,7 +5859,7 @@ void GameServer::ValidatePlayerEquipment(Character& character, PlayerState& inco
     incoming.equipped_ring_left_instance = incoming.equipped_ring_right_instance = 0;
     incoming.melee_weapon_instance = incoming.ranged_weapon_instance = 0;
     incoming.active_spell_instance = incoming.active_spell_nr = incoming.active_spell_level = 0;
-    incoming.weapon_mode = 0;
+    incoming.weapon_mode = gmp::kTransformationWeaponMode;
     incoming.spell_investing = false;
     return;
   }

@@ -544,6 +544,58 @@ TEST_F(ClientNpcPacketTest, LateViewerSpawnIncludesCurrentTransformationWithoutR
   EXPECT_TRUE(first_observer.casts.empty());
 }
 
+TEST_F(ClientNpcPacketTest, DefaultHumanReturnIsAcceptedByExistingAndLateViewers) {
+  for (std::size_t viewer = 0; viewer < 2; ++viewer) {
+    auto& observer = viewer == 0 ? first_observer : second_observer;
+    auto spawn = MakeSpawn();
+    if (viewer == 0) {
+      spawn.actor.instance.clear();
+      Deliver(viewer, spawn);
+      Deliver(viewer, MakeTransformation());
+    } else {
+      spawn.actor.instance = "WOLF";
+      spawn.actor.max_health = 60;
+      spawn.actor.health = 54;
+      spawn.actor.transformation_spell_id = 51;
+      spawn.actor.transformation_cast_id = 77;
+      observer.expected_max_health = 60;
+      observer.expected_health = 54;
+      Deliver(viewer, spawn);
+    }
+    auto back = MakeTransformation();
+    back.state_sequence = 12;
+    back.command_revision = 2;
+    back.spell_id = 0;
+    back.instance.clear();
+    back.max_health = 2000;
+    back.max_mana = 300;
+    back.state.health_points = 1800;
+    back.state.mana_points = 190;
+    back.state.position = {700.0f, 200.0f, 400.0f};
+    Deliver(viewer, back);
+    ASSERT_FALSE(observer.transformations.empty());
+    EXPECT_EQ(observer.transformations.back().spell_id, 0);
+    const auto* actor = (viewer == 0 ? first : second)->player_manager().GetPlayer(21);
+    EXPECT_TRUE(actor->instance().empty());
+    EXPECT_EQ(actor->transformation_spell_id(), 0);
+    EXPECT_EQ(actor->transformation_cast_id(), 0u);
+    EXPECT_EQ(actor->health(), 1800);
+    EXPECT_EQ(actor->mana(), 190);
+    EXPECT_EQ(actor->position(), back.state.position);
+    Deliver(viewer, MakeTransformation());
+    EXPECT_EQ(observer.transformations.back().spell_id, 0);
+  }
+}
+
+TEST_F(ClientNpcPacketTest, CreatureTransformationStillRequiresAnInstance) {
+  Deliver(0, MakeSpawn());
+  auto form = MakeTransformation();
+  form.instance.clear();
+  Deliver(0, form);
+  EXPECT_TRUE(first_observer.transformations.empty());
+  EXPECT_EQ(first->player_manager().GetPlayer(21)->instance(), "TROLL_BLACK");
+}
+
 TEST_F(ClientNpcPacketTest, TransformationRejectsRetiredActorsAndDoesNotRewindNewerPoses) {
   auto form = MakeTransformation();
   Deliver(0, form);

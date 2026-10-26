@@ -34,6 +34,7 @@ SOFTWARE.
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include "CActiveAniID.h"
@@ -111,6 +112,48 @@ constexpr DWORD kChangeAttributeHookAddress = 0x0072FF60;
 constexpr DWORD kCreateArrowTrailHookAddress = 0x006A0420;
 constexpr DWORD kCheckRemoveNpcHookAddress = 0x007792E0;
 constexpr DWORD kShootArrowHookAddress = 0x007446B0;
+
+// Gothic II 2.6: OnDamage_Hit caches these Daedalus settings at 0x0066C98C.
+// The engine never invalidates them when GMP replaces GOTHIC.DAT/the session.
+constexpr DWORD kMinimumDamageSymbolAddress = 0x008AF82C;
+constexpr DWORD kMinimumPercentSymbolAddress = 0x008AF830;
+constexpr DWORD kMinimumDamageAddress = 0x00AAC610;
+constexpr DWORD kMinimumPercentAddress = 0x00AAC614;
+constexpr DWORD kMinimumPercentFactorAddress = 0x00AAC618;
+
+void RefreshNativeDamageSettings() {
+  // GetParser() returns cur_parser, which can temporarily be the FX parser.
+  // OnDamage_Hit reads the game parser at 0x00AB40C0 instead.
+  auto* game_parser = Gothic_II_Addon::parser;
+  if (!game_parser)
+    return;
+  const auto read_setting = [game_parser](const char* name, int fallback) {
+    const int index = game_parser->GetIndex(zSTRING(name));
+    auto* symbol = index >= 0 ? game_parser->GetSymbol(index) : nullptr;
+    if (!symbol || symbol->type != zPAR_TYPE_INT || symbol->ele == 0)
+      return std::pair{-1, fallback};
+    int value = fallback;
+    symbol->GetValue(value, 0);
+    return std::pair{index, value};
+  };
+  // Missing constants use Gothic II defaults; explicit script values (including
+  // zero) remain authoritative. Refresh values, not just the symbol indices:
+  // native lookup only runs once and may have cached a different script set.
+  const auto [damage_index, minimum] = read_setting("NPC_MINIMAL_DAMAGE", 5);
+  const auto [percent_index, percentage] = read_setting("NPC_MINIMAL_PERCENT", 10);
+  auto& cached_damage_index = *reinterpret_cast<int*>(kMinimumDamageSymbolAddress);
+  auto& cached_percent_index = *reinterpret_cast<int*>(kMinimumPercentSymbolAddress);
+  auto& cached_minimum = *reinterpret_cast<int*>(kMinimumDamageAddress);
+  auto& cached_percentage = *reinterpret_cast<int*>(kMinimumPercentAddress);
+  if (cached_damage_index != damage_index || cached_percent_index != percent_index || cached_minimum != minimum || cached_percentage != percentage) {
+    SPDLOG_INFO("Native damage settings: minimum={}, noncritical percentage={} (active Daedalus scripts)", minimum, percentage);
+  }
+  cached_damage_index = damage_index;
+  cached_percent_index = percent_index;
+  cached_minimum = minimum;
+  cached_percentage = percentage;
+  *reinterpret_cast<float*>(kMinimumPercentFactorAddress) = static_cast<float>(percentage) / 100.0f;
+}
 
 using CastSpellOriginalFn = int(__thiscall*)(oCSpell*);
 using SpellBookCastOriginalFn = void(__thiscall*)(oCMag_Book*);
@@ -694,6 +737,9 @@ void __fastcall OnOnDamageHit(oCNpc* thisNpc, void* /*edx*/, oCNpc::oSDamageDesc
     damageDesc.bIsUnconscious = 0;
     return;
   }
+
+  if (connected)
+    RefreshNativeDamageSettings();
 
   if (server_controlled_player_damage) {
     // Fail closed if the attribute hook was not installed: native health must

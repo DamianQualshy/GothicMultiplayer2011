@@ -356,6 +356,15 @@ void Gothic2APlayer::SetNpc(oCNpc* Npc) {
   NetGame::Instance().ActorNpcChanged(*this, previous);
 };
 
+void Gothic2APlayer::RememberTransformationInstance(oCNpc* original) {
+  transformation_return_instance_ = original ? original->GetInstanceName().ToChar() : "";
+  transformation_return_generation_ = base_player_.actor_generation();
+}
+
+std::string Gothic2APlayer::GetTransformationReturnInstance() const {
+  return transformation_return_generation_ == base_player_.actor_generation() ? transformation_return_instance_ : "";
+}
+
 bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
   if (!npc || !zfactory || !ogame || !ogame->GetGameWorld() || !IsNpcInstance(zCParser::GetParser(), instance_id))
     return false;

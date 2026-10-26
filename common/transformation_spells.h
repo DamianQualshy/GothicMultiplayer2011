@@ -6,6 +6,9 @@
 
 namespace gmp {
 
+// Creature movement animations use Gothic's FIST weapon mode, even without items.
+inline constexpr std::uint8_t kTransformationWeaponMode = 1;
+
 struct TransformationForm {
   const char* instance;
   std::int32_t max_health;

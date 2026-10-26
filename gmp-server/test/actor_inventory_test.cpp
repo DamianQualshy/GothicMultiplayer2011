@@ -557,6 +557,7 @@ TEST_F(ServerTransformationValidation, AllNativeFormsRoundTripWithoutChangingHum
     EXPECT_EQ(actor.max_health, form->max_health);
     EXPECT_EQ(actor.strength, form->strength);
     EXPECT_EQ(actor.state.equipped_armor_instance, 0);
+    EXPECT_EQ(actor.state.weapon_mode, 1);  // Creature MDS files provide FIST locomotion.
     EXPECT_TRUE(actor.approved_projectiles.empty());
     Send(70001, Return(spell));
     EXPECT_FALSE(actor.transformation);
@@ -572,6 +573,48 @@ TEST_F(ServerTransformationValidation, AllNativeFormsRoundTripWithoutChangingHum
     EXPECT_EQ(actor.learn_points, 12);
     EXPECT_EQ(actor.mana, 200 - (spell - 46) * 10);
   }
+}
+
+TEST_F(ServerTransformationValidation, CreaturePoseKeepsFistLocomotionWithoutHumanEquipment) {
+  Send(70001, Transform());
+  auto& actor = server.GetCharacter(first)->get();
+  ASSERT_TRUE(actor.transformation);
+  for (std::uint32_t sequence = 1; sequence <= 2; ++sequence) {
+    PlayerStateUpdatePacket update{};
+    update.packet_type = Net::PT_ACTUAL_STATISTICS;
+    update.player_id = first;
+    update.actor_generation = actor.actor_generation;
+    update.command_revision = actor.command_revision;
+    update.state_sequence = sequence;
+    update.state = actor.state;
+    update.state.source_time_ms = ActorClockMilliseconds();
+    update.state.position.x = 100.0f * sequence;
+    update.state.weapon_mode = sequence == 1 ? 0 : 7;
+    update.state.equipped_armor_instance = 176;
+    update.state.active_spell_instance = 351;
+    update.state.spell_investing = true;
+    Send(70001, update);
+    EXPECT_EQ(actor.state.position, update.state.position);
+    EXPECT_EQ(actor.state.weapon_mode, 1);
+    EXPECT_EQ(actor.state.equipped_armor_instance, 0);
+    EXPECT_EQ(actor.state.active_spell_instance, 0);
+    EXPECT_FALSE(actor.state.spell_investing);
+  }
+}
+
+TEST_F(ServerTransformationValidation, DefaultHumanInstanceAndCurrentPositionSurviveReturn) {
+  auto& actor = server.GetCharacter(first)->get();
+  actor.instance.clear();
+  Send(70001, Transform());
+  ASSERT_TRUE(actor.transformation);
+  actor.state.position = {700.0f, 200.0f, 400.0f};
+  Send(70001, Return());
+  EXPECT_FALSE(actor.transformation);
+  EXPECT_TRUE(actor.instance.empty());
+  EXPECT_EQ(actor.state.position, glm::vec3(700.0f, 200.0f, 400.0f));
+  EXPECT_EQ(actor.state.weapon_mode, 0);
+  EXPECT_EQ(actor.health, 625);
+  EXPECT_EQ(actor.mana, 190);
 }
 
 TEST_F(ServerTransformationValidation, DamageInAnimalFormPersistsAndClientCannotChooseRestoredStats) {
@@ -1403,6 +1446,40 @@ TEST_F(ServerActorValidation, NaturalAttacksCannotBypassNpcHostAuthorityOrEquipm
   victim.state.equipped_armor_instance = 176;
   Send(70001, hit);
   EXPECT_EQ(victim.health, 95);  // Retain the server's armor/minimum-damage bound.
+}
+
+TEST_F(ServerActorValidation, WeakPhysicalWeaponsCannotClipTheNativeMinimumBelowFive) {
+  Write(R"({"items":[{"instance":"ITMW_TEST","index":175,"mainflag":2,"flags":16384,
+                      "damage":{"total":0,"types":4},"range":50},
+                     {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
+                      "protections":[{"type":2,"value":1000}]}]})");
+  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+  auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
+  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
+  ASSERT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
+  ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
+  attacker.state.melee_weapon_instance = 175;
+  attacker.state.weapon_mode = 3;
+  victim.state.equipped_armor_instance = 176;
+  for (const int strength : {0, 1, 3}) {
+    SCOPED_TRACE(strength);
+    attacker.strength = strength;
+    attacker.last_hit_action_id.reset();
+    attacker.hit_victims.clear();
+    victim.health = victim.state.health_points = 100;
+    auto hit = Hit(attacker, victim, 1, 4);
+    hit.damage = 5;
+    Send(70001, hit);
+    EXPECT_EQ(victim.health, 95);
+    Send(70001, hit);
+    EXPECT_EQ(victim.health, 95);  // The minimum does not bypass replay checks.
+  }
+  attacker.last_hit_action_id.reset();
+  attacker.hit_victims.clear();
+  auto custom_minimum = Hit(attacker, victim, 1, 4);
+  custom_minimum.damage = 2;
+  Send(70001, custom_minimum);
+  EXPECT_EQ(victim.health, 93);  // A validation cap must not inflate native damage.
 }
 
 TEST_F(ServerActorValidation, NaturalAttackMaskDoesNotReplaceDrawnWeaponOrPaidProjectileValidation) {

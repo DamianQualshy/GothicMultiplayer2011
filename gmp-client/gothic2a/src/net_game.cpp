@@ -1927,6 +1927,7 @@ void NetGame::OnNativeTransformation(oCNpc* previous, oCNpc* current, std::uint1
     return;
   ResetWorldRenderState();
   if (entering) {
+    actor->RememberTransformationInstance(previous);
     native_transformation_spell_ = spell;
     native_transformation_generation_ = actor->base_player().actor_generation();
     const auto position = previous->GetPositionWorld();
@@ -1939,8 +1940,8 @@ void NetGame::OnNativeTransformation(oCNpc* previous, oCNpc* current, std::uint1
   if (!actor->base_player().name().empty())
     current->name[0] = actor->base_player().name().c_str();
   if (entering) {
-    // Finish the native spell/book call before clearing the new body's event
-    // queue and rebuilding its standing pose. Keep any explicit input lock.
+    // Finish the native spell/book call before selecting the creature's FIST
+    // locomotion aliases. NONE selects human animations absent from this model.
     const bool movement_locked = previous->IsMovLock() != 0;
     const auto generation = actor->base_player().actor_generation();
     auto* world = current->GetHomeWorld();
@@ -1955,20 +1956,10 @@ void NetGame::OnNativeTransformation(oCNpc* previous, oCNpc* current, std::uint1
       ScopedNetworkObservationSuppression suppress_observation;
       current->ClearEM();
       current->state.ClearAIState();
-      auto position = current->GetPositionWorld();
-      // ResetPos repairs collision/root motion but also refills resources.
-      // A presentation repair must preserve the actual HP and paid mana.
-      const int health = current->GetAttribute(NPC_ATR_HITPOINTS);
-      const int mana = current->GetAttribute(NPC_ATR_MANA);
-      current->ResetPos(position);
-      current->attribute[NPC_ATR_HITPOINTS] = health;
-      current->attribute[NPC_ATR_MANA] = mana;
       current->SetSleeping(FALSE);
       current->SetMovLock(movement_locked);
+      current->SetToFistMode();
       if (auto* controller = current->GetAnictrl()) {
-        controller->InitAnimations();
-        controller->SetFightAnis(current->GetWeaponMode());
-        controller->SetWalkMode(ANI_WALKMODE_RUN);
         controller->SearchStandAni(TRUE);
       }
     });
@@ -2985,7 +2976,9 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
 
   Gothic2APlayer* newhero = new Gothic2APlayer(new_player);
   zVEC3 pos(new_player.position().x, new_player.position().y, new_player.position().z);
-  int instance_id = player ? player->GetInstance() : -1;
+  // An unspecified player instance means the default human, including while
+  // the viewing client's own hero is transformed into a creature.
+  int instance_id = FindParserIndex("PC_HERO").value_or(-1);
   if (!new_player.instance().empty()) {
     if (auto parsed_instance_id = FindParserIndex(new_player.instance().c_str()); parsed_instance_id.has_value() && *parsed_instance_id > 0) {
       instance_id = *parsed_instance_id;
@@ -2995,7 +2988,7 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
         delete newhero;
         return;
       }
-      SPDLOG_WARN("Remote player '{}' has unknown instance '{}'; using local fallback instance.", new_player.name(), new_player.instance());
+      SPDLOG_WARN("Remote player '{}' has unknown instance '{}'; using default player instance.", new_player.name(), new_player.instance());
     }
   }
   if (!zfactory || instance_id < 0) {
@@ -3795,7 +3788,9 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
   }
 
   if ((mask & kSyncCombat) != 0) {
-    const int mode = terminal ? NPC_WEAPON_NONE : std::clamp<int>(state.weapon_mode, NPC_WEAPON_NONE, NPC_WEAPON_MAG);
+    int mode = terminal ? NPC_WEAPON_NONE : std::clamp<int>(state.weapon_mode, NPC_WEAPON_NONE, NPC_WEAPON_MAG);
+    if (!terminal && actor.base_player().transformation_spell_id())
+      mode = NPC_WEAPON_FIST;
     if (npc->GetWeaponMode() != mode || weapon_mode_command) {
       SetNpcWeaponMode(npc, mode, weapon_mode_command);
     }
@@ -4004,6 +3999,11 @@ void NetGame::OnPlayerTransformation(const PlayerTransformationPacket& packet, s
   auto* actor = GetPlayerById(packet.player_id);
   if (!actor || !actor->GetNpc() || actor->base_player().actor_generation() != packet.actor_generation)
     return;
+  if (packet.spell_id && !actor->IsLocalPlayer() && actor->GetTransformationReturnInstance().empty() && actor->GetNpc()->IsHuman()) {
+    const auto form = FindParserIndex(packet.instance.c_str());
+    if (form && actor->GetNpc()->GetInstance() != *form)
+      actor->RememberTransformationInstance(actor->GetNpc());
+  }
   if (actor->IsLocalPlayer()) {
     if (packet.spell_id == 0) {
       if (!ClearNativeTransformation())
@@ -4020,7 +4020,15 @@ void NetGame::OnPlayerTransformation(const PlayerTransformationPacket& packet, s
     }
   }
   actor->InvalidatePresentation(kSyncAll);
-  ChangePlayerInstance(packet.player_id, packet.instance, false);
+  auto instance = packet.instance;
+  if (instance.empty()) {
+    // The server uses an empty instance for a player with the default body.
+    // Prefer the actual pre-transform prototype; late viewers use PC_HERO.
+    instance = actor->GetTransformationReturnInstance();
+    if (instance.empty())
+      instance = "PC_HERO";
+  }
+  ChangePlayerInstance(packet.player_id, instance, false);
   if (IsActorInstancePending(*actor)) return;
   ApplyServerStats(*actor);
   ApplyActorState(*actor, actor->base_player().state(), true);

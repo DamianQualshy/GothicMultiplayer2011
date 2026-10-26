@@ -99,6 +99,8 @@ public:
   void ClearRemoteLightEffect();
   void UpdateMagicPresentation();
   void SetNpc(oCNpc* npc);
+  void RememberTransformationInstance(oCNpc* original);
+  std::string GetTransformationReturnInstance() const;
   bool ReplaceNpcInstance(int instance_id);
   std::uint32_t initialized_instance_revision{0};
   void SetNpcType(NpcType Type);
@@ -116,6 +118,8 @@ private:
   zCOLOR name_color_{255, 255, 255, 255};
   std::string last_handled_animation_name_;
   gmp::ActorPresentationEpochs presentation_epochs_;
+  std::string transformation_return_instance_;
+  std::uint64_t transformation_return_generation_{0};
   // Owns the transferred effect reference, independently of selected runes.
   oCVisualFX* remote_light_effect_{nullptr};
 };
