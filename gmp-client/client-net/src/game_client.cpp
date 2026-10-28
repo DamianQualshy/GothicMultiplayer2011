@@ -24,6 +24,7 @@ SOFTWARE.
 */
 
 #include "game_client.hpp"
+#include "default_character_appearance.h"
 
 #include <bitsery/adapter/buffer.h>
 #include <bitsery/bitsery.h>
@@ -482,7 +483,7 @@ void GameClient::ApplyEquipmentSlot(Player& player, std::int16_t slot, std::int3
 
 void GameClient::JoinGame(const std::string& player_name, const std::string& character_name, 
                           const std::string& body_model, int body_texture, const std::string& head_model, int head_texture, int walk_style,
-                          int teeth_texture, int skin_color) {
+                          int teeth_texture, int skin_color, const std::string& walking_overlay) {
   JoinGamePacket packet;
   packet.packet_type = PT_JOIN_GAME;
   if (player_manager_.HasLocalPlayer()) {
@@ -511,6 +512,17 @@ void GameClient::JoinGame(const std::string& player_name, const std::string& cha
   packet.skin_color = body_model.empty() && player_manager_.HasLocalPlayer() ? player_manager_.GetLocalPlayer().skin_color() : skin_color;
   packet.walk_style = body_model.empty() && player_manager_.HasLocalPlayer() ? player_manager_.GetLocalPlayer().walk_style() : walk_style;
   packet.player_name = player_name;
+  packet.walking_overlay = walking_overlay;
+  if (player_manager_.HasLocalPlayer()) {
+    auto& local = player_manager_.GetLocalPlayer();
+    // The native hero already wears this overlay. Keep it in the cache so a
+    // server's first spawn can remove it even when the server chooses no overlay.
+    const auto previous_overlays = local.overlays();
+    for (const auto& overlay : previous_overlays) {
+      if (gmp::NormalizeCharacterWalkingOverlay(overlay)) local.remove_overlay(overlay);
+    }
+    if (!walking_overlay.empty()) local.add_overlay(walking_overlay);
+  }
   if (player_manager_.HasLocalPlayer()) packet.actor_generation = player_manager_.GetLocalPlayer().actor_generation();
 
   SerializeAndSend(transport_, packet, TrafficClass::Control);
@@ -1703,6 +1715,7 @@ void GameClient::OnJoinGame(Packet p) {
   player->set_skin_color(packet.skin_color);
   player->set_walk_style(packet.walk_style);
   if (!was_joined) {
+    if (!packet.walking_overlay.empty()) player->add_overlay(packet.walking_overlay);
     player->set_has_joined(true);
     event_observer_.OnPlayerJoined(*player);
   }

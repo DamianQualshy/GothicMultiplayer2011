@@ -32,7 +32,12 @@ public:
     Write(resource / "server" / "main.lua",
           "local players = {}\n"
           "addEventHandler('onPlayerConnect', function(playerId)\n"
-          "  players[playerId] = true\n  spawnPlayer(playerId, 0, 0, 0)\n"
+          "  players[playerId] = true\n"
+          "  if getPlayerName(playerId) == 'AppearanceOverrideProbe' then\n"
+          "    setPlayerVisual(playerId, 'HUM_BODY_NAKED0', 2, 'HUM_HEAD_BALD', 7, 0, 0)\n"
+          "    removePlayerOverlay(playerId, 'HUMANS_BABE.MDS')\n"
+          "  end\n"
+          "  spawnPlayer(playerId, 0, 0, 0)\n"
           "  if getPlayerName(playerId) == 'UseProbe' then giveItem(playerId, 'ITMI_TEST', 2) end\n"
           "  if getPlayerName(playerId) == 'IdentityProbe' then\n"
           "    sendMessageToPlayer(playerId, 255, 255, 255, 'identity: ' .. (getPlayerIdentity(playerId) or '<missing>'))\n"

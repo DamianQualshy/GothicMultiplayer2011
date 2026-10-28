@@ -61,6 +61,7 @@ SOFTWARE.
 #include "Lua/event_bind.h"
 #include "Lua/lua_item_definition.h"
 #include "Shared/lua_runtime/lua_value_codec.h"
+#include "default_character_appearance.h"
 #include "diagnostics_manager.h"
 #include "gothic_clock.h"
 #include "healing_spells.h"
@@ -2064,6 +2065,7 @@ void GameServer::SomeoneJoinGame(Packet p) {
   if (!IsValidActorPosition(packet.position) || !IsFinitePosition(packet.normal) ||
       glm::dot(packet.normal, packet.normal) < 0.0001f || glm::dot(packet.normal, packet.normal) > 4.0f || packet.walk_style > 4 ||
       SanitizeServerText(packet.body_model) != packet.body_model || SanitizeServerText(packet.head_model) != packet.head_model ||
+      !gmp::IsCharacterWalkingOverlay(packet.walking_overlay) ||
       packet.body_texture > 32767 || packet.head_texture > 32767 || packet.teeth_texture > 32767 || packet.skin_color > 32767) return;
   player.has_joined = true;
   player.state.position = packet.position;
@@ -2088,6 +2090,7 @@ void GameServer::SomeoneJoinGame(Packet p) {
   player.teeth_texture = packet.teeth_texture;
   player.skin_color = packet.skin_color;
   player.walkstyle = packet.walk_style;
+  if (!packet.walking_overlay.empty()) player.overlays.push_back(packet.walking_overlay);
   player.name = SanitizePlayerName(packet.player_name);
 
   BroadcastPlayerJoined(player);
@@ -4146,6 +4149,10 @@ void GameServer::BroadcastPlayerJoined(const Player& joining_player) {
   packet.skin_color = joining_player.skin_color;
   packet.walk_style = joining_player.walkstyle;
   packet.player_name = joining_player.name;
+  for (const auto& overlay : joining_player.overlays) {
+    if (const auto walking = gmp::NormalizeCharacterWalkingOverlay(overlay); walking && !walking->empty())
+      packet.walking_overlay = *walking;
+  }
   packet.player_id = joining_player.player_id;
 
   player_manager_.ForEachPlayer([&](const Player& existing_player) {

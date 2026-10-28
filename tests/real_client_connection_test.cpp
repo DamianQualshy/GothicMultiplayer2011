@@ -33,6 +33,7 @@ SOFTWARE.
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "connection_test_workspace.h"
 #include "fake_client.h"
@@ -193,6 +194,48 @@ TEST_F(RealClientConnectionTest, GameClientDisconnectsAndReconnects) {
   ASSERT_TRUE(PumpUntil([&] { return observer_.spawned == 2; })) << observer_.error;
   EXPECT_EQ(observer_.local_id, observer_.spawned_id);
   EXPECT_TRUE(client_->IsConnected());
+}
+
+TEST_F(RealClientConnectionTest, JoinAppearanceIsUsedByTheFirstSpawnAndStreamedToOtherPlayers) {
+  FakeClient viewer("AppearanceViewer");
+  ASSERT_TRUE(viewer.Connect("127.0.0.1", server_.GetPort()));
+  client_->ConnectAsync(endpoint_);
+  ASSERT_TRUE(PumpUntil([&] {
+    viewer.Pulse();
+    return observer_.resources_ready == 1 && viewer.InitialInfo().has_value();
+  }, std::chrono::seconds(15))) << observer_.error;
+  client_->JoinGame("AppearanceProbe", "AppearanceProbe", "HUM_BODY_BABE0", 12, "HUM_HEAD_THIEF", 162, 1, 0, 0, "HUMANS_BABE.MDS");
+  ASSERT_TRUE(PumpUntil([&] { return observer_.spawned == 1; })) << observer_.error;
+  const auto& local = client_->player_manager().GetLocalPlayer();
+  EXPECT_EQ(local.body_model(), "HUM_BODY_BABE0");
+  EXPECT_EQ(local.body_texture(), 12);
+  EXPECT_EQ(local.head_model(), "HUM_HEAD_THIEF");
+  EXPECT_EQ(local.head_texture(), 162);
+  EXPECT_EQ(local.walk_style(), 1);
+  EXPECT_EQ(local.overlays(), std::vector<std::string>{"HUMANS_BABE.MDS"});
+  client_->SendPlayerWorldEnter("NEWWORLD\\NEWWORLD.ZEN");
+  ASSERT_TRUE(PumpUntil([&] {
+    viewer.Pulse();
+    return viewer.FindSpawn(static_cast<std::uint32_t>(local.id())) != nullptr;
+  })) << viewer.Error();
+  const auto& remote = *viewer.FindSpawn(static_cast<std::uint32_t>(local.id()));
+  EXPECT_EQ(remote.body_model, local.body_model());
+  EXPECT_EQ(remote.head_model, local.head_model());
+  EXPECT_EQ(remote.overlays, local.overlays());
+}
+
+TEST_F(RealClientConnectionTest, ServerCreatorCanOverrideJoinAppearanceBeforeTheFirstSpawn) {
+  client_->ConnectAsync(endpoint_);
+  ASSERT_TRUE(PumpUntil([&] { return observer_.resources_ready == 1; }, std::chrono::seconds(15))) << observer_.error;
+  client_->JoinGame("AppearanceOverrideProbe", "AppearanceOverrideProbe", "HUM_BODY_BABE0", 12, "HUM_HEAD_THIEF", 162, 0, 0, 0,
+                    "HUMANS_BABE.MDS");
+  ASSERT_TRUE(PumpUntil([&] { return observer_.spawned == 1; })) << observer_.error;
+  const auto& local = client_->player_manager().GetLocalPlayer();
+  EXPECT_EQ(local.body_model(), "HUM_BODY_NAKED0");
+  EXPECT_EQ(local.body_texture(), 2);
+  EXPECT_EQ(local.head_model(), "HUM_HEAD_BALD");
+  EXPECT_EQ(local.head_texture(), 7);
+  EXPECT_TRUE(local.overlays().empty());
 }
 
 class FullServerConnectionTest : public RealClientConnectionTest {

@@ -36,6 +36,7 @@ SOFTWARE.
 #include <map>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "renderer/renderer_config.h"
 #include "scripting/process_input.h"
@@ -172,6 +173,13 @@ void Config::LoadConfigFromFile() {
     interpolation_delay_ms_ = std::clamp(*delay, 0, 500);
   }
 
+  if (auto body = toml.GetValue<std::string>("character", "body_model")) character_appearance_.body_model = *body;
+  if (auto texture = toml.GetValue<int>("character", "body_texture")) character_appearance_.body_texture = *texture;
+  if (auto head = toml.GetValue<std::string>("character", "head_model")) character_appearance_.head_model = *head;
+  if (auto texture = toml.GetValue<int>("character", "head_texture")) character_appearance_.head_texture = *texture;
+  if (auto overlay = toml.GetValue<std::string>("character", "walking_overlay")) character_appearance_.walking_overlay = *overlay;
+  gmp::NormalizeCharacterAppearance(character_appearance_);
+
   // If nickname is empty, the user didn't set up the config yet.
   is_default_ = Nickname.IsEmpty();
 }
@@ -191,6 +199,7 @@ void Config::DefaultSettings() {
   interpolation_delay_ms_ = 120;
   vsync_enabled = true;
   extended_menu_scenes = false;
+  character_appearance_ = {};
   is_default_ = true;
 };
 
@@ -208,6 +217,12 @@ void Config::SaveConfigToFile() {
   toml["gmp"]["voice_output_volume"] = toml::value(voice_output_volume_percent_);
   toml["gmp"]["interpolation_delay_ms"] = toml::value(interpolation_delay_ms_);
   toml["gmp"]["extended_menu_scenes"] = toml::value(extended_menu_scenes);
+
+  toml["character"]["body_model"] = character_appearance_.body_model;
+  toml["character"]["body_texture"] = toml::value(character_appearance_.body_texture);
+  toml["character"]["head_model"] = character_appearance_.head_model;
+  toml["character"]["head_texture"] = toml::value(character_appearance_.head_texture);
+  toml["character"]["walking_overlay"] = character_appearance_.walking_overlay;
 
   std::string renderer_str;
   switch (renderer_type_) {
@@ -276,4 +291,9 @@ void Config::SetVoiceOutputVolume(float volume) {
 
 bool Config::IsDefault() const {
   return is_default_;
+}
+
+void Config::SetCharacterAppearance(gmp::CharacterAppearance appearance) {
+  gmp::NormalizeCharacterAppearance(appearance);
+  character_appearance_ = std::move(appearance);
 }

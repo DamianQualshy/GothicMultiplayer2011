@@ -31,6 +31,7 @@ SOFTWARE.
 #include <spdlog/spdlog.h>
 
 #include "gmp_core.h"
+#include "character_appearance.h"
 #include "content/content_transition_manager.h"
 #include "Interface.h"
 #include "language.h"
@@ -598,6 +599,9 @@ void ServerListState::ScheduleGameSetup() {
       ::player->trafoObjToWorld.SetTranslation(spawnPosition);
       CleanupWorldObjects(ogame->GetGameWorld());
 
+      // Apply the local preference to the final hero, before server resources
+      // start. A resource can replace this initial appearance during startup.
+      gmp::gothic::ApplyCharacterAppearance(*::player, Config::Instance().GetCharacterAppearance());
       std::string resource_error;
       if (!NetGame::Instance().FinalizeDownloadedContent(resource_error)) {
         fail_setup(resource_error);
@@ -621,6 +625,7 @@ void ServerListState::ScheduleGameSetup() {
 
       DeleteAllNpcsAndDisableSpawning();
       CleanupWorldObjects(ogame->GetGameWorld());
+      gmp::gothic::ApplyCharacterAppearance(*::player, Config::Instance().GetCharacterAppearance());
       std::string resource_error;
       if (!NetGame::Instance().FinalizeDownloadedContent(resource_error)) {
         SPDLOG_ERROR("Server game setup failed: {}", resource_error);

@@ -834,6 +834,8 @@ struct JoinGamePacket {
   std::uint16_t teeth_texture{0};
   std::uint16_t skin_color{0};
   std::uint8_t walk_style{0};
+  // Stock appearance overlay, independent of run/walk mode. Seeded before onPlayerConnect.
+  std::string walking_overlay;
   std::string player_name;
   // May be used to identify the player (e.g. when relaying the information about the player to other players)
   std::optional<std::uint32_t> player_id;
@@ -863,6 +865,7 @@ void serialize(S& s, JoinGamePacket& packet) {
   s.value2b(packet.teeth_texture);
   s.value2b(packet.skin_color);
   s.value1b(packet.walk_style);
+  s.text1b(packet.walking_overlay, 32);
   s.text1b(packet.player_name, 255);
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
 }
@@ -885,7 +888,7 @@ inline std::ostream& operator<<(std::ostream& os, const JoinGamePacket& packet) 
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
      << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
      << ", walk_style: " << static_cast<int>(packet.walk_style)
-     << ", player_name: " << packet.player_name;
+     << ", walking_overlay: " << packet.walking_overlay << ", player_name: " << packet.player_name;
 
   if (packet.player_id.has_value()) {
     os << ", player_id: " << packet.player_id.value();

@@ -30,6 +30,8 @@ SOFTWARE.
 #include <optional>
 #include <string>
 
+#include "default_character_appearance.h"
+
 #include "ZenGin/zGothicAPI.h"
 
 // KEYBOARD LAYOUTS
@@ -60,6 +62,9 @@ public:
 
   void DefaultSettings();
   void SaveConfigToFile();
+
+  const gmp::CharacterAppearance& GetCharacterAppearance() const { return character_appearance_; }
+  void SetCharacterAppearance(gmp::CharacterAppearance appearance);
 
   const std::optional<WindowPosition>& GetWindowPosition() const;
   void SetWindowPosition(WindowPosition window_position);
@@ -132,6 +137,7 @@ private:
   void LoadConfigFromFile();
 
   bool is_default_{true};
+  gmp::CharacterAppearance character_appearance_;
   std::filesystem::path config_file_path_;
   std::optional<WindowPosition> window_position_;
   std::optional<ConsolePosition> console_position_;

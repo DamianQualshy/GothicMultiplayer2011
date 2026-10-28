@@ -59,6 +59,7 @@ SOFTWARE.
 #include "actor_sync.h"
 #include "animation_sync.h"
 #include "config.h"
+#include "character_appearance.h"
 #include "dev/dev_tools.h"
 #include "gmp_core.h"
 #include "hooking/MemoryPatch.h"
@@ -1762,7 +1763,8 @@ void NetGame::JoinGame() {
     local.set_equipped_ring_right(rings[1]);
     const auto walk = player->GetAnictrl() ? std::clamp(player->GetAnictrl()->walkmode, 0, 2) : 0;
     game_client->JoinGame(sanitized_name, sanitized_name, player->body_visualName.ToChar(), player->body_TexVarNr,
-        player->head_visualName.ToChar(), player->head_TexVarNr, walk, player->teeth_TexVarNr, player->body_TexColorNr);
+        player->head_visualName.ToChar(), player->head_TexVarNr, walk, player->teeth_TexVarNr, player->body_TexColorNr,
+        gmp::gothic::GetCharacterWalkingOverlay(*player));
     IsReadyToJoin = false;
 
     // Deferred world loading may have replaced the session since menu exit.

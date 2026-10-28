@@ -296,6 +296,9 @@ void CMainMenu::RenderMenu() {
 void CMainMenu::StopMenuScenes() {
   // GetInstance() would create the menu during startup/shutdown callbacks.
   if (Instance && Instance->menuContext_) {
+    if (Instance->stateMachine_) {
+      Instance->stateMachine_->StopScene();
+    }
     Instance->menuContext_->sceneManager.StopScene();
   }
 }
@@ -303,5 +306,6 @@ void CMainMenu::StopMenuScenes() {
 void CMainMenu::UpdateMenuScene() {
   if (Instance && Instance->stateMachine_ && Instance->menuContext_) {
     Instance->menuContext_->sceneManager.Update(ztimer ? ztimer->frameTimeFloatSecs : 0.0f);
+    Instance->stateMachine_->UpdateScene(ztimer ? ztimer->frameTimeFloatSecs : 0.0f);
   }
 }

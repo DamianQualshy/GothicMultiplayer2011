@@ -84,7 +84,7 @@ public:
   // downloading all the required files, and loading the world.
   void JoinGame(const std::string& player_name, const std::string& character_name, 
                 const std::string& body_model, int body_texture, const std::string& head_model, int head_texture, int walk_style,
-                int teeth_texture = 0, int skin_color = 0);
+                int teeth_texture = 0, int skin_color = 0, const std::string& walking_overlay = {});
 
   // Send methods
   void SendChatMessage(const std::string& msg);

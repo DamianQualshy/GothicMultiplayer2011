@@ -32,6 +32,7 @@ SOFTWARE.
 #include <vector>
 
 #include "game_client.hpp"
+#include "default_character_appearance.h"
 
 namespace gmp::client {
 // Keep gameplay packet tests independent of socket timing. Connection lifecycle
@@ -70,6 +71,7 @@ struct RecordingObserver final : EventObserver {
   int expected_max_health{2000};
   int expected_health{1800};
   std::vector<std::string> order;
+  std::vector<std::pair<std::string, bool>> overlay_updates;
   std::vector<NpcControlPacket> controls;
   std::vector<NpcAnimationPacket> animations;
   int state_updates{0};
@@ -136,7 +138,10 @@ struct RecordingObserver final : EventObserver {
       order.push_back("health");
     }
   }
-  void OnPlayerOverlayUpdate(std::uint64_t, const std::string&, bool) override { order.push_back("overlay"); }
+  void OnPlayerOverlayUpdate(std::uint64_t, const std::string& overlay, bool apply) override {
+    order.push_back("overlay");
+    overlay_updates.emplace_back(overlay, apply);
+  }
   void OnPlayerSpawnSnapshotApplied(Player& player, bool new_spawn) override {
     order.push_back("snapshot_applied");
     EXPECT_EQ(new_spawn, expected_new_spawn);
@@ -286,6 +291,79 @@ protected:
     ASSERT_TRUE(gmp::client::GameClientTestPeer::HandlePacket(client, bytes.data(), static_cast<std::uint32_t>(size)));
   }
 };
+
+TEST(CharacterAppearance, MissingAndInvalidConfigValuesUseStockChoicesAndBoundedTextures) {
+  gmp::CharacterAppearance appearance;
+  gmp::NormalizeCharacterAppearance(appearance);
+  EXPECT_EQ(appearance.body_model, "HUM_BODY_NAKED0");
+  EXPECT_EQ(appearance.head_model, "HUM_HEAD_PONY");
+  EXPECT_EQ(appearance.body_texture, 9);
+  EXPECT_EQ(appearance.head_texture, 18);
+  EXPECT_TRUE(appearance.walking_overlay.empty());
+
+  appearance.body_model = "MISSING_BODY";
+  appearance.head_model = "MISSING_HEAD";
+  appearance.body_texture = std::numeric_limits<int>::min();
+  appearance.head_texture = std::numeric_limits<int>::max();
+  appearance.walking_overlay = "HUMANS_ACROBATIC.MDS";
+  gmp::NormalizeCharacterAppearance(appearance);
+  EXPECT_EQ(appearance.body_model, "HUM_BODY_NAKED0");
+  EXPECT_EQ(appearance.head_model, "HUM_HEAD_PONY");
+  EXPECT_EQ(appearance.body_texture, 0);
+  EXPECT_EQ(appearance.head_texture, 162);
+  EXPECT_TRUE(appearance.walking_overlay.empty());
+}
+
+TEST(CharacterAppearance, EveryWalkingChoiceHasACanonicalWireNameAndAcceptsNativeAliases) {
+  for (const auto overlay : gmp::kCharacterWalkingOverlays) {
+    EXPECT_TRUE(gmp::IsCharacterWalkingOverlay(overlay));
+    EXPECT_EQ(gmp::NormalizeCharacterWalkingOverlay(std::string(overlay)), overlay);
+  }
+  EXPECT_EQ(gmp::NormalizeCharacterWalkingOverlay("humans_militia"), "HUMANS_MILITIA.MDS");
+  EXPECT_EQ(gmp::NormalizeCharacterWalkingOverlay("humans_babe.mds"), "HUMANS_BABE.MDS");
+  EXPECT_FALSE(gmp::IsCharacterWalkingOverlay("humans_babe"));
+  EXPECT_FALSE(gmp::IsCharacterWalkingOverlay("HUMANS_ACROBATIC.MDS"));
+  EXPECT_FALSE(gmp::NormalizeCharacterWalkingOverlay("UNKNOWN.MDS").has_value());
+}
+
+TEST_F(ClientNpcPacketTest, JoinAnnouncementPreservesAppearanceAndSeparatesWalkingOverlayFromMovementMode) {
+  JoinGamePacket join;
+  join.packet_type = Net::PT_JOIN_GAME;
+  join.actor_generation = 121;
+  join.player_id = 21;
+  join.player_name = "Appearance";
+  join.body_model = "HUM_BODY_BABE0";
+  join.body_texture = 12;
+  join.head_model = "HUM_HEAD_THIEF";
+  join.head_texture = 162;
+  join.walk_style = 1;
+  join.walking_overlay = "HUMANS_BABE.MDS";
+  Deliver(0, join);
+  auto* actor = first->player_manager().GetPlayer(21);
+  ASSERT_NE(actor, nullptr);
+  EXPECT_EQ(actor->body_model(), join.body_model);
+  EXPECT_EQ(actor->head_model(), join.head_model);
+  EXPECT_EQ(actor->body_texture(), 12);
+  EXPECT_EQ(actor->head_texture(), 162);
+  EXPECT_EQ(actor->walk_style(), 1);
+  EXPECT_EQ(actor->overlays(), std::vector<std::string>{"HUMANS_BABE.MDS"});
+}
+
+TEST_F(ClientNpcPacketTest, FirstSpawnCanRemoveTheNativeJoinWalkingOverlayWithoutAnEarlierOverlayPacket) {
+  auto* local = first->player_manager().CreateLocalPlayer(21);
+  local->set_actor_generation(121);
+  first->JoinGame("Appearance", "Appearance", "HUM_BODY_BABE0", 12, "HUM_HEAD_THIEF", 162, 0, 0, 0, "HUMANS_BABE.MDS");
+  ASSERT_EQ(local->overlays(), std::vector<std::string>{"HUMANS_BABE.MDS"});
+  auto spawn = MakeSpawn().actor;
+  spawn.instance = "PC_HERO";
+  spawn.body_model = "HUM_BODY_NAKED0";
+  spawn.overlays.clear();
+  Deliver(0, spawn);
+  EXPECT_TRUE(local->overlays().empty());
+  const auto removed = std::make_pair(std::string("HUMANS_BABE.MDS"), false);
+  EXPECT_NE(std::find(first_observer.overlay_updates.begin(), first_observer.overlay_updates.end(), removed),
+            first_observer.overlay_updates.end());
+}
 
 TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAndPoseWithoutReplayingOldCallbacks) {
   const auto spawn = MakeSpawn();
