@@ -69,7 +69,7 @@ bool IsBurningTorch(oCItem* item) {
 }
 
 int GetCarriedTorchAmount(oCNpc* npc, int inventory_instance) {
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   if (!npc || !parser || inventory_instance <= 0)
     return 0;
   auto* symbol = parser->GetSymbol(inventory_instance);

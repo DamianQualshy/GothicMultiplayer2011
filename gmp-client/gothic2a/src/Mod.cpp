@@ -287,7 +287,7 @@ std::string GetItemInstanceNameByIndex(int index) {
   if (index <= 0) {
     return {};
   }
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return {};
   }
@@ -1016,7 +1016,7 @@ int ObserveUseItem(oCNpc* npc, oCMsgManipulate* msg, bool to_state) {
       }
       const auto name = ResolveItemInstanceName(msg);
       auto* item = msg->targetVob ? zDYNAMIC_CAST<oCItem>(msg->targetVob) : nullptr;
-      const int instance = item ? item->GetInstance() : zCParser::GetParser() ? zCParser::GetParser()->GetIndex(name.c_str()) : 0;
+      const int instance = item ? item->GetInstance() : Gothic_II_Addon::parser ? Gothic_II_Addon::parser->GetIndex(name.c_str()) : 0;
       if (!item && instance > 0)
         item = npc->inventory2.IsIn(instance, 1);
       const std::string scheme = item ? item->GetSchemeName().ToChar() : ResolveItemSchemeName(msg);
@@ -1061,7 +1061,7 @@ int __fastcall OnNativeUseItem(oCNpc* npc, void* /*unusedEdx*/, oCItem* item) {
   const auto actor_id = NetGame::Instance().GetPlayerIdByNpc(npc);
   auto* actor = actor_id ? NetGame::Instance().FindEngineActor(*actor_id) : nullptr;
   if (IsBurningTorch(item) && actor && actor->base_player().inventory_count(instance) == 0) {
-    if (auto* parser = zCParser::GetParser())
+    if (auto* parser = Gothic_II_Addon::parser)
       instance = parser->GetIndex("ITLSTORCH");
   }
   auto* previous_hand = npc->GetLeftHand();
@@ -1187,7 +1187,7 @@ int __fastcall OnCastSpell(oCSpell* thisSpell) {
   const bool accepted = hits.IsCurrent() && result != 0 && (transformed || net.CanReportActorDamage(caster));
   if (accepted) {
     const auto* form = gmp::GetTransformationForm(static_cast<std::uint16_t>(spell_id));
-    auto* parser = zCParser::GetParser();
+    auto* parser = Gothic_II_Addon::parser;
     const bool matching_form = transformed && parser && form && player->GetInstance() == parser->GetIndex(form->instance);
     const auto cast =
         net.game_client->SendCastSpell(static_cast<std::uint32_t>(target_id.value_or(0)), static_cast<std::uint16_t>(spell_id), item_instance,
@@ -1314,7 +1314,7 @@ void __fastcall OnTriggerTeleport(zCTriggerTeleport* trigger, void* /*unusedEdx*
 // Consume its arguments without constructing local creatures. The accepted
 // cast creates server NPCs instead; native spell cost, FX and book cleanup run.
 int __cdecl SuppressNativeSpellSummons() {
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   float range = 0.0f;
   int count = 0, instance = 0;
   parser->GetParameter(range);
@@ -1336,7 +1336,7 @@ void __fastcall OnSpellBookCast(oCMag_Book* book, void* /*unusedEdx*/) {
       g_originalSpellBookCast(book);
     return;
   }
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   auto* symbol = parser ? parser->GetSymbol("WLD_SPAWNNPCRANGE") : nullptr;
   if (!symbol || !symbol->HasFlag(zPAR_FLAG_EXTERNAL)) {
     SPDLOG_ERROR("Cannot manage summon spell: Wld_SpawnNpcRange is missing");

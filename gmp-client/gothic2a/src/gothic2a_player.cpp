@@ -366,7 +366,7 @@ std::string Gothic2APlayer::GetTransformationReturnInstance() const {
 }
 
 bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
-  if (!npc || !zfactory || !ogame || !ogame->GetGameWorld() || !IsNpcInstance(zCParser::GetParser(), instance_id))
+  if (!npc || !zfactory || !ogame || !ogame->GetGameWorld() || !IsNpcInstance(Gothic_II_Addon::parser, instance_id))
     return false;
 
   auto* old_npc = IsLocalPlayer() && Gothic_II_Addon::player ? Gothic_II_Addon::player : npc;
@@ -381,7 +381,7 @@ bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
 
   oCNpc* new_npc = nullptr;
   {
-    auto* parser = zCParser::GetParser();
+    auto* parser = Gothic_II_Addon::parser;
     ScriptInstanceScope scope(*parser, instance_id);
     new_npc = zfactory->CreateNpc(instance_id);
   }
@@ -410,7 +410,7 @@ bool Gothic2APlayer::ReplaceNpcInstance(int instance_id) {
     global_ingame->Shrinker->UnShrinkNpc(old_npc);
 
   {
-    auto* parser = zCParser::GetParser();
+    auto* parser = Gothic_II_Addon::parser;
     ScriptInstanceScope scope(*parser, instance_id);
     auto spawn_position = position;
     new_npc->Enable(spawn_position);
@@ -464,7 +464,7 @@ void Gothic2APlayer::SetNpcType(NpcType TYPE) {
     return;
   }
 
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return;
   }

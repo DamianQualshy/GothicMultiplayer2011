@@ -82,16 +82,35 @@ void CharacterCreationState::OnEnter() {
     return;
   }
   saved_transform_ = preview_player_->trafoObjToWorld;
+  saved_sleeping_mode_ = static_cast<zTVobSleepingMode>(preview_player_->sleepingMode);
+  saved_physics_enabled_ = preview_player_->physicsEnabled;
+  saved_static_collision_ = preview_player_->collDetectionStatic;
+  saved_dynamic_collision_ = preview_player_->collDetectionDynamic;
+  saved_movement_lock_ = preview_player_->IsMovLock() != 0;
+  if (auto* model = preview_player_->GetModel()) {
+    saved_random_animations_ = model->randAnisEnabled;
+  }
+  // The normal hero controller still reacts to menu keys with movement locked.
+  // As with MenuNpc, suspend native frame activity and advance only the model.
+  preview_player_->GetEM()->Clear();
+  saved_player_ai_ = preview_player_->callback_ai;
+  if (saved_player_ai_) {
+    saved_player_ai_->AddRef();
+    preview_player_->SetAI(nullptr);
+  }
+  preview_player_->SetMovLock(true);
+  preview_player_->SetPhysicsEnabled(false);
+  preview_player_->SetCollDetStat(false);
+  preview_player_->SetCollDetDyn(false);
+  preview_player_->SetSleeping(true);
   preview_position_ = zVEC3(29912.9f, 5185.68f, -15710.0f);
   context_.game->GetWorldTimer()->GetTime(saved_hour_, saved_minute_);
 }
 
-void CharacterCreationState::StopWalking() {
+void CharacterCreationState::StopPreviewAnimation() {
   if (preview_player_ && Gothic_II_Addon::player == preview_player_) {
-    if (auto* model = preview_player_->GetModel(); model && model->IsAnimationActive(zSTRING("S_WALKL")))
-      model->StopAnimation(zSTRING("S_WALKL"));
-    if (preview_player_->human_ai) {
-      preview_player_->human_ai->StartStandAni();
+    if (auto* model = preview_player_->GetModel()) {
+      model->StopAnisLayerRange(0, 100);
     }
   }
 }
@@ -101,41 +120,71 @@ void CharacterCreationState::OnExit() {
 }
 
 void CharacterCreationState::StopScene() {
-  StopWalking();
+  StopPreviewAnimation();
   camera_.Reset();
   if (preview_player_ && Gothic_II_Addon::player == preview_player_) {
+    preview_player_->GetEM()->Clear();
     gmp::gothic::ApplyCharacterAppearance(*preview_player_, context_.config.GetCharacterAppearance());
+    if (auto* model = preview_player_->GetModel()) {
+      model->SetRandAnisEnabled(saved_random_animations_);
+    }
     preview_player_->SetTrafoObjToWorld(saved_transform_);
+    preview_player_->SetCollDetStat(saved_static_collision_);
+    preview_player_->SetCollDetDyn(saved_dynamic_collision_);
+    preview_player_->SetPhysicsEnabled(saved_physics_enabled_);
+    preview_player_->SetMovLock(saved_movement_lock_);
+    preview_player_->SetAI(saved_player_ai_);
+    if (preview_player_->human_ai) {
+      preview_player_->human_ai->StartStandAni();
+    }
+    preview_player_->SetSleepingMode(saved_sleeping_mode_);
     context_.game->GetWorldTimer()->SetTime(saved_hour_, saved_minute_);
+  }
+  if (saved_player_ai_) {
+    saved_player_ai_->Release();
+    saved_player_ai_ = nullptr;
   }
   preview_player_ = nullptr;
 }
 
-void CharacterCreationState::UpdateScene(float /*delta_time*/) {
+void CharacterCreationState::UpdateScene(float delta_time) {
   if (!preview_player_ || Gothic_II_Addon::player != preview_player_ || !camera_.IsReady()) {
     return;
   }
   context_.game->GetWorldTimer()->SetTime(12, 0);
-  if (changed_) {
-    StopWalking();
+  if (appearance_changed_) {
+    StopPreviewAnimation();
     gmp::gothic::ApplyCharacterAppearance(*preview_player_, appearance_);
-    changed_ = false;
+    appearance_changed_ = false;
+    animation_changed_ = true;
   }
-  preview_player_->SetPositionWorld(preview_position_);
   if (!grounded_) {
+    preview_player_->SetPositionWorld(preview_position_);
     auto position = preview_position_;
     preview_player_->SetOnFloor(position);
     preview_position_ = preview_player_->GetPositionWorld();
+    const float heading = kPreviewAngle * kRadiansPerDegree;
+    preview_player_->SetHeadingYWorld(preview_position_ + zVEC3(std::sin(heading), 0.0f, std::cos(heading)));
     grounded_ = true;
   }
-  const float heading = kPreviewAngle * kRadiansPerDegree;
-  preview_player_->SetHeadingYWorld(preview_position_ + zVEC3(std::sin(heading), 0.0f, std::cos(heading)));
-  if (selected_field_ == Walking) {
-    if (auto* model = preview_player_->GetModel(); model && !model->IsAnimationActive(zSTRING("S_WALKL")))
-      model->StartAnimation(zSTRING("S_WALKL"));
-    // Pin the actor each frame while allowing the animation's root motion.
-    preview_player_->SetPositionWorld(preview_position_);
+  if (auto* model = preview_player_->GetModel()) {
+    model->SetRandAnisEnabled(false);
+    const zSTRING animation(selected_field_ == Walking ? "S_WALKL" : "S_RUN");
+    if (animation_changed_ || !model->IsAnimationActive(animation)) {
+      StopPreviewAnimation();
+      model->StartAnimation(animation);
+      animation_changed_ = false;
+    }
+    if (ztimer && ztimer->frameTimeFloatSecs > 0.0f && std::isfinite(delta_time) && delta_time > 0.0f) {
+      const float time_scale = model->timeScale;
+      model->timeScale = time_scale * std::min(delta_time, 0.1f) / ztimer->frameTimeFloatSecs;
+      model->AdvanceAnis();
+      model->timeScale = time_scale;
+      // Ignore the animation's root motion; the preview actor never moves.
+      preview_player_->SetBBox3DLocal(model->GetBBox3D());
+    }
   }
+  preview_player_->SetSleeping(true);
   const auto& camera = kCameras[selected_field_];
   const float angle = kPreviewAngle + camera.angle;
   const float radians = angle * kRadiansPerDegree;
@@ -185,7 +234,7 @@ void CharacterCreationState::ChangeSelection(int change) {
           ChoiceIndex(gmp::kCharacterWalkingOverlays, appearance_.walking_overlay), change, static_cast<int>(gmp::kCharacterWalkingOverlays.size()))];
       break;
   }
-  changed_ = true;
+  appearance_changed_ = true;
 }
 
 StateResult CharacterCreationState::Update() {
@@ -198,12 +247,14 @@ StateResult CharacterCreationState::Update() {
     finished_ = true;
     return StateResult::Continue;
   }
+  const bool was_walking = selected_field_ == Walking;
   if (context_.input->KeyToggled(KEY_UP)) {
     selected_field_ = Cycle(selected_field_, -1, FieldCount);
-    changed_ = true;
   } else if (context_.input->KeyToggled(KEY_DOWN)) {
     selected_field_ = Cycle(selected_field_, 1, FieldCount);
-    changed_ = true;
+  }
+  if (was_walking != (selected_field_ == Walking)) {
+    animation_changed_ = true;
   }
   if (context_.input->KeyToggled(KEY_LEFT) || context_.input->KeyToggled(KEY_A)) {
     ChangeSelection(-1);

@@ -407,6 +407,50 @@ TEST_F(ServerActorValidation, NativeTeleportCommitsOnceAndBlocksEarlierMovementW
   EXPECT_EQ(actor.state.position, teleport.position);
 }
 
+TEST_F(ServerActorValidation, TeleportingBothPlayersRestoresMutualStreamingRegardlessOfAppearanceOrCallOrder) {
+  auto& picked = server.GetCharacter(first)->get();
+  auto& defaults = server.GetCharacter(second)->get();
+  picked.body_model = "HUM_BODY_BABE0";
+  picked.body_texture = 8;
+  picked.head_model = "HUM_HEAD_FIGHTER";
+  picked.head_texture = 26;
+  picked.overlays = {"HUMANS_MILITIA.MDS"};
+  defaults.body_model = "HUM_BODY_NAKED0";
+  defaults.body_texture = 9;
+  defaults.head_model = "HUM_HEAD_PONY";
+  defaults.head_texture = 18;
+  defaults.overlays.clear();
+  ASSERT_TRUE(server.SetStreamerRadius(1000));
+  ASSERT_TRUE(server.SetCharacterPosition(first, {0.0f, 0.0f, 0.0f}));
+  ASSERT_TRUE(picked.streamed_by_players.count(second));
+  ASSERT_TRUE(defaults.streamed_by_players.count(first));
+  float destination = 5000.0f;
+  for (const auto leader : {first, second}) {
+    const auto follower = leader == first ? second : first;
+    ASSERT_TRUE(server.SetCharacterPosition(leader, {destination, 0.0f, 0.0f}));
+    EXPECT_FALSE(picked.streamed_by_players.count(second));
+    EXPECT_FALSE(defaults.streamed_by_players.count(first));
+    EXPECT_FALSE(server.GetPlayerManager().GetPlayer(first)->get().spawned_players.count(second));
+    EXPECT_FALSE(server.GetPlayerManager().GetPlayer(second)->get().spawned_players.count(first));
+    ASSERT_TRUE(server.SetCharacterPosition(follower, {destination + 100.0f, 0.0f, 0.0f}));
+    EXPECT_TRUE(picked.streamed_by_players.count(second));
+    EXPECT_TRUE(defaults.streamed_by_players.count(first));
+    EXPECT_TRUE(server.GetPlayerManager().GetPlayer(first)->get().spawned_players.count(second));
+    EXPECT_TRUE(server.GetPlayerManager().GetPlayer(second)->get().spawned_players.count(first));
+    EXPECT_EQ(picked.body_model, "HUM_BODY_BABE0");
+    EXPECT_EQ(picked.body_texture, 8);
+    EXPECT_EQ(picked.head_model, "HUM_HEAD_FIGHTER");
+    EXPECT_EQ(picked.head_texture, 26);
+    EXPECT_EQ(picked.overlays, std::vector<std::string>{"HUMANS_MILITIA.MDS"});
+    EXPECT_EQ(defaults.body_model, "HUM_BODY_NAKED0");
+    EXPECT_EQ(defaults.body_texture, 9);
+    EXPECT_EQ(defaults.head_model, "HUM_HEAD_PONY");
+    EXPECT_EQ(defaults.head_texture, 18);
+    EXPECT_TRUE(defaults.overlays.empty());
+    destination += 5000.0f;
+  }
+}
+
 TEST_F(ServerActorValidation, DelayedNativeTeleportCannotReplaceANewerScriptedTransform) {
   auto& actor = server.GetCharacter(first)->get();
   const auto teleport = Teleport(actor);

@@ -349,6 +349,55 @@ TEST_F(ClientNpcPacketTest, JoinAnnouncementPreservesAppearanceAndSeparatesWalki
   EXPECT_EQ(actor->overlays(), std::vector<std::string>{"HUMANS_BABE.MDS"});
 }
 
+TEST_F(ClientNpcPacketTest, StreamOutAndBackInRecreatesBothDefaultAndPickedAppearances) {
+  auto defaults = MakeSpawn().actor;
+  defaults.instance.clear();
+  defaults.player_name = "Default appearance";
+  defaults.body_model = "HUM_BODY_NAKED0";
+  defaults.body_texture = 9;
+  defaults.head_model = "HUM_HEAD_PONY";
+  defaults.head_texture = 18;
+  defaults.overlays.clear();
+  auto picked = defaults;
+  picked.player_id = 22;
+  picked.actor_generation = 122;
+  picked.player_name = "Picked appearance";
+  picked.body_model = "HUM_BODY_BABE0";
+  picked.body_texture = 8;
+  picked.head_model = "HUM_HEAD_FIGHTER";
+  picked.head_texture = 26;
+  picked.overlays = {"HUMANS_MILITIA.MDS"};
+  for (std::size_t viewer = 0; viewer < 2; ++viewer) {
+    auto& client = viewer == 0 ? *first : *second;
+    auto& observer = viewer == 0 ? first_observer : second_observer;
+    Deliver(viewer, defaults);
+    Deliver(viewer, picked);
+    for (const auto id : {defaults.player_id, picked.player_id}) {
+      DisconnectionInfoPacket stream_out;
+      stream_out.packet_type = Net::PT_LEFT_GAME;
+      stream_out.disconnected_id = id;
+      Deliver(viewer, stream_out);
+      EXPECT_EQ(client.player_manager().GetPlayer(id), nullptr);
+    }
+    for (auto snapshot : {defaults, picked}) {
+      snapshot.position = {10000.0f, 200.0f, 5000.0f};
+      ++snapshot.state_sequence;
+      Deliver(viewer, snapshot);
+      auto* actor = client.player_manager().GetPlayer(snapshot.player_id);
+      ASSERT_NE(actor, nullptr);
+      EXPECT_TRUE(actor->has_spawned());
+      EXPECT_TRUE(actor->instance().empty());
+      EXPECT_EQ(actor->position(), snapshot.position);
+      EXPECT_EQ(actor->body_model(), snapshot.body_model);
+      EXPECT_EQ(actor->body_texture(), snapshot.body_texture);
+      EXPECT_EQ(actor->head_model(), snapshot.head_model);
+      EXPECT_EQ(actor->head_texture(), snapshot.head_texture);
+      EXPECT_EQ(actor->overlays(), snapshot.overlays);
+    }
+    EXPECT_EQ(std::count(observer.order.begin(), observer.order.end(), "spawn"), 4);
+  }
+}
+
 TEST_F(ClientNpcPacketTest, FirstSpawnCanRemoveTheNativeJoinWalkingOverlayWithoutAnEarlierOverlayPacket) {
   auto* local = first->player_manager().CreateLocalPlayer(21);
   local->set_actor_generation(121);

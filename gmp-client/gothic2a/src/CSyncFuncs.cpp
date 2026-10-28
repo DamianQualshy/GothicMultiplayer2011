@@ -59,7 +59,7 @@ void CSyncFuncs::RunSpellLogic(short SpellId, oCNpc* Caster, oCNpc* Target) {
     case SPL_SLEEP:
       if (!Caster || !Target)
         return;
-      if (auto* parser = zCParser::GetParser()) {
+      if (auto* parser = Gothic_II_Addon::parser) {
         ScriptInstanceScope scope(*parser);
         parser->SetInstance("SELF", Caster);
         parser->SetInstance("OTHER", Target);
@@ -82,7 +82,7 @@ void CSyncFuncs::RunSpellLogic(short SpellId, oCNpc* Caster, oCNpc* Target) {
 void CSyncFuncs::RunSpellScript(const char* SpellName, oCNpc* Caster, oCNpc* Target) {
   if (!Caster || !SpellName)
     return;
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return;
   }

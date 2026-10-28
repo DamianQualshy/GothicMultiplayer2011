@@ -399,7 +399,7 @@ nlohmann::ordered_json MakeItemJson(Gothic_II_Addon::zCParser* parser, int index
 bool CollectItemsJson(std::vector<nlohmann::ordered_json>& items_json) {
   using namespace Gothic_II_Addon;
 
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser || !zfactory) {
     SPDLOG_WARN("Cannot generate items: parser or object factory is not available.");
     return false;

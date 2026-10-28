@@ -78,7 +78,7 @@ private:
 }  // namespace
 
 bool MenuNpc::CanCreate() {
-  return ogame && ogame->GetGameWorld() && zfactory && zCParser::GetParser() && Gothic_II_Addon::player;
+  return ogame && ogame->GetGameWorld() && zfactory && Gothic_II_Addon::parser && Gothic_II_Addon::player;
 }
 
 bool MenuNpc::FindGround(oCWorld& world, const zVEC3& hint, zVEC3& ground) {
@@ -114,7 +114,7 @@ std::unique_ptr<MenuNpc> MenuNpc::Create(oCWorld& world, const MenuNpcDefinition
   zSTRING instance_name(config.instance.c_str());
   instance_name.Upper();
   actor->allow_visual_overrides_ = instance_name == zSTRING(MenuNpcDefinition::kDefaultInstance);
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   const int instance = parser->GetIndex(instance_name);
   auto* symbol = instance >= 0 ? parser->GetSymbol(instance) : nullptr;
   const int npc_class = parser->GetIndex("C_NPC");
@@ -315,7 +315,7 @@ bool MenuNpc::EquipRanged(const char* instance) {
 }
 
 bool MenuNpc::Equip(const char* instance, Equipment kind) {
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   if (!IsValid() || !parser || !zfactory || !instance || !*instance) {
     return false;
   }

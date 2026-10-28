@@ -96,7 +96,8 @@ oCSpawnManager* GetSpawnManager() {
 }
 
 bool HasFactoryAndParser() {
-  return zfactory && zCParser::GetParser();
+  // Gameplay symbols must remain available after native effects use cur_parser.
+  return zfactory && Gothic_II_Addon::parser;
 }
 
 bool HasSpawnPrerequisites() {
@@ -104,7 +105,7 @@ bool HasSpawnPrerequisites() {
 }
 
 std::optional<int> ResolveScriptInstance(const std::string& instance) {
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return std::nullopt;
   }
@@ -171,7 +172,7 @@ std::optional<std::string> ItemInstanceNameByIndex(int index) {
     return std::nullopt;
   }
 
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return std::nullopt;
   }
@@ -511,7 +512,7 @@ bool ReplaceStandaloneNpcInstance(ClientNpc& entry, int instance_id) {
 
   oCNpc* new_npc = nullptr;
   {
-    auto* parser = zCParser::GetParser();
+    auto* parser = Gothic_II_Addon::parser;
     if (!IsNpcInstance(parser, instance_id))
       return false;
     ScriptInstanceScope scope(*parser, instance_id);
@@ -587,7 +588,7 @@ oCMenu_Status* GetStatusMenu() {
  */
 bool Function_SetPlayerInstance(std::int64_t id, const std::string& instance) {
   const auto instance_id = ResolveScriptInstance(instance);
-  if (!instance_id.has_value() || !IsNpcInstance(zCParser::GetParser(), *instance_id)) {
+  if (!instance_id.has_value() || !IsNpcInstance(Gothic_II_Addon::parser, *instance_id)) {
     return false;
   }
 
@@ -2057,7 +2058,7 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
   }
 
   if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
+    if (auto* parser = Gothic_II_Addon::parser) {
       zSTRING instance_name(instance.c_str());
       const int instance_id = parser->GetIndex(instance_name);
       if (instance_id >= 0) {
@@ -2308,7 +2309,7 @@ bool Function_UnequipShield(std::int64_t id) {
  */
 int Function_HasItem(std::int64_t id, const std::string& instance) {
   if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
+    if (auto* parser = Gothic_II_Addon::parser) {
       zSTRING instance_name(instance.c_str());
       const int instance_id = parser->GetIndex(instance_name);
       if (instance_id >= 0) {
@@ -2467,7 +2468,7 @@ bool Function_DropItem(const std::string& instance, sol::optional<std::int32_t> 
     return false;
   }
 
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return false;
   }
@@ -2551,7 +2552,7 @@ bool Function_RemoveItem(std::int64_t id, const std::string& instance, std::int3
   }
 
   if (auto* npc = GetNpcById(id)) {
-    if (auto* parser = zCParser::GetParser()) {
+    if (auto* parser = Gothic_II_Addon::parser) {
       zSTRING instance_name(instance.c_str());
       const int instance_id = parser->GetIndex(instance_name);
       if (instance_id >= 0) {
@@ -2719,7 +2720,7 @@ sol::object Function_GetWorld(sol::this_state ts) {
     return ::lua::bind_helpers::MakeFailure(lua, "Game engine is not ready to create a local NPC");
   }
 
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   const int default_instance = parser->GetIndex("PC_HERO");
   if (default_instance < 0) {
     SPDLOG_WARN("createNpc: failed to resolve default instance 'PC_HERO'");
@@ -2802,7 +2803,7 @@ bool Function_SpawnNpc(std::int64_t npc_id, sol::optional<std::string> instance_
   }
 
   const std::string instance = instance_name.value_or("PC_HERO");
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   const int instance_index = parser->GetIndex(instance.c_str());
   if (instance_index < 0) {
     SPDLOG_WARN("spawnNpc: instance '{}' not found", instance);

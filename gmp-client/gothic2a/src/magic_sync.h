@@ -77,7 +77,7 @@ inline void UnregisterMagicItem(oCNpc* npc, oCItem* item) {
 
 inline void ConfigureMagicAnimations(oCNpc* npc, int spell_id) {
   auto* controller = npc ? npc->GetAnictrl() : nullptr;
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   auto* symbol = parser ? parser->GetSymbol("spellFXAniLetters") : nullptr;
   if (!controller || !symbol || spell_id < 0 || spell_id >= SPL_MAX_SPELL)
     return;

@@ -43,10 +43,10 @@ constexpr float kExistingItemSearchRadius = 200.0f;
 constexpr std::uint8_t kPhysicsRefreshFrames = 3;
 
 int ResolveItemIndex(const std::string& instance) {
-  if (instance.empty() || zCParser::GetParser() == nullptr) {
+  if (instance.empty() || Gothic_II_Addon::parser == nullptr) {
     return -1;
   }
-  return zCParser::GetParser()->GetIndex(instance.c_str());
+  return Gothic_II_Addon::parser->GetIndex(instance.c_str());
 }
 
 float DistanceSquared(oCItem* item, const glm::vec3& position) {
@@ -221,7 +221,7 @@ void ClientItemGroundManager::Clear(bool emit_event) {
 }
 
 void ClientItemGroundManager::RefreshPending() {
-  if (ogame == nullptr || ogame->GetGameWorld() == nullptr || zfactory == nullptr || zCParser::GetParser() == nullptr) {
+  if (ogame == nullptr || ogame->GetGameWorld() == nullptr || zfactory == nullptr || Gothic_II_Addon::parser == nullptr) {
     return;
   }
 
@@ -312,7 +312,7 @@ oCItem* ClientItemGroundManager::FindExistingItem(const std::string& instance, c
 
 oCItem* ClientItemGroundManager::CreateItem(const std::string& instance, std::int32_t amount, bool physics_enabled, const glm::vec3& position,
                                             const glm::vec3& rotation) const {
-  if (ogame == nullptr || ogame->GetGameWorld() == nullptr || zfactory == nullptr || zCParser::GetParser() == nullptr) {
+  if (ogame == nullptr || ogame->GetGameWorld() == nullptr || zfactory == nullptr || Gothic_II_Addon::parser == nullptr) {
     return nullptr;
   }
 

@@ -272,7 +272,7 @@ bool IsNetworkItemInstance(std::int32_t instance) {
   if (instance <= 0) {
     return false;
   }
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser || instance >= parser->symtab.GetNumInList()) {
     return false;
   }
@@ -293,7 +293,7 @@ oCItem* CreateNetworkItem(std::int32_t instance) {
     return nullptr;
   }
 
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   std::optional<ScriptInstanceScope> scope;
   if (parser) {
     scope.emplace(*parser, instance);
@@ -379,7 +379,9 @@ std::optional<int> FindParserIndex(const char* instance_name) {
     return std::nullopt;
   }
 
-  zCParser* parser = zCParser::GetParser();
+  // GetParser() exposes cur_parser, which native FX/music can leave pointing
+  // at a different symbol table. NPC/item indices belong to the game parser.
+  zCParser* parser = Gothic_II_Addon::parser;
   if (!parser) {
     return std::nullopt;
   }
@@ -398,7 +400,7 @@ std::optional<std::string> FindParserInstanceName(std::int32_t index) {
     return std::nullopt;
   }
 
-  zCParser* parser = zCParser::GetParser();
+  zCParser* parser = Gothic_II_Addon::parser;
   zCPar_Symbol* symbol = parser ? parser->GetSymbol(index) : nullptr;
   if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || symbol->name.IsEmpty()) {
     return std::nullopt;
@@ -2998,7 +3000,7 @@ void NetGame::SpawnRemotePlayer(gmp::client::Player& new_player) {
     delete newhero;
     return;
   }
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   std::optional<ScriptInstanceScope> npc_instance_scope;
   if (parser) {
     if (!IsNpcInstance(parser, instance_id)) {
@@ -3194,7 +3196,7 @@ void NetGame::ChangePlayerInstance(std::uint64_t player_id, const std::string& i
     return;
   }
 
-  if (!IsNpcInstance(zCParser::GetParser(), *instance_id)) {
+  if (!IsNpcInstance(Gothic_II_Addon::parser, *instance_id)) {
     SPDLOG_WARN("Cannot replace server NPC {}: instance is not C_NPC", player_id);
     if (cplayer->base_player().instance_change_revision())
       game_client->SendInstanceReady(CaptureInstanceDefaults(*cplayer), false);
@@ -3574,7 +3576,7 @@ void NetGame::ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing) 
   for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
     if (auto* item = entry->GetData()) native_counts[item->GetInstance()] += std::max(0, item->amount);
   }
-  if (auto* parser = zCParser::GetParser()) {
+  if (auto* parser = Gothic_II_Addon::parser) {
     for (const auto* name : {"ITLSTORCH", "ITLSTORCHBURNING"}) {
       const int instance = parser->GetIndex(name);
       if (GetCarriedTorchAmount(npc, instance) > 0) native_counts.try_emplace(instance, 0);
@@ -3825,7 +3827,7 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
       if (terminal || instance == 0 || !IsNetworkItemInstance(instance)) {
         return;
       }
-      auto* parser = zCParser::GetParser();
+      auto* parser = Gothic_II_Addon::parser;
       if (parser && instance == parser->GetIndex("ITLSTORCHBURNING")) {
         // A torch's ZEN contains the flame/light subtree. Inventory attachment
         // substitutes only a mesh, so keep the burning item out of inventory2.
@@ -4352,7 +4354,7 @@ namespace {
 void PlaySpellPresentation(Gothic2APlayer& actor, oCNpc* target, std::uint16_t spell_id, std::uint8_t level) {
   auto* caster = actor.GetNpc();
   if (!caster || spell_id >= 100) return;
-  auto* parser = zCParser::GetParser();
+  auto* parser = Gothic_II_Addon::parser;
   std::optional<ScriptInstanceScope> scope;
   if (parser) {
     scope.emplace(*parser);
