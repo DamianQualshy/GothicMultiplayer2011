@@ -32,6 +32,7 @@ SOFTWARE.
 #include <cstddef>
 #include <cstring>
 #include <limits>
+#include <stdexcept>
 
 #include "hooking/MemoryPatch.h"
 
@@ -245,6 +246,36 @@ std::size_t GothicVfsOverlay::OpenHandleCount() const {
 std::vector<std::string> GothicVfsOverlay::EnumerateActiveFiles() const {
   std::lock_guard<std::mutex> lock(mutex_);
   return active_vfs_ ? active_vfs_->EnumerateFiles() : std::vector<std::string>{};
+}
+
+std::shared_ptr<gmp::addon::AddonFile> GothicVfsOverlay::OpenExact(std::string_view path) const {
+  std::lock_guard<std::mutex> lock(mutex_);
+  return active_vfs_ ? active_vfs_->OpenExact(path) : nullptr;
+}
+
+std::optional<std::vector<std::uint8_t>> GothicVfsOverlay::ReadNativeFile(const std::string& path, std::size_t maximum_size) const {
+  if (!zFILE_VDFS::s_vdfsInitialized) return std::nullopt;
+  zFILE_VDFS file;
+  file.Init(zSTRING(path.c_str()));
+  if (!(g_exists ? g_exists(&file) : file.Exists())) return std::nullopt;
+  // Calling the original Open directly prevents the addon overlay from
+  // substituting an unrelated same-named file. Native VDFS keeps its own rules.
+  const auto opened = g_open ? g_open(&file, false) : file.Open(false);
+  if (opened != zERR_NONE) throw std::runtime_error("Cannot open native asset: " + path);
+  const auto close = [&] { if (g_close) g_close(&file); else file.Close(); };
+  try {
+    const auto length = g_size ? g_size(&file) : file.Size();
+    if (length <= 0 || static_cast<std::size_t>(length) > maximum_size)
+      throw std::runtime_error("Invalid native asset size: " + path);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(length));
+    const auto count = g_read ? g_read(&file, bytes.data(), length) : file.Read(bytes.data(), length);
+    if (count != length) throw std::runtime_error("Incomplete native asset read: " + path);
+    close();
+    return bytes;
+  } catch (...) {
+    close();
+    throw;
+  }
 }
 
 std::optional<int> GothicVfsOverlay::TryOpen(zFILE_VDFS* file, const char* path, bool write) {

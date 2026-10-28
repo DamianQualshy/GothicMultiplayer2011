@@ -113,7 +113,7 @@ void EnterMenuState::StartMenuMusic() {
   }
 
   // Load and play the menu theme
-  const char* kMenuMusicPath = ".\\Multiplayer\\Music\\main_menu_theme_1.mp3";
+  const char* kMenuMusicPath = "main_menu_theme_1.mp3";
   if (context_.menuMusicPlayer->Load(kMenuMusicPath)) {
     context_.menuMusicPlayer->SetMuteGothicMusic(true);  // Mute Gothic's music while playing.
     context_.menuMusicPlayer->Play(true);  // Loop the music.

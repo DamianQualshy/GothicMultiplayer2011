@@ -330,8 +330,25 @@ const zenkit::VfsNode* AddonVfs::ResolveFile(std::string_view path) const {
 }
 
 std::shared_ptr<AddonFile> AddonVfs::Open(std::string_view path) const {
-  const auto* node = ResolveFile(path);
-  if (!node) {
+  return OpenNode(ResolveFile(path));
+}
+
+std::shared_ptr<AddonFile> AddonVfs::OpenExact(std::string_view path) const {
+  const auto normalized = NormalizeVdfPath(path);
+  if (!normalized || !state_) return nullptr;
+  const auto* node = &state_->vfs.root();
+  for (std::size_t start = 0; start < normalized->size();) {
+    if (!node || node->type() != zenkit::VfsNodeType::DIRECTORY) return nullptr;
+    const auto end = normalized->find('/', start);
+    node = node->child(normalized->substr(start, end == std::string::npos ? end : end - start));
+    if (end == std::string::npos) break;
+    start = end + 1;
+  }
+  return OpenNode(node);
+}
+
+std::shared_ptr<AddonFile> AddonVfs::OpenNode(const zenkit::VfsNode* node) const {
+  if (!node || node->type() != zenkit::VfsNodeType::FILE) {
     return nullptr;
   }
   auto reader = node->open_read();

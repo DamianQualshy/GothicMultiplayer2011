@@ -86,6 +86,8 @@ public:
   void MountArchive(const std::filesystem::path& archive);
 
   std::shared_ptr<AddonFile> Open(std::string_view path) const;
+  // Full archive path only; no _WORK/DATA stripping or basename fallback.
+  std::shared_ptr<AddonFile> OpenExact(std::string_view path) const;
   bool Exists(std::string_view path) const;
   std::optional<std::size_t> FileSize(std::string_view path) const;
   std::vector<std::string> EnumerateFiles() const;
@@ -104,6 +106,7 @@ public:
 private:
   using State = AddonFile::State;
   const zenkit::VfsNode* ResolveFile(std::string_view path) const;
+  std::shared_ptr<AddonFile> OpenNode(const zenkit::VfsNode* node) const;
   std::shared_ptr<State> state_;
 };
 

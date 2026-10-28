@@ -42,7 +42,7 @@ namespace gmp::lua {
  *
  * Creates a new Music object from a file path. Available formats are `OGG`, `MP3` and `WAV`.
  *
- * @note The file path is relative to Gothic installation directory, eg. `.\\Multiplayer\\Music\\main_menu_theme_1.mp3`.
+ * @note Accepts only filenames and subdirectory paths relative to the music roots, such as `MAINMENU.MP3` or `Ambient/forest.mp3`. Roots are `Multiplayer/Music/` and `_Work/Data/Music/`; do not include either prefix.
  * @param    (string) file  Music file path.
  *
  */

@@ -25,10 +25,12 @@ SOFTWARE.
 #pragma once
 
 #include <filesystem>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -51,6 +53,10 @@ public:
   bool IsActive() const;
   std::size_t OpenHandleCount() const;
   std::vector<std::string> EnumerateActiveFiles() const;
+  std::shared_ptr<gmp::addon::AddonFile> OpenExact(std::string_view path) const;
+  // Read through native VDFS without the server overlay's compatibility lookup.
+  // Missing files return nullopt; invalid sizes and incomplete reads throw.
+  std::optional<std::vector<std::uint8_t>> ReadNativeFile(const std::string& path, std::size_t maximum_size) const;
 
 private:
   struct FindState {

@@ -141,6 +141,31 @@ TEST_F(AddonSupportTest, OpenFileRetainsArchiveAfterVfsDestruction) {
   EXPECT_EQ(std::string(bytes, 5), "alive");
 }
 
+TEST_F(AddonSupportTest, ExactOpenKeepsMusicDirectoriesAndNestedPathsDistinct) {
+  const auto archive = CreateVdf("music.vdf", {{"MULTIPLAYER/MUSIC/AMBIENT/THEME.MP3", "multiplayer"},
+      {"_WORK/DATA/MUSIC/AMBIENT/THEME.MP3", "gothic"}, {"MUSIC/SHORT/THEME.OGG", "short"},
+      {"UNRELATED/MISSING.MP3", "wrong directory"}});
+  gmp::addon::AddonVfs vfs;
+  vfs.MountArchive(archive);
+  const auto first = vfs.OpenExact("./Multiplayer\\Music\\Ambient\\Theme.mp3");
+  const auto second = vfs.OpenExact("_Work/Data/Music/Ambient/Theme.mp3");
+  ASSERT_NE(first, nullptr);
+  ASSERT_NE(second, nullptr);
+  std::array<char, 32> bytes{};
+  EXPECT_EQ(first->Read(bytes.data(), bytes.size()), 11u);
+  EXPECT_EQ(std::string(bytes.data(), 11), "multiplayer");
+  EXPECT_EQ(second->Read(bytes.data(), bytes.size()), 6u);
+  EXPECT_EQ(std::string(bytes.data(), 6), "gothic");
+  EXPECT_NE(vfs.OpenExact("Music/Short/Theme.ogg"), nullptr);
+  EXPECT_EQ(vfs.OpenExact("Multiplayer/Music/Missing.mp3"), nullptr);
+  EXPECT_EQ(vfs.OpenExact("_Work/Data/Music/Missing.mp3"), nullptr);
+  EXPECT_EQ(vfs.OpenExact("_Work/Data/Music/../UNRELATED/Missing.mp3"), nullptr);
+  EXPECT_EQ(vfs.OpenExact("Multiplayer/Music/Ambient/Theme.mp3/child.ogg"), nullptr);
+  EXPECT_EQ(vfs.OpenExact("Multiplayer/Music/Ambient"), nullptr);
+  // Existing Gothic-compatible readers retain their prior basename fallback.
+  EXPECT_NE(vfs.Open("Missing.mp3"), nullptr);
+}
+
 TEST_F(AddonSupportTest, MountsVdfsToolArchiveWithImplicitCatalogOffset) {
   const auto archive = CreateVdf(
       "legacy-tool.vdf", {{"_WORK/DATA/WORLDS/COLONY.ZEN", "world data"}, {"_WORK/DATA/TEXTURES/_COMPILED/LOADING_COLONY-C.TEX", "loading texture"}});
