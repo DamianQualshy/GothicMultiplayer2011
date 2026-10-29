@@ -52,6 +52,7 @@ SOFTWARE.
 #include "gmp_core.h"
 #include "hooking/AsmPatch.h"
 #include "hooking/MemoryPatch.h"
+#include "item_instance.h"
 #include "language.h"
 #include "main_menu.h"
 #include "native_damage_observation.h"
@@ -1060,7 +1061,7 @@ int __fastcall OnNativeUseItem(oCNpc* npc, void* /*unusedEdx*/, oCItem* item) {
   const bool observe = NetGame::Instance().CanReportActorDamage(npc);
   const auto actor_id = NetGame::Instance().GetPlayerIdByNpc(npc);
   auto* actor = actor_id ? NetGame::Instance().FindEngineActor(*actor_id) : nullptr;
-  if (IsBurningTorch(item) && actor && actor->base_player().inventory_count(instance) == 0) {
+  if (IsBurningTorch(item) && actor && actor->base_player().inventory_count(gmp::gothic::NetworkItemName(instance)) == 0) {
     if (auto* parser = Gothic_II_Addon::parser)
       instance = parser->GetIndex("ITLSTORCH");
   }
@@ -1166,11 +1167,14 @@ int __fastcall OnCastSpell(oCSpell* thisSpell) {
   const auto spell_level =
       static_cast<std::uint8_t>(std::clamp(thisSpell->effect ? thisSpell->effect->GetLevel() : 1, 0, static_cast<int>(kMaxSpellInvestLevel)));
   const auto target_id = NetGame::Instance().GetPlayerIdByNpc(thisSpell->spellTargetNpc);
-  int item_instance = 0;
+  std::string item_instance;
+  bool scroll = false;
   if (auto* caster = thisSpell->spellCasterNpc) {
     if (auto* book = caster->GetSpellBook()) {
-      if (auto* item = book->GetSpellItem(thisSpell))
-        item_instance = item->GetInstance();
+      if (auto* item = book->GetSpellItem(thisSpell)) {
+        item_instance = gmp::gothic::NetworkItemName(item->GetInstance());
+        scroll = item->HasFlag(ITM_FLAG_MULTI);
+      }
     }
   }
   int result = g_originalCastSpell ? g_originalCastSpell(thisSpell) : 0;
@@ -1192,7 +1196,7 @@ int __fastcall OnCastSpell(oCSpell* thisSpell) {
     const auto cast =
         net.game_client->SendCastSpell(static_cast<std::uint32_t>(target_id.value_or(0)), static_cast<std::uint16_t>(spell_id), item_instance,
                                        static_cast<std::uint32_t>(caster_id.value_or(0)),
-                                       transformation ? mana_after_invest : caster->GetAttribute(NPC_ATR_MANA), spell_level, matching_form);
+                                       transformation ? mana_after_invest : caster->GetAttribute(NPC_ATR_MANA), spell_level, matching_form, scroll);
     if (transformed) {
       net.SetNativeTransformationCast(cast);
       if (!cast)

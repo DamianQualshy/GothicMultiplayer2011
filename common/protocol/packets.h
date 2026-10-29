@@ -42,7 +42,7 @@ SOFTWARE.
 #include "net_enums.h"
 
 struct InventoryEntry {
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t amount{0};
 };
 
@@ -93,7 +93,7 @@ struct ActorActionPacket {
   glm::vec3 position{0.0f};
   glm::vec3 direction{0.0f};
   std::uint8_t weapon_mode{0};
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t quantity{0};
   std::int32_t health_delta{0};
   std::int32_t mana_delta{0};
@@ -106,7 +106,7 @@ struct ItemTransactionResultPacket {
   std::uint64_t actor_generation{0};
   std::uint32_t state_sequence{0};
   std::uint32_t request_id{0};
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t resulting_amount{0};
   bool accepted{false};
   std::optional<std::uint32_t> item_ground_id;
@@ -119,8 +119,10 @@ struct EquipmentResultPacket {
   std::uint64_t actor_generation{0};
   std::uint32_t command_revision{0};
   std::int16_t slot_id{Net::EQUIP_SLOT_GENERIC};
-  std::int32_t item_instance{0};
-  std::int32_t observed_instance{0};
+  // The native controller identifies the slot for a generic equip command.
+  std::int16_t observed_slot{Net::EQUIP_SLOT_GENERIC};
+  std::string item_instance;
+  std::string observed_instance;
   bool success{false};
 };
 
@@ -141,7 +143,7 @@ void serialize(S& s, ActorActionPacket& packet) {
   s.object(packet.position);
   s.object(packet.direction);
   s.value1b(packet.weapon_mode);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.quantity);
   s.value4b(packet.health_delta);
   s.value4b(packet.mana_delta);
@@ -155,7 +157,7 @@ void serialize(S& s, ItemTransactionResultPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.state_sequence);
   s.value4b(packet.request_id);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.resulting_amount);
   s.boolValue(packet.accepted);
   s.ext4b(packet.item_ground_id, bitsery::ext::StdOptional{});
@@ -169,13 +171,14 @@ void serialize(S& s, EquipmentResultPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value2b(packet.slot_id);
-  s.value4b(packet.item_instance);
-  s.value4b(packet.observed_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.observed_instance, gmp::kMaxScriptNameLength);
+  s.value2b(packet.observed_slot);
   s.boolValue(packet.success);
 }
 template <typename S>
 void serialize(S& s, InventoryEntry& entry) {
-  s.value4b(entry.item_instance);
+  s.text1b(entry.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(entry.amount);
 }
 
@@ -193,16 +196,15 @@ struct ExistingPlayerInfo {
   std::uint32_t player_id{0};
   std::uint32_t state_sequence{0};
   glm::vec3 position{0.0f};
-  std::int32_t left_hand_item_instance{0};
-  std::int32_t right_hand_item_instance{0};
-  std::int32_t equipped_armor_instance{0};
-  std::int32_t equipped_helmet_instance{0};
-  std::int32_t equipped_shield_instance{0};
-  std::int32_t equipped_amulet_instance{0};
-  std::int32_t equipped_belt_instance{0};
-  std::int32_t equipped_ring_left_instance{0};
-  std::int32_t equipped_ring_right_instance{0};
-  std::int16_t animation{-1};
+  std::string left_hand_item_instance;
+  std::string right_hand_item_instance;
+  std::string equipped_armor_instance;
+  std::string equipped_helmet_instance;
+  std::string equipped_shield_instance;
+  std::string equipped_amulet_instance;
+  std::string equipped_belt_instance;
+  std::string equipped_ring_left_instance;
+  std::string equipped_ring_right_instance;
   std::string animation_name;
   std::string body_model;
   std::uint16_t body_texture{0};
@@ -264,16 +266,15 @@ void serialize(S& s, ExistingPlayerInfo& info) {
   s.value4b(info.player_id);
   s.value4b(info.state_sequence);
   s.object(info.position);
-  s.value4b(info.left_hand_item_instance);
-  s.value4b(info.right_hand_item_instance);
-  s.value4b(info.equipped_armor_instance);
-  s.value4b(info.equipped_helmet_instance);
-  s.value4b(info.equipped_shield_instance);
-  s.value4b(info.equipped_amulet_instance);
-  s.value4b(info.equipped_belt_instance);
-  s.value4b(info.equipped_ring_left_instance);
-  s.value4b(info.equipped_ring_right_instance);
-  s.value2b(info.animation);
+  s.text1b(info.left_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.right_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_armor_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_helmet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_shield_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_amulet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_belt_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_ring_left_instance, gmp::kMaxScriptNameLength);
+  s.text1b(info.equipped_ring_right_instance, gmp::kMaxScriptNameLength);
   s.text1b(info.animation_name, kMaxPlayerAnimationNameLength);
   s.text1b(info.body_model, 255);
   s.value2b(info.body_texture);
@@ -322,7 +323,7 @@ inline std::ostream& operator<<(std::ostream& os, const ExistingPlayerInfo& pack
      << ", equipped_belt_instance: " << packet.equipped_belt_instance
      << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
      << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
-     << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
+     << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
      << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
@@ -539,14 +540,14 @@ struct PlayerSkillWeaponUpdatePacket {
 struct PlayerAnimationPacket {
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
-  std::int16_t animation{0};
+  std::string animation;
 };
 
 template <typename S>
 void serialize(S& s, PlayerAnimationPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
-  s.value2b(packet.animation);
+  s.text1b(packet.animation, kMaxPlayerAnimationNameLength);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerAnimationPacket& packet) {
@@ -562,14 +563,14 @@ struct fmt::formatter<PlayerAnimationPacket> : ostream_formatter {};
 struct PlayerAnimationStopPacket {
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
-  std::int16_t animation{-1};
+  std::string animation;
 };
 
 template <typename S>
 void serialize(S& s, PlayerAnimationStopPacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.player_id);
-  s.value2b(packet.animation);
+  s.text1b(packet.animation, kMaxPlayerAnimationNameLength);
 }
 
 inline std::ostream& operator<<(std::ostream& os, const PlayerAnimationStopPacket& packet) {
@@ -816,16 +817,15 @@ struct JoinGamePacket {
   std::uint8_t packet_type{0};
   glm::vec3 position{0.0f};
   glm::vec3 normal{0.0f};
-  std::int32_t left_hand_item_instance{0};
-  std::int32_t right_hand_item_instance{0};
-  std::int32_t equipped_armor_instance{0};
-  std::int32_t equipped_helmet_instance{0};
-  std::int32_t equipped_shield_instance{0};
-  std::int32_t equipped_amulet_instance{0};
-  std::int32_t equipped_belt_instance{0};
-  std::int32_t equipped_ring_left_instance{0};
-  std::int32_t equipped_ring_right_instance{0};
-  std::int16_t animation{-1};
+  std::string left_hand_item_instance;
+  std::string right_hand_item_instance;
+  std::string equipped_armor_instance;
+  std::string equipped_helmet_instance;
+  std::string equipped_shield_instance;
+  std::string equipped_amulet_instance;
+  std::string equipped_belt_instance;
+  std::string equipped_ring_left_instance;
+  std::string equipped_ring_right_instance;
   std::string animation_name;
   std::string body_model;
   std::uint16_t body_texture{0};
@@ -847,16 +847,15 @@ void serialize(S& s, JoinGamePacket& packet) {
   s.value8b(packet.actor_generation);
   s.object(packet.position);
   s.object(packet.normal);
-  s.value4b(packet.left_hand_item_instance);
-  s.value4b(packet.right_hand_item_instance);
-  s.value4b(packet.equipped_armor_instance);
-  s.value4b(packet.equipped_helmet_instance);
-  s.value4b(packet.equipped_shield_instance);
-  s.value4b(packet.equipped_amulet_instance);
-  s.value4b(packet.equipped_belt_instance);
-  s.value4b(packet.equipped_ring_left_instance);
-  s.value4b(packet.equipped_ring_right_instance);
-  s.value2b(packet.animation);
+  s.text1b(packet.left_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.right_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_armor_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_helmet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_shield_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_amulet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_belt_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_left_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_right_instance, gmp::kMaxScriptNameLength);
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.text1b(packet.body_model, 255);
   s.value2b(packet.body_texture);
@@ -883,7 +882,7 @@ inline std::ostream& operator<<(std::ostream& os, const JoinGamePacket& packet) 
      << ", equipped_belt_instance: " << packet.equipped_belt_instance
      << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
      << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
-     << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
+     << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
      << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
@@ -918,27 +917,26 @@ struct PlayerSpawnPacket {
   std::uint64_t source_time_ms{0};
   std::uint8_t weapon_mode{0};
   std::uint8_t active_spell_nr{0};
-  std::int32_t active_spell_instance{0};
+  std::string active_spell_instance;
   std::uint8_t active_spell_level{0};
   bool spell_investing{false};
   std::uint8_t head_direction{0};
-  std::int32_t melee_weapon_instance{0};
-  std::int32_t ranged_weapon_instance{0};
+  std::string melee_weapon_instance;
+  std::string ranged_weapon_instance;
   std::uint8_t packet_type{0};
   std::uint32_t player_id{0};
   std::uint32_t state_sequence{0};
   glm::vec3 position{0.0f};
   glm::vec3 normal{0.0f};
-  std::int32_t left_hand_item_instance{0};
-  std::int32_t right_hand_item_instance{0};
-  std::int32_t equipped_armor_instance{0};
-  std::int32_t equipped_helmet_instance{0};
-  std::int32_t equipped_shield_instance{0};
-  std::int32_t equipped_amulet_instance{0};
-  std::int32_t equipped_belt_instance{0};
-  std::int32_t equipped_ring_left_instance{0};
-  std::int32_t equipped_ring_right_instance{0};
-  std::int16_t animation{-1};
+  std::string left_hand_item_instance;
+  std::string right_hand_item_instance;
+  std::string equipped_armor_instance;
+  std::string equipped_helmet_instance;
+  std::string equipped_shield_instance;
+  std::string equipped_amulet_instance;
+  std::string equipped_belt_instance;
+  std::string equipped_ring_left_instance;
+  std::string equipped_ring_right_instance;
   std::string animation_name;
   std::string body_model;
   std::uint16_t body_texture{0};
@@ -1015,26 +1013,25 @@ void serialize(S& s, PlayerSpawnPacket& packet) {
   s.value8b(packet.source_time_ms);
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
-  s.value4b(packet.active_spell_instance);
+  s.text1b(packet.active_spell_instance, gmp::kMaxScriptNameLength);
   s.value1b(packet.active_spell_level);
   s.boolValue(packet.spell_investing);
   s.value1b(packet.head_direction);
-  s.value4b(packet.melee_weapon_instance);
-  s.value4b(packet.ranged_weapon_instance);
+  s.text1b(packet.melee_weapon_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.ranged_weapon_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.player_id);
   s.value4b(packet.state_sequence);
   s.object(packet.position);
   s.object(packet.normal);
-  s.value4b(packet.left_hand_item_instance);
-  s.value4b(packet.right_hand_item_instance);
-  s.value4b(packet.equipped_armor_instance);
-  s.value4b(packet.equipped_helmet_instance);
-  s.value4b(packet.equipped_shield_instance);
-  s.value4b(packet.equipped_amulet_instance);
-  s.value4b(packet.equipped_belt_instance);
-  s.value4b(packet.equipped_ring_left_instance);
-  s.value4b(packet.equipped_ring_right_instance);
-  s.value2b(packet.animation);
+  s.text1b(packet.left_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.right_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_armor_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_helmet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_shield_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_amulet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_belt_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_left_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_right_instance, gmp::kMaxScriptNameLength);
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.text1b(packet.body_model, 255);
   s.value2b(packet.body_texture);
@@ -1084,7 +1081,7 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerSpawnPacket& packe
      << ", equipped_belt_instance: " << packet.equipped_belt_instance
      << ", equipped_ring_left_instance: " << packet.equipped_ring_left_instance
      << ", equipped_ring_right_instance: " << packet.equipped_ring_right_instance
-     << ", animation: " << packet.animation << ", animation_name: " << packet.animation_name
+     << ", animation_name: " << packet.animation_name
      << ", body_model: " << packet.body_model << ", body_texture: " << static_cast<int>(packet.body_texture)
      << ", head_model: " << packet.head_model << ", head_texture: " << static_cast<int>(packet.head_texture)
      << ", teeth_texture: " << static_cast<int>(packet.teeth_texture) << ", skin_color: " << static_cast<int>(packet.skin_color)
@@ -1165,12 +1162,14 @@ template <>
 struct fmt::formatter<MessagePacket> : ostream_formatter {};
 
 struct CastSpellPacket {
+  // Captured before the native cast can consume its spell item.
+  bool scroll{false};
   bool transformation_succeeded{false};
   std::uint8_t spell_level{1};
   std::int32_t mana_delta{0};
   std::uint64_t source_time_ms{0};
   std::uint32_t command_revision{0};
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::uint32_t control_epoch{0};
   std::uint64_t actor_generation{0};
   std::uint64_t target_generation{0};
@@ -1185,11 +1184,12 @@ template <typename S>
 void serialize(S& s, CastSpellPacket& packet) {
   s.value1b(packet.packet_type);
   s.boolValue(packet.transformation_succeeded);
+  s.boolValue(packet.scroll);
   s.value1b(packet.spell_level);
   s.value4b(packet.mana_delta);
   s.value8b(packet.source_time_ms);
   s.value4b(packet.command_revision);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.control_epoch);
   s.value8b(packet.actor_generation);
   s.value8b(packet.target_generation);
@@ -1213,7 +1213,7 @@ struct DropItemPacket {
   std::uint64_t actor_generation{0};
   std::uint32_t request_id{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t item_amount{0};
   glm::vec3 position{0.0f};
   glm::vec3 rotation{0.0f};
@@ -1226,7 +1226,7 @@ void serialize(S& s, DropItemPacket& packet) {
   s.value1b(packet.packet_type);
   s.value8b(packet.actor_generation);
   s.value4b(packet.request_id);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.item_amount);
   s.object(packet.position);
   s.object(packet.rotation);
@@ -1252,7 +1252,7 @@ struct TakeItemPacket {
   std::uint64_t actor_generation{0};
   std::uint32_t request_id{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t item_amount{1};
   std::optional<std::uint32_t> item_ground_id;
   std::optional<std::uint32_t> player_id;
@@ -1263,7 +1263,7 @@ void serialize(S& s, TakeItemPacket& packet) {
   s.value1b(packet.packet_type);
   s.value8b(packet.actor_generation);
   s.value4b(packet.request_id);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.item_amount);
   s.ext4b(packet.item_ground_id, bitsery::ext::StdOptional{});
   s.ext4b(packet.player_id, bitsery::ext::StdOptional{});
@@ -1289,7 +1289,7 @@ inline std::ostream& operator<<(std::ostream& os, const TakeItemPacket& packet) 
 struct ItemGroundCreatePacket {
   std::uint8_t packet_type;
   std::uint32_t item_ground_id;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t amount{1};
   bool physics_enabled{false};
   glm::vec3 position{0.0f};
@@ -1300,7 +1300,7 @@ template <typename S>
 void serialize(S& s, ItemGroundCreatePacket& packet) {
   s.value1b(packet.packet_type);
   s.value4b(packet.item_ground_id);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.amount);
   s.value1b(packet.physics_enabled);
   s.object(packet.position);
@@ -1369,7 +1369,7 @@ struct GiveItemPacket {
   std::uint32_t command_revision{0};
   std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t item_amount;
   std::uint32_t player_id;
 };
@@ -1380,7 +1380,7 @@ void serialize(S& s, GiveItemPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value4b(packet.state_sequence);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.item_amount);
   s.value4b(packet.player_id);
 }
@@ -1397,7 +1397,7 @@ struct EquipItemPacket {
   std::uint32_t command_revision{0};
   std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int16_t slot_id;
   std::uint32_t player_id;
 };
@@ -1408,7 +1408,7 @@ void serialize(S& s, EquipItemPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value4b(packet.state_sequence);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value2b(packet.slot_id);
   s.value4b(packet.player_id);
 }
@@ -1426,7 +1426,7 @@ struct UnequipItemPacket {
   std::uint32_t command_revision{0};
   std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::uint32_t player_id;
 };
 
@@ -1437,7 +1437,7 @@ void serialize(S& s, UnequipItemPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value4b(packet.state_sequence);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.player_id);
 }
 
@@ -1453,7 +1453,7 @@ struct RemoveItemPacket {
   std::uint32_t command_revision{0};
   std::uint32_t state_sequence{0};
   std::uint8_t packet_type;
-  std::int32_t item_instance{0};
+  std::string item_instance;
   std::int32_t item_amount;
   std::uint32_t player_id;
 };
@@ -1464,7 +1464,7 @@ void serialize(S& s, RemoveItemPacket& packet) {
   s.value8b(packet.actor_generation);
   s.value4b(packet.command_revision);
   s.value4b(packet.state_sequence);
-  s.value4b(packet.item_instance);
+  s.text1b(packet.item_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.item_amount);
   s.value4b(packet.player_id);
 }

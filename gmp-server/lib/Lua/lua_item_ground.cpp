@@ -31,7 +31,6 @@ SOFTWARE.
 
 #include "../game_server.h"
 #include "Shared/lua_runtime/bind_helpers.h"
-#include "lua_item_definition.h"
 
 namespace lua {
 namespace bindings {
@@ -115,22 +114,6 @@ ItemGroundManager::ItemGroundId LuaItemGround::getId() const {
 std::string LuaItemGround::getInstance() const {
   auto* item_ground = GetItemGround(id_);
   return item_ground ? item_ground->instance : std::string{};
-}
-
-/* luagmp (property)
- *
- * Represents the read-only registry item definition for this ground item.
- *
- * @name     definition
- * @return   (ItemDefinition|nil)
- */
-sol::object LuaItemGround::getDefinition(sol::this_state state) const {
-  sol::state_view lua(state);
-  auto* item_ground = GetItemGround(id_);
-  if (item_ground == nullptr) {
-    return sol::nil;
-  }
-  return MakeItemDefinitionObject(lua, item_ground->instance);
 }
 
 /* luagmp (property)
@@ -355,7 +338,6 @@ void BindItemGround(sol::state& lua) {
   auto item_ground_type = lua.new_usertype<LuaItemGround>("ItemGround", sol::no_constructor);
   item_ground_type["id"] = sol::property(&LuaItemGround::getId);
   item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
-  item_ground_type["definition"] = sol::property(&LuaItemGround::getDefinition);
   item_ground_type["isValid"] = &LuaItemGround::isValid;
   item_ground_type["amount"] = sol::property(&LuaItemGround::getAmount);
   item_ground_type["physicsEnabled"] = sol::property(&LuaItemGround::getPhysicsEnabled, &LuaItemGround::setPhysicsEnabled);

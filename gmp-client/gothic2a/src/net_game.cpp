@@ -65,6 +65,7 @@ SOFTWARE.
 #include "hooking/MemoryPatch.h"
 #include "language.h"
 #include "magic_sync.h"
+#include "item_instance.h"
 #include "main_menu.h"
 #include "net_enums.h"
 #include "npc_animation_utils.h"
@@ -97,6 +98,9 @@ extern CIngame* global_ingame;
 using namespace Net;
 
 namespace {
+using gmp::gothic::NetworkItemName;
+using gmp::gothic::LocalItemIndex;
+
 constexpr auto kVoiceActivityTimeout = std::chrono::milliseconds(400);
 
 bool IsValidVoiceChannelName(const std::string& channel) {
@@ -220,25 +224,7 @@ int ClampAliveHealth(oCNpc* npc, int health) {
   return std::clamp(health, 1, max_health);
 }
 
-bool StopModelAnimationById(zCModel* model, std::int16_t animation) {
-  if (!model) {
-    return false;
-  }
 
-  if (animation >= 0) {
-    model->StopAni(static_cast<int>(animation));
-    return true;
-  }
-
-  if (model->numActiveAnis > 0) {
-    if (auto* active = model->GetActiveAni(0)) {
-      model->StopAni(active);
-      return true;
-    }
-  }
-
-  return false;
-}
 
 void TriggerMobTarget(oCMobInter* mob) {
   if (!mob || mob->triggerTarget.IsEmpty() || !ogame || !ogame->GetGameWorld()) {
@@ -269,23 +255,7 @@ std::int32_t GetSlotItemInstance(oCNpc* npc, const char* slot_name) {
 }
 
 bool IsNetworkItemInstance(std::int32_t instance) {
-  if (instance <= 0) {
-    return false;
-  }
-  zCParser* parser = Gothic_II_Addon::parser;
-  if (!parser || instance >= parser->symtab.GetNumInList()) {
-    return false;
-  }
-  zCPar_Symbol* symbol = parser->GetSymbol(instance);
-  if (!symbol || symbol->type != zPAR_TYPE_INSTANCE || (symbol->flags & zPAR_FLAG_CONST) == 0 ||
-      (symbol->flags & zPAR_FLAG_EXTERNAL) != 0) {
-    return false;
-  }
-  int item_class_index = parser->GetIndex("C_ITEM");
-  if (item_class_index < 0) {
-    item_class_index = parser->GetIndex("C_Item");
-  }
-  return item_class_index >= 0 && parser->GetBaseClass(symbol) == item_class_index;
+  return gmp::gothic::IsItemInstanceIndex(instance);
 }
 
 oCItem* CreateNetworkItem(std::int32_t instance) {
@@ -327,16 +297,16 @@ oCItem* InsertOwnedItem(oCNpc* npc, oCItem* item, bool distinct = false, bool pr
   return inserted;
 }
 
-std::int16_t GetCurrentAnimationId() {
+int GetCurrentAnimationId() {
   CActiveAniID* active_ani_id = CActiveAniID::GetInstance();
   if (!active_ani_id) {
     return -1;
   }
 
-  return static_cast<std::int16_t>(active_ani_id->GetAniID());
+  return active_ani_id->GetAniID();
 }
 
-std::string GetAnimationNameById(oCNpc* npc, std::int16_t animation_id) {
+std::string GetAnimationNameById(oCNpc* npc, int animation_id) {
   if (!npc || animation_id < 0) {
     return {};
   }
@@ -899,7 +869,7 @@ std::int32_t ObserveEquipmentSlot(Gothic2APlayer& actor, std::int16_t slot, std:
     case EQUIP_SLOT_BELT: return GetEquippedInventoryItemInstance(npc, ITM_FLAG_BELT);
     case EQUIP_SLOT_RING_LEFT:
     case EQUIP_SLOT_RING_RIGHT: {
-      const auto rings = GetEquippedRingInstances(npc, {actor.base_player().equipped_ring_left(), actor.base_player().equipped_ring_right()});
+      const auto rings = GetEquippedRingInstances(npc, {LocalItemIndex(actor.base_player().equipped_ring_left()), LocalItemIndex(actor.base_player().equipped_ring_right())});
       return rings[slot == EQUIP_SLOT_RING_LEFT ? 0 : 1];
     }
     default:
@@ -908,6 +878,28 @@ std::int32_t ObserveEquipmentSlot(Gothic2APlayer& actor, std::int16_t slot, std:
       }
       return 0;
   }
+}
+
+std::int16_t ResolveEquipmentSlot(oCNpc* npc, int instance) {
+  if (!npc || !IsNetworkItemInstance(instance)) return EQUIP_SLOT_GENERIC;
+  auto* item = npc->inventory2.IsIn(instance, 1);
+  const bool temporary = item == nullptr;
+  if (!item) item = CreateNetworkItem(instance);
+  if (!item) return EQUIP_SLOT_GENERIC;
+  std::int16_t slot = EQUIP_SLOT_GENERIC;
+  if (IsArmorItem(item)) slot = EQUIP_SLOT_ARMOR;
+  else if (IsHelmetItem(item)) slot = EQUIP_SLOT_HELMET;
+  else if (IsShieldItem(item)) slot = EQUIP_SLOT_SHIELD;
+  else if (IsMeleeWeaponItem(item)) slot = EQUIP_SLOT_MELEE_WEAPON;
+  else if (IsRangedWeaponItem(item)) slot = EQUIP_SLOT_RANGED_WEAPON;
+  else if (item->HasFlag(ITM_FLAG_AMULET)) slot = EQUIP_SLOT_AMULET;
+  else if (item->HasFlag(ITM_FLAG_BELT)) slot = EQUIP_SLOT_BELT;
+  else if (item->HasFlag(ITM_FLAG_RING)) {
+    const auto rings = GetEquippedRingInstances(npc, {0, 0});
+    slot = rings[0] == 0 ? EQUIP_SLOT_RING_LEFT : EQUIP_SLOT_RING_RIGHT;
+  }
+  if (temporary) item->Release();
+  return slot;
 }
 
 struct WorldTimerTickValues {
@@ -1588,10 +1580,10 @@ void NetGame::PruneProxyPresentationItems(Gothic2APlayer& actor, const PlayerSta
   if (!npc || actor.IsLocalPlayer()) return;
   auto owned = proxy_presentation_items_.find(npc);
   if (owned == proxy_presentation_items_.end()) return;
-  const std::unordered_set<int> desired{state.left_hand_item_instance, state.right_hand_item_instance,
-      state.equipped_armor_instance, state.equipped_helmet_instance, state.equipped_shield_instance,
-      state.equipped_amulet_instance, state.equipped_belt_instance, state.equipped_ring_left_instance,
-      state.equipped_ring_right_instance, state.melee_weapon_instance, state.ranged_weapon_instance, state.active_spell_instance};
+  const std::unordered_set<int> desired{LocalItemIndex(state.left_hand_item_instance), LocalItemIndex(state.right_hand_item_instance),
+      LocalItemIndex(state.equipped_armor_instance), LocalItemIndex(state.equipped_helmet_instance), LocalItemIndex(state.equipped_shield_instance),
+      LocalItemIndex(state.equipped_amulet_instance), LocalItemIndex(state.equipped_belt_instance), LocalItemIndex(state.equipped_ring_left_instance),
+      LocalItemIndex(state.equipped_ring_right_instance), LocalItemIndex(state.melee_weapon_instance), LocalItemIndex(state.ranged_weapon_instance), LocalItemIndex(state.active_spell_instance)};
   std::unordered_set<oCItem*> inventory;
   for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
     if (auto* item = entry->GetData()) inventory.insert(item);
@@ -1753,16 +1745,16 @@ void NetGame::JoinGame() {
     local.set_head_texture(static_cast<std::int16_t>(player->head_TexVarNr));
     local.set_teeth_texture(static_cast<std::int16_t>(player->teeth_TexVarNr));
     local.set_skin_color(static_cast<std::int16_t>(player->body_TexColorNr));
-    if (auto* item = dynamic_cast<oCItem*>(player->GetLeftHand())) local.set_left_hand_item(item->GetInstance());
-    if (auto* item = dynamic_cast<oCItem*>(player->GetRightHand())) local.set_right_hand_item(item->GetInstance());
-    local.set_equipped_armor(player->GetEquippedArmor() ? player->GetEquippedArmor()->GetInstance() : 0);
-    local.set_equipped_helmet(GetSlotItemInstance(player, NPC_NODE_HELMET));
-    local.set_equipped_shield(GetSlotItemInstance(player, NPC_NODE_SHIELD));
-    local.set_equipped_amulet(GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET));
-    local.set_equipped_belt(GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT));
+    if (auto* item = dynamic_cast<oCItem*>(player->GetLeftHand())) local.set_left_hand_item(NetworkItemName(item->GetInstance()));
+    if (auto* item = dynamic_cast<oCItem*>(player->GetRightHand())) local.set_right_hand_item(NetworkItemName(item->GetInstance()));
+    local.set_equipped_armor(NetworkItemName(player->GetEquippedArmor() ? player->GetEquippedArmor()->GetInstance() : 0));
+    local.set_equipped_helmet(NetworkItemName(GetSlotItemInstance(player, NPC_NODE_HELMET)));
+    local.set_equipped_shield(NetworkItemName(GetSlotItemInstance(player, NPC_NODE_SHIELD)));
+    local.set_equipped_amulet(NetworkItemName(GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET)));
+    local.set_equipped_belt(NetworkItemName(GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT)));
     const auto rings = GetEquippedRingInstances(player, {0, 0});
-    local.set_equipped_ring_left(rings[0]);
-    local.set_equipped_ring_right(rings[1]);
+    local.set_equipped_ring_left(NetworkItemName(rings[0]));
+    local.set_equipped_ring_right(NetworkItemName(rings[1]));
     const auto walk = player->GetAnictrl() ? std::clamp(player->GetAnictrl()->walkmode, 0, 2) : 0;
     game_client->JoinGame(sanitized_name, sanitized_name, player->body_visualName.ToChar(), player->body_TexVarNr,
         player->head_visualName.ToChar(), player->head_TexVarNr, walk, player->teeth_TexVarNr, player->body_TexColorNr,
@@ -1803,13 +1795,21 @@ void NetGame::SendCastSpell(oCNpc* Target, short SpellId, std::int32_t item_inst
 
   const auto target = GetPlayerIdByNpc(Target);
   const auto target_id = target ? static_cast<std::uint32_t>(*target) : 0;
-  game_client->SendCastSpell(target_id, static_cast<std::uint16_t>(SpellId), item_instance, caster_id);
+  auto* actor = caster_id ? GetPlayerById(caster_id) : nullptr;
+  auto* caster = actor ? actor->GetNpc() : player;
+  auto* book = caster ? caster->GetSpellBook() : nullptr;
+  auto* spell = caster ? GetSelectedMagicSpell(caster) : nullptr;
+  auto* item = book && spell ? book->GetSpellItem(spell) : nullptr;
+  if (!item_instance && item) item_instance = item->GetInstance();
+  if (caster && item_instance > 0) item = caster->inventory2.IsIn(item_instance, 1);
+  const bool scroll = item && item->HasFlag(ITM_FLAG_MULTI);
+  game_client->SendCastSpell(target_id, static_cast<std::uint16_t>(SpellId), NetworkItemName(item_instance), caster_id, -1, 1, false, scroll);
 }
 
 std::uint32_t NetGame::SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
                                   const glm::vec3& rotation, bool physics_enabled) {
   if (!game_client) return 0;
-  const auto request = game_client->SendDropItem(instance, amount, position, rotation, physics_enabled);
+  const auto request = game_client->SendDropItem(NetworkItemName(instance), amount, position, rotation, physics_enabled);
   if (request) pending_inventory_mutations_[request] = {instance, -amount};
   else if (player) ReconcileInventoryAmount(player, instance, static_cast<int>(std::min<std::int64_t>(
       std::numeric_limits<std::int32_t>::max(), static_cast<std::int64_t>(GetInventoryAmount(player, instance)) + amount)));
@@ -1818,7 +1818,7 @@ std::uint32_t NetGame::SendDropItem(std::int32_t instance, std::int32_t amount, 
 
 std::uint32_t NetGame::SendTakeItem(std::int32_t instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id) {
   if (!game_client) return 0;
-  const auto request = game_client->SendTakeItem(instance, amount, item_ground_id);
+  const auto request = game_client->SendTakeItem(NetworkItemName(instance), amount, item_ground_id);
   if (request) pending_inventory_mutations_[request] = {instance, amount};
   else if (player) ReconcileInventoryAmount(player, instance, std::max(0, GetInventoryAmount(player, instance) - amount));
   return request;
@@ -1856,10 +1856,12 @@ void NetGame::SendPlayerWorldEnter(const std::string& world_name) {
   std::vector<InventoryEntry> inventory;
   inventory.reserve(counts.size());
   for (const auto& [instance, amount] : counts) {
-    inventory.push_back({instance, static_cast<std::int32_t>(std::min<std::int64_t>(amount, std::numeric_limits<std::int32_t>::max()))});
+    inventory.push_back({NetworkItemName(instance), static_cast<std::int32_t>(std::min<std::int64_t>(amount, std::numeric_limits<std::int32_t>::max()))});
   }
-  if (inventory.size() > kMaxInventoryEntries) {
-    SPDLOG_ERROR("Native inventory exceeds protocol bootstrap limit");
+  std::size_t name_bytes = 0;
+  for (const auto& entry : inventory) name_bytes += entry.item_instance.size();
+  if (inventory.size() > kMaxInventoryEntries || name_bytes > kMaxInventoryNameBytes) {
+    SPDLOG_ERROR("Native inventory exceeds protocol bootstrap limits");
     return;
   }
   game_client->SendPlayerWorldEnter(world_name, inventory);
@@ -1884,6 +1886,8 @@ void NetGame::SendShotPresentation(std::uint8_t mode, const glm::vec3& origin, c
   action.position = origin;
   action.direction = heading;
   action.weapon_mode = mode;
+  auto* actor = actor_id ? GetPlayerById(actor_id) : nullptr;
+  if (auto* weapon = GetCurrentRangedWeapon(actor ? actor->GetNpc() : player)) action.item_instance = NetworkItemName(weapon->munition);
   action.target_id = target;
   game_client->SendActorAction(std::move(action));
 }
@@ -1895,7 +1899,7 @@ void NetGame::SendItemUsePresentation(std::int32_t instance, const std::string& 
   action.kind = ActorActionKind::ItemUse;
   action.actor_id = actor_id;
   action.source_time_ms = ActorClockMilliseconds();
-  action.item_instance = instance;
+  action.item_instance = NetworkItemName(instance);
   action.scheme = scheme;
   action.quantity = quantity;
   action.health_delta = health_delta;
@@ -2133,7 +2137,7 @@ std::uint8_t GetHeadDirectionByte(oCNpc* Hero) {
   return 0;
 }
 
-void NetGame::UpdatePlayerStats(short anim) {
+void NetGame::UpdatePlayerStats(int anim) {
   if (!game_client || !player) {
     return;
   }
@@ -2152,27 +2156,24 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.nrot = Vec3ToGlmVec3(player->GetAtVectorWorld());
   oCItem* left_hand_item = dynamic_cast<oCItem*>(player->GetLeftHand());
   oCItem* right_hand_item = dynamic_cast<oCItem*>(player->GetRightHand());
-  state.left_hand_item_instance = left_hand_item ? left_hand_item->GetInstance() : 0;
-  state.right_hand_item_instance = right_hand_item ? right_hand_item->GetInstance() : 0;
-  state.equipped_armor_instance = player->GetEquippedArmor() ? player->GetEquippedArmor()->GetInstance() : 0;
-  state.equipped_helmet_instance = GetSlotItemInstance(player, NPC_NODE_HELMET);
-  state.equipped_shield_instance = GetSlotItemInstance(player, NPC_NODE_SHIELD);
-  state.equipped_amulet_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET);
-  state.equipped_belt_instance = GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT);
+  state.left_hand_item_instance = NetworkItemName(left_hand_item ? left_hand_item->GetInstance() : 0);
+  state.right_hand_item_instance = NetworkItemName(right_hand_item ? right_hand_item->GetInstance() : 0);
+  state.equipped_armor_instance = NetworkItemName(player->GetEquippedArmor() ? player->GetEquippedArmor()->GetInstance() : 0);
+  state.equipped_helmet_instance = NetworkItemName(GetSlotItemInstance(player, NPC_NODE_HELMET));
+  state.equipped_shield_instance = NetworkItemName(GetSlotItemInstance(player, NPC_NODE_SHIELD));
+  state.equipped_amulet_instance = NetworkItemName(GetEquippedInventoryItemInstance(player, ITM_FLAG_AMULET));
+  state.equipped_belt_instance = NetworkItemName(GetEquippedInventoryItemInstance(player, ITM_FLAG_BELT));
   std::array<std::int32_t, 2> previous_rings{0, 0};
   if (game_client && game_client->player_manager().HasLocalPlayer()) {
     auto& local_player = game_client->player_manager().GetLocalPlayer();
-    previous_rings[0] = local_player.equipped_ring_left();
-    previous_rings[1] = local_player.equipped_ring_right();
+    previous_rings[0] = LocalItemIndex(local_player.equipped_ring_left());
+    previous_rings[1] = LocalItemIndex(local_player.equipped_ring_right());
   }
   const auto equipped_rings = GetEquippedRingInstances(player, previous_rings);
-  state.equipped_ring_left_instance = equipped_rings[0];
-  state.equipped_ring_right_instance = equipped_rings[1];
-  state.animation = anim;
+  state.equipped_ring_left_instance = NetworkItemName(equipped_rings[0]);
+  state.equipped_ring_right_instance = NetworkItemName(equipped_rings[1]);
   state.animation_name = GetAnimationNameById(player, anim);
-  if (state.animation_name.size() > kMaxPlayerAnimationNameLength) {
-    state.animation_name.resize(kMaxPlayerAnimationNameLength);
-  }
+  if (!gmp::IsValidAnimationName(state.animation_name)) state.animation_name.clear();
   if (player->IsDead()) {
     state.life_state = PLAYER_LIFE_DEAD;
   } else if (player->IsUnconscious()) {
@@ -2194,8 +2195,8 @@ void NetGame::UpdatePlayerStats(short anim) {
     state.focus_target_id = static_cast<std::uint32_t>(*focus);
   }
   state.weapon_mode = static_cast<uint8_t>(player->GetWeaponMode());
-  state.active_spell_instance = GetActiveSpellItemInstance(player);
-  if (state.active_spell_instance) {
+  state.active_spell_instance = NetworkItemName(GetActiveSpellItemInstance(player));
+  if (!state.active_spell_instance.empty()) {
     auto* book = player->GetSpellBook();
     auto* spell = GetSelectedMagicSpell(player);
     // The wire field is the 1-based hotkey, never the spell ID (Light = 18).
@@ -2208,8 +2209,8 @@ void NetGame::UpdatePlayerStats(short anim) {
   state.head_direction = GetHeadDirectionByte(player);
   oCItem* melee_weapon = GetCurrentMeleeWeapon(player);
   oCItem* ranged_weapon = GetCurrentRangedWeapon(player);
-  state.melee_weapon_instance = melee_weapon ? melee_weapon->GetInstance() : 0;
-  state.ranged_weapon_instance = ranged_weapon ? ranged_weapon->GetInstance() : 0;
+  state.melee_weapon_instance = NetworkItemName(melee_weapon ? melee_weapon->GetInstance() : 0);
+  state.ranged_weapon_instance = NetworkItemName(ranged_weapon ? ranged_weapon->GetInstance() : 0);
 
   game_client->UpdatePlayerStats(state);
 }
@@ -3140,16 +3141,16 @@ PlayerSpawnPacket NetGame::CaptureInstanceDefaults(Gothic2APlayer& actor) {
   packet.body_state = static_cast<std::uint32_t>(npc->GetBodyState());
   if (auto* controller = npc->GetAnictrl())
     packet.walk_mode = static_cast<std::uint8_t>(std::clamp(controller->walkmode, 0, 2));
-  packet.equipped_armor_instance = npc->GetEquippedArmor() ? npc->GetEquippedArmor()->GetInstance() : 0;
-  packet.equipped_helmet_instance = GetSlotItemInstance(npc, NPC_NODE_HELMET);
-  packet.equipped_shield_instance = GetSlotItemInstance(npc, NPC_NODE_SHIELD);
-  packet.equipped_amulet_instance = GetEquippedInventoryItemInstance(npc, ITM_FLAG_AMULET);
-  packet.equipped_belt_instance = GetEquippedInventoryItemInstance(npc, ITM_FLAG_BELT);
+  packet.equipped_armor_instance = NetworkItemName(npc->GetEquippedArmor() ? npc->GetEquippedArmor()->GetInstance() : 0);
+  packet.equipped_helmet_instance = NetworkItemName(GetSlotItemInstance(npc, NPC_NODE_HELMET));
+  packet.equipped_shield_instance = NetworkItemName(GetSlotItemInstance(npc, NPC_NODE_SHIELD));
+  packet.equipped_amulet_instance = NetworkItemName(GetEquippedInventoryItemInstance(npc, ITM_FLAG_AMULET));
+  packet.equipped_belt_instance = NetworkItemName(GetEquippedInventoryItemInstance(npc, ITM_FLAG_BELT));
   const auto rings = GetEquippedRingInstances(npc, {0, 0});
-  packet.equipped_ring_left_instance = rings[0];
-  packet.equipped_ring_right_instance = rings[1];
-  packet.melee_weapon_instance = GetCurrentMeleeWeapon(npc) ? GetCurrentMeleeWeapon(npc)->GetInstance() : 0;
-  packet.ranged_weapon_instance = GetCurrentRangedWeapon(npc) ? GetCurrentRangedWeapon(npc)->GetInstance() : 0;
+  packet.equipped_ring_left_instance = NetworkItemName(rings[0]);
+  packet.equipped_ring_right_instance = NetworkItemName(rings[1]);
+  packet.melee_weapon_instance = NetworkItemName(GetCurrentMeleeWeapon(npc) ? GetCurrentMeleeWeapon(npc)->GetInstance() : 0);
+  packet.ranged_weapon_instance = NetworkItemName(GetCurrentRangedWeapon(npc) ? GetCurrentRangedWeapon(npc)->GetInstance() : 0);
   std::map<int, std::int64_t> inventory;
   for (auto* entry = npc->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
     if (auto* item = entry->GetData())
@@ -3157,7 +3158,7 @@ PlayerSpawnPacket NetGame::CaptureInstanceDefaults(Gothic2APlayer& actor) {
   }
   for (const auto& [instance, count] : inventory)
     if (count > 0)
-      packet.inventory.push_back({instance, static_cast<int>(std::min<std::int64_t>(count, INT_MAX))});
+      packet.inventory.push_back({NetworkItemName(instance), static_cast<int>(std::min<std::int64_t>(count, INT_MAX))});
   for (int skill = 1; skill < NPC_HITCHANCE_MAX; ++skill) packet.weapon_skills.push_back({skill, npc->GetHitChance(skill)});
   for (int talent = 1; talent < oCNpcTalent::NPC_TAL_MAX; ++talent) packet.talents.push_back({talent, npc->GetTalentSkill(talent)});
   for (int i = 0; i < npc->activeOverlays.GetNumInList(); ++i) packet.overlays.emplace_back(npc->activeOverlays[i].ToChar());
@@ -3355,32 +3356,32 @@ void NetGame::OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& 
   cplayer->GetNpc()->RemoveOverlay(overlay_name);
 }
 
-void NetGame::OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) {
-  if (animation < 0) {
-    return;
-  }
-
-  Gothic2APlayer* cplayer = GetPlayerById(player_id);
-  if (!cplayer || !cplayer->GetNpc()) {
-    return;
-  }
-
-  if (auto* model = cplayer->GetNpc()->GetModel()) {
-    if (model->GetAniFromAniID(static_cast<int>(animation))) {
-      cplayer->InvalidatePresentation(kSyncPose);
-      model->StartAni(static_cast<int>(animation), 0);
-    }
+void NetGame::OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) {
+  auto* actor = GetPlayerById(player_id);
+  auto* model = actor && actor->GetNpc() ? actor->GetNpc()->GetModel() : nullptr;
+  if (!model || !gmp::IsValidAnimationName(animation)) return;
+  zSTRING name(animation.c_str());
+  const int id = model->GetAniIDFromAniName(name);
+  if (id >= 0 && model->GetAniFromAniID(id)) {
+    actor->InvalidatePresentation(kSyncPose);
+    model->StartAni(id, 0);
   }
 }
 
-void NetGame::OnPlayerAnimationStop(std::uint64_t player_id, std::int16_t animation) {
-  Gothic2APlayer* cplayer = GetPlayerById(player_id);
-  if (!cplayer || !cplayer->GetNpc()) {
-    return;
+void NetGame::OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) {
+  auto* actor = GetPlayerById(player_id);
+  auto* model = actor && actor->GetNpc() ? actor->GetNpc()->GetModel() : nullptr;
+  if (!model) return;
+  actor->InvalidatePresentation(kSyncPose);
+  if (animation.empty()) {
+    for (int channel = model->numActiveAnis - 1; channel >= 0; --channel) {
+      if (auto* active = model->GetActiveAni(channel)) model->StopAni(active);
+    }
+  } else if (gmp::IsValidScriptName(animation)) {
+    zSTRING name(animation.c_str());
+    const int id = model->GetAniIDFromAniName(name);
+    if (id >= 0) model->StopAni(id);
   }
-
-  cplayer->InvalidatePresentation(kSyncPose);
-  StopModelAnimationById(cplayer->GetNpc()->GetModel(), animation);
 }
 
 void NetGame::OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) {
@@ -3582,7 +3583,10 @@ void NetGame::ApplyServerInventory(Gothic2APlayer& actor, bool restore_missing) 
       if (GetCarriedTorchAmount(npc, instance) > 0) native_counts.try_emplace(instance, 0);
     }
   }
-  auto allowed = actor.base_player().inventory();
+  std::unordered_map<int, std::int32_t> allowed;
+  for (const auto& [name, count] : actor.base_player().inventory()) {
+    if (const auto index = LocalItemIndex(name); index > 0) allowed[index] = count;
+  }
   if (actor.IsLocalPlayer()) {
     for (const auto& [_, pending] : pending_inventory_mutations_) {
       // A requested pickup is predicted until the server replies. Native use
@@ -3706,14 +3710,14 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
   // Reconcile owned inventory/back slots before selecting magic or draw mode.
   // A hand visual uses that same object; it is never an independent clone.
   if ((mask & kSyncEquipment) != 0) {
-    SyncEquippedCombatItem(npc, state.equipped_armor_instance, npc->GetEquippedArmor(), IsArmorItem);
-    SyncEquippedSlotItem(npc, state.equipped_helmet_instance, NPC_NODE_HELMET, IsHelmetItem);
-    SyncEquippedSlotItem(npc, state.equipped_shield_instance, NPC_NODE_SHIELD, IsShieldItem);
-    SyncEquippedInventoryItem(npc, state.equipped_amulet_instance, ITM_FLAG_AMULET);
-    SyncEquippedInventoryItem(npc, state.equipped_belt_instance, ITM_FLAG_BELT);
-    SyncEquippedRingItems(npc, state.equipped_ring_left_instance, state.equipped_ring_right_instance);
-    SyncEquippedCombatItem(npc, state.ranged_weapon_instance, GetCurrentRangedWeapon(npc), IsRangedWeaponItem);
-    SyncEquippedCombatItem(npc, state.melee_weapon_instance, GetCurrentMeleeWeapon(npc), IsMeleeWeaponItem);
+    SyncEquippedCombatItem(npc, LocalItemIndex(state.equipped_armor_instance), npc->GetEquippedArmor(), IsArmorItem);
+    SyncEquippedSlotItem(npc, LocalItemIndex(state.equipped_helmet_instance), NPC_NODE_HELMET, IsHelmetItem);
+    SyncEquippedSlotItem(npc, LocalItemIndex(state.equipped_shield_instance), NPC_NODE_SHIELD, IsShieldItem);
+    SyncEquippedInventoryItem(npc, LocalItemIndex(state.equipped_amulet_instance), ITM_FLAG_AMULET);
+    SyncEquippedInventoryItem(npc, LocalItemIndex(state.equipped_belt_instance), ITM_FLAG_BELT);
+    SyncEquippedRingItems(npc, LocalItemIndex(state.equipped_ring_left_instance), LocalItemIndex(state.equipped_ring_right_instance));
+    SyncEquippedCombatItem(npc, LocalItemIndex(state.ranged_weapon_instance), GetCurrentRangedWeapon(npc), IsRangedWeaponItem);
+    SyncEquippedCombatItem(npc, LocalItemIndex(state.melee_weapon_instance), GetCurrentMeleeWeapon(npc), IsMeleeWeaponItem);
   }
 
   const auto life = (mask & kSyncLife) != 0 ? NormalizeLifeState(state.life_state, state.health_points)
@@ -3727,12 +3731,12 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
       actor.ClearRemoteLightEffect();
   }
   if ((mask & (kSyncCombat | kSyncEquipment)) != 0 && (snapshot || !local)) {
-    if (terminal || state.active_spell_instance == 0 || state.weapon_mode != NPC_WEAPON_MAG) {
+    if (terminal || LocalItemIndex(state.active_spell_instance) == 0 || state.weapon_mode != NPC_WEAPON_MAG) {
       CloseSpellBook(npc);
-    } else if (IsNetworkItemInstance(state.active_spell_instance)) {
-      auto* spell_item = npc->inventory2.IsIn(state.active_spell_instance, 1);
+    } else if (IsNetworkItemInstance(LocalItemIndex(state.active_spell_instance))) {
+      auto* spell_item = npc->inventory2.IsIn(LocalItemIndex(state.active_spell_instance), 1);
       if (!spell_item) {
-        spell_item = CreateNetworkItem(state.active_spell_instance);
+        spell_item = CreateNetworkItem(LocalItemIndex(state.active_spell_instance));
         if (spell_item && (spell_item->mainflag & (ITM_CAT_RUNE | ITM_CAT_MAGIC)) == 0) {
           spell_item->Release();
           spell_item = nullptr;
@@ -3815,8 +3819,8 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
       }
       const char* sheathed_slot = GetSheathedWeaponSlot(current);
       const bool remains_equipped = current && current->HasFlag(ITM_FLAG_ACTIVE) &&
-                                    ((IsMeleeWeaponItem(current) && current->GetInstance() == state.melee_weapon_instance) ||
-                                     (IsRangedWeaponItem(current) && current->GetInstance() == state.ranged_weapon_instance));
+                                    ((IsMeleeWeaponItem(current) && current->GetInstance() == LocalItemIndex(state.melee_weapon_instance)) ||
+                                     (IsRangedWeaponItem(current) && current->GetInstance() == LocalItemIndex(state.ranged_weapon_instance)));
       if (!terminal && sheathed_slot && remains_equipped) {
         // Sheathing moves the existing equipped object back; it must not toggle
         // equipment, rerun equip scripts, or leave the weapon unattached.
@@ -3882,8 +3886,8 @@ void NetGame::ApplyActorState(Gothic2APlayer& actor, const PlayerState& state, b
         }
       }
     };
-    sync_hand(state.left_hand_item_instance, false);
-    sync_hand(state.right_hand_item_instance, true);
+    sync_hand(LocalItemIndex(state.left_hand_item_instance), false);
+    sync_hand(LocalItemIndex(state.right_hand_item_instance), true);
   }
 
   // Pose-only updates must also repair a torch overlay displaced by a later
@@ -4168,7 +4172,8 @@ void NetGame::OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {
   EventManager::Instance().TriggerEvent(gmp::gothic::kEventOnPlayerChangePingName, gmp::gothic::OnPlayerPingEvent{player_id, ping});
 }
 
-void NetGame::OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {
+void NetGame::OnItemDropped(std::uint64_t player_id, const std::string& network_instance, std::int32_t amount) {
+  const auto item_instance = LocalItemIndex(network_instance);
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc() && IsNetworkItemInstance(item_instance) && ogame && ogame->GetGameWorld()) {
     oCWorld* world = ogame->GetGameWorld();
@@ -4187,7 +4192,8 @@ void NetGame::OnItemDropped(std::uint64_t player_id, std::int32_t item_instance,
   }
 }
 
-void NetGame::OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) {
+void NetGame::OnItemTaken(std::uint64_t player_id, const std::string& network_instance) {
+  const auto item_instance = LocalItemIndex(network_instance);
   Gothic2APlayer* cplayer = GetPlayerById(player_id);
   if (cplayer && cplayer->GetNpc() && IsNetworkItemInstance(item_instance) && ogame && ogame->GetGameWorld()) {
     zCListSort<oCItem>* ItemList = ogame->GetGameWorld()->voblist_items;
@@ -4210,14 +4216,13 @@ void NetGame::OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) {
   }
 }
 
-void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount, bool physics_enabled,
+void NetGame::OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& instance, std::int32_t amount, bool physics_enabled,
                                  const glm::vec3& position, const glm::vec3& rotation) {
-  const auto instance_name = FindParserInstanceName(item_instance);
-  if (!instance_name) {
-    SPDLOG_WARN("Could not resolve ground item parser index {}", item_instance);
+  if (!LocalItemIndex(instance)) {
+    SPDLOG_WARN("Ground item '{}' is absent from the local scripts", instance);
     return;
   }
-  gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, *instance_name, amount, physics_enabled, position, rotation);
+  gmp::gothic::ClientItemGroundManager::Instance().Upsert(item_ground_id, instance, amount, physics_enabled, position, rotation);
 }
 
 void NetGame::OnItemGroundDestroy(std::uint32_t item_ground_id) {
@@ -4228,7 +4233,8 @@ void NetGame::OnItemsGroundDestroy() {
   gmp::gothic::ClientItemGroundManager::Instance().Clear(true);
 }
 
-void NetGame::OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {
+void NetGame::OnItemGiven(std::uint64_t player_id, const std::string& network_instance, std::int32_t amount) {
+  const auto item_instance = LocalItemIndex(network_instance);
   if (amount <= 0 || !IsNetworkItemInstance(item_instance)) {
     return;
   }
@@ -4238,12 +4244,13 @@ void NetGame::OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, s
     return;
   }
 
-  OnActorItemTransactionResult(static_cast<std::uint32_t>(player_id), 0, item_instance,
-      cplayer->base_player().inventory_count(item_instance), true, std::nullopt);
+  OnActorItemTransactionResult(static_cast<std::uint32_t>(player_id), 0, network_instance,
+      cplayer->base_player().inventory_count(network_instance), true, std::nullopt);
 }
 
-void NetGame::OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t instance, std::int32_t total,
+void NetGame::OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, const std::string& network_instance, std::int32_t total,
                                      bool accepted, std::optional<std::uint32_t> ground) {
+  const auto instance = LocalItemIndex(network_instance);
   (void)accepted;
   (void)ground;
   if (!game_client || !game_client->player_manager().HasLocalPlayer()) return;
@@ -4271,43 +4278,49 @@ void NetGame::OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector
   if (!actor) return;
   ApplyServerInventory(*actor, true);
 }
-void NetGame::OnItemEquipped(std::uint64_t id, std::int32_t instance, std::int16_t slot) {
+void NetGame::OnItemEquipped(std::uint64_t id, const std::string& network_instance, std::int16_t slot) {
   auto* actor = GetPlayerById(id);
-  OnItemEquipped(id, instance, slot, actor ? actor->base_player().command_revision() : 0, true);
+  OnItemEquipped(id, network_instance, slot, actor ? actor->base_player().command_revision() : 0, true);
 }
 
-void NetGame::OnItemEquipped(std::uint64_t id, std::int32_t instance, std::int16_t slot,
+void NetGame::OnItemEquipped(std::uint64_t id, const std::string& network_instance, std::int16_t slot,
                             std::uint32_t revision, bool apply_state) {
   auto* actor = GetPlayerById(id);
-  if (!actor || !actor->GetNpc() || !IsNetworkItemInstance(instance)) return;
+  if (!actor || !actor->GetNpc()) return;
+  const auto instance = LocalItemIndex(network_instance);
   const bool previous = ShouldSuppressLocalEquipEvents();
   SetSuppressLocalEquipEvents(true);
-  if (apply_state) {
+  const auto observed_slot = slot == EQUIP_SLOT_GENERIC ? ResolveEquipmentSlot(actor->GetNpc(), instance) : slot;
+  if (apply_state && instance > 0 && observed_slot != EQUIP_SLOT_GENERIC) {
     actor->InvalidatePresentation(kSyncEquipment | kSyncCombat);
-    if (slot == EQUIP_SLOT_RING_LEFT || slot == EQUIP_SLOT_RING_RIGHT) {
-      SyncEquippedRingItems(actor->GetNpc(), actor->base_player().equipped_ring_left(), actor->base_player().equipped_ring_right());
-    } else if (!SyncEquippedPacketSlot(actor->GetNpc(), instance, slot)) {
-      if (auto* item = actor->GetNpc()->inventory2.IsIn(instance, 1)) actor->GetNpc()->Equip(item);
+    if (observed_slot == EQUIP_SLOT_RING_LEFT || observed_slot == EQUIP_SLOT_RING_RIGHT) {
+      auto left = LocalItemIndex(actor->base_player().equipped_ring_left());
+      auto right = LocalItemIndex(actor->base_player().equipped_ring_right());
+      if (slot == EQUIP_SLOT_GENERIC) (observed_slot == EQUIP_SLOT_RING_LEFT ? left : right) = instance;
+      SyncEquippedRingItems(actor->GetNpc(), left, right);
+    } else {
+      SyncEquippedPacketSlot(actor->GetNpc(), instance, observed_slot);
     }
   }
-  const auto observed = ObserveEquipmentSlot(*actor, slot, instance);
+  const auto observed = ObserveEquipmentSlot(*actor, observed_slot, instance);
   ApplyServerStats(*actor);
   SetSuppressLocalEquipEvents(previous);
   if (game_client && (actor->IsLocalPlayer() || (actor->base_player().is_npc() &&
       game_client->player_manager().HasLocalPlayer() && actor->base_player().npc_host_player_id() ==
       game_client->player_manager().GetLocalPlayer().id()))) {
-    game_client->SendEquipmentResult(slot, instance, observed == instance, observed, revision,
-        static_cast<std::uint32_t>(id), actor->base_player().npc_control_epoch());
+    game_client->SendEquipmentResult(slot, network_instance, instance > 0 && observed == instance && observed_slot != EQUIP_SLOT_GENERIC,
+        NetworkItemName(observed), revision, static_cast<std::uint32_t>(id), actor->base_player().npc_control_epoch(), observed_slot);
   }
 }
 
-void NetGame::OnItemUnequipped(std::uint64_t id, std::int32_t instance) {
+void NetGame::OnItemUnequipped(std::uint64_t id, const std::string& network_instance) {
   auto* actor = GetPlayerById(id);
-  OnItemUnequipped(id, instance, EQUIP_SLOT_GENERIC, actor ? actor->base_player().command_revision() : 0, true);
+  OnItemUnequipped(id, network_instance, EQUIP_SLOT_GENERIC, actor ? actor->base_player().command_revision() : 0, true);
 }
 
-void NetGame::OnItemUnequipped(std::uint64_t id, std::int32_t instance, std::int16_t slot,
+void NetGame::OnItemUnequipped(std::uint64_t id, const std::string& network_instance, std::int16_t slot,
                               std::uint32_t revision, bool apply_state) {
+  const auto instance = LocalItemIndex(network_instance);
   auto* actor = GetPlayerById(id);
   if (!actor || !actor->GetNpc()) return;
   const bool previous = ShouldSuppressLocalEquipEvents();
@@ -4315,7 +4328,7 @@ void NetGame::OnItemUnequipped(std::uint64_t id, std::int32_t instance, std::int
   if (apply_state) {
     actor->InvalidatePresentation(kSyncEquipment | kSyncCombat);
     if (slot == EQUIP_SLOT_RING_LEFT || slot == EQUIP_SLOT_RING_RIGHT) {
-      SyncEquippedRingItems(actor->GetNpc(), actor->base_player().equipped_ring_left(), actor->base_player().equipped_ring_right());
+      SyncEquippedRingItems(actor->GetNpc(), LocalItemIndex(actor->base_player().equipped_ring_left()), LocalItemIndex(actor->base_player().equipped_ring_right()));
     } else if (!SyncEquippedPacketSlot(actor->GetNpc(), 0, slot)) {
       std::vector<oCItem*> matches;
       for (auto* entry = actor->GetNpc()->inventory2.inventory.GetNextInList(); entry; entry = entry->GetNextInList()) {
@@ -4333,11 +4346,12 @@ void NetGame::OnItemUnequipped(std::uint64_t id, std::int32_t instance, std::int
   if (game_client && (actor->IsLocalPlayer() || (actor->base_player().is_npc() &&
       game_client->player_manager().HasLocalPlayer() && actor->base_player().npc_host_player_id() ==
       game_client->player_manager().GetLocalPlayer().id()))) {
-    game_client->SendEquipmentResult(slot, 0, observed == 0, observed, revision,
+    game_client->SendEquipmentResult(slot, {}, observed == 0, NetworkItemName(observed), revision,
         static_cast<std::uint32_t>(id), actor->base_player().npc_control_epoch());
   }
 }
-void NetGame::OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {
+void NetGame::OnItemRemoved(std::uint64_t player_id, const std::string& network_instance, std::int32_t amount) {
+  const auto item_instance = LocalItemIndex(network_instance);
   if (amount <= 0 || !IsNetworkItemInstance(item_instance)) {
     return;
   }
@@ -4347,8 +4361,8 @@ void NetGame::OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance,
     return;
   }
 
-  OnActorItemTransactionResult(static_cast<std::uint32_t>(player_id), 0, item_instance,
-      cplayer->base_player().inventory_count(item_instance), true, std::nullopt);
+  OnActorItemTransactionResult(static_cast<std::uint32_t>(player_id), 0, network_instance,
+      cplayer->base_player().inventory_count(network_instance), true, std::nullopt);
 }
 namespace {
 void PlaySpellPresentation(Gothic2APlayer& actor, oCNpc* target, std::uint16_t spell_id, std::uint8_t level) {

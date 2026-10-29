@@ -179,7 +179,7 @@ TEST_F(FakeClientConnectionTest, TrustedItemUseEventReceivesArgumentsAndCancella
   ASSERT_TRUE(PumpUntil({&user}, [&] { return HasLocalSpawn(user); })) << user.Error();
   ActorActionPacket action;
   action.kind = ActorActionKind::ItemUse;
-  action.item_instance = 1;
+  action.item_instance = "ITMI_TEST";
   action.quantity = 2;
   action.action_id = 1;
   ASSERT_TRUE(user.SendActorAction(action));

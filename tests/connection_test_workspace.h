@@ -8,7 +8,7 @@
 
 #include "network_test_port.h"
 
-// Each integration fixture gets the production registry layout and a minimal
+// Each integration fixture gets a minimal
 // resource that spawns players and reports their IP/identity from callbacks. A tiny client
 // script exercises real resource packaging and downloading without game APIs.
 class ConnectionTestWorkspace {
@@ -18,11 +18,7 @@ public:
     original_cwd_ = fs::current_path();
     root_ = original_cwd_ / "build" /
             ("connection_test_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
-    fs::create_directories(root_ / "data" / "instances");
-    Write(root_ / "data" / "instances" / "items.json",
-          R"({"items":[{"instance":"ITMI_TEST","index":1,"mainflag":0,"flags":0}]})");
-    Write(root_ / "data" / "instances" / "anims.json",
-          R"({"mds":[{"name":"HUMANS.MDS","animations":[{"name":"S_RUN","id":1}]}]})");
+    fs::create_directories(root_);
     Write(root_ / "bans.json", ban_loopback ? R"([{"IP":"127.0.0.1","Reason":"Connection test ban"}])" : "[]");
 
     const auto resource = root_ / "resources" / "connection_test";
@@ -53,7 +49,7 @@ public:
           "    end\n"
           "  end\nend)\n"
           "addEventHandler('onPlayerUseItem', function(playerId, item, quantity, scheme)\n"
-          "  assert(item.instance == 'ITMI_TEST' and quantity == 2 and scheme == '')\n"
+          "  assert(item == 'ITMI_TEST' and quantity == 2 and scheme == '')\n"
           "  cancelEvent()\n"
           "  sendMessageToPlayer(playerId, 255, 255, 255, 'item use cancelled')\n"
           "end)\n");

@@ -369,15 +369,6 @@ bool LuaItemGround::isValid() const {
   return ClientItemGroundManager::Instance().GetById(id_) != nullptr;
 }
 
-/* luagmp (property)
- * ItemDefinition definitions are currently available on the server only.
- * @name definition
- * @return (nil)
- */
-sol::object LuaItemGround::getDefinition(sol::this_state state) const {
-  return sol::make_object(sol::state_view(state), sol::nil);
-}
-
 /* luagmp (class)
  *
  * Provides client-side lookup for synchronized ground items visible in the current world.
@@ -436,8 +427,6 @@ sol::object Function_ItemGround_FindByInstance(const std::string& instance, sol:
 void BindItemGround(sol::state& lua) {
   auto item_ground_type = lua.new_usertype<LuaItemGround>("ItemGround", sol::no_constructor);
   item_ground_type["id"] = sol::property(&LuaItemGround::getId);
-  // Definitions are currently server-only. Keep instance a string on both sides.
-  item_ground_type["definition"] = sol::property(&LuaItemGround::getDefinition);
   item_ground_type["isValid"] = &LuaItemGround::isValid;
   item_ground_type["instance"] = sol::property(&LuaItemGround::getInstance);
   item_ground_type["amount"] = sol::property(&LuaItemGround::getAmount);

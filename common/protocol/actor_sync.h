@@ -47,6 +47,9 @@ enum ActorSyncComponent : std::uint16_t {
 
 constexpr std::uint8_t kMaxSpellInvestLevel = 20;
 constexpr std::size_t kMaxInventoryEntries = 4096;
+// Leave room for counts, string lengths and the rest of an actor snapshot in
+// GameNetworkingSockets' maximum reliable message.
+constexpr std::size_t kMaxInventoryNameBytes = 384 * 1024;
 
 inline std::uint64_t ActorClockMilliseconds() {
   return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(

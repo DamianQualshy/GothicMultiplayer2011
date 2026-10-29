@@ -5,15 +5,12 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
-#include <nlohmann/json.hpp>
 
-#include "Lua/lua_item_definition.h"
 #include "Script.h"
 #include "character.h"
 #include "game_server.h"
 #include "inventory_sync.h"
 #include "item_ground_manager.h"
-#include "item_registry.h"
 #include "native_event_packets.h"
 #include "packets.h"
 #include "server_events.h"
@@ -75,6 +72,24 @@ TEST(ActorInventory, StackOverflowCannotCommitPartialTake) {
   EXPECT_TRUE(actor.AddInventory("ITMI_GOLD", 1));
 }
 
+TEST(ActorInventory, NativeDeclarationsValidateNamesAndQuantitiesWithoutCatalogs) {
+  EXPECT_TRUE(ValidateNativeInventoryDeclaration({{"CUSTOM_MOD_ITEM", 2}, {"ITMI_GOLD", 100}}));
+  EXPECT_TRUE(ValidateNativeInventoryDeclaration({}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{"", 1}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{"INVALID NAME", 1}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{std::string(256, 'A'), 1}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{"CUSTOM_MOD_ITEM", 0}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{"CUSTOM_MOD_ITEM", -1}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{"CUSTOM_MOD_ITEM", 1}, {"CUSTOM_MOD_ITEM", 2}}));
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration(std::vector<InventoryEntry>(kMaxInventoryEntries + 1, {"ITEM", 1})));
+  std::vector<InventoryEntry> oversized_names;
+  for (int index = 0; index < 2000; ++index) {
+    const auto suffix = std::to_string(index);
+    oversized_names.push_back({std::string(255 - suffix.size(), 'A') + suffix, 1});
+  }
+  EXPECT_FALSE(ValidateNativeInventoryDeclaration(oversized_names));
+}
+
 TEST(GroundTransactions, CallbackDestructionDoesNotTransferReservationToReplacement) {
   ItemGroundManager ground;
   ItemGroundManager::CreateOptions options;
@@ -93,12 +108,12 @@ TEST(GroundTransactions, CallbackDestructionDoesNotTransferReservationToReplacem
   EXPECT_GT(ground.Create(options).id, replacement_id);
 }
 
-class ItemCatalog : public ::testing::Test {
+class ServerTestData : public ::testing::Test {
 protected:
   void SetUp() override {
     const auto directory = std::filesystem::current_path() / "build" / "actor-inventory-tests";
     std::filesystem::create_directories(directory);
-    path = directory / ("gmp-item-catalog-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
+    path = directory / ("gmp-server-test-data-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
   }
   void TearDown() override {
     std::error_code error;
@@ -109,65 +124,13 @@ protected:
     output << source;
   }
   std::filesystem::path path;
-  ItemRegistry registry;
 };
 
-TEST_F(ItemCatalog, RejectsMalformedCatalogWithoutRetainingPartialDefinitions) {
-  Write(R"({"items":[{"instance":"ITPO_TEST","index":1,"mainflag":"bad","flags":0}]})");
-  EXPECT_FALSE(registry.Load(path));
-  EXPECT_EQ(registry.Size(), 0u);
-  EXPECT_EQ(registry.FindByIndex(1), nullptr);
-}
-
-TEST_F(ItemCatalog, ItemPropertiesComeFromTheCatalog) {
-  Write(R"({"items":[{"instance":"ITPO_TEST","index":99,"mainflag":1,"flags":0,"scemename":"POTION"},
-                     {"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19,
-                      "damage":{"total":25,"types":32},"range":3000}]})");
-  ASSERT_TRUE(registry.Load(path));
-  ASSERT_NE(registry.Find("itpo_test"), nullptr);
-  EXPECT_EQ(registry.Find("itpo_test")->scemename, "POTION");
-  ASSERT_NE(registry.FindByIndex(150), nullptr);
-  EXPECT_EQ(registry.FindByIndex(150)->damage->total, 25);
-  EXPECT_EQ(registry.FindByIndex(150)->spell, 19);
-}
-
-TEST_F(ItemCatalog, NativeInventoryDeclarationOnlyValidatesRegisteredPositiveUniqueEntries) {
-  Write(R"({"items":[{"instance":"ITPO_TEST","index":99,"mainflag":1,"flags":0}]})");
-  ASSERT_TRUE(registry.Load(path));
-  EXPECT_TRUE(ValidateNativeInventoryDeclaration({{99, 100000}}, registry));
-  EXPECT_TRUE(ValidateNativeInventoryDeclaration({}, registry));
-  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{99, 10}, {99, 11}}, registry));
-  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{99, 10}, {100, 1}}, registry));
-  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{99, 0}}, registry));
-  EXPECT_FALSE(ValidateNativeInventoryDeclaration({{99, -1}}, registry));
-  EXPECT_FALSE(ValidateNativeInventoryDeclaration(std::vector<InventoryEntry>(kMaxInventoryEntries + 1, {99, 1}), registry));
-}
-
-TEST_F(ItemCatalog, LegacyRuneCatalogPreservesZeroSpellIdWithoutTreatingOrdinaryItemsAsSpells) {
-  Write(R"({"items":[{"instance":"ITRU_PALLIGHT","index":227,"mainflag":512,"flags":0},
-                     {"instance":"ITSC_PALLIGHT","index":228,"mainflag":512,"flags":2097152},
-                     {"instance":"ITPO_TEST","index":99,"mainflag":1,"flags":0}]})");
-  ASSERT_TRUE(registry.Load(path));
-  ASSERT_TRUE(registry.FindByIndex(227)->spell.has_value());
-  EXPECT_EQ(*registry.FindByIndex(227)->spell, 0);
-  ASSERT_TRUE(registry.FindByIndex(228)->spell.has_value());
-  EXPECT_EQ(*registry.FindByIndex(228)->spell, 0);
-  EXPECT_FALSE(registry.FindByIndex(99)->spell.has_value());
-}
-
-class ServerActorValidation : public ItemCatalog {
+class ServerActorValidation : public ServerTestData {
 protected:
   void SetUp() override {
-    ItemCatalog::SetUp();
-    Write(R"({"items":[{"instance":"ITPO_TEST","index":99,"mainflag":1,"flags":0},
-                      {"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19,
-                       "damage":{"total":25,"types":32},"range":3000},
-                      {"instance":"ITMW_TEST","index":175,"mainflag":2,"flags":16384,
-                       "damage":{"total":5,"types":4},"range":50},
-                      {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,"wear":1,
-                       "protections":[{"type":2,"value":1000}]}]})");
-    // Initialize trusted fixture data without starting network listeners or resources.
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+    ServerTestData::SetUp();
+    // Initialize actor state without starting network listeners or resources.
     first = server.GetPlayerManager().AddPlayer(70001, "HostOne", 2);
     second = server.GetPlayerManager().AddPlayer(70002, "HostTwo", 2);
     ASSERT_NE(first, 0u);
@@ -225,7 +188,7 @@ protected:
   }
   PlayerHitReportPacket FinishingMove(Character& attacker, Character& victim, std::uint32_t identity = 1) {
     EXPECT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
-    attacker.state.melee_weapon_instance = 175;
+    attacker.state.melee_weapon_instance = "ITMW_TEST";
     attacker.state.weapon_mode = 3;
     victim.health = victim.state.health_points = 1;
     victim.flags |= PlayerManager::PL_UNCONCIOUS;
@@ -268,8 +231,8 @@ protected:
     out.body_model = "HUM_BODY_NAKED0";
     out.head_model = "HUM_HEAD_PONY";
     out.body_texture = 4;
-    out.inventory = {{176, 1}, {99, 2}};
-    out.equipped_armor_instance = 176;
+    out.inventory = {{"ITAR_TEST", 1}, {"ITPO_TEST", 2}};
+    out.equipped_armor_instance = "ITAR_TEST";
     out.weapon_skills = {{1, 60}};
     out.talents = {{1, 2}};
     return packet;
@@ -300,7 +263,7 @@ TEST_F(ServerInstanceValidation, ConstructorReplacesOldStatsAppearanceInventoryA
   EXPECT_EQ(actor.head_model, "HUM_HEAD_PONY");
   EXPECT_EQ(actor.InventoryCount("ITRU_TEST"), 0);
   EXPECT_EQ(actor.InventoryCount("ITPO_TEST"), 2);
-  EXPECT_EQ(actor.state.equipped_armor_instance, 176);
+  EXPECT_EQ(actor.state.equipped_armor_instance, "ITAR_TEST");
   EXPECT_EQ(actor.state.position, position);
   const auto sequence = actor.state_sequence;
   ready.defaults.health = ready.defaults.max_health = 50000;
@@ -353,7 +316,7 @@ TEST_F(ServerInstanceValidation, InvalidInventoryCannotGrantItemsOrLeaveInitiali
   actor.instance = "PC_HERO";
   ASSERT_TRUE(server.SetCharacterInstance(first, "CH"));
   auto ready = Defaults(first);
-  ready.defaults.inventory.push_back({999999, 1});
+  ready.defaults.inventory.push_back({"INVALID NAME", 1});
   Send(70001, ready);
   EXPECT_FALSE(actor.instance_change);
   EXPECT_EQ(actor.instance, "PC_HERO");
@@ -542,13 +505,6 @@ class ServerTransformationValidation : public ServerActorValidation {
 protected:
   void SetUp() override {
     ServerActorValidation::SetUp();
-    nlohmann::json items = nlohmann::json::array();
-    for (int spell = 47; spell <= 58; ++spell)
-      items.push_back({{"instance", "ITRU_TRF" + std::to_string(spell)}, {"index", 300 + spell}, {"mainflag", 512}, {"flags", 0}, {"spell", spell}});
-    items.push_back({{"instance", "ITSC_TRF51"}, {"index", 399}, {"mainflag", 512}, {"flags", 2097152}, {"spell", 51}});
-    items.push_back({{"instance", "ITAR_TEST"}, {"index", 176}, {"mainflag", 16}, {"flags", 0}});
-    Write(nlohmann::json{{"items", items}}.dump());
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
     auto& actor = server.GetCharacter(first)->get();
     actor.instance = "PC_HERO";
     actor.health = actor.state.health_points = 625;
@@ -561,7 +517,7 @@ protected:
     actor.exp = 1234;
     actor.learn_points = 12;
     actor.state.nrot = {0.0f, 0.0f, 1.0f};
-    actor.state.equipped_armor_instance = 176;
+    actor.state.equipped_armor_instance = "ITAR_TEST";
     ASSERT_TRUE(actor.AddInventory("ITAR_TEST", 1));
     ASSERT_TRUE(actor.AddInventory("ITSC_TRF51", 2));
     for (int spell = 47; spell <= 58; ++spell) ASSERT_TRUE(actor.AddInventory("ITRU_TRF" + std::to_string(spell), 1));
@@ -574,7 +530,8 @@ protected:
     packet.actor_generation = actor.actor_generation;
     packet.command_revision = actor.command_revision;
     packet.action_id = identity;
-    packet.item_instance = scroll ? 399 : 300 + spell;
+    packet.item_instance = scroll ? "ITSC_TRF51" : "ITRU_TRF" + std::to_string(spell);
+    packet.scroll = scroll;
     packet.spell_id = spell;
     packet.transformation_succeeded = true;
     return packet;
@@ -600,7 +557,7 @@ TEST_F(ServerTransformationValidation, AllNativeFormsRoundTripWithoutChangingHum
     EXPECT_EQ(actor.instance, form->instance);
     EXPECT_EQ(actor.max_health, form->max_health);
     EXPECT_EQ(actor.strength, form->strength);
-    EXPECT_EQ(actor.state.equipped_armor_instance, 0);
+    EXPECT_EQ(actor.state.equipped_armor_instance, "");
     EXPECT_EQ(actor.state.weapon_mode, 1);  // Creature MDS files provide FIST locomotion.
     EXPECT_TRUE(actor.approved_projectiles.empty());
     Send(70001, Return(spell));
@@ -611,7 +568,7 @@ TEST_F(ServerTransformationValidation, AllNativeFormsRoundTripWithoutChangingHum
     EXPECT_EQ(actor.max_mana, 300);
     EXPECT_EQ(actor.strength, 77);
     EXPECT_EQ(actor.dexterity, 66);
-    EXPECT_EQ(actor.state.equipped_armor_instance, 176);
+    EXPECT_EQ(actor.state.equipped_armor_instance, "ITAR_TEST");
     EXPECT_EQ(actor.level, 7);
     EXPECT_EQ(actor.exp, 1234);
     EXPECT_EQ(actor.learn_points, 12);
@@ -634,14 +591,14 @@ TEST_F(ServerTransformationValidation, CreaturePoseKeepsFistLocomotionWithoutHum
     update.state.source_time_ms = ActorClockMilliseconds();
     update.state.position.x = 100.0f * sequence;
     update.state.weapon_mode = sequence == 1 ? 0 : 7;
-    update.state.equipped_armor_instance = 176;
-    update.state.active_spell_instance = 351;
+    update.state.equipped_armor_instance = "ITAR_TEST";
+    update.state.active_spell_instance = "ITRU_TRF51";
     update.state.spell_investing = true;
     Send(70001, update);
     EXPECT_EQ(actor.state.position, update.state.position);
     EXPECT_EQ(actor.state.weapon_mode, 1);
-    EXPECT_EQ(actor.state.equipped_armor_instance, 0);
-    EXPECT_EQ(actor.state.active_spell_instance, 0);
+    EXPECT_EQ(actor.state.equipped_armor_instance, "");
+    EXPECT_EQ(actor.state.active_spell_instance, "");
     EXPECT_FALSE(actor.state.spell_investing);
   }
 }
@@ -806,9 +763,6 @@ class ServerSummonValidation : public ServerActorValidation {
 protected:
   void SetUp() override {
     ServerActorValidation::SetUp();
-    Write(R"({"items":[{"instance":"ITRU_WOLF","index":210,"mainflag":512,"flags":0,"spell":25},
-                       {"instance":"ITSC_ARMY","index":211,"mainflag":512,"flags":2097152,"spell":45}]})");
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
     auto& caster = server.GetCharacter(first)->get();
     caster.mana = caster.max_mana = caster.state.mana_points = 1000;
     ASSERT_TRUE(caster.AddInventory("ITRU_WOLF", 1));
@@ -822,7 +776,8 @@ protected:
     packet.actor_generation = caster.actor_generation;
     packet.command_revision = caster.command_revision;
     packet.action_id = action;
-    packet.item_instance = army ? 211 : 210;
+    packet.item_instance = army ? "ITSC_ARMY" : "ITRU_WOLF";
+    packet.scroll = army;
     packet.spell_id = army ? 45 : 25;
     packet.mana_delta = 1000000;  // A client cannot choose a summon's cost.
     return packet;
@@ -977,7 +932,7 @@ TEST_F(ServerSummonValidation, SummonEventLuaArgumentsIncludeControllableServerN
   resources.UnloadResource("summon_test", script);
 }
 
-TEST_F(ItemCatalog, SummonDefinitionsAreTrustedAndFailedReloadIsAtomic) {
+TEST_F(ServerTestData, SummonDefinitionsAreTrustedAndFailedReloadIsAtomic) {
   SummonRegistry summons;
   EXPECT_EQ(summons.Find(45)->count, 6);
   EXPECT_FALSE(gmp::IsNpcSummonSpell(81));
@@ -1004,15 +959,6 @@ class ServerHealingValidation : public ServerActorValidation {
 protected:
   void SetUp() override {
     ServerActorValidation::SetUp();
-    Write(R"({"items":[{"instance":"HEAL_1","index":220,"mainflag":512,"flags":0,"spell":1},
-                       {"instance":"HEAL_3","index":221,"mainflag":512,"flags":0,"spell":3},
-                       {"instance":"HEAL_5","index":222,"mainflag":512,"flags":0,"spell":5},
-                       {"instance":"HEAL_21","index":223,"mainflag":512,"flags":0,"spell":21},
-                       {"instance":"HEAL_28","index":224,"mainflag":512,"flags":0,"spell":28},
-                       {"instance":"HEAL_41","index":225,"mainflag":512,"flags":0,"spell":41},
-                       {"instance":"HEAL_SCROLL","index":226,"mainflag":512,"flags":2097152,"spell":21},
-                       {"instance":"ITRU_PALLIGHT","index":227,"mainflag":512,"flags":0}]})");
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
     auto& caster = server.GetCharacter(first)->get();
     caster.health = caster.state.health_points = 100;
     caster.max_health = 2000;
@@ -1020,7 +966,7 @@ protected:
     for (const auto& instance : {"HEAL_1", "HEAL_3", "HEAL_5", "HEAL_21", "HEAL_28", "HEAL_41", "HEAL_SCROLL", "ITRU_PALLIGHT"})
       ASSERT_TRUE(caster.AddInventory(instance, 1));
   }
-  CastSpellPacket Cast(std::uint16_t spell, std::int32_t item, std::uint32_t action = 1) {
+  CastSpellPacket Cast(std::uint16_t spell, const std::string& item, std::uint32_t action = 1) {
     const auto& caster = server.GetCharacter(first)->get();
     CastSpellPacket packet{};
     packet.packet_type = Net::PT_CASTSPELLONTARGET;
@@ -1030,6 +976,7 @@ protected:
     packet.action_id = action;
     packet.spell_id = spell;
     packet.item_instance = item;
+    packet.scroll = item == "HEAL_SCROLL";
     packet.mana_delta = 1000000;
     return packet;
   }
@@ -1043,7 +990,7 @@ TEST_F(ServerHealingValidation, AllSixHealsCommitTrustedHealthAndManaWithoutAppr
   for (int index = 0; index < 6; ++index) {
     caster.health = caster.state.health_points = 100;
     caster.mana = 1000;
-    Send(70001, Cast(spells[index], 220 + index, index + 1));
+    Send(70001, Cast(spells[index], "HEAL_" + std::to_string(spells[index]), index + 1));
     EXPECT_EQ(caster.health, 100 + heals[index]);
     EXPECT_EQ(caster.state.health_points, caster.health);
     EXPECT_EQ(caster.mana, 1000 - costs[index]);
@@ -1054,7 +1001,7 @@ TEST_F(ServerHealingValidation, AllSixHealsCommitTrustedHealthAndManaWithoutAppr
 TEST_F(ServerHealingValidation, HealScrollClampsToMaximumAndDuplicateCannotHealOrConsumeAgain) {
   auto& caster = server.GetCharacter(first)->get();
   caster.health = caster.state.health_points = 1950;
-  auto cast = Cast(21, 226);
+  auto cast = Cast(21, "HEAL_SCROLL");
   Send(70001, cast);
   EXPECT_EQ(caster.health, 2000);
   EXPECT_EQ(caster.mana, 995);
@@ -1069,14 +1016,14 @@ TEST_F(ServerHealingValidation, HealScrollClampsToMaximumAndDuplicateCannotHealO
 TEST_F(ServerHealingValidation, CancelledOrUnaffordableHealingCannotChangeHealthOrConsumeScroll) {
   auto& caster = server.GetCharacter(first)->get();
   caster.mana = 4;
-  Send(70001, Cast(21, 226));
+  Send(70001, Cast(21, "HEAL_SCROLL"));
   EXPECT_EQ(caster.health, 100);
   EXPECT_EQ(caster.mana, 4);
   EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
   caster.mana = 1000;
   ASSERT_TRUE(
       EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [](std::any) { EventManager::Instance().CancelCurrentEvent(); }));
-  Send(70001, Cast(21, 226, 2));
+  Send(70001, Cast(21, "HEAL_SCROLL", 2));
   EXPECT_EQ(caster.health, 100);
   EXPECT_EQ(caster.mana, 1000);
   EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
@@ -1085,7 +1032,7 @@ TEST_F(ServerHealingValidation, CancelledOrUnaffordableHealingCannotChangeHealth
 TEST_F(ServerHealingValidation, ResourceHealthOverrideIsNotHealedTwice) {
   ASSERT_TRUE(
       EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any) { EXPECT_TRUE(server.SetCharacterHealth(first, 777)); }));
-  Send(70001, Cast(21, 223));
+  Send(70001, Cast(21, "HEAL_21"));
   EXPECT_EQ(server.GetCharacter(first)->get().health, 777);
   EXPECT_EQ(server.GetCharacter(first)->get().mana, 990);
 }
@@ -1095,7 +1042,7 @@ TEST_F(ServerHealingValidation, HostedNpcCanHealButAnotherViewerCannotCastForIt)
   npc.health = npc.state.health_points = 10;
   npc.max_health = 1000;
   ASSERT_TRUE(npc.AddInventory("HEAL_21", 1));
-  auto cast = Cast(21, 223);
+  auto cast = Cast(21, "HEAL_21");
   cast.caster_id = cast.target_id = npc_id;
   cast.actor_generation = cast.target_generation = npc.actor_generation;
   cast.command_revision = npc.command_revision;
@@ -1114,14 +1061,14 @@ TEST_F(ServerHealingValidation, UnconsciousCasterCannotReviveItselfWithAHealPack
   caster.health = caster.state.health_points = 1;
   caster.state.life_state = PLAYER_LIFE_UNCONSCIOUS;
   caster.flags |= PlayerManager::PL_UNCONCIOUS;
-  Send(70001, Cast(21, 226));
+  Send(70001, Cast(21, "HEAL_SCROLL"));
   EXPECT_EQ(caster.health, 1);
   EXPECT_EQ(caster.mana, 1000);
   EXPECT_EQ(caster.InventoryCount("HEAL_SCROLL"), 1);
 }
 
-TEST_F(ServerHealingValidation, ZeroIdPaladinLightFromLegacyCatalogIsAcceptedWithoutDamageApproval) {
-  auto cast = Cast(0, 227);
+TEST_F(ServerHealingValidation, ZeroIdPaladinLightIsAcceptedWithoutDamageApproval) {
+  auto cast = Cast(0, "ITRU_PALLIGHT");
   cast.mana_delta = -10;
   Send(70001, cast);
   const auto& caster = server.GetCharacter(first)->get();
@@ -1135,12 +1082,8 @@ class ServerTorchValidation : public ServerActorValidation {
 protected:
   void SetUp() override {
     ServerActorValidation::SetUp();
-    Write(R"({"items":[{"instance":"ITLSTORCH","index":200,"mainflag":1,"flags":268435456},
-                      {"instance":"ITLSTORCHBURNING","index":201,"mainflag":1,"flags":268435456},
-                      {"instance":"OTHER_TORCH","index":202,"mainflag":1,"flags":268435456}]})");
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
   }
-  void Hold(std::int32_t left, std::int32_t right = 0) {
+  void Hold(const std::string& left, const std::string& right = std::string{}) {
     auto& actor = server.GetCharacter(first)->get();
     PlayerStateUpdatePacket update{};
     update.packet_type = Net::PT_ACTUAL_STATISTICS;
@@ -1161,57 +1104,48 @@ protected:
 TEST_F(ServerTorchValidation, BurningPresentationReservesOwnedUnlitTorchWithoutGrantingItems) {
   ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
   auto& actor = server.GetCharacter(first)->get();
-  Hold(201);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  Hold("ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "ITLSTORCHBURNING");
   EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 1);
   EXPECT_EQ(actor.InventoryCount("ITLSTORCHBURNING"), 0);
-  Hold(0);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-  Hold(201);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
+  Hold("");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
+  Hold("ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "ITLSTORCHBURNING");
   EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 1);
 }
 
 TEST_F(ServerTorchValidation, UnownedTorchAndUnrelatedTorchInstancesRemainRejected) {
   auto& actor = server.GetCharacter(first)->get();
-  Hold(201);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  Hold("ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
   ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
-  Hold(202);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  Hold("OTHER_TORCH");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
   EXPECT_EQ(actor.InventoryCount("OTHER_TORCH"), 0);
 }
 
 TEST_F(ServerTorchValidation, OneOwnedTorchCannotProduceTwoBurningHandObjects) {
   ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
-  Hold(201, 201);
+  Hold("ITLSTORCHBURNING", "ITLSTORCHBURNING");
   const auto& actor = server.GetCharacter(first)->get();
-  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
-  Hold(201, 200);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 201);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
-  Hold(200, 201);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 200);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
-}
-
-TEST_F(ServerTorchValidation, BurningAliasRequiresTorchMetadataOnItsBackingItem) {
-  Write(R"({"items":[{"instance":"ITLSTORCH","index":200,"mainflag":1,"flags":0},
-                    {"instance":"ITLSTORCHBURNING","index":201,"mainflag":1,"flags":268435456}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
-  ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
-  Hold(201);
-  EXPECT_EQ(server.GetCharacter(first)->get().state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, "ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
+  Hold("ITLSTORCHBURNING", "ITLSTORCH");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
+  Hold("ITLSTORCH", "ITLSTORCHBURNING");
+  EXPECT_EQ(actor.state.left_hand_item_instance, "ITLSTORCH");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
 }
 
 TEST_F(ServerTorchValidation, RemovingLastBackingTorchImmediatelyClearsItsBurningPresentation) {
   ASSERT_TRUE(server.GiveItem(first, "ITLSTORCH", 1));
-  Hold(201);
-  ASSERT_EQ(server.GetCharacter(first)->get().state.left_hand_item_instance, 201);
+  Hold("ITLSTORCHBURNING");
+  ASSERT_EQ(server.GetCharacter(first)->get().state.left_hand_item_instance, "ITLSTORCHBURNING");
   ASSERT_TRUE(server.RemoveItem(first, "ITLSTORCH", 1));
   const auto& actor = server.GetCharacter(first)->get();
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
   EXPECT_EQ(actor.InventoryCount("ITLSTORCH"), 0);
 }
 
@@ -1219,12 +1153,6 @@ class ServerWeaponModeValidation : public ServerActorValidation {
 protected:
   void SetUp() override {
     ServerActorValidation::SetUp();
-    Write(R"({"items":[{"instance":"BOW","index":200,"mainflag":4,"flags":524288},
-                      {"instance":"CROSSBOW","index":201,"mainflag":4,"flags":1048576},
-                      {"instance":"SWORD","index":202,"mainflag":2,"flags":16384},
-                      {"instance":"TWOHANDER","index":203,"mainflag":2,"flags":65536},
-                      {"instance":"TORCH","index":204,"mainflag":1,"flags":268435456}]})");
-    ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
     for (const auto id : {first, npc_id}) {
       auto& actor = server.GetCharacter(id)->get();
       for (const auto* instance : {"BOW", "CROSSBOW", "SWORD", "TWOHANDER", "TORCH"}) ASSERT_TRUE(actor.AddInventory(instance, 1));
@@ -1235,30 +1163,30 @@ protected:
 TEST_F(ServerWeaponModeValidation, DrawSheathAndDirectSwitchesKeepModesAndHandsTogetherForPlayersAndNpcs) {
   for (const auto id : {first, npc_id}) {
     auto& actor = server.GetCharacter(id)->get();
-    actor.state.melee_weapon_instance = 202;
-    actor.state.ranged_weapon_instance = 200;
+    actor.state.melee_weapon_instance = "SWORD";
+    actor.state.ranged_weapon_instance = "BOW";
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 5));
     EXPECT_EQ(actor.state.weapon_mode, 5);
-    EXPECT_EQ(actor.state.left_hand_item_instance, 200);
-    EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.left_hand_item_instance, "BOW");
+    EXPECT_EQ(actor.state.right_hand_item_instance, "");
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 0));
     EXPECT_EQ(actor.state.weapon_mode, 0);
-    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-    EXPECT_EQ(actor.state.ranged_weapon_instance, 200);
+    EXPECT_EQ(actor.state.left_hand_item_instance, "");
+    EXPECT_EQ(actor.state.ranged_weapon_instance, "BOW");
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 5));
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 3));
-    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-    EXPECT_EQ(actor.state.right_hand_item_instance, 202);
-    actor.state.ranged_weapon_instance = 201;
+    EXPECT_EQ(actor.state.left_hand_item_instance, "");
+    EXPECT_EQ(actor.state.right_hand_item_instance, "SWORD");
+    actor.state.ranged_weapon_instance = "CROSSBOW";
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 6));
-    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-    EXPECT_EQ(actor.state.right_hand_item_instance, 201);
-    actor.state.melee_weapon_instance = 203;
+    EXPECT_EQ(actor.state.left_hand_item_instance, "");
+    EXPECT_EQ(actor.state.right_hand_item_instance, "CROSSBOW");
+    actor.state.melee_weapon_instance = "TWOHANDER";
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 4));
-    EXPECT_EQ(actor.state.right_hand_item_instance, 203);
+    EXPECT_EQ(actor.state.right_hand_item_instance, "TWOHANDER");
     ASSERT_TRUE(server.SetCharacterWeaponMode(id, 1));
-    EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-    EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+    EXPECT_EQ(actor.state.left_hand_item_instance, "");
+    EXPECT_EQ(actor.state.right_hand_item_instance, "");
     for (const auto* instance : {"BOW", "CROSSBOW", "SWORD", "TWOHANDER"}) EXPECT_EQ(actor.InventoryCount(instance), 1);
   }
 }
@@ -1266,27 +1194,29 @@ TEST_F(ServerWeaponModeValidation, DrawSheathAndDirectSwitchesKeepModesAndHandsT
 TEST_F(ServerWeaponModeValidation, RepeatedNoneRepairsStaleWeaponsWithoutRemovingOtherHeldItems) {
   auto& actor = server.GetCharacter(first)->get();
   actor.state.weapon_mode = 0;
-  actor.state.left_hand_item_instance = 200;
-  actor.state.right_hand_item_instance = 202;
+  actor.state.ranged_weapon_instance = "BOW";
+  actor.state.melee_weapon_instance = "SWORD";
+  actor.state.left_hand_item_instance = "BOW";
+  actor.state.right_hand_item_instance = "SWORD";
   ASSERT_TRUE(server.SetCharacterWeaponMode(first, 0));
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
-  actor.state.left_hand_item_instance = 204;
-  actor.state.right_hand_item_instance = 202;
-  actor.state.active_spell_instance = 150;
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
+  actor.state.left_hand_item_instance = "TORCH";
+  actor.state.right_hand_item_instance = "SWORD";
+  actor.state.active_spell_instance = "ITRU_TEST";
   actor.state.active_spell_level = 2;
   actor.state.spell_investing = true;
   ASSERT_TRUE(server.SetCharacterWeaponMode(first, 0));
-  EXPECT_EQ(actor.state.left_hand_item_instance, 204);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
-  EXPECT_EQ(actor.state.active_spell_instance, 0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, "TORCH");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
+  EXPECT_EQ(actor.state.active_spell_instance, "");
   EXPECT_EQ(actor.state.active_spell_level, 0);
   EXPECT_FALSE(actor.state.spell_investing);
 }
 
 TEST_F(ServerWeaponModeValidation, CounterstrikeStyleModeOverrideKeepsTheNestedCommandState) {
   auto& actor = server.GetCharacter(first)->get();
-  actor.state.ranged_weapon_instance = 200;
+  actor.state.ranged_weapon_instance = "BOW";
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerWeaponModeChangeName, [&](std::any event) {
     const auto change = std::any_cast<OnPlayerWeaponModeChangeEvent>(event);
     if (change.player_id == first && change.new_mode == 5)
@@ -1294,8 +1224,8 @@ TEST_F(ServerWeaponModeValidation, CounterstrikeStyleModeOverrideKeepsTheNestedC
   }));
   ASSERT_TRUE(server.SetCharacterWeaponMode(first, 5));
   EXPECT_EQ(actor.state.weapon_mode, 0);
-  EXPECT_EQ(actor.state.left_hand_item_instance, 0);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 0);
+  EXPECT_EQ(actor.state.left_hand_item_instance, "");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "");
 }
 
 TEST_F(ServerWeaponModeValidation, WeaponModeCallbackMayDestroyTheNpc) {
@@ -1318,8 +1248,8 @@ TEST_F(ServerInstanceValidation, PendingLoadoutDrawCommandSurvivesConstructorCom
   Send(70001, ready);
   EXPECT_FALSE(actor.instance_change);
   EXPECT_EQ(actor.state.weapon_mode, 3);
-  EXPECT_EQ(actor.state.melee_weapon_instance, 175);
-  EXPECT_EQ(actor.state.right_hand_item_instance, 175);
+  EXPECT_EQ(actor.state.melee_weapon_instance, "ITMW_TEST");
+  EXPECT_EQ(actor.state.right_hand_item_instance, "ITMW_TEST");
   EXPECT_EQ(actor.InventoryCount("ITMW_TEST"), 1);
 }
 
@@ -1331,14 +1261,14 @@ TEST_F(ServerActorValidation, WorldEntryNeverImportsNativeInventoryAndPreservesS
   ready.packet_type = Net::PT_PLAYER_WORLD_ENTER;
   ready.actor_generation = player.actor_generation;
   ready.world_name = player.world;
-  ready.inventory = {{99, 100000}, {150, 50}};
+  ready.inventory = {{"ITPO_TEST", 100000}, {"ITRU_TEST", 50}};
   Send(70001, ready);
   EXPECT_TRUE(player.npc_world_ready);
   EXPECT_TRUE(player.inventory_initialized);
   EXPECT_EQ(player.InventoryCount("ITPO_TEST"), 3);
   EXPECT_EQ(player.InventoryCount("ITRU_TEST"), 0);
   player.npc_world_ready = false;
-  ready.inventory = {{99, 1}};
+  ready.inventory = {{"ITPO_TEST", 1}};
   Send(70001, ready);
   EXPECT_EQ(player.InventoryCount("ITPO_TEST"), 3);
   EXPECT_EQ(player.InventoryCount("ITRU_TEST"), 0);
@@ -1356,7 +1286,7 @@ TEST_F(ServerActorValidation, UnownedItemUseCannotAssignNativeEffects) {
   use.command_revision = player.command_revision;
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
+  use.item_instance = "ITPO_TEST";
   use.quantity = 1;
   use.health_delta = use.mana_delta = 50;
   Send(70001, use);
@@ -1472,7 +1402,7 @@ TEST_F(ServerActorValidation, NaturalAttacksKeepValidMaskReachStrengthAndReplayB
   EXPECT_EQ(victim.health, 80);
 }
 
-TEST_F(ServerActorValidation, NaturalAttacksCannotBypassNpcHostAuthorityOrEquipmentProtection) {
+TEST_F(ServerActorValidation, NaturalAttacksKeepHostAuthorityWithoutCatalogProtectionCaps) {
   auto& attacker = server.GetNpcManager().GetNpc(npc_id)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   attacker.instance = "CUSTOM_ADDON_CREATURE";
@@ -1487,24 +1417,19 @@ TEST_F(ServerActorValidation, NaturalAttacksCannotBypassNpcHostAuthorityOrEquipm
   EXPECT_FALSE(attacker.last_hit_action_id.has_value());
   hit.control_epoch = attacker.control_epoch;
   ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
-  victim.state.equipped_armor_instance = 176;
+  victim.state.equipped_armor_instance = "ITAR_TEST";
   Send(70001, hit);
-  EXPECT_EQ(victim.health, 95);  // Retain the server's armor/minimum-damage bound.
+  EXPECT_EQ(victim.health, 90);  // Native damage already includes local armor effects.
 }
 
 TEST_F(ServerActorValidation, WeakPhysicalWeaponsCannotClipTheNativeMinimumBelowFive) {
-  Write(R"({"items":[{"instance":"ITMW_TEST","index":175,"mainflag":2,"flags":16384,
-                      "damage":{"total":0,"types":4},"range":50},
-                     {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
-                      "protections":[{"type":2,"value":1000}]}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
   auto& attacker = server.GetPlayerManager().GetPlayer(first)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   ASSERT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
   ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
-  attacker.state.melee_weapon_instance = 175;
+  attacker.state.melee_weapon_instance = "ITMW_TEST";
   attacker.state.weapon_mode = 3;
-  victim.state.equipped_armor_instance = 176;
+  victim.state.equipped_armor_instance = "ITAR_TEST";
   for (const int strength : {0, 1, 3}) {
     SCOPED_TRACE(strength);
     attacker.strength = strength;
@@ -1534,10 +1459,9 @@ TEST_F(ServerActorValidation, NaturalAttackMaskDoesNotReplaceDrawnWeaponOrPaidPr
   Send(70001, Hit(attacker, victim, 1, 4));  // No owned melee weapon.
   EXPECT_EQ(victim.health, 100);
   ASSERT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
-  attacker.state.melee_weapon_instance = 175;
-  Send(70001, Hit(attacker, victim, 1, 8));  // Edge weapon cannot claim fire damage.
-  EXPECT_EQ(victim.health, 100);
-  EXPECT_FALSE(attacker.last_hit_action_id.has_value());
+  attacker.state.melee_weapon_instance = "ITMW_TEST";
+  Send(70001, Hit(attacker, victim, 1, 8));  // Custom native weapon channels are accepted.
+  EXPECT_EQ(victim.health, 90);
   Send(70001, Hit(attacker, victim, 1, 4));
   EXPECT_EQ(victim.health, 90);
   attacker.last_hit_action_id.reset();
@@ -1566,7 +1490,7 @@ TEST_F(ServerActorValidation, NativeFinishingMoveKillsWithoutNormalDamageOrArmor
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   auto hit = FinishingMove(attacker, victim);
   ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
-  victim.state.equipped_armor_instance = 176;
+  victim.state.equipped_armor_instance = "ITAR_TEST";
   hit.damage = 0;
   hit.damage_type = 0;
   int hits = 0;
@@ -1604,9 +1528,9 @@ TEST_F(ServerActorValidation, FinishingMoveRequiresOwnedMeleeWeaponAndCanonicalU
   attacker.state.weapon_mode = 5;
   reject();
   attacker.state.weapon_mode = 3;
-  attacker.state.melee_weapon_instance = 99;
+  attacker.state.melee_weapon_instance = "UNOWNED_ITEM";
   reject();
-  attacker.state.melee_weapon_instance = 175;
+  attacker.state.melee_weapon_instance = "ITMW_TEST";
   ASSERT_TRUE(attacker.RemoveInventory("ITMW_TEST", 1));
   reject();
   ASSERT_TRUE(attacker.AddInventory("ITMW_TEST", 1));
@@ -1716,7 +1640,6 @@ TEST_F(ServerActorValidation, StandUpRetriesCurrentRevisionAfterMinimumRecoveryD
   player.flags |= PlayerManager::PL_UNCONCIOUS;
   player.state.life_state = PLAYER_LIFE_UNCONSCIOUS;
   player.state.body_state = 22 | 256;
-  player.state.animation = 43;
   player.state.animation_name = "S_WOUNDED";
   player.command_revision = 10;
   PlayerStandUpPacket recovery{};
@@ -1736,7 +1659,6 @@ TEST_F(ServerActorValidation, StandUpRetriesCurrentRevisionAfterMinimumRecoveryD
   EXPECT_EQ(player.health, 1);
   EXPECT_EQ(player.flags & PlayerManager::PL_UNCONCIOUS, 0);
   EXPECT_EQ(player.state.body_state, 256u);
-  EXPECT_EQ(player.state.animation, -1);
   EXPECT_TRUE(player.state.animation_name.empty());
   EXPECT_FALSE(player.CombatRevisionIsCurrent(recovery.command_revision));
 }
@@ -1768,13 +1690,11 @@ TEST_F(ServerActorValidation, ScriptedRecoveryClearsUnconsciousPoseAndRejectsOld
   player.flags |= PlayerManager::PL_UNCONCIOUS;
   player.state.life_state = PLAYER_LIFE_UNCONSCIOUS;
   player.state.body_state = 22;
-  player.state.animation = 43;
   player.state.animation_name = "S_WOUNDEDB";
   const auto old_revision = player.command_revision;
   EXPECT_TRUE(server.SetCharacterHealth(first, 20));
   EXPECT_EQ(player.state.life_state, PLAYER_LIFE_ALIVE);
   EXPECT_EQ(player.state.body_state, 0u);
-  EXPECT_EQ(player.state.animation, -1);
   EXPECT_TRUE(player.state.animation_name.empty());
   EXPECT_FALSE(player.CombatRevisionIsCurrent(old_revision));
 }
@@ -1795,23 +1715,19 @@ TEST_F(ServerActorValidation, ConsecutivePaidProjectilesSurviveWeaponSwitchAndCa
   EXPECT_TRUE(attacker.approved_projectiles.back().victims.contains(npc_id));
 }
 
-TEST_F(ServerActorValidation, NativeSpellDamageWithoutRuneDamageMetadataDoesNotKillAHealthyArmoredPlayer) {
-  Write(R"({"items":[{"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19},
-                      {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
-                       "protections":[{"type":5,"value":50}]}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+TEST_F(ServerActorValidation, NativeSpellDamageWorksWithoutRuneOrArmorMetadata) {
   auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
   auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
   victim.health = victim.max_health = victim.state.health_points = 1000;
   ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
-  victim.state.equipped_armor_instance = 176;
+  victim.state.equipped_armor_instance = "ITAR_TEST";
   CastSpellPacket cast{};
   cast.packet_type = Net::PT_CASTSPELL;
   cast.caster_id = npc_id;
   cast.actor_generation = caster.actor_generation;
   cast.control_epoch = caster.control_epoch;
   cast.action_id = 1;
-  cast.item_instance = 150;
+  cast.item_instance = "ITRU_TEST";
   cast.spell_id = 19;
   Send(70001, cast);
   ASSERT_EQ(caster.approved_projectiles.size(), 1u);
@@ -1825,17 +1741,12 @@ TEST_F(ServerActorValidation, NativeSpellDamageWithoutRuneDamageMetadataDoesNotK
   EXPECT_EQ(victim.health, 970);
 }
 
-TEST_F(ServerActorValidation, SpellDamageCapDoesNotSubtractArmorTwiceFromNativeDamage) {
-  Write(R"({"items":[{"instance":"ITRU_TEST","index":150,"mainflag":512,"flags":0,"spell":19,
-                      "damage":{"total":80,"types":32}},
-                     {"instance":"ITAR_TEST","index":176,"mainflag":16,"flags":0,
-                      "protections":[{"type":5,"value":50}]}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
+TEST_F(ServerActorValidation, SpellDamageDoesNotSubtractArmorTwiceFromNativeDamage) {
   auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
   auto& victim = server.GetCharacter(second)->get();
   victim.health = victim.max_health = victim.state.health_points = 1000;
   ASSERT_TRUE(victim.AddInventory("ITAR_TEST", 1));
-  victim.state.equipped_armor_instance = 176;
+  victim.state.equipped_armor_instance = "ITAR_TEST";
   CastSpellPacket cast{};
   cast.packet_type = Net::PT_CASTSPELL;
   cast.caster_id = npc_id;
@@ -1843,7 +1754,7 @@ TEST_F(ServerActorValidation, SpellDamageCapDoesNotSubtractArmorTwiceFromNativeD
   cast.control_epoch = caster.control_epoch;
   cast.command_revision = caster.command_revision;
   cast.action_id = 1;
-  cast.item_instance = 150;
+  cast.item_instance = "ITRU_TEST";
   cast.spell_id = 19;
   Send(70001, cast);
   auto hit = Hit(caster, victim, 2, 32);
@@ -1905,7 +1816,7 @@ TEST_F(ServerActorValidation, NpcUseRechecksHostAfterResourceCallback) {
   use.control_epoch = npc.control_epoch;
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
+  use.item_instance = "ITPO_TEST";
   use.quantity = 1;
   use.health_delta = 50;
   Send(70001, use);
@@ -1930,7 +1841,7 @@ TEST_F(ServerActorValidation, NpcCastRechecksHostAfterResourceCallback) {
   cast.actor_generation = npc.actor_generation;
   cast.control_epoch = npc.control_epoch;
   cast.action_id = 1;
-  cast.item_instance = 150;
+  cast.item_instance = "ITRU_TEST";
   cast.spell_id = 19;
   cast.mana_delta = -5;
   Send(70001, cast);
@@ -1951,7 +1862,7 @@ TEST_F(ServerActorValidation, InvalidSpellLevelCannotApproveAnAttackOrConsumeMan
   cast.actor_generation = caster.actor_generation;
   cast.control_epoch = caster.control_epoch;
   cast.action_id = 1;
-  cast.item_instance = 150;
+  cast.item_instance = "ITRU_TEST";
   cast.spell_id = 19;
   cast.spell_level = kMaxSpellInvestLevel + 1;
   cast.mana_delta = -5;
@@ -1966,9 +1877,6 @@ TEST_F(ServerActorValidation, InvalidSpellLevelCannotApproveAnAttackOrConsumeMan
 }
 
 TEST_F(ServerActorValidation, RejectedScrollTargetsSendFreshInventoryAndManaCorrections) {
-  Write(R"({"items":[{"instance":"ITSC_TEST","index":151,"mainflag":512,"flags":2097152,"spell":19,
-                     "damage":{"total":25,"types":32},"range":3000}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
   auto& caster = server.GetNpcManager().GetNpc(npc_id)->get();
   ASSERT_TRUE(caster.AddInventory("ITSC_TEST", 1));
   CastSpellPacket cast{};
@@ -1976,7 +1884,8 @@ TEST_F(ServerActorValidation, RejectedScrollTargetsSendFreshInventoryAndManaCorr
   cast.caster_id = npc_id;
   cast.actor_generation = caster.actor_generation;
   cast.control_epoch = caster.control_epoch;
-  cast.item_instance = 151;
+  cast.item_instance = "ITSC_TEST";
+  cast.scroll = true;
   cast.spell_id = 19;
   const auto reject = [&] {
     const auto revision = caster.command_revision;
@@ -2049,7 +1958,7 @@ TEST_F(ServerActorValidation, UnprofiledUseDispatchesBeforeOwnershipCheck) {
   use.control_epoch = npc.control_epoch;
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
+  use.item_instance = "ITPO_TEST";
   use.quantity = 4;  // The request is observable even though the actor owns only three.
   use.health_delta = 50;
   npc.health = npc.state.health_points = 10;
@@ -2075,7 +1984,7 @@ TEST_F(ServerActorValidation, ReusableItemUseDoesNotConsumeOrRequireAProfile) {
   use.control_epoch = npc.control_epoch;
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
+  use.item_instance = "ITPO_TEST";
   use.quantity = 0;
   use.mana_delta = 1000000;
   npc.mana = npc.state.mana_points = 20;
@@ -2084,128 +1993,95 @@ TEST_F(ServerActorValidation, ReusableItemUseDoesNotConsumeOrRequireAProfile) {
   EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 3);
 }
 
-TEST_F(ServerActorValidation, ItemCallbacksAreExplicitAndConsumeOnlyOnce) {
-  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  npc.health = npc.state.health_points = 10;
+TEST_F(ServerActorValidation, ScriptInventoryAndEquipmentAcceptNamesAbsentFromAnyCatalog) {
+  ASSERT_TRUE(server.GiveItem(first, "custom_potion", 3));
+  EXPECT_EQ(server.HasItem(first, "CUSTOM_POTION"), 3);
+  EXPECT_FALSE(server.GiveItem(first, "INVALID NAME", 1));
+  EXPECT_FALSE(server.GiveItem(first, std::string(256, 'A'), 1));
+  ASSERT_TRUE(server.EquipArmor(first, "custom_armor"));
+  EXPECT_EQ(server.GetCharacter(first)->get().state.equipped_armor_instance, "CUSTOM_ARMOR");
+  EXPECT_EQ(server.HasItem(first, "custom_armor"), 1);
+  ASSERT_TRUE(server.RemoveItem(first, "custom_armor", 1));
+  EXPECT_TRUE(server.GetCharacter(first)->get().state.equipped_armor_instance.empty());
+  EXPECT_TRUE(server.PlayAnimation(first, "CUSTOM_ANIMATION"));
+  EXPECT_TRUE(server.StopAnimation(first, "CUSTOM_ANIMATION"));
+}
+
+TEST_F(ServerActorValidation, GenericEquipmentCommitsOnlyTheCurrentControllersNamedAcknowledgement) {
+  ASSERT_TRUE(server.EquipItem(first, "CUSTOM_RING"));
+  auto& actor = server.GetCharacter(first)->get();
+  ASSERT_TRUE(actor.pending_equipment_commands.contains(Net::EQUIP_SLOT_GENERIC));
+  const auto command = actor.pending_equipment_commands.at(Net::EQUIP_SLOT_GENERIC);
+  EquipmentResultPacket result;
+  result.actor_id = first;
+  result.actor_generation = actor.actor_generation;
+  result.command_revision = command.command_revision;
+  result.item_instance = result.observed_instance = "CUSTOM_RING";
+  result.observed_slot = Net::EQUIP_SLOT_RING_RIGHT;
+  result.success = true;
+  Send(70002, result);
+  EXPECT_TRUE(actor.state.equipped_ring_right_instance.empty());
+  EXPECT_TRUE(actor.pending_equipment_commands.contains(Net::EQUIP_SLOT_GENERIC));
+  Send(70001, result);
+  EXPECT_EQ(actor.state.equipped_ring_right_instance, "CUSTOM_RING");
+  EXPECT_FALSE(actor.pending_equipment_commands.contains(Net::EQUIP_SLOT_GENERIC));
+  EXPECT_TRUE(actor.generic_equipment_requests.empty());
+  ASSERT_TRUE(server.UnequipItem(first, "CUSTOM_RING"));
+  Send(70001, result);
+  EXPECT_TRUE(actor.state.equipped_ring_right_instance.empty());
+}
+
+TEST_F(ServerActorValidation, GenericNpcEquipmentWaitsForAHostWithoutGuessingItsSlot) {
+  ASSERT_TRUE(server.SetNpcHostPlayer(npc_id, 0));
+  ASSERT_TRUE(server.EquipItem(npc_id, "CUSTOM_ARMOR"));
+  ASSERT_TRUE(server.EquipItem(npc_id, "CUSTOM_WEAPON"));
+  const auto& npc = server.GetCharacter(npc_id)->get();
+  EXPECT_EQ(npc.generic_equipment_requests, (std::vector<std::string>{"CUSTOM_ARMOR", "CUSTOM_WEAPON"}));
+  EXPECT_TRUE(npc.pending_equipment_commands.empty());
+  EXPECT_TRUE(npc.state.equipped_armor_instance.empty());
+  EXPECT_TRUE(npc.state.melee_weapon_instance.empty());
+}
+
+TEST_F(ServerActorValidation, EquipmentEventsCanReplaceCancelledRequestsWithoutReenteringTheHandler) {
+  int requests = 0;
+  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerEquipRingName, [&](std::any) {
+    ++requests;
+    EXPECT_TRUE(server.EquipItem(npc_id, "CUSTOM_RING", Net::EQUIP_SLOT_RING_RIGHT));
+    EventManager::Instance().CancelCurrentEvent();
+  }));
+  EXPECT_FALSE(server.EquipItem(npc_id, "CUSTOM_RING", Net::EQUIP_SLOT_RING_LEFT));
+  const auto& npc = server.GetCharacter(npc_id)->get();
+  EXPECT_EQ(requests, 1);
+  EXPECT_TRUE(npc.state.equipped_ring_left_instance.empty());
+  EXPECT_EQ(npc.state.equipped_ring_right_instance, "CUSTOM_RING");
+}
+
+TEST_F(ServerActorValidation, LuaItemEventsReceiveNamesAndCanCancelUseWithoutDefinitionClasses) {
   LuaScript script;
   auto& lua = script.GetLuaState();
-  lua["test_actor_id"] = npc_id;
   ASSERT_TRUE(lua.safe_script(R"(
-    callback_calls = 0
-    assert(ItemCallbacks.setOnUse('ITPO_TEST', function(id, quantity, target)
-      assert(id == test_actor_id and quantity == 1 and target == nil)
-      callback_calls = callback_calls + 1
-      assert(removeItem(id, 'ITPO_TEST', quantity))
-      assert(setPlayerHealth(id, getPlayerHealth(id) + 7))
-    end))
-    local item = ItemDefinition.getByInstance('ITPO_TEST')
-    assert(type(item.onUse) == 'function')
-    assert(not pcall(function() item.onUse = function() end end))
-    assert(not pcall(function() item.instance = 'OTHER' end))
-    assert(not ItemCallbacks.setOnUse('UNKNOWN', function() end))
-    assert(not ItemCallbacks.setOnEquip('ITPO_TEST', 12))
-  )",
-                              sol::script_pass_on_error)
-                  .valid());
+    assert(ItemDefinition == nil and ItemCallbacks == nil)
+    addEventHandler('onPlayerUseItem', function(id, instance, quantity, scheme)
+      assert(instance == 'CUSTOM_POTION' and quantity == 1 and scheme == 'POTION')
+      received_instance = instance
+      cancelEvent()
+    end)
+  )", sol::script_pass_on_error).valid());
+  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
+  ASSERT_TRUE(npc.AddInventory("CUSTOM_POTION", 2));
   ActorActionPacket use;
   use.actor_id = npc_id;
   use.actor_generation = npc.actor_generation;
   use.control_epoch = npc.control_epoch;
-  use.action_id = 1;
-  use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
-  use.quantity = 1;
-  use.health_delta = 50;
-  Send(70001, use);
-  EXPECT_EQ(npc.health, 60);
-  EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 2);
-  EXPECT_EQ(lua["callback_calls"].get<int>(), 0);
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any event) {
-    EventManager::Instance().CancelCurrentEvent();
-    const auto request = std::any_cast<OnPlayerUseItemEvent>(event);
-    sol::protected_function callback = lua::bindings::LuaItemDefinition("ITPO_TEST").getOnUse(sol::this_state{lua.lua_state()});
-    EXPECT_TRUE(callback(request.player_id, request.quantity, sol::nil).valid());
-  }));
-  use.action_id = 2;
   use.command_revision = npc.command_revision;
-  Send(70001, use);
-  EXPECT_EQ(npc.health, 67);
-  EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 1);
-  EXPECT_EQ(lua["callback_calls"].get<int>(), 1);
-}
-
-TEST_F(ServerActorValidation, CancelledUseDoesNotCallRegisteredCallbackOrConsume) {
-  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  LuaScript script;
-  auto& lua = script.GetLuaState();
-  ASSERT_TRUE(lua.safe_script(R"(
-    callback_calls = 0
-    assert(ItemCallbacks.setOnUse('ITPO_TEST', function() callback_calls = callback_calls + 1 end))
-  )",
-                              sol::script_pass_on_error)
-                  .valid());
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerUseItemName, [&](std::any) { EventManager::Instance().CancelCurrentEvent(); }));
-  ActorActionPacket use;
-  use.actor_id = npc_id;
-  use.actor_generation = npc.actor_generation;
-  use.control_epoch = npc.control_epoch;
   use.action_id = 1;
   use.kind = ActorActionKind::ItemUse;
-  use.item_instance = 99;
+  use.item_instance = "custom_potion";
+  use.scheme = "POTION";
   use.quantity = 1;
-  use.health_delta = 50;
   Send(70001, use);
-  EXPECT_EQ(lua["callback_calls"].get<int>(), 0);
-  EXPECT_EQ(npc.InventoryCount("ITPO_TEST"), 3);
-}
-
-TEST_F(ServerActorValidation, ItemCallbacksAreRemovedBeforeTheirLuaStateCloses) {
-  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  {
-    LuaScript script;
-    ASSERT_TRUE(script.GetLuaState()
-                    .safe_script("assert(ItemCallbacks.setOnUse('ITPO_TEST', function() return false end))", sol::script_pass_on_error)
-                    .valid());
-    EXPECT_TRUE(lua::bindings::InvokeItemCallback("ITPO_TEST", lua::bindings::ItemCallback::Use, npc_id, 1).handled);
-  }
-  EXPECT_FALSE(lua::bindings::InvokeItemCallback("ITPO_TEST", lua::bindings::ItemCallback::Use, npc_id, 1).handled);
-}
-
-TEST_F(ServerActorValidation, ExplicitCancelledCastCallbackControlsMana) {
-  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  auto& victim = server.GetPlayerManager().GetPlayer(second)->get();
-  LuaScript script;
-  auto& lua = script.GetLuaState();
-  lua["test_target_id"] = second;
-  ASSERT_TRUE(lua.safe_script(R"(
-    assert(ItemCallbacks.setOnUse('ITRU_TEST', function(id, quantity, target)
-      assert(quantity == 0 and target == test_target_id)
-      setPlayerMana(id, getPlayerMana(id) - 12)
-    end))
-  )",
-                              sol::script_pass_on_error)
-                  .valid());
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerCastSpellName, [&](std::any event) {
-    EventManager::Instance().CancelCurrentEvent();
-    const auto request = std::any_cast<OnPlayerCastSpellEvent>(event);
-    sol::protected_function callback = lua::bindings::LuaItemDefinition("ITRU_TEST").getOnUse(sol::this_state{lua.lua_state()});
-    EXPECT_TRUE(callback(request.caster_id, 0, request.target_id.value()).valid());
-  }));
-  CastSpellPacket cast{};
-  cast.packet_type = Net::PT_CASTSPELLONTARGET;
-  cast.caster_id = npc_id;
-  cast.actor_generation = npc.actor_generation;
-  cast.control_epoch = npc.control_epoch;
-  cast.action_id = 1;
-  cast.item_instance = 150;
-  cast.spell_id = 19;
-  cast.mana_delta = -5;
-  cast.target_id = second;
-  cast.target_generation = victim.actor_generation;
-  Send(70001, cast);
-  EXPECT_EQ(npc.mana, 88);
-  EXPECT_EQ(npc.InventoryCount("ITRU_TEST"), 1);
-  EXPECT_TRUE(npc.approved_projectiles.empty());
+  EXPECT_EQ(lua["received_instance"].get<std::string>(), "CUSTOM_POTION");
+  EXPECT_EQ(npc.InventoryCount("CUSTOM_POTION"), 2);
 }
 
 TEST_F(ServerActorValidation, NativeCastDeltaPreservesNewerManaCommandsAndConsecutiveCasts) {
@@ -2216,7 +2092,7 @@ TEST_F(ServerActorValidation, NativeCastDeltaPreservesNewerManaCommandsAndConsec
   cast.actor_generation = npc.actor_generation;
   cast.control_epoch = npc.control_epoch;
   cast.command_revision = npc.command_revision;
-  cast.item_instance = 150;
+  cast.item_instance = "ITRU_TEST";
   cast.spell_id = 19;
   cast.mana_delta = -5;
   ASSERT_TRUE(server.SetCharacterMana(npc_id, 80));
@@ -2230,15 +2106,13 @@ TEST_F(ServerActorValidation, NativeCastDeltaPreservesNewerManaCommandsAndConsec
 }
 
 TEST_F(ServerActorValidation, CancelledNativeEquipmentRequestKeepsPreviousEquipment) {
-  Write(R"({"items":[{"instance":"ITRI_TEST","index":152,"mainflag":1,"flags":2048}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
   auto& actor = server.GetPlayerManager().GetPlayer(first)->get();
   ASSERT_TRUE(actor.AddInventory("ITRI_TEST", 1));
   int requests = 0;
   ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerEquipRingName, [&](std::any event) {
     const auto request = std::any_cast<OnPlayerEquipRingEvent>(event);
-    EXPECT_EQ(request.item_index, 152);
-    EXPECT_FALSE(request.previous_item_index);
+    EXPECT_EQ(request.item_instance, "ITRI_TEST");
+    EXPECT_FALSE(request.previous_item_instance);
     ++requests;
     EventManager::Instance().CancelCurrentEvent();
   }));
@@ -2251,52 +2125,36 @@ TEST_F(ServerActorValidation, CancelledNativeEquipmentRequestKeepsPreviousEquipm
   packet.state = actor.state;
   packet.state.nrot = {0, 0, 1};
   packet.state.source_time_ms = 1000;
-  packet.state.equipped_ring_left_instance = 152;
+  packet.state.equipped_ring_left_instance = "ITRI_TEST";
   Send(70001, packet);
   EXPECT_EQ(requests, 1);
-  EXPECT_EQ(actor.state.equipped_ring_left_instance, 0);
+  EXPECT_EQ(actor.state.equipped_ring_left_instance, "");
   EXPECT_EQ(actor.InventoryCount("ITRI_TEST"), 1);
 }
 
-TEST_F(ServerActorValidation, ExplicitEquipmentCallbacksCanAssignCancelledRequestsWithoutRecursion) {
-  Write(R"({"items":[{"instance":"ITRI_TEST","index":152,"mainflag":1,"flags":2048}]})");
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(path));
-  auto& npc = server.GetNpcManager().GetNpc(npc_id)->get();
-  ASSERT_TRUE(npc.AddInventory("ITRI_TEST", 2));
+TEST(ServerActorLuaBindings, AnimationGetterReturnsReportedNamesForPlayersAndNpcs) {
+  GameServer server;
   LuaScript script;
   auto& lua = script.GetLuaState();
+  const auto player_id = server.GetPlayerManager().AddPlayer(70001, "Animated player", 1);
+  const auto npc_id = server.CreateNpc("Animated NPC");
+  ASSERT_NE(player_id, 0u);
+  ASSERT_NE(npc_id, 0u);
+  lua["test_player_id"] = player_id;
+  lua["test_npc_id"] = npc_id;
   ASSERT_TRUE(lua.safe_script(R"(
-    transitions = {}
-    assert(ItemCallbacks.setOnEquip('ITRI_TEST', function(id, slot)
-      table.insert(transitions, 'equip:' .. slot)
-      assert(equipItem(id, 'ITRI_TEST', slot))
-    end))
-    assert(ItemCallbacks.setOnUnequip('ITRI_TEST', function(id, slot)
-      table.insert(transitions, 'unequip:' .. slot)
-      assert(unequipItem(id, 'ITRI_TEST', slot))
-    end))
-  )",
-                              sol::script_pass_on_error)
-                  .valid());
-  ASSERT_TRUE(server.EquipItem(npc_id, "ITRI_TEST", Net::EQUIP_SLOT_RING_LEFT));
-  EXPECT_EQ(lua["transitions"].get<sol::table>().size(), 0u);
-  ASSERT_TRUE(EventManager::Instance().SubscribeToEvent(kEventOnPlayerEquipRingName, [&](std::any event) {
-    const auto request = std::any_cast<OnPlayerEquipRingEvent>(event);
-    EventManager::Instance().CancelCurrentEvent();
-    lua::bindings::LuaItemDefinition item("ITRI_TEST");
-    sol::protected_function callback =
-        request.item_index ? item.getOnEquip(sol::this_state{lua.lua_state()}) : item.getOnUnequip(sol::this_state{lua.lua_state()});
-    EXPECT_TRUE(callback(request.player_id, request.ring_slot == 0 ? Net::EQUIP_SLOT_RING_LEFT : Net::EQUIP_SLOT_RING_RIGHT).valid());
-  }));
-  EXPECT_FALSE(server.EquipItem(npc_id, "ITRI_TEST", Net::EQUIP_SLOT_RING_RIGHT));
-  EXPECT_EQ(npc.state.equipped_ring_right_instance, 152);
-  EXPECT_FALSE(server.UnequipItem(npc_id, "ITRI_TEST", Net::EQUIP_SLOT_RING_LEFT));
-  EXPECT_EQ(npc.state.equipped_ring_left_instance, 0);
-  EXPECT_EQ(npc.state.equipped_ring_right_instance, 152);
-  auto transitions = lua["transitions"].get<sol::table>();
-  ASSERT_EQ(transitions.size(), 2u);
-  EXPECT_EQ(transitions[1].get<std::string>(), "equip:-10");
-  EXPECT_EQ(transitions[2].get<std::string>(), "unequip:-9");
+    assert(type(getPlayerAni) == 'function' and getPlayerAniId == nil)
+    assert(getPlayerAni(test_player_id) == nil and getPlayerAni(test_npc_id) == nil)
+    assert(getPlayerAni(0) == nil)
+  )", sol::script_pass_on_error).valid());
+  server.GetCharacter(player_id)->get().state.animation_name = "S_CUSTOM_PLAYER_POSE";
+  server.GetCharacter(npc_id)->get().state.animation_name = "S_CUSTOM_NPC_POSE";
+  ASSERT_TRUE(lua.safe_script(R"(
+    assert(getPlayerAni(test_player_id) == 'S_CUSTOM_PLAYER_POSE')
+    assert(getPlayerAni(test_npc_id) == 'S_CUSTOM_NPC_POSE')
+  )", sol::script_pass_on_error).valid());
+  server.GetCharacter(player_id)->get().state.animation_name.clear();
+  EXPECT_TRUE(lua.safe_script("assert(getPlayerAni(test_player_id) == nil)", sol::script_pass_on_error).valid());
 }
 
 TEST(ServerActorLuaBindings, FunctionsAndConstantsUseProductionBindings) {
@@ -2344,6 +2202,7 @@ TEST(ServerActorLuaBindings, FunctionsAndConstantsUseProductionBindings) {
     local missingAction, missingError = queueNpcAnimation(npc, 'T_STAND_2_SIT')
     assert(missingAction == nil and type(missingError.message) == 'string')
     assert(setItemUseProfile == nil and setItemSpellProfile == nil)
+    assert(ItemCallbacks == nil and ItemDefinition == nil)
   )",
                                            sol::script_pass_on_error);
   ASSERT_TRUE(definitions.valid());

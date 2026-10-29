@@ -25,7 +25,6 @@ SOFTWARE.
 #include "resource_manager.h"
 
 #include "Lua/event_bind.h"
-#include "Lua/lua_item_definition.h"
 
 #include <spdlog/spdlog.h>
 
@@ -255,7 +254,6 @@ ResourceManager::~ResourceManager() {
   // EventManager outlives Lua states; release callbacks while their state still exists.
   for (const auto& [name, resource] : resources_) {
     lua::bindings::RemoveHandlersForResource(name);
-    lua::bindings::RemoveItemCallbacksForResource(name);
   }
   if (active_instance_ == this) {
     active_instance_ = nullptr;

@@ -50,7 +50,6 @@ struct Response;
 }  // namespace httplib
 
 #include "Script.h"
-#include "animation_registry.h"
 #include "ban_manager.h"
 #include "client_resource_packager.h"
 #include "common_structs.h"
@@ -58,7 +57,6 @@ struct Response;
 #include "gothic_clock.h"
 #include "gothic_weather.h"
 #include "item_ground_manager.h"
-#include "item_registry.h"
 #include "npc_manager.h"
 #include "player_manager.h"
 #include "resource_manager.h"
@@ -230,10 +228,6 @@ public:
     return item_ground_manager_;
   }
 
-  const ItemRegistry& GetItemRegistry() const {
-    return item_registry_;
-  }
-
   PlayerManager& GetPlayerManager() {
     return player_manager_;
   }
@@ -273,8 +267,9 @@ private:
   void HandleTakeItem(Packet p);
   void HandleEquipmentResult(Packet p);
   void ProcessEquipmentCommands();
+  void ProcessGenericEquipment(PlayerId player_id);
   void CompleteEquipmentCommand(PlayerId player_id, EquipmentSlot slot, bool success);
-  void SendEquipmentCorrection(Character& character, EquipmentSlot slot, std::int32_t rejected_instance = 0);
+  void SendEquipmentCorrection(Character& character, EquipmentSlot slot, const std::string& rejected_instance = std::string{});
   std::optional<EquipmentSlot> PacketEquipmentSlot(std::int16_t slot_id) const;
   bool InitializePlayerInventory(Player& player, const std::vector<InventoryEntry>& inventory);
   void HandlePlayerWorldEnter(Packet p);
@@ -328,20 +323,18 @@ private:
   void StreamRelevantGroundItemsToPlayer(Player& player, bool force = false);
   void UnstreamGroundItemsFromPlayer(Player& player, bool notify_client);
   void RefreshItemGroundStreaming(ItemGroundManager::ItemGround& item_ground);
-  void SendItemTransactionResult(Character& player, std::uint32_t request_id, std::int32_t item_instance,
+  void SendItemTransactionResult(Character& player, std::uint32_t request_id, const std::string& item_instance,
                                  bool accepted, std::optional<std::uint32_t> item_ground_id = std::nullopt);
-  void ClearRemovedEquipment(Character& character, std::int32_t item_index, std::int32_t remaining_amount);
+  void ClearRemovedEquipment(Character& character, const std::string& item_instance, std::int32_t remaining_amount);
   bool EquipItemInSlot(PlayerId player_id, const std::string& instance, EquipmentSlot slot);
   bool UnequipItemInSlot(PlayerId player_id, EquipmentSlot slot);
-  bool IsValidEquipmentItem(const ItemRegistry::Item& item, EquipmentSlot slot) const;
   std::int16_t EquipmentSlotPacketId(EquipmentSlot slot) const;
-  std::int32_t& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
-  std::optional<std::int32_t>& PendingEquipmentStateField(Character& player, EquipmentSlot slot) const;
-  bool TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::int32_t> item_index,
-                             std::optional<std::int32_t> previous_index = std::nullopt);
+  std::string& EquipmentStateField(PlayerState& state, EquipmentSlot slot) const;
+  std::optional<std::string>& PendingEquipmentStateField(Character& player, EquipmentSlot slot) const;
+  bool TriggerEquipmentEvent(PlayerId player_id, EquipmentSlot slot, std::optional<std::string> item_instance,
+                             std::optional<std::string> previous_instance = std::nullopt);
   std::optional<std::string> ResolveItemInstance(std::string instance) const;
-  std::int32_t ResolveItemIndex(PlayerId player_id, std::int32_t index, const char* field_name) const;
-  void ResolvePlayerStateItemIndexes(PlayerId player_id, PlayerState& state) const;
+  void NormalizePlayerStateInstances(PlayerState& state) const;
   void ValidatePlayerEquipment(Character& character, PlayerState& incoming) const;
   std::optional<std::reference_wrapper<Player>> GetIngamePlayerByConnection(Net::ConnectionHandle connection);
 
@@ -368,8 +361,7 @@ private:
   // hold references that Lua may invalidate by destroying an NPC.
   std::vector<std::function<void()>> pending_npc_events_;
   std::unordered_set<std::string> unloading_npc_resources_;
-  AnimationRegistry animation_registry_;
-  ItemRegistry item_registry_;
+  std::unordered_set<PlayerId> equipment_event_actors_;
   SummonRegistry summon_registry_;
   ItemGroundManager item_ground_manager_;
   bool allow_modification = false;

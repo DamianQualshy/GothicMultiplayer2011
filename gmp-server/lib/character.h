@@ -97,8 +97,13 @@ struct Character {
   }
 
   bool AddInventory(const std::string& instance, std::int32_t amount) {
-    if (instance.empty() || amount <= 0 || InventoryCount(instance) > std::numeric_limits<std::int32_t>::max() - amount) return false;
-    if (!inventory.contains(instance) && inventory.size() >= kMaxInventoryEntries) return false;
+    if (!gmp::IsValidScriptName(instance) || amount <= 0 || InventoryCount(instance) > std::numeric_limits<std::int32_t>::max() - amount) return false;
+    if (!inventory.contains(instance)) {
+      if (inventory.size() >= kMaxInventoryEntries) return false;
+      std::size_t name_bytes = instance.size();
+      for (const auto& [name, _] : inventory) name_bytes += name.size();
+      if (name_bytes > kMaxInventoryNameBytes) return false;
+    }
     inventory[instance] = InventoryCount(instance) + amount;
     return true;
   }
@@ -141,19 +146,20 @@ struct Character {
   };
   std::optional<Transformation> transformation;
   std::uint32_t state_sequence{0};
-  std::optional<std::int32_t> pending_equipped_armor_instance;
-  std::optional<std::int32_t> pending_equipped_helmet_instance;
-  std::optional<std::int32_t> pending_equipped_shield_instance;
-  std::optional<std::int32_t> pending_melee_weapon_instance;
-  std::optional<std::int32_t> pending_ranged_weapon_instance;
-  std::optional<std::int32_t> pending_equipped_amulet_instance;
-  std::optional<std::int32_t> pending_equipped_belt_instance;
-  std::optional<std::int32_t> pending_equipped_ring_left_instance;
-  std::optional<std::int32_t> pending_equipped_ring_right_instance;
+  std::optional<std::string> pending_equipped_armor_instance;
+  std::optional<std::string> pending_equipped_helmet_instance;
+  std::optional<std::string> pending_equipped_shield_instance;
+  std::optional<std::string> pending_melee_weapon_instance;
+  std::optional<std::string> pending_ranged_weapon_instance;
+  std::optional<std::string> pending_equipped_amulet_instance;
+  std::optional<std::string> pending_equipped_belt_instance;
+  std::optional<std::string> pending_equipped_ring_left_instance;
+  std::optional<std::string> pending_equipped_ring_right_instance;
+  std::vector<std::string> generic_equipment_requests;
   struct EquipmentCommand {
     std::uint32_t command_revision{0};
-    std::int32_t expected_instance{0};
-    std::int32_t previous_instance{0};
+    std::string expected_instance;
+    std::string previous_instance;
     std::chrono::steady_clock::time_point deadline;
   };
   std::unordered_map<std::int16_t, EquipmentCommand> pending_equipment_commands;

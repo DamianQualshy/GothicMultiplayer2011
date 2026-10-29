@@ -37,10 +37,11 @@ SOFTWARE.
 #include <bitsery/ext/std_optional.h>
 
 #include "actor_sync.h"
+#include "script_names.h"
 
 using PlayerID = std::uint32_t;
 
-constexpr std::size_t kMaxPlayerAnimationNameLength = 128;
+constexpr std::size_t kMaxPlayerAnimationNameLength = gmp::kMaxAnimationNameLength;
 constexpr std::size_t kMaxChatMessageLength = 1024;
 
 enum PlayerAttributeId : std::uint8_t {
@@ -68,17 +69,16 @@ struct PlayerState {
   glm::vec3 position{0.0f};
   // Gothic forward/at vector on the horizontal plane.
   glm::vec3 nrot{0.0f};
-  // Live zCParser symbol indexes for the active game session. Zero means none.
-  std::int32_t left_hand_item_instance{0};
-  std::int32_t right_hand_item_instance{0};
-  std::int32_t equipped_armor_instance{0};
-  std::int32_t equipped_helmet_instance{0};
-  std::int32_t equipped_shield_instance{0};
-  std::int32_t equipped_amulet_instance{0};
-  std::int32_t equipped_belt_instance{0};
-  std::int32_t equipped_ring_left_instance{0};
-  std::int32_t equipped_ring_right_instance{0};
-  std::int16_t animation{-1};
+  // Instance names are resolved against each client's own parser. Empty means none.
+  std::string left_hand_item_instance;
+  std::string right_hand_item_instance;
+  std::string equipped_armor_instance;
+  std::string equipped_helmet_instance;
+  std::string equipped_shield_instance;
+  std::string equipped_amulet_instance;
+  std::string equipped_belt_instance;
+  std::string equipped_ring_left_instance;
+  std::string equipped_ring_right_instance;
   std::string animation_name;
   std::int32_t health_points{0};
   std::int32_t mana_points{0};
@@ -87,12 +87,12 @@ struct PlayerState {
   std::uint8_t weapon_mode{0};
   // 1-based spellbook hotkey (0 means none), not oCNpc::GetActiveSpellNr().
   std::uint8_t active_spell_nr{0};
-  std::int32_t active_spell_instance{0};
+  std::string active_spell_instance;
   std::uint8_t active_spell_level{0};
   bool spell_investing{false};
   std::uint8_t head_direction{0};
-  std::int32_t melee_weapon_instance{0};
-  std::int32_t ranged_weapon_instance{0};
+  std::string melee_weapon_instance;
+  std::string ranged_weapon_instance;
   std::uint32_t body_state{0};
   std::uint8_t walk_mode{0};
   float look_yaw{0.5f};
@@ -106,16 +106,15 @@ void serialize(S& s, PlayerState& packet) {
   s.value2b(packet.correction_mask);
   s.object(packet.position);
   s.object(packet.nrot);
-  s.value4b(packet.left_hand_item_instance);
-  s.value4b(packet.right_hand_item_instance);
-  s.value4b(packet.equipped_armor_instance);
-  s.value4b(packet.equipped_helmet_instance);
-  s.value4b(packet.equipped_shield_instance);
-  s.value4b(packet.equipped_amulet_instance);
-  s.value4b(packet.equipped_belt_instance);
-  s.value4b(packet.equipped_ring_left_instance);
-  s.value4b(packet.equipped_ring_right_instance);
-  s.value2b(packet.animation);
+  s.text1b(packet.left_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.right_hand_item_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_armor_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_helmet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_shield_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_amulet_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_belt_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_left_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.equipped_ring_right_instance, gmp::kMaxScriptNameLength);
   s.text1b(packet.animation_name, kMaxPlayerAnimationNameLength);
   s.value4b(packet.health_points);
   s.value4b(packet.mana_points);
@@ -123,12 +122,12 @@ void serialize(S& s, PlayerState& packet) {
   s.boolValue(packet.invulnerable);
   s.value1b(packet.weapon_mode);
   s.value1b(packet.active_spell_nr);
-  s.value4b(packet.active_spell_instance);
+  s.text1b(packet.active_spell_instance, gmp::kMaxScriptNameLength);
   s.value1b(packet.active_spell_level);
   s.boolValue(packet.spell_investing);
   s.value1b(packet.head_direction);
-  s.value4b(packet.melee_weapon_instance);
-  s.value4b(packet.ranged_weapon_instance);
+  s.text1b(packet.melee_weapon_instance, gmp::kMaxScriptNameLength);
+  s.text1b(packet.ranged_weapon_instance, gmp::kMaxScriptNameLength);
   s.value4b(packet.body_state);
   s.value1b(packet.walk_mode);
   s.value4b(packet.look_yaw);
@@ -149,7 +148,6 @@ inline std::ostream& operator<<(std::ostream& os, const PlayerState& player_stat
      << " equipped_belt_instance: " << player_state.equipped_belt_instance << ","
      << " equipped_ring_left_instance: " << player_state.equipped_ring_left_instance << ","
      << " equipped_ring_right_instance: " << player_state.equipped_ring_right_instance << ","
-     << " animation: " << player_state.animation << ","
      << " animation_name: " << player_state.animation_name << ","
      << " health_points: " << player_state.health_points << ","
      << " mana_points: " << player_state.mana_points << ","

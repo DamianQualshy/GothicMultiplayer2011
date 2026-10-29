@@ -26,15 +26,17 @@ SOFTWARE.
 
 #include <unordered_set>
 
-#include "item_registry.h"
+#include "script_names.h"
 #include "packets.h"
 
-bool ValidateNativeInventoryDeclaration(const std::vector<InventoryEntry>& inventory, const ItemRegistry& registry) {
+bool ValidateNativeInventoryDeclaration(const std::vector<InventoryEntry>& inventory) {
   if (inventory.size() > kMaxInventoryEntries) return false;
-  std::unordered_set<std::int32_t> indexes;
+  std::unordered_set<std::string> instances;
+  std::size_t name_bytes = 0;
   for (const auto& entry : inventory) {
-    const auto* item = registry.FindByIndex(entry.item_instance);
-    if (!item || entry.amount <= 0 || !indexes.insert(entry.item_instance).second) return false;
+    if (!gmp::IsValidScriptName(entry.item_instance) || entry.item_instance != gmp::NormalizeScriptName(entry.item_instance) || entry.amount <= 0 || !instances.insert(entry.item_instance).second) return false;
+    name_bytes += entry.item_instance.size();
+    if (name_bytes > kMaxInventoryNameBytes) return false;
   }
   return true;
 }

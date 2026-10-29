@@ -40,7 +40,6 @@ public:
   ItemGroundManager::ItemGroundId getId() const;
   bool isValid() const;
   std::string getInstance() const;
-  sol::object getDefinition(sol::this_state state) const;
   std::int32_t getAmount() const;
   bool getPhysicsEnabled() const;
   void setPhysicsEnabled(bool enabled);

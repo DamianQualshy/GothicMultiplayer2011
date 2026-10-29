@@ -8,7 +8,6 @@
 #include "Lua/function_bind.h"
 #include "Lua/lua_constants.h"
 #include "Lua/lua_database.h"
-#include "Lua/lua_item_definition.h"
 #include "Lua/lua_item_ground.h"
 #include "Lua/lua_json.h"
 #include "Lua/lua_npc.h"
@@ -20,16 +19,12 @@ LuaScript::LuaScript() {
   BindDomainSpecific();
 }
 
-LuaScript::~LuaScript() {
-  lua::bindings::RemoveItemCallbacksForState(lua_.lua_state());
-}
+LuaScript::~LuaScript() = default;
 
 void LuaScript::BindDomainSpecific() {
   lua::bindings::BindEvents(lua_);
   lua::bindings::BindServerConstants(lua_);
   lua::bindings::BindFunctions(lua_, timer_manager_);
-  lua::bindings::BindItemDefinition(lua_);
-  lua::bindings::BindItemCallbacks(lua_);
   lua::bindings::BindNpc(lua_);
   lua::bindings::BindItemGround(lua_);
   lua::bindings::BindJSON(lua_);

@@ -109,17 +109,8 @@ std::optional<std::reference_wrapper<Character>> GetCharacterOrWarn(std::uint32_
   return character;
 }
 
-sol::object EquipmentInstanceOrNil(std::int32_t index, sol::state_view lua) {
-  if (index <= 0) {
-    return sol::nil;
-  }
-
-  const auto* item = g_server->GetItemRegistry().FindByIndex(index);
-  if (!item) {
-    return sol::nil;
-  }
-
-  return sol::make_object(lua, item->instance);
+sol::object EquipmentInstanceOrNil(const std::string& instance, sol::state_view lua) {
+  return instance.empty() ? sol::make_object(lua, sol::nil) : sol::make_object(lua, instance);
 }
 
 }  // namespace
@@ -1229,23 +1220,23 @@ sol::object Function_GetPlayerWeaponMode(std::uint32_t player_id, sol::this_stat
 
 /* luagmp (func)
  *
- * This function will return the last reported player animation id.
+ * This function will return the last reported player/NPC pose animation name.
  *
  * @version  0.3.0
- * @name     getPlayerAniId
+ * @name     getPlayerAni
  * @side     server
  * @category Player
  * @param    (number) player_id  Target player or NPC id.
- * @return   (number)            Animation id, or -1 if unavailable.
+ * @return   (string|nil)        Animation name, or nil if unavailable.
  *
  */
-std::int32_t Function_GetPlayerAniId(std::uint32_t player_id) {
-  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerAniId");
-  if (!player_opt.has_value()) {
-    return -1;
+sol::object Function_GetPlayerAni(std::uint32_t player_id, sol::this_state ts) {
+  auto player_opt = GetCharacterOrWarn(player_id, "getPlayerAni");
+  if (!player_opt.has_value() || player_opt->get().state.animation_name.empty()) {
+    return sol::nil;
   }
 
-  return player_opt->get().state.animation;
+  return sol::make_object(sol::state_view(ts), player_opt->get().state.animation_name);
 }
 
 /* luagmp (func)
@@ -1984,7 +1975,7 @@ bool Function_IsPlayerInvulnerable(std::uint32_t player_id) {
  * @side     server
  * @category Inventory
  * @param    (number) player_id    Target player or NPC id.
- * @param    (string) instance     [ItemDefinition](../../server-classes/item/ItemDefinition.md) instance name from scripts.
+ * @param    (string) instance     Item instance name from scripts.
  * @param    (number) amount       Amount to give.
  * @return   (boolean)             True on success.
  *
@@ -2006,7 +1997,7 @@ bool Function_GiveItem(std::uint32_t player_id, const std::string& instance, std
  * @side     server
  * @category Player
  * @param    (number) player_id    Target player or NPC id.
- * @param    (string) instance     [ItemDefinition](../../server-classes/item/ItemDefinition.md) instance name from scripts.
+ * @param    (string) instance     Item instance name from scripts.
  * @param    (number|nil) slot_id  Optional slot id. Defaults to -1 for first free slot.
  * @return   (boolean)             True on success.
  *
@@ -2028,7 +2019,7 @@ bool Function_EquipItem(std::uint32_t player_id, const std::string& instance, so
  * @side     server
  * @category Player
  * @param    (number) player_id    Target player or NPC id.
- * @param    (string) instance     [ItemDefinition](../../server-classes/item/ItemDefinition.md) instance name from scripts.
+ * @param    (string) instance     Item instance name from scripts.
  * @param    (number|nil) slot_id   Equipment slot. Omit to clear all matching slots.
  * @return   (boolean)             True on success.
  *
@@ -2255,7 +2246,7 @@ bool Function_UnequipShield(std::uint32_t player_id) {
  * @side     server
  * @category Inventory
  * @param    (number) player_id    Target player or NPC id.
- * @param    (string) instance     [ItemDefinition](../../server-classes/item/ItemDefinition.md) instance name from scripts.
+ * @param    (string) instance     Item instance name from scripts.
  * @return   (number)              Item quantity, or 0 if missing.
  *
  */
@@ -2276,7 +2267,7 @@ int Function_HasItem(std::uint32_t player_id, const std::string& instance) {
  * @side     server
  * @category Inventory
  * @param    (number) player_id    Target player or NPC id.
- * @param    (string) instance     [ItemDefinition](../../server-classes/item/ItemDefinition.md) instance name from scripts.
+ * @param    (string) instance     Item instance name from scripts.
  * @param    (number) amount       Amount to remove.
  * @return   (boolean)             True on success.
  *
@@ -2702,7 +2693,7 @@ void lua::bindings::BindFunctions(sol::state& lua, TimerManager& timer_manager) 
   lua["getPlayerScale"] = Function_GetPlayerScale;
   lua["setPlayerWeaponMode"] = Function_SetPlayerWeaponMode;
   lua["getPlayerWeaponMode"] = Function_GetPlayerWeaponMode;
-  lua["getPlayerAniId"] = Function_GetPlayerAniId;
+  lua["getPlayerAni"] = Function_GetPlayerAni;
   lua["getPlayerArmor"] = Function_GetPlayerArmor;
   lua["getPlayerMeleeWeapon"] = Function_GetPlayerMeleeWeapon;
   lua["getPlayerRangedWeapon"] = Function_GetPlayerRangedWeapon;

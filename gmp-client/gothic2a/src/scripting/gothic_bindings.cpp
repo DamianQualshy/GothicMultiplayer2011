@@ -288,15 +288,15 @@ std::optional<std::string> CachedEquipmentSlotInstance(Gothic2APlayer* player, E
   auto& base = player->base_player();
   switch (slot) {
     case EquipmentSlot::Armor:
-      return ItemInstanceNameByIndex(base.equipped_armor());
+      return base.equipped_armor().empty() ? std::nullopt : std::optional<std::string>{base.equipped_armor()};
     case EquipmentSlot::MeleeWeapon:
-      return ItemInstanceNameByIndex(base.melee_weapon());
+      return base.melee_weapon().empty() ? std::nullopt : std::optional<std::string>{base.melee_weapon()};
     case EquipmentSlot::RangedWeapon:
-      return ItemInstanceNameByIndex(base.ranged_weapon());
+      return base.ranged_weapon().empty() ? std::nullopt : std::optional<std::string>{base.ranged_weapon()};
     case EquipmentSlot::Helmet:
-      return ItemInstanceNameByIndex(base.equipped_helmet());
+      return base.equipped_helmet().empty() ? std::nullopt : std::optional<std::string>{base.equipped_helmet()};
     case EquipmentSlot::Shield:
-      return ItemInstanceNameByIndex(base.equipped_shield());
+      return base.equipped_shield().empty() ? std::nullopt : std::optional<std::string>{base.equipped_shield()};
   }
 
   return std::nullopt;
@@ -1602,10 +1602,6 @@ std::int32_t Function_GetPlayerAniId(std::int64_t id) {
     }
   }
 
-  if (auto* player = GetPlayerByIdSigned(id)) {
-    return player->base_player().animation();
-  }
-
   return -1;
 }
 
@@ -2047,7 +2043,7 @@ sol::object Function_GetPlayerAngle(std::int64_t id, sol::this_state ts) {
  * @side     client
  * @category Inventory
  * @param    (number) player_id    Target player or NPC id; negative ids refer to client-local NPCs.
- * @param    (string) instance     ItemDefinition instance name.
+ * @param    (string) instance     Item instance name.
  * @param    (number) amount       Amount to give.
  * @return   (boolean)             True on success.
  *
@@ -2091,7 +2087,7 @@ bool Function_GiveItem(std::int64_t id, const std::string& instance, std::int32_
  * @side     client
  * @category Player
  * @param    (number) player_id      Target player or NPC id; negative ids refer to client-local NPCs.
- * @param    (string) instance       ItemDefinition instance name.
+ * @param    (string) instance       Item instance name.
  * @return   (boolean)               True on success.
  *
  */
@@ -2108,7 +2104,7 @@ bool Function_EquipItem(std::int64_t id, const std::string& instance) {
  * @side     client
  * @category Player
  * @param    (number) player_id      Target player or NPC id; negative ids refer to client-local NPCs.
- * @param    (string) instance       ItemDefinition instance name.
+ * @param    (string) instance       Item instance name.
  * @return   (boolean)               True on success.
  *
  */
@@ -2303,8 +2299,8 @@ bool Function_UnequipShield(std::int64_t id) {
  * @side     client
  * @category Inventory
  * @param    (number) player_id      Target player or NPC id; negative ids refer to client-local NPCs.
- * @param    (string) instance       ItemDefinition instance name.
- * @return   (number)                ItemDefinition amount or 0 if missing.
+ * @param    (string) instance       Item instance name.
+ * @return   (number)                Item amount or 0 if missing.
  *
  */
 int Function_HasItem(std::int64_t id, const std::string& instance) {
@@ -2383,7 +2379,7 @@ sol::object Function_GetInventory(sol::this_state ts) {
  * @side     client
  * @category Inventory
  * @param    (number) slot       Inventory slot, starting from 0.
- * @return   (string|nil)        ItemDefinition instance, or nil if the slot is empty.
+ * @return   (string|nil)        Item instance, or nil if the slot is empty.
  *
  */
 sol::object Function_GetItemBySlot(std::int32_t slot, sol::this_state ts) {
@@ -2408,7 +2404,7 @@ sol::object Function_GetItemBySlot(std::int32_t slot, sol::this_state ts) {
  * @name     getLeftHand
  * @side     client
  * @category Inventory
- * @return   (string|nil)  ItemDefinition instance, or nil if the hand is empty.
+ * @return   (string|nil)  Item instance, or nil if the hand is empty.
  *
  */
 sol::object Function_GetLeftHand(sol::this_state ts) {
@@ -2433,7 +2429,7 @@ sol::object Function_GetLeftHand(sol::this_state ts) {
  * @name     getRightHand
  * @side     client
  * @category Inventory
- * @return   (string|nil)  ItemDefinition instance, or nil if the hand is empty.
+ * @return   (string|nil)  Item instance, or nil if the hand is empty.
  *
  */
 sol::object Function_GetRightHand(sol::this_state ts) {
@@ -2458,7 +2454,7 @@ sol::object Function_GetRightHand(sol::this_state ts) {
  * @name     dropItem
  * @side     client
  * @category Inventory
- * @param    (string) instance      ItemDefinition instance name.
+ * @param    (string) instance      Item instance name.
  * @param    (number|nil) amount    Optional amount to drop. Defaults to the whole stack.
  * @return   (boolean)              True on success.
  *
@@ -2541,7 +2537,7 @@ bool Function_DropItemBySlot(std::int32_t slot) {
  * @side     client
  * @category Inventory
  * @param    (number) player_id      Target player or NPC id; negative ids refer to client-local NPCs.
- * @param    (string) instance       ItemDefinition instance name.
+ * @param    (string) instance       Item instance name.
  * @param    (number) amount         Amount to remove.
  * @return   (boolean)               True on success.
  *

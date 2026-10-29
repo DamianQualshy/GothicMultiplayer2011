@@ -104,8 +104,8 @@ public:
   virtual void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) {}
   virtual void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) {}
   virtual void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) {}
-  virtual void OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) {}
-  virtual void OnPlayerAnimationStop(std::uint64_t player_id, std::int16_t animation) {}
+  virtual void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
+  virtual void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) {}
   virtual void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) {}
   virtual void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) {}
   virtual void OnPlayerGesticulation(std::uint64_t player_id) {}
@@ -124,31 +124,31 @@ public:
   virtual void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) {}
   
   // Item events
-  virtual void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
-  virtual void OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) {}
-  virtual void OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount,
+  virtual void OnItemDropped(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
+  virtual void OnItemTaken(std::uint64_t player_id, const std::string& item_instance) {}
+  virtual void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount,
                                   bool physics_enabled, const glm::vec3& position, const glm::vec3& rotation) {}
   virtual void OnItemGroundDestroy(std::uint32_t item_ground_id) {}
   virtual void OnItemsGroundDestroy() {}
-  virtual void OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
-  virtual void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) {}
-  virtual void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+  virtual void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
+  virtual void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {}
+  virtual void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id,
                               std::uint32_t revision, bool apply_state) {
     if (apply_state) OnItemEquipped(player_id, item_instance, slot_id);
   }
-  virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) {}
-  virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) {
+  virtual void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) {}
+  virtual void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) {
     OnItemUnequipped(player_id, item_instance);
   }
-  virtual void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+  virtual void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id,
                                 std::uint32_t revision, bool apply_state) {
     if (apply_state) OnItemUnequipped(player_id, item_instance, slot_id);
   }
-  virtual void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) {}
+  virtual void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) {}
   virtual void OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector<InventoryEntry>& inventory) {}
-  virtual void OnItemTransactionResult(std::uint32_t request_id, std::int32_t instance, std::int32_t resulting_amount,
+  virtual void OnItemTransactionResult(std::uint32_t request_id, const std::string& instance, std::int32_t resulting_amount,
                                        bool accepted, std::optional<std::uint32_t> ground_id) {}
-  virtual void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t instance,
+  virtual void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, const std::string& instance,
                                             std::int32_t resulting_amount, bool accepted,
                                             std::optional<std::uint32_t> ground_id) {
     OnItemTransactionResult(request_id, instance, resulting_amount, accepted, ground_id);

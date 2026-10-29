@@ -27,7 +27,6 @@ SOFTWARE.
 #include <vector>
 
 struct InventoryEntry;
-class ItemRegistry;
 
 // Native inventory reports are reconciliation inputs and never grant ownership.
-bool ValidateNativeInventoryDeclaration(const std::vector<InventoryEntry>& inventory, const ItemRegistry& registry);
+bool ValidateNativeInventoryDeclaration(const std::vector<InventoryEntry>& inventory);

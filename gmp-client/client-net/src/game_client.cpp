@@ -433,7 +433,6 @@ void GameClient::UpdatePlayerState(Player* player, const PlayerState& state, std
     player->set_ranged_weapon(state.ranged_weapon_instance);
   }
   if (mask & kSyncPose) {
-    player->set_animation(state.animation);
     player->set_animation_name(state.animation_name);
     player->set_head_direction(state.head_direction);
     player->set_body_state(state.body_state);
@@ -466,7 +465,7 @@ Player* GameClient::FindActor(std::uint64_t id, std::uint64_t generation) {
   return actor && actor->matches_generation(generation) ? actor : nullptr;
 }
 
-void GameClient::ApplyEquipmentSlot(Player& player, std::int16_t slot, std::int32_t instance) {
+void GameClient::ApplyEquipmentSlot(Player& player, std::int16_t slot, const std::string& instance) {
   switch (slot) {
     case EQUIP_SLOT_ARMOR: player.set_equipped_armor(instance); break;
     case EQUIP_SLOT_MELEE_WEAPON: player.set_melee_weapon(instance); break;
@@ -501,7 +500,6 @@ void GameClient::JoinGame(const std::string& player_name, const std::string& cha
     packet.equipped_belt_instance = local.equipped_belt();
     packet.equipped_ring_left_instance = local.equipped_ring_left();
     packet.equipped_ring_right_instance = local.equipped_ring_right();
-    packet.animation = static_cast<std::int16_t>(local.animation());
     packet.animation_name = local.animation_name();
   }
   packet.body_model = body_model.empty() && player_manager_.HasLocalPlayer() ? player_manager_.GetLocalPlayer().body_model() : body_model;
@@ -538,8 +536,8 @@ void GameClient::SendChatMessage(const std::string& msg) {
   SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
-std::uint32_t GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance, std::uint32_t caster_id,
-                                        std::int32_t mana_after, std::uint8_t spell_level, bool transformation_succeeded) {
+std::uint32_t GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, const std::string& item_instance, std::uint32_t caster_id,
+                                        std::int32_t mana_after, std::uint8_t spell_level, bool transformation_succeeded, bool scroll) {
   if (!player_manager_.HasLocalPlayer())
     return 0;
   auto& local = player_manager_.GetLocalPlayer();
@@ -548,6 +546,7 @@ std::uint32_t GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t s
     return 0;
   CastSpellPacket packet;
   packet.transformation_succeeded = transformation_succeeded;
+  packet.scroll = scroll;
   const auto observed_mana = mana_after >= 0 ? mana_after : caster->mana();
   packet.mana_delta = static_cast<std::int32_t>(std::clamp<std::int64_t>(
       static_cast<std::int64_t>(observed_mana) - caster->mana(), std::numeric_limits<std::int32_t>::min(), std::numeric_limits<std::int32_t>::max()));
@@ -556,7 +555,7 @@ std::uint32_t GameClient::SendCastSpell(std::uint32_t target_id, std::uint16_t s
   packet.command_revision = caster->command_revision();
   packet.control_epoch = caster->is_npc() ? caster->npc_control_epoch() : 0;
   packet.actor_generation = caster->actor_generation();
-  packet.item_instance = item_instance ? item_instance : caster->active_spell_instance();
+  packet.item_instance = !item_instance.empty() ? item_instance : caster->active_spell_instance();
   packet.action_id = ++outgoing_action_sequence_;
   if (packet.action_id == 0)
     packet.action_id = ++outgoing_action_sequence_;
@@ -586,7 +585,7 @@ void GameClient::SendTransformationReturn(std::uint32_t cast_id) {
   SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
 
-std::uint32_t GameClient::SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
+std::uint32_t GameClient::SendDropItem(const std::string& instance, std::int32_t amount, const glm::vec3& position,
                               const glm::vec3& rotation, bool physics_enabled) {
   if (!is_in_game_ || amount <= 0) return 0;
   DropItemPacket packet;
@@ -602,7 +601,7 @@ std::uint32_t GameClient::SendDropItem(std::int32_t instance, std::int32_t amoun
   return SerializeAndSend(transport_, packet, TrafficClass::Control) ? packet.request_id : 0;
 }
 
-std::uint32_t GameClient::SendTakeItem(std::int32_t instance, std::int32_t amount,
+std::uint32_t GameClient::SendTakeItem(const std::string& instance, std::int32_t amount,
                               std::optional<std::uint32_t> item_ground_id) {
   if (!is_in_game_ || amount <= 0) return 0;
   TakeItemPacket packet;
@@ -831,9 +830,9 @@ void GameClient::SendActorAction(ActorActionPacket packet) {
   }
 }
 
-void GameClient::SendEquipmentResult(std::int16_t slot, std::int32_t requested, bool success,
-                                      std::int32_t observed, std::uint32_t revision, std::uint32_t actor_id,
-                                      std::uint32_t control_epoch) {
+void GameClient::SendEquipmentResult(std::int16_t slot, const std::string& requested, bool success,
+                                      const std::string& observed, std::uint32_t revision, std::uint32_t actor_id,
+                                      std::uint32_t control_epoch, std::int16_t observed_slot) {
   if (!player_manager_.HasLocalPlayer()) return;
   EquipmentResultPacket packet;
   const auto& local = player_manager_.GetLocalPlayer();
@@ -847,6 +846,7 @@ void GameClient::SendEquipmentResult(std::int16_t slot, std::int32_t requested, 
   packet.slot_id = slot;
   packet.item_instance = requested;
   packet.observed_instance = observed;
+  packet.observed_slot = observed_slot;
   packet.success = success;
   SerializeAndSend(transport_, packet, TrafficClass::Control);
 }
@@ -1178,7 +1178,7 @@ void GameClient::OnGiveItem(Packet p) {
   }
 
   auto* actor = FindActor(packet.player_id, packet.actor_generation);
-  if (!actor || packet.item_instance <= 0 || packet.item_amount <= 0 ||
+  if (!actor || !gmp::IsValidScriptName(packet.item_instance) || packet.item_amount <= 0 ||
       !actor->accept_inventory_sequence(packet.item_instance, packet.state_sequence)) return;
   actor->apply_inventory_delta(packet.item_instance, packet.item_amount);
   if (player_manager_.HasLocalPlayer() && actor == &player_manager_.GetLocalPlayer() && !is_in_game_)
@@ -1219,7 +1219,7 @@ void GameClient::OnUnequipItem(Packet p) {
   auto* actor = FindActor(packet.player_id, packet.actor_generation);
   if (!actor) return;
   const bool apply = actor->accept_components(kSyncEquipment, packet.state_sequence, true) != 0;
-  if (apply) ApplyEquipmentSlot(*actor, packet.slot_id, 0);
+  if (apply) ApplyEquipmentSlot(*actor, packet.slot_id, {});
   if (player_manager_.HasLocalPlayer() && actor == &player_manager_.GetLocalPlayer() && !is_in_game_) {
     if (apply) pending_local_correction_mask_ |= kSyncEquipment;
     pending_equipment_verifications_.push_back({false, packet.item_instance, packet.slot_id, packet.command_revision});
@@ -1237,7 +1237,7 @@ void GameClient::OnRemoveItem(Packet p) {
   }
 
   auto* actor = FindActor(packet.player_id, packet.actor_generation);
-  if (!actor || packet.item_instance <= 0 || packet.item_amount <= 0 ||
+  if (!actor || !gmp::IsValidScriptName(packet.item_instance) || packet.item_amount <= 0 ||
       !actor->accept_inventory_sequence(packet.item_instance, packet.state_sequence)) return;
   actor->apply_inventory_delta(packet.item_instance, -packet.item_amount);
   if (player_manager_.HasLocalPlayer() && actor == &player_manager_.GetLocalPlayer() && !is_in_game_)
@@ -1370,7 +1370,7 @@ void GameClient::OnItemTransactionResult(Packet p) {
   if (decoded.first != bitsery::ReaderError::NoError || !decoded.second || !player_manager_.HasLocalPlayer()) return;
   auto& local = player_manager_.GetLocalPlayer();
   auto* actor = packet.actor_id ? FindActor(packet.actor_id, packet.actor_generation) : &local;
-  if (!actor || !actor->matches_generation(packet.actor_generation) || packet.item_instance <= 0 || packet.resulting_amount < 0) return;
+  if (!actor || !actor->matches_generation(packet.actor_generation) || !gmp::IsValidScriptName(packet.item_instance) || packet.resulting_amount < 0) return;
   if (packet.request_id) {
     if (actor != &local) return;
     if (last_item_result_ && !IsNewActorSequence(packet.request_id, last_item_result_)) return;
@@ -1444,9 +1444,9 @@ void GameClient::SendInstanceReady(const PlayerSpawnPacket& defaults, bool succe
 
 void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc, bool native_defaults) {
   if (packet.actor_generation == 0 || !IsFiniteActorVector(packet.position) || !IsFiniteActorVector(packet.normal)) return;
-  std::unordered_set<std::int32_t> inventory_instances;
+  std::unordered_set<std::string> inventory_instances;
   for (const auto& entry : packet.inventory) {
-    if (entry.item_instance <= 0 || entry.amount <= 0 || !inventory_instances.insert(entry.item_instance).second) return;
+    if (!gmp::IsValidScriptName(entry.item_instance) || entry.amount <= 0 || !inventory_instances.insert(entry.item_instance).second) return;
   }
   const bool local = player_manager_.HasLocalPlayer() && player_manager_.GetLocalPlayer().id() == packet.player_id;
   auto* player = FindActor(packet.player_id);
@@ -1514,7 +1514,6 @@ void GameClient::ApplyPlayerSpawn(const PlayerSpawnPacket& packet, bool is_npc, 
   actor_state.look_yaw = packet.look_yaw;
   actor_state.look_pitch = packet.look_pitch;
   actor_state.focus_target_id = packet.focus_target_id;
-  actor_state.animation = packet.animation;
   actor_state.animation_name = packet.animation_name;
   actor_state.health_points = packet.health;
   actor_state.mana_points = packet.mana;
@@ -1705,7 +1704,6 @@ void GameClient::OnJoinGame(Packet p) {
   player->set_equipped_belt(packet.equipped_belt_instance);
   player->set_equipped_ring_left(packet.equipped_ring_left_instance);
   player->set_equipped_ring_right(packet.equipped_ring_right_instance);
-  player->set_animation(packet.animation);
   player->set_animation_name(packet.animation_name);
   player->set_body_model(packet.body_model);
   player->set_body_texture(packet.body_texture);

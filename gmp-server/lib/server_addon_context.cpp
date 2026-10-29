@@ -37,8 +37,6 @@ SOFTWARE.
 #include <system_error>
 #include <unordered_set>
 
-#include "addon_item_validator.h"
-#include "item_registry.h"
 #include "shared/crypto_utils.h"
 
 namespace {
@@ -105,7 +103,7 @@ ServerAddonContext::ServerAddonContext() = default;
 ServerAddonContext::~ServerAddonContext() = default;
 
 bool ServerAddonContext::Initialize(const std::vector<std::string>& configured_paths, const std::filesystem::path& server_root,
-                                    const ItemRegistry& item_registry, std::string& error) {
+                                    std::string& error) {
   archives_.clear();
   bundle_ = {};
   merged_vfs_.reset();
@@ -190,22 +188,6 @@ bool ServerAddonContext::Initialize(const std::vector<std::string>& configured_p
     auto merged = std::make_unique<gmp::addon::AddonVfs>();
     merged->MountArchives(source_paths);
     has_gothic_dat_ = gothic_dat_count == 1;
-    if (has_gothic_dat_) {
-      AddonItemValidator::Summary summary;
-      if (!AddonItemValidator::ValidateDat(*merged, item_registry, summary, error)) {
-        for (const auto& difference : summary.differences) {
-          SPDLOG_ERROR("  {}", difference);
-        }
-        archives_.clear();
-        has_gothic_dat_ = false;
-        return false;
-      }
-      SPDLOG_INFO("Addon item validation: {} items matched, {} missing, {} extra, {} field mismatches", summary.matched,
-                  summary.missing, summary.extra, summary.field_mismatches);
-    } else {
-      SPDLOG_WARN("No GOTHIC.DAT found in configured addon VDFs; DAT/item validation skipped");
-    }
-
     const auto prepared_bundle =
         gmp::addon::PrepareAddonTransportBundle(server_root / "data" / "public", transport_sources);
     bundle_.archive_path = prepared_bundle.archive_path;

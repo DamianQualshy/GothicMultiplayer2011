@@ -40,7 +40,6 @@ SOFTWARE.
 #include "Shared/lua_runtime/lua_value_codec.h"
 #include "game_server.h"
 #include "lua.h"
-#include "lua_item_definition.h"
 #include "lua_item_ground.h"
 #include "shared/event.h"
 
@@ -70,12 +69,8 @@ void ExecuteResourceEvent(const std::string& owner, std::function<void()> callba
 
 ::gmp::lua::LuaEventBindings kEventBindings{kLuaEventProxies, {CurrentEventOwner, ExecuteResourceEvent}};
 
-sol::object MakeItemOrNil(sol::state_view lua, const std::optional<std::int32_t>& item_index) {
-  if (!item_index.has_value()) {
-    return sol::nil;
-  }
-  const auto* item = g_server->GetItemRegistry().FindByIndex(*item_index);
-  return item ? MakeItemDefinitionObject(lua, item->instance) : sol::make_object(lua, sol::nil);
+sol::object MakeInstanceOrNil(sol::state_view lua, const std::optional<std::string>& instance) {
+  return instance && !instance->empty() ? sol::make_object(lua, *instance) : sol::make_object(lua, sol::nil);
 }
 
 /* luagmp (event)
@@ -368,15 +363,15 @@ void Proxy_OnPlayerTakeItem(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player/npc using the item.
- * @param    (ItemDefinition|nil) item          [ItemDefinition](../../server-classes/item/ItemDefinition.md) definition, or nil for an unknown item.
+ * @param    (string|nil) item          Item instance name, or nil for an empty slot.
  * @param    (number) quantity       Amount consumed; zero for a reusable item.
- * @param    (string) scheme         [ItemDefinition](../../server-classes/item/ItemDefinition.md) use scheme.
+ * @param    (string) scheme         Native use scheme reported by the controlling client.
  *
  */
 void Proxy_OnPlayerUseItem(LuaProxyArgs args) {
   const auto event = std::any_cast<OnPlayerUseItemEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  args.callback(event.player_id, MakeItemOrNil(lua, event.item_instance), event.quantity, event.scheme);
+  args.callback(event.player_id, MakeInstanceOrNil(lua, event.item_instance), event.quantity, event.scheme);
 }
 
 /* luagmp (event)
@@ -536,15 +531,15 @@ void Proxy_OnPlayerWeaponModeChange(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped amulet item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped amulet item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipAmulet(LuaProxyArgs args) {
   OnPlayerEquipAmuletEvent amulet_event = std::any_cast<OnPlayerEquipAmuletEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, amulet_event.item_index);
-  args.callback(amulet_event.player_id, item, MakeItemOrNil(lua, amulet_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, amulet_event.item_instance);
+  args.callback(amulet_event.player_id, item, MakeInstanceOrNil(lua, amulet_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -557,15 +552,15 @@ void Proxy_OnPlayerEquipAmulet(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped armor item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped armor item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipArmor(LuaProxyArgs args) {
   OnPlayerEquipArmorEvent armor_event = std::any_cast<OnPlayerEquipArmorEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, armor_event.item_index);
-  args.callback(armor_event.player_id, item, MakeItemOrNil(lua, armor_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, armor_event.item_instance);
+  args.callback(armor_event.player_id, item, MakeInstanceOrNil(lua, armor_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -578,15 +573,15 @@ void Proxy_OnPlayerEquipArmor(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped belt item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped belt item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipBelt(LuaProxyArgs args) {
   OnPlayerEquipBeltEvent belt_event = std::any_cast<OnPlayerEquipBeltEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, belt_event.item_index);
-  args.callback(belt_event.player_id, item, MakeItemOrNil(lua, belt_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, belt_event.item_instance);
+  args.callback(belt_event.player_id, item, MakeInstanceOrNil(lua, belt_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -600,15 +595,15 @@ void Proxy_OnPlayerEquipBelt(LuaProxyArgs args) {
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
  * @param    (number) hand           Hand id (0 = left, 1 = right).
- * @param    (ItemDefinition|nil) item         Equipped hand item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped hand item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipHandItem(LuaProxyArgs args) {
   OnPlayerEquipHandItemEvent hand_item_event = std::any_cast<OnPlayerEquipHandItemEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, hand_item_event.item_index);
-  args.callback(hand_item_event.player_id, hand_item_event.hand, item, MakeItemOrNil(lua, hand_item_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, hand_item_event.item_instance);
+  args.callback(hand_item_event.player_id, hand_item_event.hand, item, MakeInstanceOrNil(lua, hand_item_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -621,15 +616,15 @@ void Proxy_OnPlayerEquipHandItem(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped helmet item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped helmet item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipHelmet(LuaProxyArgs args) {
   OnPlayerEquipHelmetEvent helmet_event = std::any_cast<OnPlayerEquipHelmetEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, helmet_event.item_index);
-  args.callback(helmet_event.player_id, item, MakeItemOrNil(lua, helmet_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, helmet_event.item_instance);
+  args.callback(helmet_event.player_id, item, MakeInstanceOrNil(lua, helmet_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -642,15 +637,15 @@ void Proxy_OnPlayerEquipHelmet(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped melee weapon item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped melee weapon item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipMeleeWeapon(LuaProxyArgs args) {
   OnPlayerEquipMeleeWeaponEvent melee_weapon_event = std::any_cast<OnPlayerEquipMeleeWeaponEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, melee_weapon_event.item_index);
-  args.callback(melee_weapon_event.player_id, item, MakeItemOrNil(lua, melee_weapon_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, melee_weapon_event.item_instance);
+  args.callback(melee_weapon_event.player_id, item, MakeInstanceOrNil(lua, melee_weapon_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -663,15 +658,15 @@ void Proxy_OnPlayerEquipMeleeWeapon(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped ranged weapon item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped ranged weapon item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipRangedWeapon(LuaProxyArgs args) {
   OnPlayerEquipRangedWeaponEvent ranged_weapon_event = std::any_cast<OnPlayerEquipRangedWeaponEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, ranged_weapon_event.item_index);
-  args.callback(ranged_weapon_event.player_id, item, MakeItemOrNil(lua, ranged_weapon_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, ranged_weapon_event.item_instance);
+  args.callback(ranged_weapon_event.player_id, item, MakeInstanceOrNil(lua, ranged_weapon_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -685,15 +680,15 @@ void Proxy_OnPlayerEquipRangedWeapon(LuaProxyArgs args) {
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
  * @param    (number) ring_slot      Logical ring slot (0 or 1).
- * @param    (ItemDefinition|nil) item         Equipped ring item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped ring item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipRing(LuaProxyArgs args) {
   OnPlayerEquipRingEvent ring_event = std::any_cast<OnPlayerEquipRingEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, ring_event.item_index);
-  args.callback(ring_event.player_id, ring_event.ring_slot, item, MakeItemOrNil(lua, ring_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, ring_event.item_instance);
+  args.callback(ring_event.player_id, ring_event.ring_slot, item, MakeInstanceOrNil(lua, ring_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -706,15 +701,15 @@ void Proxy_OnPlayerEquipRing(LuaProxyArgs args) {
  * @category Player
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
- * @param    (ItemDefinition|nil) item         Equipped shield item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Equipped shield item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipShield(LuaProxyArgs args) {
   OnPlayerEquipShieldEvent shield_event = std::any_cast<OnPlayerEquipShieldEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, shield_event.item_index);
-  args.callback(shield_event.player_id, item, MakeItemOrNil(lua, shield_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, shield_event.item_instance);
+  args.callback(shield_event.player_id, item, MakeInstanceOrNil(lua, shield_event.previous_item_instance));
 }
 
 /* luagmp (event)
@@ -728,15 +723,15 @@ void Proxy_OnPlayerEquipShield(LuaProxyArgs args) {
  * @note     This event can be cancelled.
  * @param    (number) player_id      Player id.
  * @param    (number) slot_id        Active spell slot id (0 if none).
- * @param    (ItemDefinition|nil) item         Active spell item (nil if none).
- * @param    (ItemDefinition|nil) previous_item Previously equipped item.
+ * @param    (string|nil) item         Active spell item (nil if none).
+ * @param    (string|nil) previous_item Previously equipped item.
  *
  */
 void Proxy_OnPlayerEquipSpellSlot(LuaProxyArgs args) {
   OnPlayerEquipSpellSlotEvent spell_event = std::any_cast<OnPlayerEquipSpellSlotEvent>(args.event);
   sol::state_view lua(args.callback.lua_state());
-  sol::object item = MakeItemOrNil(lua, spell_event.item_index);
-  args.callback(spell_event.player_id, spell_event.slot_id, item, MakeItemOrNil(lua, spell_event.previous_item_index));
+  sol::object item = MakeInstanceOrNil(lua, spell_event.item_instance);
+  args.callback(spell_event.player_id, spell_event.slot_id, item, MakeInstanceOrNil(lua, spell_event.previous_item_instance));
 }
 
 /* luagmp (event)

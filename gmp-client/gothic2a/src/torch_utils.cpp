@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 #include "torch_utils.h"
+#include "item_instance.h"
 
 #include <algorithm>
 #include <cstring>
@@ -81,7 +82,7 @@ int GetCarriedTorchAmount(oCNpc* npc, int inventory_instance) {
   auto* actor = actor_id ? NetGame::Instance().FindEngineActor(*actor_id) : nullptr;
   // A directly granted burning torch takes precedence over the unlit backing
   // item. Never reserve the same held object against both inventory entries.
-  const bool owns_burning = actor && actor->base_player().inventory_count(burning) > 0;
+  const bool owns_burning = actor && actor->base_player().inventory_count(gmp::gothic::NetworkItemName(burning)) > 0;
   if (inventory_instance != (owns_burning ? burning : unlit))
     return 0;
   int count = 0;

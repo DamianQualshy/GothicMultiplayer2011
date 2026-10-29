@@ -153,7 +153,7 @@ struct OnPlayerTakeItemEvent {
 
 struct OnPlayerUseItemEvent {
   std::uint64_t player_id;
-  std::int32_t item_instance;
+  std::string item_instance;
   std::int32_t quantity;
   std::string scheme;
 };
@@ -207,65 +207,65 @@ struct OnPlayerWeaponModeChangeEvent {
 
 struct OnPlayerEquipAmuletEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipArmorEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipBeltEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipHandItemEvent {
   std::uint64_t player_id;
   std::uint8_t hand;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipHelmetEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipMeleeWeaponEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipRangedWeaponEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipRingEvent {
   std::uint64_t player_id;
   std::uint8_t ring_slot;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipShieldEvent {
   std::uint64_t player_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerEquipSpellSlotEvent {
   std::uint64_t player_id;
   std::uint8_t slot_id;
-  std::optional<std::int32_t> item_index;
-  std::optional<std::int32_t> previous_item_index;
+  std::optional<std::string> item_instance;
+  std::optional<std::string> previous_item_instance;
 };
 
 struct OnPlayerSpawnEvent {

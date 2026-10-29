@@ -89,18 +89,18 @@ public:
   // Send methods
   void SendChatMessage(const std::string& msg);
   void SendNativeTeleport(PlayerTeleportPacket packet);
-  std::uint32_t SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, std::int32_t item_instance = 0, std::uint32_t caster_id = 0,
-                     std::int32_t mana_after = -1, std::uint8_t spell_level = 1, bool transformation_succeeded = false);
+  std::uint32_t SendCastSpell(std::uint32_t target_id, std::uint16_t spell_id, const std::string& item_instance = std::string{}, std::uint32_t caster_id = 0,
+                     std::int32_t mana_after = -1, std::uint8_t spell_level = 1, bool transformation_succeeded = false, bool scroll = false);
   void SendTransformationReturn(std::uint32_t cast_id);
   void ApplyNativeInstanceDefaults(const PlayerSpawnPacket& defaults);
   void SendInstanceReady(const PlayerSpawnPacket& defaults, bool success = true);
-  std::uint32_t SendDropItem(std::int32_t instance, std::int32_t amount, const glm::vec3& position,
+  std::uint32_t SendDropItem(const std::string& instance, std::int32_t amount, const glm::vec3& position,
                     const glm::vec3& rotation, bool physics_enabled);
-  std::uint32_t SendTakeItem(std::int32_t instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id);
+  std::uint32_t SendTakeItem(const std::string& instance, std::int32_t amount, std::optional<std::uint32_t> item_ground_id);
   void SendPlayerWorldEnter(const std::string& world_name, const std::vector<InventoryEntry>& inventory = {});
   void SendActorAction(ActorActionPacket action);
-  void SendEquipmentResult(std::int16_t slot, std::int32_t requested, bool success, std::int32_t observed,
-                           std::uint32_t command_revision, std::uint32_t actor_id = 0, std::uint32_t control_epoch = 0);
+  void SendEquipmentResult(std::int16_t slot, const std::string& requested, bool success, const std::string& observed,
+                           std::uint32_t command_revision, std::uint32_t actor_id = 0, std::uint32_t control_epoch = 0, std::int16_t observed_slot = Net::EQUIP_SLOT_GENERIC);
   void SendPlayerHit(std::uint32_t victim_id, std::int32_t damage, std::uint32_t damage_type, bool dont_kill,
                      std::optional<std::uint32_t> attacker_id = {}, std::uint32_t control_epoch = 0, bool finishing_move = false);
   // Native casts can hit synchronously; their approval must precede the hit.
@@ -155,7 +155,7 @@ private:
   // Helper to update player state from PlayerState struct
   void UpdatePlayerState(Player* player, const PlayerState& state, std::optional<std::uint32_t> command_revision = {});
   void ApplyAttribute(Player& player, PlayerAttributeId id, std::int32_t value);
-  void ApplyEquipmentSlot(Player& player, std::int16_t slot, std::int32_t instance);
+  void ApplyEquipmentSlot(Player& player, std::int16_t slot, const std::string& instance);
 
   // Packet handlers
   void OnInitialInfo(Packet packet);
@@ -246,14 +246,14 @@ private:
   std::uint16_t pending_local_correction_mask_{0};
   struct PendingEquipmentVerification {
     bool equip;
-    std::int32_t instance;
+    std::string instance;
     std::int16_t slot;
     std::uint32_t revision;
   };
   std::vector<PendingEquipmentVerification> pending_equipment_verifications_;
   struct PendingInventoryCommand {
     bool give;
-    std::int32_t instance;
+    std::string instance;
     std::int32_t amount;
   };
   std::vector<PendingInventoryCommand> pending_inventory_commands_;

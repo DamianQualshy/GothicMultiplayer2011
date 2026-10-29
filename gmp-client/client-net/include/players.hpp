@@ -103,7 +103,7 @@ public:
     return true;
   }
   const ActorComponentSequences& component_sequences() const { return component_sequences_; }
-  bool accept_inventory_sequence(std::int32_t instance, std::uint32_t sequence) {
+  bool accept_inventory_sequence(const std::string& instance, std::uint32_t sequence) {
     if (inventory_snapshot_sequence_ && !IsNewActorSequence(sequence, *inventory_snapshot_sequence_)) return false;
     auto found = inventory_sequences_.find(instance);
     if (found != inventory_sequences_.end() && !IsNewActorSequence(sequence, found->second)) return false;
@@ -111,17 +111,17 @@ public:
     if (!latest_inventory_sequence_ || IsNewActorSequence(sequence, *latest_inventory_sequence_)) latest_inventory_sequence_ = sequence;
     return true;
   }
-  const std::unordered_map<std::int32_t, std::int32_t>& inventory() const { return inventory_; }
-  std::int32_t inventory_count(std::int32_t instance) const {
+  const std::unordered_map<std::string, std::int32_t>& inventory() const { return inventory_; }
+  std::int32_t inventory_count(const std::string& instance) const {
     const auto found = inventory_.find(instance);
     return found == inventory_.end() ? 0 : found->second;
   }
-  void set_inventory_count(std::int32_t instance, std::int32_t amount) {
-    if (instance <= 0) return;
+  void set_inventory_count(const std::string& instance, std::int32_t amount) {
+    if (!gmp::IsValidScriptName(instance)) return;
     if (amount > 0) inventory_[instance] = amount;
     else inventory_.erase(instance);
   }
-  void apply_inventory_delta(std::int32_t instance, std::int32_t delta) {
+  void apply_inventory_delta(const std::string& instance, std::int32_t delta) {
     set_inventory_count(instance, static_cast<std::int32_t>(std::clamp<std::int64_t>(
         static_cast<std::int64_t>(inventory_count(instance)) + delta, 0, std::numeric_limits<std::int32_t>::max())));
   }
@@ -191,7 +191,6 @@ public:
     value.equipped_ring_right_instance = equipped_ring_right_instance_;
     value.melee_weapon_instance = melee_weapon_instance_;
     value.ranged_weapon_instance = ranged_weapon_instance_;
-    value.animation = static_cast<std::int16_t>(animation_);
     value.animation_name = animation_name_;
     value.health_points = health_;
     value.mana_points = mana_;
@@ -465,90 +464,84 @@ public:
   }
 
   // Items
-  std::int32_t left_hand_item() const {
+  const std::string& left_hand_item() const {
     return left_hand_item_instance_;
   }
-  void set_left_hand_item(std::int32_t instance) {
+  void set_left_hand_item(const std::string& instance) {
     left_hand_item_instance_ = instance;
   }
 
-  std::int32_t right_hand_item() const {
+  const std::string& right_hand_item() const {
     return right_hand_item_instance_;
   }
-  void set_right_hand_item(std::int32_t instance) {
+  void set_right_hand_item(const std::string& instance) {
     right_hand_item_instance_ = instance;
   }
 
-  std::int32_t equipped_armor() const {
+  const std::string& equipped_armor() const {
     return equipped_armor_instance_;
   }
-  void set_equipped_armor(std::int32_t instance) {
+  void set_equipped_armor(const std::string& instance) {
     equipped_armor_instance_ = instance;
   }
 
-  std::int32_t equipped_helmet() const {
+  const std::string& equipped_helmet() const {
     return equipped_helmet_instance_;
   }
-  void set_equipped_helmet(std::int32_t instance) {
+  void set_equipped_helmet(const std::string& instance) {
     equipped_helmet_instance_ = instance;
   }
 
-  std::int32_t equipped_shield() const {
+  const std::string& equipped_shield() const {
     return equipped_shield_instance_;
   }
-  void set_equipped_shield(std::int32_t instance) {
+  void set_equipped_shield(const std::string& instance) {
     equipped_shield_instance_ = instance;
   }
 
-  std::int32_t equipped_amulet() const {
+  const std::string& equipped_amulet() const {
     return equipped_amulet_instance_;
   }
-  void set_equipped_amulet(std::int32_t instance) {
+  void set_equipped_amulet(const std::string& instance) {
     equipped_amulet_instance_ = instance;
   }
 
-  std::int32_t equipped_belt() const {
+  const std::string& equipped_belt() const {
     return equipped_belt_instance_;
   }
-  void set_equipped_belt(std::int32_t instance) {
+  void set_equipped_belt(const std::string& instance) {
     equipped_belt_instance_ = instance;
   }
 
-  std::int32_t equipped_ring_left() const {
+  const std::string& equipped_ring_left() const {
     return equipped_ring_left_instance_;
   }
-  void set_equipped_ring_left(std::int32_t instance) {
+  void set_equipped_ring_left(const std::string& instance) {
     equipped_ring_left_instance_ = instance;
   }
 
-  std::int32_t equipped_ring_right() const {
+  const std::string& equipped_ring_right() const {
     return equipped_ring_right_instance_;
   }
-  void set_equipped_ring_right(std::int32_t instance) {
+  void set_equipped_ring_right(const std::string& instance) {
     equipped_ring_right_instance_ = instance;
   }
 
-  std::int32_t melee_weapon() const {
+  const std::string& melee_weapon() const {
     return melee_weapon_instance_;
   }
-  void set_melee_weapon(std::int32_t instance) {
+  void set_melee_weapon(const std::string& instance) {
     melee_weapon_instance_ = instance;
   }
 
-  std::int32_t ranged_weapon() const {
+  const std::string& ranged_weapon() const {
     return ranged_weapon_instance_;
   }
-  void set_ranged_weapon(std::int32_t instance) {
+  void set_ranged_weapon(const std::string& instance) {
     ranged_weapon_instance_ = instance;
   }
 
   // State
-  std::uint16_t animation() const {
-    return animation_;
-  }
-  void set_animation(std::uint16_t anim) {
-    animation_ = anim;
-  }
 
   const std::string& animation_name() const {
     return animation_name_;
@@ -571,10 +564,10 @@ public:
     active_spell_nr_ = spell;
   }
 
-  std::int32_t active_spell_instance() const {
+  const std::string& active_spell_instance() const {
     return active_spell_instance_;
   }
-  void set_active_spell_instance(std::int32_t instance) {
+  void set_active_spell_instance(const std::string& instance) {
     active_spell_instance_ = instance;
   }
 
@@ -668,8 +661,8 @@ protected:
   std::optional<std::uint32_t> last_damage_sequence_;
   std::array<std::uint32_t, 10> attribute_sequences_{};
   std::array<bool, 10> attribute_initialized_{};
-  std::unordered_map<std::int32_t, std::uint32_t> inventory_sequences_;
-  std::unordered_map<std::int32_t, std::int32_t> inventory_;
+  std::unordered_map<std::string, std::uint32_t> inventory_sequences_;
+  std::unordered_map<std::string, std::int32_t> inventory_;
   std::optional<std::uint32_t> inventory_snapshot_sequence_;
   std::optional<std::uint32_t> latest_inventory_sequence_;
   std::optional<std::uint32_t> life_command_revision_;
@@ -718,24 +711,23 @@ protected:
   std::unordered_map<std::int32_t, std::int32_t> talents_;
 
   // Items
-  std::int32_t left_hand_item_instance_{0};
-  std::int32_t right_hand_item_instance_{0};
-  std::int32_t equipped_armor_instance_{0};
-  std::int32_t equipped_helmet_instance_{0};
-  std::int32_t equipped_shield_instance_{0};
-  std::int32_t equipped_amulet_instance_{0};
-  std::int32_t equipped_belt_instance_{0};
-  std::int32_t equipped_ring_left_instance_{0};
-  std::int32_t equipped_ring_right_instance_{0};
-  std::int32_t melee_weapon_instance_{0};
-  std::int32_t ranged_weapon_instance_{0};
+  std::string left_hand_item_instance_;
+  std::string right_hand_item_instance_;
+  std::string equipped_armor_instance_;
+  std::string equipped_helmet_instance_;
+  std::string equipped_shield_instance_;
+  std::string equipped_amulet_instance_;
+  std::string equipped_belt_instance_;
+  std::string equipped_ring_left_instance_;
+  std::string equipped_ring_right_instance_;
+  std::string melee_weapon_instance_;
+  std::string ranged_weapon_instance_;
 
   // State
-  std::uint16_t animation_{0};
   std::string animation_name_;
   std::uint8_t weapon_mode_{0};
   std::uint8_t active_spell_nr_{0};
-  std::int32_t active_spell_instance_{0};
+  std::string active_spell_instance_;
   std::uint8_t active_spell_level_{0};
   bool spell_investing_{false};
   std::uint8_t head_direction_{0};

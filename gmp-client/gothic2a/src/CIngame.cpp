@@ -48,13 +48,13 @@ extern zCOLOR Normal;
 zCOLOR COLOR_RED = zCOLOR(255, 0, 0, 255);
 
 namespace {
-std::int16_t GetCurrentAnimationId() {
+int GetCurrentAnimationId() {
   CActiveAniID* active_ani_id = CActiveAniID::GetInstance();
   if (!active_ani_id) {
     return -1;
   }
 
-  return static_cast<std::int16_t>(active_ani_id->GetAniID());
+  return active_ani_id->GetAniID();
 }
 
 void TrackLocalActiveAnimations() {

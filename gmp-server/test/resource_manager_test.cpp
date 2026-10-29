@@ -35,7 +35,6 @@ SOFTWARE.
 #include <vector>
 
 #include "Lua/event_bind.h"
-#include "Lua/lua_item_definition.h"
 #include "Script.h"
 #include "Shared/lua_runtime/lua_value_codec.h"
 #include "game_server.h"
@@ -417,31 +416,6 @@ TEST_F(ResourceManagerTest, TimerCallbackRunsWithinOwningResourceContext) {
   ASSERT_TRUE(recorded_owner.valid());
   ASSERT_EQ(sol::type::string, recorded_owner.get_type());
   EXPECT_EQ("timer_resource", recorded_owner.as<std::string>());
-}
-
-TEST_F(ResourceManagerTest, ItemCallbackRunsInItsResourceAndIsRemovedOnUnload) {
-  GameServer server;
-  const auto item_file = std::filesystem::current_path() / "callback-items.json";
-  {
-    std::ofstream items(item_file);
-    items << R"({"items":[{"instance":"ITPO_CALLBACK","index":99,"mainflag":1,"flags":0}]})";
-  }
-  ASSERT_TRUE(const_cast<ItemRegistry&>(server.GetItemRegistry()).Load(item_file));
-  CreateTestResource("item_resource", R"(
-    exports = {}
-    assert(ItemCallbacks.setOnUse('ITPO_CALLBACK', function(id, quantity)
-      exports.owner = __test_getCurrentResourceName()
-    end))
-  )");
-  ASSERT_TRUE(manager.LoadResource("item_resource", lua_script));
-  ASSERT_TRUE(lua_script.GetLuaState().safe_script("ItemDefinition.getByInstance('ITPO_CALLBACK').onUse(1, 1)", sol::script_pass_on_error).valid());
-  auto resource = manager.GetResource("item_resource");
-  ASSERT_TRUE(resource);
-  EXPECT_EQ(resource->get().GetExports()["owner"].get<std::string>(), "item_resource");
-  manager.UnloadResource("item_resource", lua_script);
-  EXPECT_TRUE(
-      lua_script.GetLuaState().safe_script("assert(ItemDefinition.getByInstance('ITPO_CALLBACK').onUse == nil)", sol::script_pass_on_error).valid());
-  std::filesystem::remove(item_file);
 }
 
 TEST_F(ResourceManagerTest, CustomEventsKeepPayloadAndTrustedSenderSeparate) {

@@ -31,7 +31,6 @@ SOFTWARE.
 
 #include "packets.h"
 
-class ItemRegistry;
 
 namespace gmp::addon {
 class AddonVfs;
@@ -57,7 +56,7 @@ public:
   };
 
   bool Initialize(const std::vector<std::string>& configured_paths, const std::filesystem::path& server_root,
-                  const ItemRegistry& item_registry, std::string& error);
+                  std::string& error);
 
   const std::vector<Archive>& Archives() const;
   const Bundle& TransportBundle() const;

@@ -201,11 +201,11 @@ struct RecordingObserver final : EventObserver {
     inventory_snapshots.push_back(inventory);
     order.push_back("inventory");
   }
-  void OnActorItemTransactionResult(std::uint32_t actor, std::uint32_t, std::int32_t,
+  void OnActorItemTransactionResult(std::uint32_t actor, std::uint32_t, const std::string&,
                                     std::int32_t total, bool, std::optional<std::uint32_t>) override {
     inventory_results.emplace_back(actor, total);
   }
-  void OnItemEquipped(std::uint64_t, std::int32_t, std::int16_t, std::uint32_t, bool apply) override {
+  void OnItemEquipped(std::uint64_t, const std::string&, std::int16_t, std::uint32_t, bool apply) override {
     equipment_applied.push_back(apply);
   }
   void OnPlayerLeft(std::uint64_t id, const std::string&) override {
@@ -419,7 +419,7 @@ TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAnd
   Deliver(0, spawn);
   auto* actor = first->player_manager().GetPlayer(spawn.actor.player_id);
   ASSERT_NE(actor, nullptr);
-  actor->set_inventory_count(999, 5);
+  actor->set_inventory_count("OLD_ITEM", 5);
   const auto callbacks = first_observer.order.size();
   auto defaults = spawn.actor;
   defaults.instance_change_revision = 7;
@@ -428,7 +428,7 @@ TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAnd
   defaults.max_mana = defaults.mana = 0;
   defaults.weapon_mode = 1;
   defaults.body_model = "SCA_BODY";
-  defaults.inventory = {{101, 2}};
+  defaults.inventory = {{"ITAR_TEST", 2}};
   first->ApplyNativeInstanceDefaults(defaults);
   EXPECT_EQ(actor->instance_change_revision(), 7u);
   EXPECT_EQ(actor->max_health(), 80);
@@ -437,8 +437,8 @@ TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAnd
   EXPECT_EQ(actor->mana(), 0);
   EXPECT_EQ(actor->weapon_mode(), 1);
   EXPECT_EQ(actor->body_model(), "SCA_BODY");
-  EXPECT_EQ(actor->inventory_count(999), 0);
-  EXPECT_EQ(actor->inventory_count(101), 2);
+  EXPECT_EQ(actor->inventory_count("OLD_ITEM"), 0);
+  EXPECT_EQ(actor->inventory_count("ITAR_TEST"), 2);
   EXPECT_EQ(first_observer.order.size(), callbacks);
   first_observer.expected_new_spawn = false;
   first_observer.expected_max_health = first_observer.expected_health = 80;
@@ -448,7 +448,7 @@ TEST_F(ClientNpcPacketTest, NativeInstanceDefaultsReplaceCachedStatsInventoryAnd
   acknowledged.actor.state_sequence++;
   Deliver(0, acknowledged);
   EXPECT_EQ(actor->instance_change_revision(), 0u);
-  EXPECT_EQ(actor->inventory_count(101), 2);
+  EXPECT_EQ(actor->inventory_count("ITAR_TEST"), 2);
 }
 
 TEST_F(ClientNpcPacketTest, StaleInstanceRequestCannotReplaceTheCurrentConstructor) {
@@ -476,7 +476,7 @@ TEST(InstancePackets, ConstructorCompletionRoundTripsTheRequestAndCompleteDefaul
   packet.request_revision = 90;
   packet.control_epoch = 12;
   packet.defaults = MakeSpawn().actor;
-  packet.defaults.inventory = {{123, 4}, {456, 1}};
+  packet.defaults.inventory = {{"ITRU_TEST", 4}, {"UNREGISTERED_456", 1}};
   std::vector<unsigned char> bytes;
   using Output = bitsery::OutputBufferAdapter<std::vector<unsigned char>>;
   bytes.resize(bitsery::quickSerialization<Output>(bytes, packet));
@@ -492,6 +492,66 @@ TEST(InstancePackets, ConstructorCompletionRoundTripsTheRequestAndCompleteDefaul
   EXPECT_EQ(decoded.defaults.max_health, packet.defaults.max_health);
   ASSERT_EQ(decoded.defaults.inventory.size(), 2u);
   EXPECT_EQ(decoded.defaults.inventory[0].amount, 4);
+  EXPECT_EQ(decoded.defaults.inventory[0].item_instance, "ITRU_TEST");
+}
+
+TEST(InstancePackets, ActorStateCarriesInstanceAndAnimationNamesWithoutRuntimeIds) {
+  PlayerState state;
+  state.left_hand_item_instance = "CUSTOM_TORCH";
+  state.equipped_armor_instance = "CUSTOM_ARMOR";
+  state.melee_weapon_instance = "CUSTOM_SWORD";
+  state.ranged_weapon_instance = "CUSTOM_BOW";
+  state.active_spell_instance = "CUSTOM_RUNE";
+  state.animation_name = "S_CUSTOM_RUN";
+  std::vector<unsigned char> bytes;
+  using Output = bitsery::OutputBufferAdapter<std::vector<unsigned char>>;
+  bytes.resize(bitsery::quickSerialization<Output>(bytes, state));
+  PlayerState decoded;
+  using Input = bitsery::InputBufferAdapter<unsigned char*>;
+  const auto result = bitsery::quickDeserialization<Input>({bytes.data(), bytes.size()}, decoded);
+  ASSERT_EQ(result.first, bitsery::ReaderError::NoError);
+  ASSERT_TRUE(result.second);
+  EXPECT_EQ(decoded.left_hand_item_instance, state.left_hand_item_instance);
+  EXPECT_EQ(decoded.equipped_armor_instance, state.equipped_armor_instance);
+  EXPECT_EQ(decoded.melee_weapon_instance, state.melee_weapon_instance);
+  EXPECT_EQ(decoded.ranged_weapon_instance, state.ranged_weapon_instance);
+  EXPECT_EQ(decoded.active_spell_instance, state.active_spell_instance);
+  EXPECT_EQ(decoded.animation_name, state.animation_name);
+  EXPECT_TRUE(decoded.right_hand_item_instance.empty());
+}
+
+TEST(InstancePackets, CommandsRoundTripNamesScrollClassificationAndResolvedEquipmentSlot) {
+  const auto round_trip = []<typename T>(const T& packet) {
+    std::vector<unsigned char> bytes;
+    using Output = bitsery::OutputBufferAdapter<std::vector<unsigned char>>;
+    bytes.resize(bitsery::quickSerialization<Output>(bytes, packet));
+    T decoded{};
+    using Input = bitsery::InputBufferAdapter<unsigned char*>;
+    const auto result = bitsery::quickDeserialization<Input>({bytes.data(), bytes.size()}, decoded);
+    EXPECT_EQ(result.first, bitsery::ReaderError::NoError);
+    EXPECT_TRUE(result.second);
+    return decoded;
+  };
+  PlayerAnimationPacket play;
+  play.animation = "T_CUSTOM_ACTION";
+  EXPECT_EQ(round_trip(play).animation, play.animation);
+  PlayerAnimationStopPacket stop;
+  EXPECT_TRUE(round_trip(stop).animation.empty());
+  stop.animation = play.animation;
+  EXPECT_EQ(round_trip(stop).animation, play.animation);
+  CastSpellPacket cast{};
+  cast.item_instance = "CUSTOM_SCROLL";
+  cast.scroll = true;
+  const auto decoded_cast = round_trip(cast);
+  EXPECT_EQ(decoded_cast.item_instance, cast.item_instance);
+  EXPECT_TRUE(decoded_cast.scroll);
+  EquipmentResultPacket equipment;
+  equipment.item_instance = equipment.observed_instance = "CUSTOM_RING";
+  equipment.observed_slot = Net::EQUIP_SLOT_RING_RIGHT;
+  const auto decoded_equipment = round_trip(equipment);
+  EXPECT_EQ(decoded_equipment.item_instance, equipment.item_instance);
+  EXPECT_EQ(decoded_equipment.observed_instance, equipment.observed_instance);
+  EXPECT_EQ(decoded_equipment.observed_slot, equipment.observed_slot);
 }
 
 TEST_F(ClientNpcPacketTest, SummonNotificationRequiresBothSpawnedIdentitiesAndRunsOncePerCreature) {
@@ -1076,11 +1136,11 @@ TEST_F(ClientNpcPacketTest, SpawnCachesCompleteCombatAndPoseAndReplacesCollectio
   packet.actor.source_time_ms = 123456;
   packet.actor.weapon_mode = 6;
   packet.actor.active_spell_nr = 8;
-  packet.actor.active_spell_instance = 123;
+  packet.actor.active_spell_instance = "ITRU_TEST";
   packet.actor.active_spell_level = 3;
   packet.actor.spell_investing = true;
-  packet.actor.melee_weapon_instance = 321;
-  packet.actor.ranged_weapon_instance = 322;
+  packet.actor.melee_weapon_instance = "UNREGISTERED_321";
+  packet.actor.ranged_weapon_instance = "UNREGISTERED_322";
   packet.actor.body_state = 4;
   packet.actor.walk_mode = 2;
   packet.actor.look_yaw = 0.25f;
@@ -1321,49 +1381,50 @@ TEST_F(ClientNpcPacketTest, ScriptedSheathCorrectsModeAndHandsTogetherAndRejects
   Deliver(0, MakeSpawn());
   auto drawn = MakeMovement(12);
   drawn.state.weapon_mode = 5;
-  drawn.state.ranged_weapon_instance = 201;
-  drawn.state.left_hand_item_instance = 201;
+  drawn.state.ranged_weapon_instance = "BOW";
+  drawn.state.left_hand_item_instance = "BOW";
   Deliver(0, drawn);
   auto* actor = first->player_manager().GetPlayer(21);
   ASSERT_EQ(actor->weapon_mode(), 5);
-  ASSERT_EQ(actor->left_hand_item(), 201);
+  ASSERT_EQ(actor->left_hand_item(), "BOW");
 
   auto sheath = MakeMovement(13);
   sheath.command_revision = 4;
   sheath.state = actor->state();
   sheath.state.correction_mask = kSyncCombat | kSyncEquipment;
   sheath.state.weapon_mode = 0;
-  sheath.state.left_hand_item_instance = sheath.state.right_hand_item_instance = 0;
+  sheath.state.left_hand_item_instance.clear();
+  sheath.state.right_hand_item_instance.clear();
   Deliver(0, sheath);
   EXPECT_EQ(actor->weapon_mode(), 0);
-  EXPECT_EQ(actor->left_hand_item(), 0);
-  EXPECT_EQ(actor->right_hand_item(), 0);
-  EXPECT_EQ(actor->ranged_weapon(), 201);
+  EXPECT_EQ(actor->left_hand_item(), "");
+  EXPECT_EQ(actor->right_hand_item(), "");
+  EXPECT_EQ(actor->ranged_weapon(), "BOW");
   EXPECT_TRUE(first_observer.state_corrections.back());
   EXPECT_EQ(first_observer.states.back().correction_mask, kSyncCombat | kSyncEquipment);
 
   Deliver(0, drawn);
   EXPECT_EQ(actor->weapon_mode(), 0);
-  EXPECT_EQ(actor->left_hand_item(), 0);
-  EXPECT_EQ(actor->ranged_weapon(), 201);
+  EXPECT_EQ(actor->left_hand_item(), "");
+  EXPECT_EQ(actor->ranged_weapon(), "BOW");
 }
 
 TEST_F(ClientNpcPacketTest, ObsoleteEquipmentCommandStillRequestsVerificationWithoutReplaying) {
   Deliver(0, MakeSpawn());
   auto state = MakeMovement(12);
-  state.state.equipped_armor_instance = 202;
+  state.state.equipped_armor_instance = "UNREGISTERED_202";
   Deliver(0, state);
   EquipItemPacket equip;
   equip.packet_type = Net::PT_EQUIPITEM;
   equip.player_id = 21;
   equip.actor_generation = 121;
   equip.state_sequence = 11;
-  equip.item_instance = 101;
+  equip.item_instance = "ITAR_TEST";
   equip.slot_id = Net::EQUIP_SLOT_ARMOR;
   Deliver(0, equip);
   ASSERT_EQ(first_observer.equipment_applied.size(), 1u);
   EXPECT_FALSE(first_observer.equipment_applied.back());
-  EXPECT_EQ(first->player_manager().GetPlayer(21)->equipped_armor(), 202);
+  EXPECT_EQ(first->player_manager().GetPlayer(21)->equipped_armor(), "UNREGISTERED_202");
 }
 
 TEST_F(ClientNpcPacketTest, RepeatedAnimationActionsUseEventIdentityInsteadOfSampledName) {
@@ -1466,7 +1527,7 @@ TEST_F(ClientNpcPacketTest, ChargeStateCanBeCancelledWithoutChangingTheSelectedR
   auto pose = MakeMovement(11);
   pose.state.weapon_mode = 7;
   pose.state.active_spell_nr = 2;
-  pose.state.active_spell_instance = 123;
+  pose.state.active_spell_instance = "ITRU_TEST";
   pose.state.active_spell_level = 3;
   pose.state.spell_investing = true;
   Deliver(0, pose);
@@ -1478,7 +1539,7 @@ TEST_F(ClientNpcPacketTest, ChargeStateCanBeCancelledWithoutChangingTheSelectedR
   pose.state.active_spell_level = 0;
   pose.state.spell_investing = false;
   Deliver(0, pose);
-  EXPECT_EQ(actor->active_spell_instance(), 123);
+  EXPECT_EQ(actor->active_spell_instance(), "ITRU_TEST");
   EXPECT_EQ(actor->state().active_spell_level, 0);
   EXPECT_FALSE(actor->state().spell_investing);
 }
@@ -1510,7 +1571,7 @@ TEST_F(ClientNpcPacketTest, SynchronousHitsFollowApprovalAndFailedCastsDiscardHi
   first->BeginHitBatch();
   first->SendPlayerHit(21, 10, 32, false);
   EXPECT_EQ(Peer::ActionSequence(*first), 0u);
-  first->SendCastSpell(21, 1, 123);
+  first->SendCastSpell(21, 1, "ITRU_TEST");
   EXPECT_EQ(Peer::ActionSequence(*first), 1u);
   first->EndHitBatch(true);
   EXPECT_EQ(Peer::ActionSequence(*first), 2u);
@@ -1532,7 +1593,7 @@ TEST_F(ClientNpcPacketTest, InventoryCorrectionsAreScopedToActorGenerationAndIte
   ItemTransactionResultPacket result;
   result.actor_id = 21;
   result.actor_generation = 121;
-  result.item_instance = 123;
+  result.item_instance = "ITRU_TEST";
   result.state_sequence = 100;
   result.resulting_amount = 2;
   Deliver(0, result);
@@ -1557,55 +1618,55 @@ TEST_F(ClientNpcPacketTest, InventoryCorrectionsAreScopedToActorGenerationAndIte
   EXPECT_EQ(first_observer.inventory_results[0], std::make_pair(21u, 2));
   EXPECT_EQ(first_observer.inventory_results[1], std::make_pair(1u, 4));
   EXPECT_EQ(first_observer.inventory_results[2], std::make_pair(21u, 5));
-  EXPECT_EQ(first->player_manager().GetPlayer(21)->inventory_count(123), 5);
-  EXPECT_EQ(local->inventory_count(123), 4);
+  EXPECT_EQ(first->player_manager().GetPlayer(21)->inventory_count("ITRU_TEST"), 5);
+  EXPECT_EQ(local->inventory_count("ITRU_TEST"), 4);
 }
 
 TEST_F(ClientNpcPacketTest, LocalInventoryStartsFromTheServerSnapshotAndOnlyServerPacketsChangeCounts) {
   auto* local = first->player_manager().CreateLocalPlayer(1);
   auto spawn = MakeSpawn().actor;
   spawn.player_id = 1;
-  spawn.inventory = {{99, 3}};
+  spawn.inventory = {{"ITPO_TEST", 3}};
   Deliver(0, spawn);
-  EXPECT_EQ(local->inventory_count(99), 3);
-  EXPECT_EQ(local->inventory_count(150), 0);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 3);
+  EXPECT_EQ(local->inventory_count("ITMW_TEST"), 0);
   ASSERT_EQ(first_observer.inventory_snapshots.size(), 1u);
   first->SendPlayerWorldEnter("NEWWORLD.ZEN", {{99, 100000}, {150, 10}});
-  EXPECT_EQ(local->inventory_count(99), 3);
-  EXPECT_EQ(local->inventory_count(150), 0);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 3);
+  EXPECT_EQ(local->inventory_count("ITMW_TEST"), 0);
 
   GiveItemPacket grant;
   grant.packet_type = Net::PT_GIVEITEM;
   grant.player_id = 1;
   grant.actor_generation = spawn.actor_generation;
   grant.state_sequence = 11;
-  grant.item_instance = 99;
+  grant.item_instance = "ITPO_TEST";
   grant.item_amount = 2;
   Deliver(0, grant);
   Deliver(0, grant);
-  EXPECT_EQ(local->inventory_count(99), 5);
-  grant.item_instance = 150;
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 5);
+  grant.item_instance = "ITMW_TEST";
   grant.state_sequence = 9;
   Deliver(0, grant);
-  EXPECT_EQ(local->inventory_count(150), 0);
+  EXPECT_EQ(local->inventory_count("ITMW_TEST"), 0);
 
   RemoveItemPacket remove;
   remove.packet_type = Net::PT_REMOVEITEM;
   remove.player_id = 1;
   remove.actor_generation = spawn.actor_generation;
   remove.state_sequence = 12;
-  remove.item_instance = 99;
+  remove.item_instance = "ITPO_TEST";
   remove.item_amount = 1;
   Deliver(0, remove);
   Deliver(0, remove);
-  EXPECT_EQ(local->inventory_count(99), 4);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 4);
   first_observer.expected_new_spawn = false;
   Deliver(0, spawn);
-  EXPECT_EQ(local->inventory_count(99), 4);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 4);
   spawn.state_sequence = 13;
   spawn.inventory.clear();
   Deliver(0, spawn);
-  EXPECT_EQ(local->inventory_count(99), 0);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 0);
 }
 
 TEST_F(ClientNpcPacketTest, DelayedTransactionAcknowledgementKeepsTheNewerServerInventory) {
@@ -1614,7 +1675,7 @@ TEST_F(ClientNpcPacketTest, DelayedTransactionAcknowledgementKeepsTheNewerServer
   ItemTransactionResultPacket result;
   result.actor_id = 1;
   result.actor_generation = 101;
-  result.item_instance = 99;
+  result.item_instance = "ITPO_TEST";
   result.state_sequence = 20;
   result.resulting_amount = 5;
   Deliver(0, result);
@@ -1622,7 +1683,7 @@ TEST_F(ClientNpcPacketTest, DelayedTransactionAcknowledgementKeepsTheNewerServer
   result.state_sequence = 19;
   result.resulting_amount = 100;
   Deliver(0, result);
-  EXPECT_EQ(local->inventory_count(99), 5);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 5);
   ASSERT_EQ(first_observer.inventory_results.size(), 2u);
   EXPECT_EQ(first_observer.inventory_results.back(), std::make_pair(1u, 5));
 }
@@ -1631,7 +1692,7 @@ TEST_F(ClientNpcPacketTest, WorldLoadingRetainsServerInventoryAndDoesNotApplyQue
   auto* local = first->player_manager().CreateLocalPlayer(1);
   auto spawn = MakeSpawn().actor;
   spawn.player_id = 1;
-  spawn.inventory = {{99, 3}};
+  spawn.inventory = {{"ITPO_TEST", 3}};
   Deliver(0, spawn);
   PlayerWorldUpdatePacket world;
   world.packet_type = Net::PT_PLAYER_WORLD_UPDATE;
@@ -1639,27 +1700,27 @@ TEST_F(ClientNpcPacketTest, WorldLoadingRetainsServerInventoryAndDoesNotApplyQue
   world.actor_generation = spawn.actor_generation + 1;
   world.world_name = "NEWWORLD.ZEN";
   Deliver(0, world);
-  EXPECT_EQ(local->inventory_count(99), 3);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 3);
   GiveItemPacket grant;
   grant.packet_type = Net::PT_GIVEITEM;
   grant.player_id = 1;
   grant.actor_generation = world.actor_generation;
-  grant.item_instance = 99;
+  grant.item_instance = "ITPO_TEST";
   grant.item_amount = 2;
   grant.state_sequence = 1;
   Deliver(0, grant);
-  EXPECT_EQ(local->inventory_count(99), 5);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 5);
   first->SendPlayerWorldEnter(world.world_name);
-  EXPECT_EQ(local->inventory_count(99), 5);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 5);
   grant.actor_generation = spawn.actor_generation;
   grant.state_sequence = 100;
   Deliver(0, grant);
-  EXPECT_EQ(local->inventory_count(99), 5);
+  EXPECT_EQ(local->inventory_count("ITPO_TEST"), 5);
 }
 
 TEST_F(ClientNpcPacketTest, NpcSnapshotRestoresFullInventoryBeforeFinalEquipmentApplication) {
   auto spawn = MakeSpawn();
-  spawn.actor.inventory = {{100, 100000}, {101, 2}};
+  spawn.actor.inventory = {{"UNREGISTERED_100", 100000}, {"ITAR_TEST", 2}};
   Deliver(0, spawn);
   ASSERT_EQ(first_observer.inventory_snapshots.size(), 1u);
   ASSERT_EQ(first_observer.inventory_snapshots.front().size(), 2u);
@@ -1676,7 +1737,7 @@ TEST_F(ClientNpcPacketTest, NpcSnapshotRestoresFullInventoryBeforeFinalEquipment
 
 TEST_F(ClientNpcPacketTest, InvalidNpcInventorySnapshotCannotCreateTheNativeActor) {
   auto spawn = MakeSpawn();
-  spawn.actor.inventory = {{100, 1}, {100, 2}};
+  spawn.actor.inventory = {{"UNREGISTERED_100", 1}, {"UNREGISTERED_100", 2}};
   Deliver(0, spawn);
   EXPECT_EQ(first->player_manager().GetPlayer(21), nullptr);
   EXPECT_TRUE(first_observer.inventory_snapshots.empty());

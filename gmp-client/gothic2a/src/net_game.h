@@ -95,7 +95,7 @@ public:
   void SendPlayerUnconscious(std::optional<std::uint32_t> attacker_id);
   void SendPlayerStandUp();
   void SendPlayerDeath(std::optional<std::uint32_t> killer_id);
-  void UpdatePlayerStats(short anim);
+  void UpdatePlayerStats(int anim);
   void SyncGameTime();
   void Disconnect();
   bool ConsumeBaseWorldReloadRequest();
@@ -196,8 +196,8 @@ public:
   void OnPlayerFatnessUpdate(std::uint64_t player_id, float fatness) override;
   void OnPlayerScaleUpdate(std::uint64_t player_id, const glm::vec3& scale) override;
   void OnPlayerOverlayUpdate(std::uint64_t player_id, const std::string& overlay, bool apply) override;
-  void OnPlayerAnimationPlay(std::uint64_t player_id, std::int16_t animation) override;
-  void OnPlayerAnimationStop(std::uint64_t player_id, std::int16_t animation) override;
+  void OnPlayerAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
+  void OnPlayerAnimationStop(std::uint64_t player_id, const std::string& animation) override;
   void OnPlayerFaceAnimationPlay(std::uint64_t player_id, const std::string& animation) override;
   void OnPlayerFaceAnimationStop(std::uint64_t player_id, const std::string& animation) override;
   void OnPlayerGesticulation(std::uint64_t player_id) override;
@@ -212,28 +212,28 @@ public:
   void OnPlayerStandUp(std::uint64_t player_id) override;
   void OnPlayerStandUp(std::uint64_t player_id, bool apply_state) override;
   void OnPlayerPingUpdate(std::uint64_t player_id, std::int32_t ping) override;
-  void OnItemDropped(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
+  void OnItemDropped(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnActorAction(const ActorActionPacket& action) override;
   void OnActorDamage(const ActorDamagePacket& damage) override;
   void OnPlayerSummon(const PlayerSummonPacket& packet) override;
   void OnPlayerTeleport(const PlayerTeleportPacket& packet, std::uint16_t correction_mask) override;
   void OnPlayerTransformation(const PlayerTransformationPacket& packet, std::uint16_t correction_mask) override;
-  void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, std::int32_t item_instance, std::int32_t resulting_amount,
+  void OnActorItemTransactionResult(std::uint32_t actor_id, std::uint32_t request_id, const std::string& item_instance, std::int32_t resulting_amount,
                                 bool accepted, std::optional<std::uint32_t> item_ground_id) override;
   void OnActorInventorySnapshot(std::uint64_t actor_id, const std::vector<InventoryEntry>& inventory) override;
-  void OnItemTaken(std::uint64_t player_id, std::int32_t item_instance) override;
-  void OnItemGroundCreate(std::uint32_t item_ground_id, std::int32_t item_instance, std::int32_t amount, bool physics_enabled,
+  void OnItemTaken(std::uint64_t player_id, const std::string& item_instance) override;
+  void OnItemGroundCreate(std::uint32_t item_ground_id, const std::string& item_instance, std::int32_t amount, bool physics_enabled,
                           const glm::vec3& position, const glm::vec3& rotation) override;
   void OnItemGroundDestroy(std::uint32_t item_ground_id) override;
   void OnItemsGroundDestroy() override;
-  void OnItemGiven(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
-  void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id) override;
-  void OnItemEquipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+  void OnItemGiven(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
+  void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id) override;
+  void OnItemEquipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id,
                        std::uint32_t revision, bool apply_state) override;
-  void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance) override;
-  void OnItemUnequipped(std::uint64_t player_id, std::int32_t item_instance, std::int16_t slot_id,
+  void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance) override;
+  void OnItemUnequipped(std::uint64_t player_id, const std::string& item_instance, std::int16_t slot_id,
                          std::uint32_t revision, bool apply_state) override;
-  void OnItemRemoved(std::uint64_t player_id, std::int32_t item_instance, std::int32_t amount) override;
+  void OnItemRemoved(std::uint64_t player_id, const std::string& item_instance, std::int32_t amount) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id) override;
   void OnSpellCast(const CastSpellPacket& packet) override;
   void OnSpellCast(std::uint64_t caster_id, std::uint16_t spell_id, std::uint64_t source_time_ms,
